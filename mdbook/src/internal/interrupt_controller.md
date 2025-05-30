@@ -1,6 +1,6 @@
 # Interrupt Controller
 
-The `InterruptController` is a trait for interrupt controllers.
+`InterruptController` is a trait for interrupt controllers.
 It is defined in [awkernel_lib/src/interrupt.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs) as follows.
 
 ```rust
@@ -10,7 +10,7 @@ pub trait InterruptController: Sync + Send {
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>>;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: u16, target: u32);
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32);
 
     /// Send an inter-process interrupt to all CPUs.
     fn send_ipi_broadcast(&mut self, irq: u16);
@@ -57,7 +57,7 @@ Some related functions are defined in [awkernel_lib/src/interrupt.rs](https://gi
 | `fn get_handlers() -> BTreeMap<u16, Cow<'static, str>>` | Return the list of IRQs and their handlers. |
 | `fn enable_irq(irq: u16)` | Enable the interrupt. |
 | `fn disable_irq(irq: u16)` | Disable the interrupt. |
-| `fn send_ipi(irq: u16, target: u32)` | Send an inter-process interrupt to `target` CPU. |
+| `fn send_ipi(irq: u16, cpu_id: u32)` | Send an inter-process interrupt to `cpu_id` CPU. |
 | `fn send_ipi_broadcast(irq: u16)` | Send an inter-process interrupt to all CPUs. |
 | `fn send_ipi_broadcast_without_self(irq: u16)` | Send an inter-process interrupt to all CPUs except the sender CPU. |
 | `fn register_handler_pcie_msi<F>(...) -> Result<IRQ, &'static str>` | Register a handler for PCIe MSI or MSI-X interrupt. |

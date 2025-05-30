@@ -1,47 +1,29 @@
-//! A prioritized round robin scheduler.
+//! A prioritized FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::State;
-use alloc::{collections::BinaryHeap, sync::Arc};
+use crate::{scheduler::get_priority, task::State};
+use alloc::sync::Arc;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PrioritizedFIFOScheduler {
     data: Mutex<Option<PrioritizedFIFOData>>, // Run queue.
+    priority: u8,
 }
 
 struct PrioritizedFIFOTask {
     task: Arc<Task>,
-    priority: u8,
+    _priority: u8,
 }
-
-impl PartialOrd for PrioritizedFIFOTask {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for PrioritizedFIFOTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-    }
-}
-
-impl Ord for PrioritizedFIFOTask {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.priority.cmp(&other.priority).reverse()
-    }
-}
-
-impl Eq for PrioritizedFIFOTask {}
 
 struct PrioritizedFIFOData {
-    queue: BinaryHeap<PrioritizedFIFOTask>,
+    queue: PriorityQueue<PrioritizedFIFOTask>,
 }
 
 impl PrioritizedFIFOData {
     fn new() -> Self {
         Self {
-            queue: BinaryHeap::new(),
+            queue: PriorityQueue::new(),
         }
     }
 }
@@ -58,10 +40,13 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 return;
             };
 
-            data.queue.push(PrioritizedFIFOTask {
-                task: task.clone(),
-                priority,
-            });
+            data.queue.push(
+                priority as u32,
+                PrioritizedFIFOTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
         } else {
             let mut prioritized_fifo_data = PrioritizedFIFOData::new();
             let mut node = MCSNode::new();
@@ -70,10 +55,13 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 return;
             };
 
-            prioritized_fifo_data.queue.push(PrioritizedFIFOTask {
-                task: task.clone(),
-                priority,
-            });
+            prioritized_fifo_data.queue.push(
+                priority as u32,
+                PrioritizedFIFOTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
             *data = Some(prioritized_fifo_data);
         }
     }
@@ -82,6 +70,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let data = match data.as_mut() {
             Some(data) => data,
             None => return None,
@@ -100,6 +89,9 @@ impl Scheduler for PrioritizedFIFOScheduler {
                     continue;
                 }
 
+                if task_info.state == State::Preempted {
+                    task_info.need_preemption = false;
+                }
                 task_info.state = State::Running;
             }
 
@@ -112,10 +104,11 @@ impl Scheduler for PrioritizedFIFOScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::PrioritizedFIFO(0)),
 };

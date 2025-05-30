@@ -1,6 +1,6 @@
 # Context Switch
 
-The `Context` defined in [awkernel_lib/src/context.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs)
+`Context` defined in [awkernel_lib/src/context.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs)
 is a trait that enables preemptive multitasking.
 It provides methods to set the stack pointer, entry point,
 and argument of the context as follows.

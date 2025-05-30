@@ -14,7 +14,7 @@ use crate::{
 use acpi::{platform::ProcessorState, AcpiTables};
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, VecDeque},
+    collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
     vec::Vec,
 };
 use awkernel_drivers::interrupt_controller::apic::{
@@ -24,11 +24,13 @@ use awkernel_drivers::interrupt_controller::apic::{
 use awkernel_lib::{
     arch::x86_64::{
         acpi::AcpiMapper,
+        cpu::set_raw_cpu_id_to_numa,
+        delay::synchronize_tsc,
         interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
-    console::unsafe_puts,
+    console::{self, unsafe_puts},
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
@@ -69,9 +71,13 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 static BSP_READY: AtomicBool = AtomicBool::new(false);
 static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
+static NUM_CPUS: AtomicUsize = AtomicUsize::new(0);
+
+const MPBOOT_REGION_END: u64 = 1024 * 1024;
 
 /// The entry point of x86_64.
 ///
+/// 0. Initialize the configuration.
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
@@ -83,14 +89,17 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 9. Initialize stack memory regions for non-primary CPUs.
 /// 10. Initialize `awkernel_lib`.
 /// 11. Initialize APIC.
-/// 12. Map the page #0.
+/// 12. Map a page for `mpboot.img`.
 /// 13. Write boot images to wake non-primary CPUs up.
 /// 14. Boot non-primary CPUs.
 /// 15. Initialize the primary heap memory allocator.
 /// 16. Initialize PCIe devices.
 /// 17. Initialize interrupt handlers.
-/// 18. Call `crate::main()`.
+/// 18. Synchronize TSC.
+/// 19. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    unsafe { crate::config::init() }; // 0. Initialize the configuration.
+
     enable_fpu(); // 1. Enable SSE.
 
     super::console::init_device(); // 2. Initialize the serial port.
@@ -132,6 +141,7 @@ fn kernel_main2(
     backup_next_frame: Option<PhysFrame>,
 ) {
     // 5. Enable logger.
+    unsafe { awkernel_lib::logger::init() };
     super::console::register_console();
 
     log::info!(
@@ -170,16 +180,27 @@ fn kernel_main2(
         page_allocators.insert(*numa_id, page_allocator);
     }
 
+    for (cpu, numa) in cpu_to_numa.iter() {
+        log::info!("CPU/NUMA: {cpu}/{numa}");
+    }
+
     // 9. Initialize stack memory regions for non-primary CPUs.
-    if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
+    if map_stack(&cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
-    let type_apic = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
+    unsafe { set_raw_cpu_id_to_numa(cpu_to_numa) };
+
+    let (type_apic, mpboot_start) = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
         // 10. Initialize `awkernel_lib` and `awkernel_driver`
         let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
-        awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
+        if let Err(e) =
+            awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0)
+        {
+            log::error!("Failed to initialize `awkernel_lib`. {}", e);
+            wait_forever();
+        }
 
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(
@@ -187,24 +208,53 @@ fn kernel_main2(
             page_allocator0,
         );
 
-        // 12. Map the page #0.
-        map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
+        // 12. Map a page for `mpboot.img`.
+        let mpboot_start = map_mpboot_page(boot_info, &mut awkernel_page_table, page_allocator0);
 
-        type_apic
+        (type_apic, mpboot_start)
     } else {
         log::error!("No page allocator for NUMA #0.");
         awkernel_lib::delay::wait_forever();
     };
 
     // 13. Write boot images to wake non-primary CPUs up.
-    write_boot_images(offset);
+    write_boot_images(offset, mpboot_start);
 
     // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
+    let mut non_primary_cpus = BTreeSet::new();
+
+    if let Ok(platform_info) = acpi.platform_info() {
+        if let Some(processor_info) = platform_info.processor_info {
+            for p in processor_info.application_processors.iter() {
+                if matches!(p.state, ProcessorState::WaitingForSipi)
+                    && (matches!(type_apic, TypeApic::Xapic(_)) && p.local_apic_id < 255
+                        || matches!(type_apic, TypeApic::X2Apic(_)))
+                {
+                    non_primary_cpus.insert(p.local_apic_id);
+                }
+            }
+        } else {
+            log::error!("Failed to get the processor information.");
+            wait_forever();
+        }
+    } else {
+        log::error!("Failed to get the platform information.");
+        wait_forever();
+    };
+
+    let mut cpu_mapping = BTreeMap::<usize, usize>::new();
+    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
+        let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
+        cpu_mapping.insert(*raw_cpu_id as usize, cpu_id);
+        log::info!("Raw CPU ID/CPU ID: {raw_cpu_id}/{cpu_id}");
+    }
+    unsafe { awkernel_lib::arch::x86_64::cpu::set_raw_cpu_id_to_cpu_id(cpu_mapping) };
+
     let apic_result = match type_apic {
         TypeApic::Xapic(mut xapic) => {
-            let result = wake_non_primary_cpus(&xapic, &acpi, offset);
+            let result = wake_non_primary_cpus(&xapic, &non_primary_cpus, offset, mpboot_start);
 
             // Initialize timer.
             init_apic_timer(&mut xapic);
@@ -215,7 +265,7 @@ fn kernel_main2(
             result
         }
         TypeApic::X2Apic(mut x2apic) => {
-            let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
+            let result = wake_non_primary_cpus(&x2apic, &non_primary_cpus, offset, mpboot_start);
 
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
@@ -252,9 +302,9 @@ fn kernel_main2(
     init_primary_heap(&mut page_table, &mut page_allocators);
 
     // 16. Initialize PCIe devices.
-    if awkernel_drivers::pcie::init_with_acpi(&acpi).is_err() {
+    if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
         // fallback
-        awkernel_drivers::pcie::init_with_io();
+        awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
     // 17. Initialize interrupt handlers.
@@ -280,12 +330,18 @@ fn kernel_main2(
         core::hint::spin_loop();
     }
 
+    // 18. Synchronize TSC.
+    unsafe { synchronize_tsc(non_primary_cpus.len() + 1) };
+
+    log::info!("All CPUs are ready.");
+
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
+        num_cpu: non_primary_cpus.len() + 1,
     };
 
-    // 18. Call `crate::main()`.
+    // 19. Call `crate::main()`.
     crate::main(kernel_info);
 }
 
@@ -336,18 +392,19 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
+// const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
 const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
-const FLAG_POS: u64 = CR3_POS + 8;
+const CPU_ID_POS: u64 = CR3_POS + 8;
 
-fn write_boot_images(offset: u64) {
+fn write_boot_images(offset: u64, mpboot_start: u64) {
     // Calculate address.
     let mpboot = include_bytes!("../../../asm/x86/mpboot.img");
-    let mpboot_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
+    let mpboot_phy_addr = VirtAddr::new(mpboot_start + offset);
 
-    let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset);
-    let cr3_phy_addr = VirtAddr::new(CR3_POS + offset);
+    let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset + mpboot_start);
+    let cr3_phy_addr = VirtAddr::new(CR3_POS + offset + mpboot_start);
+    let cpu_id_addr = VirtAddr::new(CPU_ID_POS + offset + mpboot_start);
 
     // Store CR3.
     let mut cr3: u64;
@@ -369,6 +426,9 @@ fn write_boot_images(offset: u64) {
         log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
 
+        // Write CPU ID.
+        write_volatile(cpu_id_addr.as_mut_ptr(), 1);
+
         asm!(
             "wbinvd
              mfence"
@@ -378,45 +438,24 @@ fn write_boot_images(offset: u64) {
 
 fn wake_non_primary_cpus(
     apic: &dyn Apic,
-    acpi: &AcpiTables<AcpiMapper>,
+    non_primary_cpus: &BTreeSet<u32>,
     offset: u64,
+    mpboot_start: u64,
 ) -> Result<(), &'static str> {
-    let processor_info = if let Ok(platform_info) = acpi.platform_info() {
-        if let Some(processor_info) = platform_info.processor_info {
-            processor_info
-        } else {
-            return Err("Failed processor_info().");
-        }
-    } else {
-        return Err("Failed platform_info().");
-    };
+    NUM_CPUS.store(non_primary_cpus.len() + 1, Ordering::SeqCst);
+    BOOTED_APS.store(non_primary_cpus.len(), Ordering::Release);
 
-    let num_aps = processor_info
-        .application_processors
-        .iter()
-        .fold(0, |acc, p| {
-            if matches!(p.state, ProcessorState::WaitingForSipi) {
-                acc + 1
-            } else {
-                acc
-            }
-        });
-
-    BOOTED_APS.store(num_aps, Ordering::Release);
-
-    for ap in processor_info.application_processors.iter() {
-        if matches!(ap.state, ProcessorState::WaitingForSipi) {
-            send_ipi(apic, ap.local_apic_id, offset);
-        }
+    for (i, ap) in non_primary_cpus.iter().enumerate() {
+        send_ipi(apic, *ap, offset, mpboot_start, i as u64 + 1);
     }
+
+    console::print("\r\n");
+    log::info!("Sent IPIs to wake non-primary CPUs up.");
 
     Ok(())
 }
 
-fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
-    let flag_addr = VirtAddr::new(FLAG_POS + offset);
-    unsafe { write_volatile::<u64>(flag_addr.as_mut_ptr(), 0) };
-
+fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64, cpu_id: u64) {
     // INIT IPI, ASSERT
     apic.interrupt(
         apic_id,
@@ -445,14 +484,15 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8,
+        (mpboot_start >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
 
+    let cpu_id_addr = VirtAddr::new(CPU_ID_POS + offset + mpboot_start);
     unsafe {
-        if read_volatile::<u64>(flag_addr.as_ptr()) != 0 {
-            return;
+        while read_volatile::<u64>(cpu_id_addr.as_ptr()) == cpu_id {
+            core::hint::spin_loop();
         }
     }
 
@@ -462,7 +502,7 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8,
+        (mpboot_start >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
@@ -470,9 +510,6 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
 
 #[inline(never)]
 fn non_primary_kernel_main() -> ! {
-    let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
-    let cpu_id = (ebx >> 24) & 0xff;
-
     while !BSP_READY.load(Ordering::Relaxed) {
         core::hint::spin_loop();
     }
@@ -487,9 +524,19 @@ fn non_primary_kernel_main() -> ! {
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 
+    while BOOTED_APS.load(Ordering::Relaxed) != 0 {
+        core::hint::spin_loop();
+    }
+
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    let num_cpu = NUM_CPUS.load(Ordering::Relaxed);
+
+    unsafe { synchronize_tsc(num_cpu) };
+
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,
-        cpu_id: cpu_id as usize,
+        cpu_id,
+        num_cpu,
     };
 
     crate::main(kernel_info); // jump to userland
@@ -497,42 +544,40 @@ fn non_primary_kernel_main() -> ! {
     wait_forever();
 }
 
-fn map_page0(
+fn map_mpboot_page(
     boot_info: &mut BootInfo,
     page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
-) {
-    let mut page0 = None;
-    for region in boot_info.memory_regions.iter() {
-        if region.kind == MemoryRegionKind::Usable && region.start == 0 {
-            page0 = Some(*region);
-            break;
-        }
-    }
-
-    if page0.is_none() {
-        unsafe { unsafe_puts("The page #0 is not available.\r\n") };
-        wait_forever();
+) -> u64 {
+    let start = if let Some(region) = boot_info
+        .memory_regions
+        .iter()
+        .find(|r| r.kind == MemoryRegionKind::Usable && r.start < MPBOOT_REGION_END)
+    {
+        region.start
+    } else {
+        unsafe { unsafe_puts("No page is available for `mpboot.img`. Forces use of page #0.\r\n") };
+        0
     };
 
     let flags = awkernel_lib::paging::Flags {
         execute: true,
         write: true,
-        cache: true,
+        cache: false,
         device: false,
         write_through: false,
     };
 
     unsafe {
         match page_table.map_to(
-            awkernel_lib::addr::virt_addr::VirtAddr::new(0),
-            awkernel_lib::addr::phy_addr::PhyAddr::new(0),
+            awkernel_lib::addr::virt_addr::VirtAddr::new(start as usize),
+            awkernel_lib::addr::phy_addr::PhyAddr::new(start as usize),
             flags,
             page_allocator,
         ) {
-            Ok(_) => {}
+            Ok(_) => start,
             Err(_) => {
-                unsafe_puts("Failed to map the page #0.\r\n");
+                unsafe_puts("Failed to map the page for `mpboot.img`.\r\n");
                 wait_forever();
             }
         }
@@ -546,6 +591,7 @@ fn init_backup_heap(
     let mut backup_heap_region = None;
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable
+            && region.start >= MPBOOT_REGION_END
             && region.end - region.start >= BACKUP_HEAP_SIZE as u64 * 2
         {
             backup_heap_region = Some(*region);
@@ -645,7 +691,7 @@ fn get_numa_info(
             for mem in boot_info
                 .memory_regions
                 .iter()
-                .filter(|m| m.kind == MemoryRegionKind::Usable)
+                .filter(|m| m.kind == MemoryRegionKind::Usable && m.start >= MPBOOT_REGION_END)
             {
                 numa_id_to_memory
                     .entry(0)
@@ -666,7 +712,7 @@ fn get_numa_info(
     let mut usable_regions: VecDeque<MemoryRegion> = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start >= MPBOOT_REGION_END)
         .copied()
         .collect();
 

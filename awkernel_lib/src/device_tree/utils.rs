@@ -17,8 +17,9 @@ pub(super) fn locate_block(index: usize) -> usize {
 }
 
 /// Aligns the size
+#[allow(clippy::manual_div_ceil)]
 pub(super) fn align_size(raw_size: usize) -> usize {
-    (raw_size + BLOCK_SIZE - 1) / BLOCK_SIZE
+    (raw_size + BLOCK_SIZE - 1) / (BLOCK_SIZE)
 }
 
 pub(super) fn safe_index<T>(data: &[T], index: usize) -> Result<&T> {
@@ -169,10 +170,7 @@ pub(super) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
         while *data.get(end)? != b'\0' {
             end += 1;
         }
-        match core::str::from_utf8(data.get(first..end)?) {
-            Ok(s) => Some(s),
-            _ => None,
-        }
+        core::str::from_utf8(data.get(first..end)?).ok()
     }
 }
 

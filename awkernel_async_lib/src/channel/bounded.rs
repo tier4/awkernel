@@ -48,11 +48,16 @@ struct Channel<T> {
 }
 
 impl<T> Channel<T> {
+    #[inline]
     fn garbage_collect(&mut self) {
         if let Lifespan::Span(dur) = self.attribute.lifespan {
             let now = uptime();
 
             while let Some(data) = self.queue.head() {
+                if now < data.time_stamp {
+                    break;
+                }
+
                 if now - data.time_stamp >= dur.as_micros() as u64 {
                     // Too old data.
                     let _ = self.queue.pop();
@@ -119,6 +124,7 @@ impl<T: Send> Sender<T> {
     ///     sender.send(123).await.unwrap();
     /// }
     /// ```
+    #[inline]
     pub async fn send(&self, data: T) -> Result<(), SendErr> {
         let data = ChannelData {
             time_stamp: uptime(),
@@ -142,6 +148,7 @@ impl<T: Send> Sender<T> {
         }
     }
 
+    #[inline]
     pub fn is_full(&self) -> bool {
         let mut node = MCSNode::new();
         let chan = self.chan.lock(&mut node);
@@ -159,6 +166,7 @@ impl<T: Send> Sender<T> {
     ///     sender.try_send(123).unwrap();
     /// }
     /// ```
+    #[inline]
     pub fn try_send(&self, data: T) -> Result<(), SendErr> {
         let data = ChannelData {
             time_stamp: uptime(),
@@ -184,9 +192,14 @@ impl<T: Send> Sender<T> {
 
         assert!(matches!(chan.queue.push(data), Ok(())));
 
+        if let Some(waker_receiver) = chan.waker_receiver.take() {
+            waker_receiver.wake();
+        }
+
         Ok(())
     }
 
+    #[inline]
     pub fn is_terminated(&self) -> bool {
         let mut node = MCSNode::new();
         let chan = self.chan.lock(&mut node);
@@ -206,7 +219,7 @@ struct AsyncSender<'a, T: Send> {
     data: Option<ChannelData<T>>,
 }
 
-impl<'a, T: Send> Future for AsyncSender<'a, T> {
+impl<T: Send> Future for AsyncSender<'_, T> {
     type Output = Result<bool, SendErr>;
 
     fn poll(
@@ -280,6 +293,7 @@ impl<T: Send> Receiver<T> {
     ///     let data = receiver.recv().await.unwrap();
     /// }
     /// ```
+    #[inline]
     pub async fn recv(&self) -> Result<T, RecvErr> {
         let receiver = AsyncReceiver { receiver: self };
         receiver.await
@@ -296,6 +310,7 @@ impl<T: Send> Receiver<T> {
     ///     let data = receiver.try_recv().unwrap();
     /// }
     /// ```
+    #[inline]
     pub fn try_recv(&self) -> Result<T, RecvErr> {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
@@ -311,6 +326,7 @@ impl<T: Send> Receiver<T> {
         }
     }
 
+    #[inline]
     pub fn is_terminated(&self) -> bool {
         let mut node = MCSNode::new();
         let chan = self.chan.lock(&mut node);
@@ -322,7 +338,7 @@ struct AsyncReceiver<'a, T: Send> {
     receiver: &'a Receiver<T>,
 }
 
-impl<'a, T: Send> Future for AsyncReceiver<'a, T> {
+impl<T: Send> Future for AsyncReceiver<'_, T> {
     type Output = Result<T, RecvErr>;
 
     fn poll(

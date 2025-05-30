@@ -4,14 +4,7 @@ use crate::pcie::{
     capability::msi::MultipleMessage, intel::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{
-    borrow::Cow,
-    boxed::Box,
-    collections::{BTreeMap, BTreeSet},
-    format,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -25,6 +18,7 @@ use awkernel_lib::{
         in_cksum::in_pseudo,
         ip::Ip,
         ipv6::Ip6Hdr,
+        multicast::MulticastAddrs,
         net_device::{
             EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
             NetFlags, PacketHeaderFlags,
@@ -277,7 +271,7 @@ struct IgbInner {
     smart_speed: u32,
     pcie_int: PCIeInt,
 
-    multicast_addr: BTreeSet<[u8; 6]>,
+    multicast_addrs: MulticastAddrs,
 
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     msix_mask: u32,
@@ -493,16 +487,19 @@ impl IgbInner {
         let flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
         let mut capabilities = NetCapabilities::VLAN_MTU | NetCapabilities::VLAN_HWTAGGING;
 
-        if hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
-            capabilities |= NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_UDPv4;
-        }
+        // TODO: enable checksum offload
+        // if hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
+        //     capabilities |= NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_UDPv4;
+        // }
 
         if MacType::Em82575 as u32 <= hw.get_mac_type() as u32
             && hw.get_mac_type() as u32 <= MacType::EmI210 as u32
         {
-            capabilities |= NetCapabilities::CSUM_IPv4
-                | NetCapabilities::CSUM_TCPv6
-                | NetCapabilities::CSUM_UDPv6;
+            capabilities |= NetCapabilities::CSUM_IPv4;
+
+            // TODO: enable checksum offload
+            // | NetCapabilities::CSUM_TCPv6
+            // | NetCapabilities::CSUM_UDPv6;
         }
 
         // Initialize statistics
@@ -520,7 +517,7 @@ impl IgbInner {
             link_duplex: igb_hw::Duplex::None,
             smart_speed: 0,
             pcie_int,
-            multicast_addr: BTreeSet::new(),
+            multicast_addrs: MulticastAddrs::new(),
             irq_to_rx_tx_link,
             msix_mask: 0,
             is_poll_mode,
@@ -665,7 +662,7 @@ impl IgbInner {
         self.flags &= !NetFlags::ALLMULTI;
 
         if self.flags.contains(NetFlags::PROMISC)
-            || self.multicast_addr.len() > MAX_NUM_MULTICAST_ADDRESSES
+            || self.multicast_addrs.len() > MAX_NUM_MULTICAST_ADDRESSES
         {
             self.flags |= NetFlags::ALLMULTI;
             reg_ctrl |= RCTL_MPE;
@@ -675,7 +672,7 @@ impl IgbInner {
         } else {
             self.hw.clear_mta(&self.info)?;
 
-            for mc_addr in self.multicast_addr.iter() {
+            for mc_addr in self.multicast_addrs.iter() {
                 let hash_value = self.hw.hash_mc_addr(mc_addr);
                 self.hw.mta_set(&self.info, hash_value)?;
             }
@@ -2169,7 +2166,7 @@ impl NetDevice for Igb {
 
         {
             let mut inner = self.inner.write();
-            inner.multicast_addr.insert(*addr);
+            inner.multicast_addrs.add_addr(*addr);
 
             restart = inner.flags.contains(NetFlags::UP);
         }
@@ -2187,7 +2184,7 @@ impl NetDevice for Igb {
 
         {
             let mut inner = self.inner.write();
-            inner.multicast_addr.remove(addr);
+            inner.multicast_addrs.remove_addr(addr);
 
             restart = inner.flags.contains(NetFlags::UP);
         }

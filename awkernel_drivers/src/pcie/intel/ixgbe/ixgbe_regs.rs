@@ -2837,9 +2837,11 @@ pub const IXGBE_PVTEIMC: fn(p: u32) -> u32 = |p| 0x00E00 + (4 * p);
 pub const IXGBE_PVTEIAC: fn(p: u32) -> u32 = |p| 0x00F00 + (4 * p);
 pub const IXGBE_PVTEIAM: fn(p: u32) -> u32 = |p| 0x04D00 + (4 * p);
 pub const IXGBE_PVTEITR: fn(p: u32) -> u32 = |p| {
-    (p < 24)
-        .then(|| 0x00820 + (p * 4))
-        .unwrap_or(0x012300 + ((p - 24) * 4))
+    if p < 24 {
+        0x00820 + (p * 4)
+    } else {
+        0x012300 + ((p - 24) * 4)
+    }
 };
 pub const IXGBE_PVTIVAR: fn(p: u32) -> u32 = |p| 0x12500 + (4 * p);
 pub const IXGBE_PVTIVAR_MISC: fn(p: u32) -> u32 = |p| 0x04E00 + (4 * p);
@@ -3242,6 +3244,7 @@ pub const IXGBE_PHYSICAL_LAYER_1000BASE_LX: u64 = 0x20000;
 
 /* BitTimes (BT) conversion */
 #[allow(non_snake_case)]
+#[allow(clippy::manual_div_ceil)]
 pub const fn IXGBE_BT2KB(bt: u32) -> u32 {
     (bt + (8 * 1024 - 1)) / (8 * 1024)
 }
@@ -4093,10 +4096,11 @@ pub fn get_eec_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let eec = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_EEC,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_EEC_X540,
-        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_EEC_X550,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_EEC_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_EEC_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_EEC_X550EM_A,
+        _ => IXGBE_EEC,
     };
 
     Ok(eec)
@@ -4106,10 +4110,11 @@ pub fn get_fla_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let fla = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FLA,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FLA_X540,
-        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FLA_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_FLA_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FLA_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FLA_X550EM_A,
+        _ => IXGBE_FLA,
     };
 
     Ok(fla)
@@ -4119,10 +4124,11 @@ pub fn get_grc_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let grc = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_GRC,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_GRC_X540,
-        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_GRC_X550,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_GRC_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_GRC_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_GRC_X550EM_A,
+        _ => IXGBE_GRC,
     };
 
     Ok(grc)
@@ -4132,10 +4138,11 @@ pub fn get_sramrel_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let sramrel = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SRAMREL,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SRAMREL_X540,
-        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SRAMREL_X550,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_SRAMREL_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SRAMREL_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SRAMREL_X550EM_A,
+        _ => IXGBE_SRAMREL,
     };
 
     Ok(sramrel)
@@ -4145,11 +4152,11 @@ pub fn get_factps_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let factps = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FACTPS,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FACTPS_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_FACTPS_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FACTPS_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FACTPS_X550EM_A,
+        _ => IXGBE_FACTPS,
     };
 
     Ok(factps)
@@ -4159,11 +4166,11 @@ pub fn get_swsm_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let swsm = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SWSM,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SWSM_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_SWSM_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SWSM_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SWSM_X550EM_A,
+        _ => IXGBE_SWSM,
     };
 
     Ok(swsm)
@@ -4173,11 +4180,11 @@ pub fn get_fwsm_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let fwsm = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FWSM,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FWSM_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_FWSM_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FWSM_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FWSM_X550EM_A,
+        _ => IXGBE_FWSM,
     };
 
     Ok(fwsm)
@@ -4187,11 +4194,11 @@ pub fn get_swfw_sync_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let swfw_sync = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SWFW_SYNC,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SWFW_SYNC_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_SWFW_SYNC_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SWFW_SYNC_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SWFW_SYNC_X550EM_A,
+        _ => IXGBE_SWFW_SYNC,
     };
 
     Ok(swfw_sync)
@@ -4201,11 +4208,11 @@ pub fn get_ciaa_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let ciaa = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_CIAA_82599,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_CIAA_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_CIAA_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_CIAA_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_CIAA_X550EM_A,
+        _ => IXGBE_CIAA,
     };
 
     Ok(ciaa)
@@ -4215,11 +4222,11 @@ pub fn get_ciad_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let ciad = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_CIAD_82599,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_CIAD_X540,
         IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_CIAD_X550,
         IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_CIAD_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_CIAD_X550EM_A,
+        _ => IXGBE_CIAD,
     };
 
     Ok(ciad)

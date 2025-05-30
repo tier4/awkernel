@@ -2,12 +2,13 @@
 //! Panicked tasks will be the lowest priority.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::State;
+use crate::{scheduler::get_priority, task::State};
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PanickedScheduler {
     data: Mutex<Option<PanickedData>>, // Run queue.
+    priority: u8,
 }
 
 struct PanickedData {
@@ -42,6 +43,7 @@ impl Scheduler for PanickedScheduler {
 
         // Pop a task from the run queue.
         // let data = data.as_mut()?;
+        #[allow(clippy::question_mark)]
         let data = match data.as_mut() {
             Some(data) => data,
             None => return None,
@@ -59,6 +61,9 @@ impl Scheduler for PanickedScheduler {
                     continue;
                 }
 
+                if task_info.state == State::Preempted {
+                    task_info.need_preemption = false;
+                }
                 task_info.state = State::Running;
             }
 
@@ -67,14 +72,15 @@ impl Scheduler for PanickedScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::FIFO
+        SchedulerType::Panicked
     }
 
     fn priority(&self) -> u8 {
-        255
+        self.priority
     }
 }
 
 pub static SCHEDULER: PanickedScheduler = PanickedScheduler {
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::Panicked),
 };

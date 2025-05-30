@@ -94,6 +94,7 @@ pub fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
         | IXGBE_DEV_ID_82598AF_DUAL_PORT
         | IXGBE_DEV_ID_82598AT
         | IXGBE_DEV_ID_82598AT2
+        | IXGBE_DEV_ID_82598AT_DUAL_PORT
         | IXGBE_DEV_ID_82598EB_CX4
         | IXGBE_DEV_ID_82598_CX4_DUAL_PORT
         | IXGBE_DEV_ID_82598_DA_DUAL_PORT
@@ -209,7 +210,6 @@ pub struct IxgbePhyInfo {
     pub revision: u32,
     pub media_type: MediaType,
     pub phy_semaphore_mask: u32,
-    // pub reset_disable: bool, Unused in OpenBSD/FreeBSD
     pub autoneg_advertised: u32,
     pub speeds_supported: u32,
     pub smart_speed: SmartSpeed,
@@ -217,7 +217,6 @@ pub struct IxgbePhyInfo {
     pub multispeed_fiber: bool,
     pub qsfp_shared_i2c_bus: bool,
     pub nw_mng_if_sel: u32,
-    // pub reset_if_overtemp: bool, Unused in OpenBSD/FreeBSD
     pub no_reset: bool,
 }
 
@@ -251,8 +250,6 @@ pub struct IxgbeHw {
     pub eeprom: IxgbeEepromInfo,
     pub bus: IxgbeBusInfo,
     pub adapter_stopped: bool,
-    // pub force_full_reset: bool, Unused in OpenBSD/FreeBSD
-    // pub wol_enabled: bool, Unused in OpenBSD/FreeBSD
     pub crosstalk_fix: bool,
 }
 
@@ -271,11 +268,6 @@ impl IxgbeHw {
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
-        // let hardware know driver is loaded
-        let mut ctrl_ext = read_reg(info, IXGBE_CTRL_EXT)?;
-        ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
-        write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
-
         let ops = get_operations(&mac_type)?; // init_shared_code();
         let (
             mcft_size,
@@ -290,7 +282,10 @@ impl IxgbeHw {
             IxgbeMac82599EB => ixgbe_82599::set_mac_val(info)?,
             IxgbeMacX540 => ixgbe_x540::set_mac_val(info)?,
             IxgbeMacX550 => ixgbe_x550::set_mac_val(info)?,
-            _ => (0, 0, 0, 0, 0, 0, 0, false),
+            _ => {
+                log::error!("Mac Type not supported!");
+                return Err(IxgbeDriverErr::NotImplemented);
+            }
         };
         let max_link_up_time = IXGBE_LINK_UP_TIME;
 
@@ -310,7 +305,7 @@ impl IxgbeHw {
                     rx_pb_size,
                     max_rx_queues,
                     max_tx_queues,
-                    orig_autoc: 0, //TODO: Need to check if this is initialized in FreeBSD
+                    orig_autoc: 0,
                     orig_autoc2: 0,
                     max_msix_vectors,
                     arc_subsystem_valid,
@@ -328,16 +323,15 @@ impl IxgbeHw {
                     user_set_promisc: false,
                 },
                 fc: IxgbeFcInfo {
-                    // TODO: Need to check if this is initialized in OpenBSD
                     high_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
                     low_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
                     pause_time: 0,
                     send_xon: false,
-                    strict_ieee: false, // TODO: Need to check if this is initialized in OpenBSD
+                    strict_ieee: false,
                     disable_fc_autoneg: false,
                     fc_was_autonegged: false,
                     current_mode: FcMode::IxgbeFcNone,
-                    requested_mode: FcMode::IxgbeFcNone, // TODO: Need to check if this is initialized in OpenB
+                    requested_mode: FcMode::IxgbeFcNone,
                 },
                 phy: IxgbePhyInfo {
                     phy_type: PhyType::IxgbePhyUnknown,
@@ -354,7 +348,7 @@ impl IxgbeHw {
                     smart_speed_active: false,
                     multispeed_fiber: false,
                     qsfp_shared_i2c_bus: false,
-                    nw_mng_if_sel: 0, // TODO: Need to check if this is initialized in OpenBSD
+                    nw_mng_if_sel: 0,
                     no_reset: false,
                 },
                 eeprom,
@@ -365,7 +359,7 @@ impl IxgbeHw {
                     func: 0,
                     lan_id: 0,
                     instance_id: 0,
-                }, // TODO: Need to check if this is initialized in OpenBSD
+                },
                 adapter_stopped: false,
                 crosstalk_fix: false,
             },
@@ -486,7 +480,7 @@ impl TryFrom<u16> for SfpType {
             14 => Ok(IxgbeSfpType1gLxCore1),
             0xFFFE => Ok(IxgbeSfpTypeNotPresent),
             0xFFFF => Ok(IxgbeSfpTypeUnknown),
-            _ => Err(IxgbeDriverErr::NotSupported),
+            _ => Err(IxgbeDriverErr::NotImplemented),
         }
     }
 }

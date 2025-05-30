@@ -32,6 +32,9 @@ pub trait Delay {
     /// This function returns uptime in microseconds.
     fn uptime() -> u64;
 
+    /// This function returns uptime in nanoseconds.
+    fn uptime_nano() -> u128;
+
     /// Return CPU cycle counter.
     fn cpu_counter() -> u64;
 
@@ -89,6 +92,7 @@ pub fn wait_forever() -> ! {
 }
 
 /// Return uptime in microseconds.
+/// Note that this function may not monotonically increase.
 ///
 /// # Example
 ///
@@ -101,6 +105,22 @@ pub fn wait_forever() -> ! {
 #[inline(always)]
 pub fn uptime() -> u64 {
     ArchImpl::uptime()
+}
+
+/// Return uptime in nanoseconds.
+/// Note that this function may not monotonically increase.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_lib::delay::uptime_nano;
+/// let start = uptime_nano();
+/// let end = uptime_nano();
+/// log::info!("{} [ns]", end - start);
+/// ```
+#[inline(always)]
+pub fn uptime_nano() -> u128 {
+    ArchImpl::uptime_nano()
 }
 
 /// Pause a CPU during busy loop to reduce CPU power consumption.

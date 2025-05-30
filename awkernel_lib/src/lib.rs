@@ -8,18 +8,22 @@ use alloc::rc::Rc;
 
 pub mod addr;
 pub mod arch;
+pub mod config;
 pub mod console;
 pub mod cpu;
 pub mod delay;
 pub mod device_tree;
+pub mod dvfs;
 pub mod graphics;
 pub mod interrupt;
 pub mod local_heap;
 pub mod logger;
 pub mod mmio;
 pub mod net;
+pub mod priority_queue;
 pub mod sanity;
 pub mod sync;
+pub mod time;
 pub mod timer;
 pub mod unwind;
 

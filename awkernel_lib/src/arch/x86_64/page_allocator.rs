@@ -47,7 +47,7 @@ where
     }
 }
 
-unsafe impl<'a, T> FrameAllocator<Size4KiB> for PageAllocator<'a, T>
+unsafe impl<T> FrameAllocator<Size4KiB> for PageAllocator<'_, T>
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
@@ -120,7 +120,7 @@ impl crate::paging::Frame for Frame {
     }
 }
 
-impl<'a, T> crate::paging::FrameAllocator<Frame, &'static str> for PageAllocator<'a, T>
+impl<T> crate::paging::FrameAllocator<Frame, &'static str> for PageAllocator<'_, T>
 where
     T: Iterator<Item = PhysFrame> + Send,
 {

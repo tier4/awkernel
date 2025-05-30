@@ -5,6 +5,7 @@ pan: pan.c
 	gcc -O3 -o $@ $<
 
 run: pan
+	rm -f *.trail
 	./pan -f -a -n
 
 trail:

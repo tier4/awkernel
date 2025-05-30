@@ -29,7 +29,8 @@ pub unsafe fn init(info: FrameBufferInfo, buffer: &'static mut [u8]) {
         },
     });
 
-    awkernel_lib::graphics::set_frame_buffer(X86_FRAME_BUFFER.as_mut().unwrap());
+    let ptr = &raw mut X86_FRAME_BUFFER;
+    awkernel_lib::graphics::set_frame_buffer((*ptr).as_mut().unwrap());
 }
 
 struct X86FrameBufferInner {

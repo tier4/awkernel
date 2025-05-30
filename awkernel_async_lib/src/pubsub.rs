@@ -31,11 +31,13 @@ use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
 };
-use crate::delay::uptime;
+
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::sync::{
@@ -43,6 +45,7 @@ use awkernel_lib::sync::{
     rwlock::RwLock,
 };
 use core::{
+    pin::Pin,
     task::{Poll, Waker},
     time::Duration,
 };
@@ -52,7 +55,7 @@ use pin_project::pin_project;
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
-    pub timestamp: u64,
+    pub timestamp: awkernel_lib::time::Time,
     pub data: T,
 }
 
@@ -130,7 +133,7 @@ impl<T> InnerSubscriber<T> {
         if let Lifespan::Span(lifespan) = lifespan {
             let span = lifespan.as_micros();
             while let Some(head) = self.queue.head() {
-                if uptime() - head.timestamp > span as u64 {
+                if head.timestamp.elapsed().as_micros() > span {
                     self.queue.pop();
                 }
             }
@@ -143,35 +146,53 @@ struct Receiver<'a, T: 'static + Clone + Send> {
     subscriber: &'a Subscriber<T>,
 }
 
-impl<'a, T: Clone + Send> Future for Receiver<'a, T> {
+impl<T: Clone + Send> Future for Receiver<'_, T> {
     type Output = Data<T>;
 
     fn poll(
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let mut node = MCSNode::new();
-        let mut inner = self.subscriber.inner.lock(&mut node);
+        let data = self.subscriber.try_recv();
 
-        if let Some(waker) = inner.waker_publishers.pop_front() {
-            waker.wake();
-        }
-
-        inner.garbage_collect(&self.subscriber.subscribers.attribute.lifespan);
-
-        if let Some(data) = inner.queue.pop() {
+        if let Some(data) = data {
             Poll::Ready(data)
         } else {
+            let mut node = MCSNode::new();
+            let mut inner = self.subscriber.inner.lock(&mut node);
             inner.waker_subscriber = Some(cx.waker().clone());
+
             Poll::Pending
         }
     }
 }
 
 impl<T: Clone + Send> Subscriber<T> {
+    /// Receive data asynchronously.
     pub async fn recv(&self) -> Data<T> {
         let receiver = Receiver { subscriber: self };
         receiver.await
+    }
+
+    /// Non-blocking data receive.
+    /// If there is no data, return `None`.
+    pub fn try_recv(&self) -> Option<Data<T>> {
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        inner.garbage_collect(&self.subscribers.attribute.lifespan);
+
+        let result = inner.queue.pop();
+
+        for _ in 0..inner.queue.queue_size() - inner.queue.len() {
+            if let Some(waker) = inner.waker_publishers.pop_front() {
+                waker.wake();
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 
     fn id(&self) -> usize {
@@ -198,7 +219,7 @@ struct Sender<'a, T: 'static + Send> {
     data: Option<T>,
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
-    timestamp: u64,
+    timestamp: awkernel_lib::time::Time,
 }
 
 enum SenderState {
@@ -214,12 +235,12 @@ impl<'a, T: Send> Sender<'a, T> {
             data: Some(data),
             subscribers: Default::default(),
             state: SenderState::Start,
-            timestamp: uptime(),
+            timestamp: awkernel_lib::time::Time::now(),
         }
     }
 }
 
-impl<'a, T> Future for Sender<'a, T>
+impl<T> Future for Sender<'_, T>
 where
     T: Clone + Sync + Send,
 {
@@ -246,7 +267,7 @@ where
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
                             if let Err(data) = guard.push(Data {
-                                timestamp: uptime(),
+                                timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
@@ -400,6 +421,8 @@ pub struct Attribute {
     pub lifespan: Lifespan,
 }
 
+/// Lifespan of a message.
+///
 /// `Lifespan` represent how log a message is valid.
 /// `Lifespan::Permanent` means messages are valid forever.
 /// `Lifespan::Span(Duration)` means messages will be expired and discarded after the span of `Duration`.
@@ -688,6 +711,131 @@ impl Default for Attribute {
         }
     }
 }
+
+pub trait MultipleReceiver {
+    type Item;
+
+    fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+}
+
+pub trait MultipleSender {
+    type Item;
+
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+pub trait VectorToPublishers {
+    type Publishers: MultipleSender;
+
+    fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers;
+}
+
+pub trait VectorToSubscribers {
+    type Subscribers: MultipleReceiver;
+
+    fn create_subscribers(
+        topics: Vec<Cow<'static, str>>,
+        attribute: Attribute,
+    ) -> Self::Subscribers;
+}
+
+macro_rules! impl_tuple_to_pub_sub {
+    () => {
+        impl VectorToPublishers for () {
+            type Publishers = ();
+
+            fn create_publishers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Publishers {
+            }
+        }
+
+        impl VectorToSubscribers for () {
+            type Subscribers = ();
+
+            fn create_subscribers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Subscribers {
+            }
+        }
+    };
+    ($($T:ident),+) => {
+        impl<$($T: 'static + Send + Sync + Clone,)+> VectorToPublishers for ($($T,)+)
+        {
+            type Publishers = ($(Publisher<$T>,)+);
+
+            fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers {
+                let mut topics = topics.into_iter();
+                ($(
+                    create_publisher::<$T>(topics.next().unwrap(), attribute.clone()).unwrap(),
+                )+)
+            }
+        }
+
+        impl<$($T: 'static + Clone + Send,)+> VectorToSubscribers for ($($T,)+)
+        {
+            type Subscribers = ($(Subscriber<$T>,)+);
+
+            fn create_subscribers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Subscribers {
+                let mut topics = topics.into_iter();
+                ($(
+                    create_subscriber::<$T>(topics.next().unwrap(), attribute.clone()).unwrap(),
+                )+)
+            }
+        }
+    }
+}
+
+impl_tuple_to_pub_sub!();
+impl_tuple_to_pub_sub!(A);
+impl_tuple_to_pub_sub!(A, B);
+impl_tuple_to_pub_sub!(A, B, C);
+
+macro_rules! impl_async_receiver_for_tuple {
+    () => {
+        impl MultipleReceiver for () {
+            type Item = ();
+
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                Box::pin(async move{})
+            }
+        }
+
+        impl MultipleSender for () {
+            type Item = ();
+
+            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move{})
+            }
+        }
+    };
+    ($(($T:ident, $idx:tt, $idx2:tt)),+) => {
+        impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
+            type Item = ($($T,)+);
+
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                let ($($idx,)+) = self;
+                Box::pin(async move {
+                    ($($idx.recv().await.data,)+)
+                })
+            }
+        }
+
+        impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
+            type Item = ($($T,)+);
+
+            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)+) = self;
+                let ($($idx2,)+) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send($idx2).await;
+                    )+
+                })
+            }
+        }
+    };
+}
+
+impl_async_receiver_for_tuple!();
+impl_async_receiver_for_tuple!((A, a, p));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
 
 #[cfg(test)]
 mod tests {

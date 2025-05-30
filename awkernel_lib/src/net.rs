@@ -6,6 +6,7 @@ use alloc::{
     sync::Arc,
 };
 use core::{fmt::Display, net::Ipv4Addr};
+use net_device::{EtherFrameRef, NetDevError, PacketHeaderFlags};
 use smoltcp::wire::{IpAddress, IpCidr};
 
 use self::{
@@ -17,10 +18,6 @@ use self::{
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
-#[cfg(loom)]
-use crate::sync::rwlock_dummy::RwLock;
-
-#[cfg(not(loom))]
 use crate::sync::rwlock::RwLock;
 
 pub mod ether;
@@ -51,6 +48,13 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+
+    // Multicast
+    MulticastInvalidIpv4Address,
+    MulticastError,
+    MulticastNotJoined,
+
+    DeviceError(NetDevError),
 }
 
 #[derive(Debug)]
@@ -645,4 +649,52 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
     } else {
         Ok(None)
     }
+}
+
+/// Join an IPv4 multicast group.
+///
+/// Returns `Ok(announce_sent)` if the address was added successfully,
+/// where `announce_sent` indicates whether an initial immediate announcement has been sent.
+pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    if_net.join_multicast_v4(addr)
+}
+
+/// Leave an IPv4 multicast group.
+///
+/// Returns `Ok(leave_sent)` if the address was removed successfully,
+/// where `leave_sent` indicates whether an immediate leave packet has been sent.
+pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    if_net.leave_multicast_v4(addr)
+}
+
+/// Send a raw packet.
+pub fn raw_send(interface_id: u64, que_id: usize, data: &[u8]) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let frame = EtherFrameRef {
+        data,
+        vlan: None,
+        csum_flags: PacketHeaderFlags::empty(),
+    };
+
+    if let Err(e) = if_net.net_device.send(frame, que_id) {
+        return Err(NetManagerError::DeviceError(e));
+    }
+
+    Ok(())
 }

@@ -8,16 +8,31 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 bitflags = "2.3"
-embedded-hal = "1.0.0"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 
+[dependencies.embedded-hal]
+version = "1.0"
+optional = true
+
 [dependencies.unwinding]
-# version = "0.2"
-git = "https://github.com/nbdd0121/unwinding.git"
+version = "0.2"
+# git = "https://github.com/nbdd0121/unwinding.git"
 default-features = false
 optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
+
+[dependencies.gimli]
+version = "0.31"
+default-features = false
+optional = true
+features = ["read"]
+
+[dependencies.addr2line]
+version = "0.24"
+default-features = false
+optional = true
+features = ["rustc-demangle"]
 
 [dependencies.acpi]
 # version = "5.0"
@@ -61,8 +76,11 @@ optional = true
 
 [features]
 default = ["x86"]
+perf = ["awkernel_async_lib/perf", "userland/perf"]
 no_std_unwinding = ["dep:unwinding"]
+debug = ["dep:gimli", "dep:addr2line"]
 x86 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/x86",
     "dep:x86_64",
@@ -84,8 +102,9 @@ rv64 = [
     "dep:ns16550a",
     #    "awkernel_drivers/rv64",
 ]
-std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
+std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
+    "perf",
     "no_std_unwinding",
     "dep:awkernel_aarch64",
     "awkernel_lib/aarch64",
@@ -95,11 +114,18 @@ raspi = [
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pl011",
-    "userland/raspi",
+    "dep:embedded-hal",
 ]
 
-raspi5 = ["aarch64", "awkernel_drivers/raspi", "awkernel_drivers/pl011"]
-
+raspi5 = [
+    "aarch64",
+    "awkernel_drivers/raspi",
+    "awkernel_drivers/pcie",
+    "awkernel_drivers/pl011",
+    "awkernel_drivers/rp1",
+    "awkernel_drivers/bcm2712",
+    "dep:embedded-hal",
+]
 
 aarch64_virt = [
     "aarch64",

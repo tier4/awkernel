@@ -1,12 +1,9 @@
-ifndef $(BSP)
-	BSP = raspi3
-endif
-
 ifeq ($(RELEASE), 1)
 	OPT = --release
 	BUILD = release
 else
 	BUILD = debug
+	OPT = --features debug
 endif
 
 # 2MiB Stack
@@ -29,6 +26,8 @@ else ifeq ($(BSP),aarch64_virt)
 	INITADDR = 0x40080000
 	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
+
+RUSTC_MISC_ARGS += -C panic=unwind
 
 ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
@@ -56,20 +55,22 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2024-05-08
+RUSTV=nightly-2025-02-27
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
 check: check_aarch64 check_x86_64 check_std check_riscv32 check_riscv64
 
-clippy:
+clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
-	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
+
+udeps: $(X86ASM)
+	cargo +$(RUSTV) udeps_x86
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
@@ -83,6 +84,7 @@ check_aarch64: FORCE
 
 target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(AARCH64_OPT)
+	python3 scripts/embed_debug_info.py $@
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
@@ -135,19 +137,23 @@ check_x86_64: $(X86ASM)
 	cargo +$(RUSTV) check_x86
 
 kernel-x86_64.elf: $(X86ASM) FORCE
-	cargo +$(RUSTV) x86 $(OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
+	python3 scripts/embed_debug_info.py $@
 
 x86_64_boot.img: kernel-x86_64.elf
-	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
 
 x86_64_uefi.img: kernel-x86_64.elf
-	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
+OVMF_PATH := $(shell cat ${HOME}/.ovfmpath)
 
-QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img # -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
+QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
+QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
+QEMU_X86_ARGS+= -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 QEMU_X86_ARGS+= -m 4G -smp cpus=16
@@ -159,6 +165,7 @@ QEMU_X86_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
 QEMU_X86_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
 QEMU_X86_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
 QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
+# QEMU_X86_ARGS+= -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
 
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
@@ -172,28 +179,21 @@ server:
 	python3 scripts/udp.py
 
 qemu-x86_64-net:
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	cat /dev/null > packets.pcap
-	qemu-system-x86_64  $(QEMU_X86_NET_ARGS) -bios `cat ${HOME}/.ovfmpath`
+	qemu-system-x86_64  $(QEMU_X86_NET_ARGS)
 
 qemu-x86_64:
-	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
+	qemu-system-x86_64 $(QEMU_X86_ARGS)
 
 debug-x86_64:
-	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S
 
 gdb-x86_64:
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	gdb-multiarch -x scripts/x86-debug.gdb
-
-# riscv32
-
-riscv32:
-	cargo +$(RUSTV) rv32 $(OPT)
-
-check_riscv32: $(X86ASM)
-	cargo +$(RUSTV) check_rv32
-
-qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
-	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
 # riscv64
 
@@ -228,10 +228,6 @@ test: FORCE
 	cargo test_awkernel_lib
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
-
-loom: FORCE
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_mcslock --release -- --nocapture
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_rwlock --release -- --nocapture
 
 # Format
 

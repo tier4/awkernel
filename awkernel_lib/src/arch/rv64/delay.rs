@@ -23,6 +23,14 @@ impl Delay for super::RV64 {
         }
     }
 
+    fn uptime_nano() -> u128 {
+        // as microsec
+        unsafe {
+            let mtime = ACLINT_MTIME_BASE as *const u128;
+            *mtime * 1_000_000_000 / RISCV_TIMEBASE_FREQ as u128
+        }
+    }
+
     fn cpu_counter() -> u64 {
         let cycle: u64;
         unsafe {

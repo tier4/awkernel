@@ -20,11 +20,12 @@ use awkernel_lib::{
 use core::{
     arch::asm,
     ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
 
 static mut CPU_READY: usize = 0;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static NUM_CPUS: AtomicU16 = AtomicU16::new(0);
 
 static mut TTBR0_EL1: usize = 0;
 
@@ -54,6 +55,10 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 5. Enable heap allocator.
 /// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
+    unsafe {
+        awkernel_lib::logger::init();
+        crate::config::init();
+    }
     let device_tree = load_device_tree(device_tree_base);
     let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
 
@@ -161,12 +166,16 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     log::info!("{device_tree}");
 
+    let num_cpu = initializer.get_num_cpus();
+    NUM_CPUS.store(num_cpu as u16, Ordering::SeqCst);
+
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: 0,
+        num_cpu,
     };
 
     crate::main::<()>(kernel_info);
@@ -212,9 +221,12 @@ unsafe fn non_primary_cpu() {
         awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
     }
 
+    let num_cpu = NUM_CPUS.load(Ordering::SeqCst) as usize;
+
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: awkernel_lib::cpu::cpu_id(),
+        num_cpu,
     };
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator

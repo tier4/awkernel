@@ -11,10 +11,6 @@ use alloc::boxed::Box;
 #[cfg(feature = "x86")]
 use crate::arch::x86_64::interrupt_remap;
 
-#[cfg(loom)]
-use crate::sync::rwlock_dummy::RwLock;
-
-#[cfg(not(loom))]
 use crate::sync::rwlock::RwLock;
 
 pub trait Interrupt {
@@ -30,7 +26,7 @@ pub trait InterruptController: Sync + Send {
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>>;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: u16, target: u32);
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32);
 
     /// Send an inter-process interrupt to all CPUs.
     fn send_ipi_broadcast(&mut self, irq: u16);
@@ -252,6 +248,7 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
 }
 
 /// Register an interrupt handler for PCIe MSI or MSI-X  interrupt.
+///
 /// This returns an IRQ object, which can be used to enable or disable the interrupt.
 /// When dropping the IRQ object, the interrupt will be disabled and the handler will be removed.
 pub fn register_handler_pcie_msi<F>(

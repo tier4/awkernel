@@ -19,5 +19,38 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_graphics")]
     test_graphics::run().await; // test for graphics
 
+    #[cfg(feature = "test_prioritized_fifo")]
+    test_prioritized_fifo::run().await; // test for prioritized_fifo
+
+    #[cfg(feature = "test_rr")]
+    test_rr::run().await; // test for Round Robin scheduler
+
+    #[cfg(feature = "test_priority_based_rr")]
+    test_priority_based_rr::run().await; // test for priority_based_rr
+
+    #[cfg(feature = "test_async_mutex")]
+    test_async_mutex::run().await; // test for async_mutex
+
+    #[cfg(feature = "test_gedf")]
+    test_gedf::run().await; // test for Global Earliest Deadline First scheduler
+
+    #[cfg(feature = "test_measure_channel")]
+    test_measure_channel::run().await; // measure channel
+
+    #[cfg(feature = "test_measure_channel_heavy")]
+    test_measure_channel_heavy::run().await; // measure channel heavy
+
+    #[cfg(feature = "test_load_udp")]
+    test_load_udp::run().await; // load test udp
+
+    #[cfg(feature = "test_sched_preempt")]
+    test_sched_preempt::run().await; // tests related to preemption between schedulers
+
+    #[cfg(feature = "test_dag")]
+    test_dag::run().await; // test for DAG
+
+    #[cfg(feature = "test_dvfs")]
+    test_dvfs::run().await; // test for DVFS
+
     Ok(())
 }

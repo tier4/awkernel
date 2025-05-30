@@ -76,12 +76,7 @@ impl TcpListener {
             // Create a TCP socket.
             let socket = create_listen_socket(&addr, port.port(), rx_buffer_size, tx_buffer_size);
 
-            let handle = {
-                let mut node = MCSNode::new();
-                let mut if_net_inner = if_net.inner.lock(&mut node);
-
-                if_net_inner.socket_set.add(socket)
-            };
+            let handle = if_net.socket_set.write().add(socket);
 
             handles.push(handle);
         }
@@ -128,12 +123,23 @@ impl TcpListener {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut interface = if_net.inner.lock(&mut node);
-
         for handle in self.handles.iter_mut() {
-            let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
-            if socket.may_send() {
+            let (may_send, is_not_open) = {
+                let socket_set = if_net.socket_set.read();
+                let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                let socket = socket_set
+                    .get::<smoltcp::socket::tcp::Socket>(*handle)
+                    .lock(&mut node);
+                if socket.may_send() {
+                    (true, false)
+                } else if !socket.is_open() {
+                    (false, true)
+                } else {
+                    (false, false)
+                }
+            };
+
+            if may_send {
                 // If the connection is established, create a new socket and add it to the interface.
                 let new_socket = create_listen_socket(
                     &self.addr,
@@ -141,14 +147,15 @@ impl TcpListener {
                     self.rx_buffer_size,
                     self.tx_buffer_size,
                 );
-                let mut new_handle = interface.socket_set.add(new_socket);
+                let mut socket_set = if_net.socket_set.write();
+                let mut new_handle = socket_set.add(new_socket);
 
                 // Swap the new handle with the old handle.
                 core::mem::swap(handle, &mut new_handle);
 
                 // The old handle is now a connected socket.
                 self.connected_sockets.push_back(new_handle);
-            } else if !socket.is_open() {
+            } else if is_not_open {
                 // If the socket is closed, create a new socket and add it to the interface.
                 let new_socket = create_listen_socket(
                     &self.addr,
@@ -156,15 +163,14 @@ impl TcpListener {
                     self.rx_buffer_size,
                     self.tx_buffer_size,
                 );
-                interface.socket_set.remove(*handle);
-                *handle = interface.socket_set.add(new_socket);
+                let mut socket_set = if_net.socket_set.write();
+                socket_set.remove(*handle);
+                *handle = socket_set.add(new_socket);
             }
         }
 
         // If there is a connected socket, return it.
         if let Some(handle) = self.connected_sockets.pop_front() {
-            drop(interface);
-
             let port = {
                 let mut net_manager = NET_MANAGER.write();
                 if self.addr.is_ipv4() {
@@ -183,13 +189,15 @@ impl TcpListener {
             }));
         }
 
+        let socket_set = if_net.socket_set.read();
         // Register the waker for the listening sockets.
         for handle in self.handles.iter() {
-            let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
+            let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+            let mut socket = socket_set
+                .get::<smoltcp::socket::tcp::Socket>(*handle)
+                .lock(&mut node);
             socket.register_send_waker(waker);
         }
-
-        drop(interface);
 
         Ok(None)
     }
@@ -203,22 +211,27 @@ impl Drop for TcpListener {
             let if_net = if_net.clone();
             drop(net_manager);
 
-            let mut node = MCSNode::new();
-            let mut inner = if_net.inner.lock(&mut node);
+            {
+                let socket_set = if_net.socket_set.read();
 
-            // Close listening sockets.
-            for handle in self.handles.iter() {
-                let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(*handle);
-                socket.abort();
+                // Close listening sockets.
+                for handle in self.handles.iter() {
+                    let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                    let mut socket = socket_set
+                        .get::<smoltcp::socket::tcp::Socket>(*handle)
+                        .lock(&mut node);
+                    socket.abort();
+                }
+
+                // Close connected sockets.
+                for handle in self.connected_sockets.iter() {
+                    let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                    let mut socket = socket_set
+                        .get::<smoltcp::socket::tcp::Socket>(*handle)
+                        .lock(&mut node);
+                    socket.abort();
+                }
             }
-
-            // Close connected sockets.
-            for handle in self.connected_sockets.iter() {
-                let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(*handle);
-                socket.abort();
-            }
-
-            drop(inner);
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
             if_net.poll_tx_only(que_id);

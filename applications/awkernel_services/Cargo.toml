@@ -19,3 +19,9 @@ default-features = false
 [dependencies.awkernel_shell]
 path = "../awkernel_shell"
 default-features = false
+
+[dependencies.awkernel_display]
+path = "../awkernel_display"
+
+[features]
+perf = ["awkernel_shell/perf"]

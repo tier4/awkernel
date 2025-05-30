@@ -1,17 +1,42 @@
-use alloc::{collections::BTreeMap, sync::Arc};
+//! # Network Interface Module
+//!
+//! This module provides the network interface module.
+//!
+//! `IfNet` is a structure that manages the network interface.
+//! `NetDriver` is a structure that manages the network driver.
+//!
+//!　These structures contain the following mutex-protected fields:
+//!
+//! 1. `NetDriver::rx_ringq`
+//! 2. `IfNet::tx_ringq`
+//! 3. `IfNet::inner`
+//!
+//! These mutexes must be locked in the order shown above.
+
+use core::{
+    net::Ipv4Addr,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use alloc::{
+    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
+    sync::Arc,
+};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
-    iface::{Config, Interface, SocketSet},
+    iface::{Config, Interface, MulticastError, SocketSet},
     phy::{self, Checksum, Device, DeviceCapabilities},
     time::Instant,
     wire::HardwareAddress,
 };
 
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 use super::{
-    ether::{extract_headers, NetworkHdr, TransportHdr},
+    ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
+    multicast::ipv4_addr_to_mac_addr,
     net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
+    NetManagerError,
 };
 
 #[cfg(not(feature = "std"))]
@@ -31,7 +56,7 @@ struct NetDriverRef<'a> {
     tx_ringq: &'a mut RingQ<Vec<u8>>,
 }
 
-impl<'a> NetDriverRef<'a> {
+impl NetDriverRef<'_> {
     fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
         let mut flags = PacketHeaderFlags::empty();
 
@@ -63,9 +88,15 @@ impl<'a> NetDriverRef<'a> {
     }
 }
 
-impl<'a> Device for NetDriverRef<'a> {
-    type RxToken<'b> = NRxToken where Self : 'b;
-    type TxToken<'b> = NTxToken<'b> where Self: 'b;
+impl Device for NetDriverRef<'_> {
+    type RxToken<'b>
+        = NRxToken
+    where
+        Self: 'b;
+    type TxToken<'b>
+        = NTxToken<'b>
+    where
+        Self: 'b;
     fn capabilities(&self) -> phy::DeviceCapabilities {
         let mut cap = DeviceCapabilities::default();
         cap.max_transmission_unit = 1500;
@@ -135,24 +166,29 @@ impl<'a> Device for NetDriverRef<'a> {
 pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
-    rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
+    pub(super) socket_set: RwLock<SocketSet<'static>>,
+    rx_irq_to_driver: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
+    time: crate::time::Time,
+    will_poll: AtomicUsize,
 }
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
-    pub(super) socket_set: SocketSet<'static>,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
+
+    multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
+    multicast_addr_mac: BTreeMap<[u8; ETHER_ADDR_LEN], u32>,
 }
 
 impl IfNetInner {
     #[inline(always)]
-    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
-        (&mut self.interface, &mut self.socket_set)
+    pub fn get_interface(&mut self) -> &mut Interface {
+        &mut self.interface
     }
 
     #[inline(always)]
@@ -172,6 +208,8 @@ impl IfNetInner {
 
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
+        let time = crate::time::Time::now();
+
         let interface = {
             let mut tx_ringq = RingQ::new(0);
             let mut net_driver_ref = NetDriverRef {
@@ -180,24 +218,24 @@ impl IfNet {
                 tx_ringq: &mut tx_ringq,
             };
 
-            let instant = Instant::from_micros(crate::delay::uptime() as i64);
+            let instant = Instant::from_micros(time.uptime().as_micros() as i64);
             let hardware_address =
                 HardwareAddress::Ethernet(smoltcp::wire::EthernetAddress(net_device.mac_address()));
             let mut config = Config::new(hardware_address);
-            config.random_seed = crate::delay::uptime();
+            config.random_seed = time.uptime().as_nanos() as u64;
 
             Interface::new(config, &mut net_driver_ref, instant)
         };
 
         // Create NetDrivers.
-        let mut rx_irq_to_drvier = BTreeMap::new();
+        let mut rx_irq_to_driver = BTreeMap::new();
         let mut tx_only_ringq = Vec::new();
 
         for irq in net_device.irqs().into_iter() {
             let rx_ringq = RingQ::new(512);
 
             if let Some(que_id) = net_device.rx_irq_to_que_id(irq) {
-                rx_irq_to_drvier.insert(
+                rx_irq_to_driver.insert(
                     irq,
                     NetDriver {
                         inner: net_device.clone(),
@@ -246,57 +284,274 @@ impl IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
                 interface,
-                socket_set,
                 default_gateway_ipv4: None,
+                multicast_addr_ipv4: BTreeSet::new(),
+                multicast_addr_mac: BTreeMap::new(),
             }),
-            rx_irq_to_drvier,
+            socket_set: RwLock::new(socket_set),
+            rx_irq_to_driver,
             net_device,
             tx_only_ringq,
             is_poll_mode,
             poll_driver,
             tick_driver,
+            time,
+            will_poll: AtomicUsize::new(0),
         }
     }
 
+    /// Leave a multicast group.
+    /// This function calls `NetDevice::remove_multicast_addr` to remove a multicast address internally.
+    ///
+    /// Returns `Ok(leave_sent)` if the address was removed successfully,
+    /// where `leave_sent` indicates whether an immediate leave packet has been sent.
+    pub fn leave_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+        if !addr.is_multicast() {
+            return Err(NetManagerError::MulticastInvalidIpv4Address);
+        }
+
+        // Remove the multicast address from the list.
+        {
+            let mut node = MCSNode::new();
+            let inner = self.inner.lock(&mut node);
+
+            if !inner.multicast_addr_ipv4.contains(&addr) {
+                return Err(NetManagerError::MulticastNotJoined);
+            }
+        }
+
+        let mac_addr = ipv4_addr_to_mac_addr(addr);
+
+        // Leave the multicast group.
+        self.first_net_driver_ref(move |mut net_driver_ref| {
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
+            let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
+
+            match inner.interface.leave_multicast_group(
+                &mut net_driver_ref,
+                smoltcp_addr,
+                timestamp,
+            ) {
+                Ok(result) => {
+                    inner.multicast_addr_ipv4.remove(&addr);
+
+                    // Disable the multicast address if it is not used.
+                    match inner.multicast_addr_mac.entry(mac_addr) {
+                        btree_map::Entry::Occupied(mut entry) => {
+                            let count = entry.get_mut();
+
+                            if *count == 1 {
+                                entry.remove();
+                                self.net_device
+                                    .remove_multicast_addr(&mac_addr)
+                                    .map_err(NetManagerError::DeviceError)?;
+                            } else {
+                                *count -= 1;
+                            }
+                        }
+                        btree_map::Entry::Vacant(_) => {
+                            return Err(NetManagerError::MulticastInvalidIpv4Address);
+                        }
+                    }
+
+                    Ok(result)
+                }
+                Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
+                Err(_) => Err(NetManagerError::MulticastError),
+            }
+        })
+    }
+
+    fn first_net_driver_ref<F, T>(&self, mut f: F) -> Result<T, NetManagerError>
+    where
+        F: FnMut(NetDriverRef) -> Result<T, NetManagerError>,
+    {
+        let first_driver = self.rx_irq_to_driver.first_key_value();
+        let ref_net_driver = first_driver
+            .as_ref()
+            .ok_or(NetManagerError::InvalidState)?
+            .1;
+
+        let tx_ringq = self
+            .tx_only_ringq
+            .get(ref_net_driver.rx_que_id)
+            .ok_or(NetManagerError::InvalidState)?;
+
+        let mut node = MCSNode::new();
+        let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
+
+        let mut node = MCSNode::new();
+        let mut tx_ringq = tx_ringq.lock(&mut node);
+
+        let net_driver_ref = NetDriverRef {
+            inner: &ref_net_driver.inner,
+            rx_ringq: Some(&mut *rx_ringq),
+            tx_ringq: &mut tx_ringq,
+        };
+
+        f(net_driver_ref)
+    }
+
+    /// Join a multicast group.
+    /// This function calls `NetDevice::add_multicast_addr` and
+    /// `Interface::join_multicast_group` of `smoltcp` to add a multicast address internally.
+    ///
+    /// Add an address to a list of subscribed multicast IP addresses.
+    /// Returns `Ok(announce_sent)`` if the address was added successfully,
+    /// where `announce_sent`` indicates whether an initial immediate announcement has been sent.
+    pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+        if !addr.is_multicast() {
+            return Err(NetManagerError::MulticastInvalidIpv4Address);
+        }
+
+        // Enable the multicast address if it is used.
+        let mac_addr = ipv4_addr_to_mac_addr(addr);
+
+        {
+            // Add the multicast address to the list.
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
+
+            if inner.multicast_addr_ipv4.contains(&addr) {
+                return Ok(false);
+            }
+
+            match inner.multicast_addr_mac.entry(mac_addr) {
+                btree_map::Entry::Occupied(mut entry) => {
+                    *entry.get_mut() += 1;
+                }
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(1);
+                    self.net_device
+                        .add_multicast_addr(&mac_addr)
+                        .map_err(NetManagerError::DeviceError)?;
+                }
+            }
+        }
+
+        // Join the multicast group.
+        let result = self.first_net_driver_ref(move |mut net_driver_ref| {
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
+            let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
+
+            match inner
+                .interface
+                .join_multicast_group(&mut net_driver_ref, smoltcp_addr, timestamp)
+            {
+                Ok(result) => {
+                    inner.multicast_addr_ipv4.insert(addr);
+                    Ok(result)
+                }
+                Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
+                Err(_) => Err(NetManagerError::MulticastError),
+            }
+        });
+
+        if result.is_ok() {
+            return result;
+        }
+
+        // Error handling.
+        // If an error occurs, the multicast address is removed from the list.
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        if let btree_map::Entry::Occupied(mut entry) = inner.multicast_addr_mac.entry(mac_addr) {
+            let num = entry.get_mut();
+            if *num == 1 {
+                entry.remove();
+                self.net_device
+                    .remove_multicast_addr(&mac_addr)
+                    .map_err(NetManagerError::DeviceError)?;
+            } else {
+                *num -= 1;
+            }
+        }
+
+        result
+    }
+
+    /// Poll the network interface.
+    /// This function will only send IP packets to transmit queues.
+    ///
+    /// This function returns a boolean value indicating whether any packets were processed or emitted,
+    /// and thus, whether the readiness of any socket might have changed.
+    ///
+    /// This algorithm is modeled and tested by spin.
+    /// See `awkernel/specification/awkernel_lib/src/net/if_net/README.md`.
     pub fn poll_tx_only(&self, que_id: usize) -> bool {
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
 
-        let mut node = MCSNode::new();
-        let mut tx_ringq = tx_ringq.lock(&mut node);
+        let mut result = false;
 
-        let mut device_ref = NetDriverRef {
-            inner: &self.net_device,
-            rx_ringq: None,
-            tx_ringq: &mut tx_ringq,
-        };
+        loop {
+            // If some task will poll, this task need not to poll.
+            if self
+                .will_poll
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    if n > 0 {
+                        None
+                    } else {
+                        Some(n + 1)
+                    }
+                })
+                .is_err()
+            {
+                return true;
+            }
 
-        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-
-        let result = {
             let mut node = MCSNode::new();
-            let mut inner = self.inner.lock(&mut node);
+            let mut tx_ringq = tx_ringq.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-            interface.poll(timestamp, &mut device_ref, socket_set)
-        };
+            let mut device_ref = NetDriverRef {
+                inner: &self.net_device,
+                rx_ringq: None,
+                tx_ringq: &mut tx_ringq,
+            };
 
-        // send packets from the queue.
-        while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
-                let data = EtherFrameRef {
-                    data: &data,
-                    vlan: self.vlan,
-                    csum_flags: tx_packet_header_flags,
-                };
+            result = result || {
+                let mut node = MCSNode::new();
+                let mut inner = self.inner.lock(&mut node);
 
-                if self.net_device.send(data, que_id).is_err() {
-                    log::error!("Failed to send a packet.");
+                let interface = inner.get_interface();
+                self.will_poll.fetch_sub(1, Ordering::Relaxed);
+                interface.poll(timestamp, &mut device_ref, &self.socket_set)
+            };
+
+            let is_full = device_ref.tx_ringq.is_full();
+
+            // send packets from the queue.
+            while !device_ref.tx_ringq.is_empty() {
+                if let Some(data) = device_ref.tx_ringq.pop() {
+                    let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+
+                    let data = EtherFrameRef {
+                        data: &data,
+                        vlan: self.vlan,
+                        csum_flags: tx_packet_header_flags,
+                    };
+
+                    if self.net_device.send(data, que_id).is_err() {
+                        log::error!("Failed to send a packet.");
+                    }
+                } else {
+                    break;
                 }
-            } else {
+            }
+
+            // If the queue is full, there should be packets to be processed,
+            // and thus the loop continues.
+            if !is_full {
                 break;
             }
         }
@@ -304,11 +559,21 @@ impl IfNet {
         result
     }
 
-    fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
+    /// Poll the network interface.
+    /// This function receives and sends IP packets.
+    ///
+    /// This function returns a boolean value indicating whether any packets were processed or emitted,
+    /// and thus, whether the readiness of any socket might have changed.
+    ///
+    /// This algorithm is modeled and tested by spin.
+    /// See `awkernel/specification/awkernel_lib/src/net/if_net/README.md`.
+    fn poll_rx_tx(&self, ref_net_driver: &NetDriver) -> bool {
         let que_id = ref_net_driver.rx_que_id;
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
+
+        self.will_poll.fetch_add(1, Ordering::Relaxed);
 
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
@@ -332,14 +597,14 @@ impl IfNet {
         };
 
         let result = {
-            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            let interface = inner.get_interface();
+            self.will_poll.fetch_sub(1, Ordering::Relaxed);
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         // send packets from the queue.
@@ -369,7 +634,7 @@ impl IfNet {
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver)
+            self.poll_rx_tx(ref_net_driver)
         } else {
             false
         }
@@ -382,7 +647,7 @@ impl IfNet {
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver);
+            self.poll_rx_tx(ref_net_driver);
         }
     }
 
@@ -390,12 +655,12 @@ impl IfNet {
     /// If poll returns true, the caller should call poll again.
     #[inline(always)]
     pub fn poll_rx_irq(&self, irq: u16) -> bool {
-        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
+        let Some(ref_net_driver) = self.rx_irq_to_driver.get(&irq) else {
             return false;
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver)
+            self.poll_rx_tx(ref_net_driver)
         } else {
             false
         }
@@ -422,7 +687,7 @@ pub struct NTxToken<'a> {
     tx_ring: &'a mut RingQ<Vec<u8>>,
 }
 
-impl<'a> phy::TxToken for NTxToken<'a> {
+impl phy::TxToken for NTxToken<'_> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

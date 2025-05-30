@@ -1,6 +1,6 @@
-# Autoware Kernel
+# Awkernel
 
-Autoware kernel is a safe and realtime operating system.
+Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
 
 ## Progress
@@ -36,7 +36,8 @@ It can execute async/await applications in kernel space safely.
   - [ ] Reboot
 - [ ] Schedulers
   - [x] FIFO scheduler
-  - [ ] Round robin scheduler
+  - [x] Round robin scheduler
+  - [ ] Priority Based Round robin scheduler
   - [ ] EDF scheduler
   - [ ] DAG scheduler
 - [ ] Memory allocators
@@ -56,7 +57,7 @@ It can execute async/await applications in kernel space safely.
 - Network controllers
   - [x] Intel Gb Ethernet Controller (e1000 Series)
   - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
-  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [x] Intel 10Gb Ethernet Controller (X520 Series)
   - [ ] Mellanox ConnectX-5 series
   - [x] genet for Raspberry Pi
 - Networking
@@ -65,7 +66,7 @@ It can execute async/await applications in kernel space safely.
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
-  - [ ] IP multicast
+  - [x] IP multicast
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
@@ -82,12 +83,20 @@ It can execute async/await applications in kernel space safely.
 
 ## Dependencies
 
+
+### Compiler Tools
+
 ```text
-$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-05-08
-$ rustup default nightly-2024-05-08
+$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
+$ rustup toolchain install nightly-2025-02-27
+$ rustup default nightly-2025-02-27
 $ rustup component add rust-src llvm-tools-preview
-$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
+$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
+```
+
+### Documentation Tools
+
+```text
 $ cargo install cargo-binutils
 $ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 $ cargo binstall mdbook
@@ -121,6 +130,7 @@ graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
+    awkernel_lib-->awkernel_sync;
     userland-->awkernel_async_lib;
     kernel-->awkernel_lib;
     kernel-->awkernel_async_lib;
@@ -299,30 +309,6 @@ $ make aarch64 BSP=raspi5 RELEASE=1
 - Serial
   - 8N1: eight data bits, no parity, one stop bit
   - Speed: 115200
-
----
-
-## RISC-V (32bit, Qemu)
-
-### Compile
-
-Debug build.
-
-```text
-$ make riscv32
-```
-
-Release build.
-
-```text
-$ make riscv32 RELEASE=1
-```
-
-### Boot
-
-```text
-$ make qemu-riscv32
-```
 
 ---
 

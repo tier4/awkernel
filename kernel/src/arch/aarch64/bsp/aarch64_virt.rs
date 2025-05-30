@@ -140,6 +140,12 @@ impl super::SoC for AArch64Virt {
 
         Ok(())
     }
+
+    fn get_num_cpus(&self) -> usize {
+        self.device_tree
+            .num_cpus()
+            .expect("failed to count up the number of CPUs")
+    }
 }
 
 impl AArch64Virt {
@@ -324,9 +330,9 @@ impl AArch64Virt {
             .find_child("cpu-map")
             .ok_or(err_msg!("could not find cpu-map"))?;
 
-        let mut aff2_max = 1;
-        let mut aff1_max = 1;
-        let mut aff0_max = 1;
+        let mut aff2_max = 0;
+        let mut aff1_max = 0;
+        let mut aff0_max = 0;
         for socket in cpu_map
             .nodes()
             .iter()
@@ -376,7 +382,7 @@ impl AArch64Virt {
             }
         }
 
-        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 1) };
+        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 0) };
 
         Ok(())
     }
@@ -456,6 +462,8 @@ impl AArch64Virt {
             0,
             VirtAddr::new(base.as_usize()),
             Some(ranges.as_mut_slice()),
+            255,
+            32,
         );
 
         Ok(())

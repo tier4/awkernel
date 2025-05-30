@@ -19,18 +19,6 @@ const IXGBE_X540_RX_PB_SIZE: u32 = 384;
 
 pub struct IxgbeX540;
 
-fn mng_present(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
-    use MacType::*;
-
-    if matches!(mac_type, IxgbeMac82599EB) {
-        return Ok(false);
-    }
-
-    let fwsm = ixgbe_hw::read_reg(info, IXGBE_FWSM)?;
-
-    Ok((fwsm & IXGBE_FWSM_FW_MODE_PT) != 0)
-}
-
 /// This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
 fn check_reset_blocked(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
     use MacType::*;
@@ -327,7 +315,7 @@ pub fn mac_release_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
     ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync)?;
 
     release_swfw_sync_semaphore(info)?;
-    wait_microsec(2);
+    wait_millisec(2);
 
     Ok(())
 }
@@ -340,9 +328,8 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
 ) -> Result<(), IxgbeDriverErr> {
     let mut reg;
 
-    // What is this for?
-    if !on && mng_present(info, &hw.mac.mac_type)? {
-        return Ok(()); // Don't know if this is correct.
+    if !on && ixgbe_operations::mng_present(info, hw)? {
+        return Ok(());
     }
 
     reg = ops.phy_read_reg(
@@ -356,7 +343,7 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
         reg &= !(IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16);
     } else {
         if check_reset_blocked(info, &hw.mac.mac_type)? {
-            return Ok(()); // Not sure if this is correct.
+            return Ok(());
         }
         reg |= IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16;
     }
@@ -367,9 +354,7 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
         IXGBE_MDIO_VENDOR_SPECIFIC_1_CONTROL,
         IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
         reg,
-    )?;
-
-    Ok(())
+    )
 }
 
 impl IxgbeOperations for IxgbeX540 {
@@ -565,11 +550,8 @@ impl IxgbeOperations for IxgbeX540 {
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
-    let arc_subsystem_valid =
-        match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => val != 0,
-            Err(e) => return Err(e),
-        };
+    let fwsm_offset = get_fwsm_offset(info.get_id())?;
+    let arc_subsystem_valid = (ixgbe_hw::read_reg(info, fwsm_offset)? & IXGBE_FWSM_MODE_MASK) != 0;
 
     Ok((
         IXGBE_X540_MC_TBL_SIZE,

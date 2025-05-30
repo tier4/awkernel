@@ -349,10 +349,15 @@ impl InterruptController for Xapic {
     }
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: u16, target: u32) {
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32) {
+        let Some(dst) = awkernel_lib::arch::x86_64::cpu::cpu_id_to_raw_cpu_id(cpu_id as usize)
+        else {
+            return;
+        };
+
         if let Some(vector) = self.validate_and_convert_irq(irq) {
             self.interrupt(
-                target,
+                dst as u32,
                 registers::DestinationShorthand::NoShorthand,
                 registers::IcrFlags::empty(),
                 registers::DeliveryMode::Fixed,
@@ -469,10 +474,15 @@ impl InterruptController for X2Apic {
         unimplemented!("`pending_irqs` is not yet implemented in x2APIC.");
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u32) {
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32) {
+        let Some(dst) = awkernel_lib::arch::x86_64::cpu::cpu_id_to_raw_cpu_id(cpu_id as usize)
+        else {
+            return;
+        };
+
         if let Some(vector) = self.validate_and_convert_irq(irq) {
             self.interrupt(
-                target,
+                dst as u32,
                 registers::DestinationShorthand::NoShorthand,
                 registers::IcrFlags::empty(),
                 registers::DeliveryMode::Fixed,

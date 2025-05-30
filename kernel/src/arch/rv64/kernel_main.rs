@@ -31,6 +31,8 @@ global_asm!(include_str!("boot.S"));
 
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() {
+    unsafe { crate::config::init() };
+
     let hartid: usize = cpu::cpu_id();
     if hartid == 0 {
         primary_hart(hartid);
@@ -68,7 +70,7 @@ unsafe fn primary_hart(hartid: usize) {
         ns16550a::Divisor::BAUD115200,
     );
 
-    let _ = port.write_str("\r\nautoware kernel is booting\r\n\r\n");
+    let _ = port.write_str("\r\nAwkernel is booting\r\n\r\n");
 
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);
@@ -83,6 +85,7 @@ unsafe fn primary_hart(hartid: usize) {
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
+        num_cpu: 4, // TODO: get the number of CPUs
     };
 
     crate::main::<()>(kernel_info);
@@ -98,6 +101,7 @@ unsafe fn non_primary_hart(hartid: usize) {
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
+        num_cpu: 4, // TODO: get the number of CPUs
     };
 
     crate::main::<()>(kernel_info);

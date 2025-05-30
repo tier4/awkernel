@@ -3,14 +3,18 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
     task::{self, TaskResult},
 };
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
-use blisp::embedded;
+use blisp::{embedded, runtime::FFI};
 use core::time::Duration;
 
 const SERVICE_NAME: &str = "[Awkernel] shell";
@@ -34,21 +38,29 @@ pub fn init() {
 async fn console_handler() -> TaskResult {
     log::info!("Start {SERVICE_NAME}.");
 
-    let exprs = blisp::init(
-        CODE,
-        vec![
-            Box::new(HelpFfi),
-            Box::new(TaskFfi),
-            Box::new(InterruptFfi),
-            Box::new(IfconfigFfi),
-        ],
-    )
-    .unwrap();
+    #[allow(unused_mut)]
+    let mut functions: Vec<Box<dyn FFI + Send>> = vec![
+        Box::new(HelpFfi),
+        Box::new(TaskFfi),
+        Box::new(InterruptFfi),
+        Box::new(IfconfigFfi),
+    ];
+
+    #[cfg(feature = "perf")]
+    functions.push(Box::new(PerfFfi));
+
+    let code = if cfg!(feature = "perf") {
+        format!("{}\r\n{}", CODE, PERF_CODE)
+    } else {
+        CODE.to_string()
+    };
+
+    let exprs = blisp::init(&code, functions).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
 
-    console::print("\r\nWelcome to Autoware Kernel!\r\n\r\n");
+    console::print("\r\nWelcome to Awkernel!\r\n\r\n");
     console::print("You can use BLisp language as follows.\r\n");
     console::print("https://ytakano.github.io/blisp/\r\n\r\n");
     console::print("> (factorial 20)\r\n");
@@ -152,18 +164,25 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
     (ifconfig_ffi))
 ";
 
+const PERF_CODE: &str = "(export perf () (IO (-> () []))
+    (perf_ffi))";
+
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel v202306\r\n");
+    console::print("Awkernel v202306\r\n");
     console::print("BLisp grammer: https://ytakano.github.io/blisp/\r\n\r\n");
 
     console::print("BLisp functions:\r\n");
 
     let mut lines = String::new();
-    CODE.lines().for_each(|line| {
-        lines.push_str(line);
-        lines.push_str("\r\n");
-    });
+
+    lines.push_str("(help)      ; print this message\r\n");
+    lines.push_str("(task)      ; print tasks\r\n");
+    lines.push_str("(interrupt) ; print interrupt information\r\n");
+    lines.push_str("(ifconfig)  ; print network interfaces\r\n");
+
+    #[cfg(feature = "perf")]
+    lines.push_str("(perf)      ; print performance information\r\n");
 
     console::print(lines.as_str());
 }
@@ -214,6 +233,70 @@ fn ifconfig_ffi() {
     }
 }
 
+#[cfg(feature = "perf")]
+#[embedded]
+fn perf_ffi() {
+    console::print("Perform non-primary CPU [tsc]:\r\n");
+    console::print("  cpu   |    task_time  |   kernel_time  |    idle_time  | | yield_save | yield_restore | preempt_save | preempt_restore  \r\n");
+    console::print("--------|---------------|----------------|---------------| |------------|---------------|--------------|------------------\r\n");
+    for cpu_id in 1..awkernel_lib::cpu::num_cpu() {
+        let cpu_time = awkernel_async_lib::task::perf::get_cpu_time(cpu_id);
+        let kernel_time = awkernel_async_lib::task::perf::get_kernel_time(cpu_id);
+        let idle_time = awkernel_async_lib::task::perf::get_idle_time(cpu_id);
+        let (yield_save_overhead, yield_restore_overhead) =
+            awkernel_async_lib::task::perf::get_overheads(
+                awkernel_async_lib::task::perf::ContextSwitchType::Yield,
+                cpu_id,
+            );
+        let (preempt_save_overhead, preempt_restore_overhead) =
+            awkernel_async_lib::task::perf::get_overheads(
+                awkernel_async_lib::task::perf::ContextSwitchType::Preempt,
+                cpu_id,
+            );
+
+        let msg = format!(
+            "  {:>3}   | {:>12}  |  {:>12}  | {:>12}  | | {:>9}  | {:>12}  | {:>11}  | {:>16} \r\n",
+            cpu_id,
+            cpu_time,
+            kernel_time,
+            idle_time,
+            yield_save_overhead,
+            yield_restore_overhead,
+            preempt_save_overhead,
+            preempt_restore_overhead
+        );
+        console::print(&msg);
+    }
+
+    console::print("\r\n");
+
+    console::print("Perform overhead [tsc]:\r\n");
+    console::print("  type  |  avg_save  |   worst_save  |  avg_restore |  worst_restore  \r\n");
+    console::print("--------|------------|---------------|--------------|-----------------\r\n");
+
+    let (yield_save_average, yield_save_worst, yield_restore_average, yield_restore_worst) =
+        awkernel_async_lib::task::perf::calc_context_switch_overhead(
+            awkernel_async_lib::task::perf::ContextSwitchType::Yield,
+        );
+    let (preempt_save_average, preempt_save_worst, preempt_restore_average, preempt_restore_worst) =
+        awkernel_async_lib::task::perf::calc_context_switch_overhead(
+            awkernel_async_lib::task::perf::ContextSwitchType::Preempt,
+        );
+
+    let msg = format!(
+        "  yield | {:>10} | {:>13} | {:>12} | {:>14}  \r\n",
+        yield_save_average, yield_save_worst, yield_restore_average, yield_restore_worst
+    );
+    console::print(&msg);
+
+    let msg = format!(
+        "preempt | {:>10} | {:>13} | {:>12} | {:>14}  \r\n",
+        preempt_save_average, preempt_save_worst, preempt_restore_average, preempt_restore_worst
+    );
+    console::print(&msg);
+    console::print("\r\n");
+}
+
 fn print_tasks() {
     let tasks = task::get_tasks();
 
@@ -237,7 +320,7 @@ fn print_tasks() {
             if info.panicked() { "*" } else { " " },
             state,
             info.get_num_preemption(),
-            info.get_last_executed(),
+            info.get_last_executed().uptime().as_micros(),
             t.name,
         );
 
