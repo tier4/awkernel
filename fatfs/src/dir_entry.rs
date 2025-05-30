@@ -15,6 +15,7 @@ use crate::file::File;
 use crate::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use crate::time::{Date, DateTime};
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 bitflags! {
     /// A FAT file attributes.
@@ -512,7 +513,10 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    pub(crate) fn flush<IO: ReadWriteSeek + Send + Sync, TP, OCC>(
+        &mut self,
+        fs: &FileSystem<IO, TP, OCC>,
+    ) -> Result<(), IO::Error> {
         if self.dirty {
             self.write(fs)?;
             self.dirty = false;
@@ -520,10 +524,11 @@ impl DirEntryEditor {
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
-        let mut disk = fs.disk.borrow_mut();
-        disk.seek(io::SeekFrom::Start(self.pos))?;
-        self.data.serialize(&mut *disk)
+    fn write<IO: ReadWriteSeek + Send + Sync, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+        let mut node = MCSNode::new();
+        let mut disk_guard = fs.disk.lock(&mut node);
+        disk_guard.seek(io::SeekFrom::Start(self.pos))?;
+        self.data.serialize(&mut *disk_guard)
     }
 }
 
@@ -531,7 +536,7 @@ impl DirEntryEditor {
 ///
 /// `DirEntry` is returned by `DirIter` when reading a directory.
 #[derive(Clone)]
-pub struct DirEntry<'a, IO: ReadWriteSeek, TP, OCC> {
+pub struct DirEntry<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
     #[cfg(feature = "lfn")]
@@ -542,7 +547,7 @@ pub struct DirEntry<'a, IO: ReadWriteSeek, TP, OCC> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// Returns short file name.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -716,7 +721,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> fmt::Debug for DirEntry<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> fmt::Debug for DirEntry<'_, IO, TP, OCC> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
     }

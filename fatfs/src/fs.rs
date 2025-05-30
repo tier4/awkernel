@@ -16,6 +16,7 @@ use crate::table::{
     alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator, RESERVED_FAT_ENTRIES,
 };
 use crate::time::{DefaultTimeProvider, TimeProvider};
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 // FAT implementation based on:
 //   http://wiki.osdev.org/FAT
@@ -323,16 +324,16 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-pub struct FileSystem<IO: ReadWriteSeek, TP = DefaultTimeProvider, OCC = LossyOemCpConverter> {
-    pub(crate) disk: RefCell<IO>,
+pub struct FileSystem<IO: ReadWriteSeek + Send + Sync, TP = DefaultTimeProvider, OCC = LossyOemCpConverter> {
+    pub(crate) disk: Mutex<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
     bpb: BiosParameterBlock,
     first_data_sector: u32,
     root_dir_sectors: u32,
     total_clusters: u32,
-    fs_info: RefCell<FsInfoSector>,
-    current_status_flags: Cell<FsStatusFlags>,
+    fs_info: Mutex<FsInfoSector>,
+    current_status_flags: Mutex<FsStatusFlags>,
 }
 
 pub trait IntoStorage<T: Read + Write + Seek> {
@@ -352,7 +353,7 @@ impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWra
     }
 }
 
-impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
+impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Creates a new filesystem object instance.
     ///
     /// Supplied `storage` parameter cannot be seeked. If there is a need to read a fragment of disk
@@ -411,15 +412,15 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let status_flags = bpb.status_flags();
         trace!("FileSystem::new end");
         Ok(Self {
-            disk: RefCell::new(disk),
+            disk: Mutex::new(disk),
             options,
             fat_type,
             bpb,
             first_data_sector,
             root_dir_sectors,
             total_clusters,
-            fs_info: RefCell::new(fs_info),
-            current_status_flags: Cell::new(status_flags),
+            fs_info: Mutex::new(fs_info),
+            current_status_flags: Mutex::new(status_flags),
         })
     }
 
@@ -487,34 +488,43 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     pub(crate) fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let num_free = iter.truncate()?;
-        let mut fs_info = self.fs_info.borrow_mut();
-        fs_info.map_free_clusters(|n| n + num_free);
+        let mut node = MCSNode::new();
+        let mut fs_info_guard = self.fs_info.lock(&mut node);
+        fs_info_guard.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
     pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let num_free = iter.free()?;
-        let mut fs_info = self.fs_info.borrow_mut();
-        fs_info.map_free_clusters(|n| n + num_free);
+        let mut node = MCSNode::new();
+        let mut fs_info_guard = self.fs_info.lock(&mut node);
+        fs_info_guard.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
     pub(crate) fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
-        let hint = self.fs_info.borrow().next_free_cluster;
+        let hint;
+        {
+            let mut node = MCSNode::new();
+            let fs_info_guard = self.fs_info.lock(&mut node);
+            hint = fs_info_guard.next_free_cluster;
+        }
         let cluster = {
             let mut fat = self.fat_slice();
             alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters)?
         };
         if zero {
-            let mut disk = self.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
-            write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
+            let mut node_disk = MCSNode::new();
+            let mut disk_guard = self.disk.lock(&mut node_disk);
+            disk_guard.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
+            write_zeros(&mut *disk_guard, u64::from(self.cluster_size()))?;
         }
-        let mut fs_info = self.fs_info.borrow_mut();
-        fs_info.set_next_free_cluster(cluster + 1);
-        fs_info.map_free_clusters(|n| n - 1);
+        let mut node = MCSNode::new();
+        let mut fs_info_guard = self.fs_info.lock(&mut node);
+        fs_info_guard.set_next_free_cluster(cluster + 1);
+        fs_info_guard.map_free_clusters(|n| n - 1);
         Ok(cluster)
     }
 
@@ -541,7 +551,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn stats(&self) -> Result<FileSystemStats, Error<IO::Error>> {
-        let free_clusters_option = self.fs_info.borrow().free_cluster_count;
+        let mut node = MCSNode::new();
+        let fs_info_guard = self.fs_info.lock(&mut node);
+        let free_clusters_option = fs_info_guard.free_cluster_count;
+        drop(fs_info_guard);
         let free_clusters = if let Some(n) = free_clusters_option {
             n
         } else {
@@ -558,7 +571,9 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
         let mut fat = self.fat_slice();
         let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters)?;
-        self.fs_info.borrow_mut().set_free_cluster_count(free_cluster_count);
+        let mut node = MCSNode::new();
+        let mut fs_info_guard = self.fs_info.lock(&mut node);
+        fs_info_guard.set_free_cluster_count(free_cluster_count);
         Ok(free_cluster_count)
     }
 
@@ -580,13 +595,19 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     fn flush_fs_info(&self) -> Result<(), Error<IO::Error>> {
-        let mut fs_info = self.fs_info.borrow_mut();
-        if self.fat_type == FatType::Fat32 && fs_info.dirty {
-            let mut disk = self.disk.borrow_mut();
+        let mut node = MCSNode::new();
+        let fs_info_guard = self.fs_info.lock(&mut node);
+        if self.fat_type == FatType::Fat32 && fs_info_guard.dirty {
+            drop(fs_info_guard);
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
-            disk.seek(SeekFrom::Start(fs_info_sector_offset))?;
-            fs_info.serialize(&mut *disk)?;
-            fs_info.dirty = false;
+            let mut node_disk = MCSNode::new();
+            let mut disk_guard = self.disk.lock(&mut node_disk);
+            disk_guard.seek(SeekFrom::Start(fs_info_sector_offset))?;
+
+            let mut node = MCSNode::new();
+            let mut fs_info_guard = self.fs_info.lock(&mut node);
+            fs_info_guard.serialize(&mut *disk_guard)?;
+            fs_info_guard.dirty = false;
         }
         Ok(())
     }
@@ -596,7 +617,12 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut flags = self.bpb.status_flags();
         flags.dirty |= dirty;
         // Check if flags has changed
-        let current_flags = self.current_status_flags.get();
+        let current_flags;
+        {
+            let mut node = MCSNode::new();
+            let current_status_flags_guard = self.current_status_flags.lock(&mut node);
+            current_flags = *current_status_flags_guard;
+        }
         if flags == current_flags {
             // Nothing to do
             return Ok(());
@@ -609,10 +635,17 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         } else {
             0x025
         };
-        let mut disk = self.disk.borrow_mut();
-        disk.seek(io::SeekFrom::Start(offset))?;
-        disk.write_u8(encoded)?;
-        self.current_status_flags.set(flags);
+        {
+            let mut node = MCSNode::new();
+            let mut disk_guard = self.disk.lock(&mut node);
+            disk_guard.seek(io::SeekFrom::Start(offset))?;
+            disk_guard.write_u8(encoded)?;
+        }
+        {
+            let mut node = MCSNode::new();
+            let mut current_status_flags_guard = self.current_status_flags.lock(&mut node);
+            *current_status_flags_guard = flags;
+        }
         Ok(())
     }
 
@@ -635,7 +668,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from BPB in the Boot Sector as `String`.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -651,7 +684,7 @@ impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from root directory as `String`.
     ///
     /// It finds file with `VOLUME_ID` attribute and returns its short name.
@@ -694,7 +727,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
 }
 
 /// `Drop` implementation tries to unmount the filesystem when dropping.
-impl<IO: ReadWriteSeek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
             error!("unmount failed {:?}", err);
@@ -702,23 +735,28 @@ impl<IO: ReadWriteSeek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     }
 }
 
-pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC> {
+pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC> {
     type Error = IO::Error;
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.fs.disk.borrow_mut().read(buf)
+        let mut node = MCSNode::new();
+        let mut disk_guard = self.fs.disk.lock(&mut node);
+        disk_guard.read(buf)
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let size = self.fs.disk.borrow_mut().write(buf)?;
+        let mut node = MCSNode::new();
+        let mut disk_guard = self.fs.disk.lock(&mut node);
+        let size = disk_guard.write(buf)?;
+        drop(disk_guard);
         if size > 0 {
             self.fs.set_dirty_flag(true)?;
         }
@@ -726,18 +764,22 @@ impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.fs.disk.borrow_mut().flush()
+        let mut node = MCSNode::new();
+        let mut disk_guard = self.fs.disk.lock(&mut node);
+        disk_guard.flush()
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        self.fs.disk.borrow_mut().seek(pos)
+        let mut node = MCSNode::new();
+        let mut disk_guard = self.fs.disk.lock(&mut node);
+        disk_guard.seek(pos)
     }
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         FsIoAdapter { fs: self.fs }
     }
