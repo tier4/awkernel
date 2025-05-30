@@ -84,6 +84,7 @@ optional = true
 
 [dependencies.test_filesystem]
 path = "../applications/tests/test_filesystem"
+optional = true
 
 [dependencies.test_voluntary_preemption]
 path = "../applications/tests/test_voluntary_preemption"
