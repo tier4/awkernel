@@ -64,7 +64,7 @@ impl crate::paging::Mapper for super::RV64 {
                 if pte.is_valid() {
                     let ppn = pte.ppn();
                     let phy_addr = (ppn.0 << 12) | lower;
-                    return Some(PhyAddr::new(phy_addr));
+                    Some(PhyAddr::new(phy_addr))
                 }
             }
         }

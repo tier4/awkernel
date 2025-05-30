@@ -68,9 +68,7 @@ impl FrameTracker {
     pub fn new(ppn: PhysPageNum) -> Self {
         // page cleaning
         let bytes_array = ppn.get_bytes_array();
-        for i in bytes_array {
-            *i = 0;
-        }
+        bytes_array.fill(0);
         Self { ppn }
     }
 }
@@ -100,13 +98,11 @@ impl FrameAllocator for PageAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
             Some(ppn.into())
+        } else if self.current == self.end {
+            None
         } else {
-            if self.current == self.end {
-                None
-            } else {
-                self.current += 1;
-                Some((self.current - 1).into())
-            }
+            self.current += 1;
+            Some((self.current - 1).into())
         }
     }
 
@@ -122,7 +118,7 @@ impl FrameAllocator for PageAllocator {
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        if ppn.0 >= self.current || self.recycled.iter().find(|&&v| v == ppn.0).is_some() {
+        if ppn.0 >= self.current || self.recycled.iter().any(|&v| v == ppn.0) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn.0)
         }
         self.recycled.push(ppn.0)

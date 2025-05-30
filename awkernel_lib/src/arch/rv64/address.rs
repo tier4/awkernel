@@ -11,7 +11,7 @@ pub const MEMORY_END: u64 = 0x80800_000;
 
 /// Design abstraction struct:
 /// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum
-/// to guarantee memory safty by borrow check in compilation
+/// to guarantee memory safety by borrow check in compilation
 // SV39 Physical Address Length
 pub const PA_WIDTH: usize = 56;
 
@@ -40,7 +40,7 @@ pub struct PhysPageNum(pub usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirtPageNum(pub usize);
 
-// implete Debugging trait for debug
+// implement Debugging trait for debug
 
 impl Debug for PhysAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

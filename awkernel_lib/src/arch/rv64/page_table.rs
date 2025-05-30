@@ -86,32 +86,28 @@ impl PageTable {
     fn find_pte(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
-        let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
             if i == 2 {
                 // Level 0 (leaf level) - changed from 1 to 2
-                result = Some(pte);
-                break;
+                return Some(pte);
             }
             if !pte.is_valid() {
                 return None;
             }
             ppn = pte.ppn();
         }
-        result
+        None
     }
 
     fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
-        let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
             if i == 2 {
                 // Level 0 (leaf level) - changed from 1 to 2
-                result = Some(pte);
-                break;
+                return Some(pte);
             }
             if !pte.is_valid() {
                 let frame = frame_alloc().unwrap();
@@ -120,7 +116,7 @@ impl PageTable {
             }
             ppn = pte.ppn();
         }
-        result
+        None
     }
 
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) -> bool {
