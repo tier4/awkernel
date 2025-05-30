@@ -32,8 +32,6 @@ use core::{future::Future, pin::Pin, time::Duration};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
-
-#[cfg(feature = "perf")]
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 pub enum DagError {
@@ -249,8 +247,8 @@ impl Dag {
         #[cfg(not(feature = "perf"))]
         {
             let mut node = MCSNode::new();
-            let mut pending_tasks = PENDING_TASKS.lock(&mut node);
-            pending_tasks
+            let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
+            source_pending_tasks
                 .entry(self.id)
                 .or_default()
                 .push(PendingTask::new(node_idx, move || {
@@ -428,24 +426,18 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             }
         }
 
-        // Data published before successor nodes were ready was lost, leading to
-        // release/finish count mismatches and inaccurate response time calculations.
-        // To prevent this, source nodes now spawn only after all successors are prepared.
-        #[cfg(feature = "perf")]
-        {
-            let source_pending_tasks = {
-                let mut node = MCSNode::new();
-                let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-                lock.remove(&dag.id).unwrap_or_default()
-            };
+        let source_pending_tasks = {
+            let mut node = MCSNode::new();
+            let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
+            lock.remove(&dag.id).unwrap_or_default()
+        };
 
-            for task in source_pending_tasks {
-                let task_id = (task.spawn)().await;
-                let mut graph_node = MCSNode::new();
-                let mut graph = dag.graph.lock(&mut graph_node);
-                if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
-                    node_info.task_id = task_id;
-                }
+        for task in source_pending_tasks {
+            let task_id = (task.spawn)().await;
+            let mut graph_node = MCSNode::new();
+            let mut graph = dag.graph.lock(&mut graph_node);
+            if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
+                node_info.task_id = task_id;
             }
         }
     }
