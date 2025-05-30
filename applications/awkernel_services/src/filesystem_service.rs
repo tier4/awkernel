@@ -92,12 +92,12 @@ pub async fn run() {
                 tx: client_tx,
             } => match root_dir.open_file(path.as_str()) {
                 Ok(file) => {
-                    send_response(fd, &client_tx, Ok(FileSystemRes::Success), "[Create]").await;
+                    send_response(fd, &client_tx, Ok(FileSystemRes::Success), "[Open]").await;
                     fd_to_file.insert(fd, (file, client_tx));
                 }
                 Err(fatfs_err) => {
                     let fs_error = map_fatfs_error(fatfs_err);
-                    send_response(fd, &client_tx, Err(fs_error), "[Create]").await;
+                    send_response(fd, &client_tx, Err(fs_error), "[Open]").await;
                 }
             },
             FileSystemReq::Read { fd, bufsize } => {
@@ -116,7 +116,6 @@ pub async fn run() {
                         });
                     send_response(fd, client_tx, res, "[Read]").await;
                 } else {
-                    log::error!("[Read] File descriptor {} not found", fd);
                     panic!("Read failed: File descriptor {} not found", fd);
                 }
             }
@@ -131,7 +130,6 @@ pub async fn run() {
                             });
                     send_response(fd, client_tx, res, "[Write]").await;
                 } else {
-                    log::error!("[Write] File descriptor {} not found", fd);
                     panic!("Write failed: File descriptor {} not found", fd);
                 }
             }
@@ -148,7 +146,6 @@ pub async fn run() {
                         });
                     send_response(fd, client_tx, res, "[Seek]").await;
                 } else {
-                    log::error!("[Seek] File descriptor {} not found", fd);
                     panic!("Seek failed: File descriptor {} not found", fd);
                 }
             }
@@ -156,7 +153,6 @@ pub async fn run() {
                 if let Some((_file, client_tx)) = fd_to_file.remove(&fd) {
                     let _ = client_tx.send(Ok(FileSystemRes::Success)).await;
                 } else {
-                    log::error!("[Close] File descriptor {} not found", fd);
                     panic!("Close failed: File descriptor {} not found", fd);
                 }
             }
