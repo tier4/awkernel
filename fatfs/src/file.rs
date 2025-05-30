@@ -13,7 +13,7 @@ const MAX_FILE_SIZE: u32 = u32::MAX;
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
-pub struct File<'a, IO: ReadWriteSeek + Send + Sync + Send + Sync, TP, OCC> {
+pub struct File<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     // Note first_cluster is None if file is empty
     first_cluster: Option<u32>,
     // Note: if offset points between clusters current_cluster is the previous cluster
@@ -37,7 +37,7 @@ pub struct Extent {
     pub size: u32,
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
     pub(crate) fn new(
         first_cluster: Option<u32>,
         entry: Option<DirEntryEditor>,
