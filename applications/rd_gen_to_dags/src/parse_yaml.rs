@@ -2,13 +2,21 @@ use alloc::{collections::BTreeMap, string::String, string::ToString, vec::Vec};
 use serde::Deserialize;
 use yaml_peg::serde::from_str;
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) enum ParseError {
     EmptyYaml,
     UnmatchedYaml(String),
     MultipleDocumentsFound,
+}
+
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ParseError::EmptyYaml => write!(f, "Empty YAML file"),
+            ParseError::UnmatchedYaml(e) => write!(f, "Unmatched YAML: {e}"),
+            ParseError::MultipleDocumentsFound => write!(f, "Multiple documents found in YAML"),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -118,8 +126,6 @@ fn convert_to_dag(raw_data: RawData) -> DagData {
     DagData { nodes }
 }
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<DagData>, ParseError> {
     dag_files
         .iter()

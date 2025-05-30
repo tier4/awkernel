@@ -7,21 +7,35 @@ use awkernel_async_lib::{
     scheduler::SchedulerType,
 };
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 /// Represents errors related to the number of links for a node.
 /// `(DAG ID, Node ID)` tuple to identify the specific DAG and node where the error occurred.
-enum LinkNumError {
+pub(crate) enum LinkNumError {
     Input(u32, u32),
     Output(u32, u32),
     InOut(u32, u32),
 }
 
-pub struct NodeRegistrationInfo {
-    pub execution_time: u64,
-    pub reactor_name: Cow<'static, str>,
-    pub pub_topics: Vec<Cow<'static, str>>,
-    pub sub_topics: Vec<Cow<'static, str>>,
+impl core::fmt::Display for LinkNumError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LinkNumError::Input(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has no input links")
+            }
+            LinkNumError::Output(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has no output links")
+            }
+            LinkNumError::InOut(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has no links")
+            }
+        }
+    }
+}
+
+struct NodeRegistrationInfo {
+    execution_time: u64,
+    reactor_name: Cow<'static, str>,
+    pub_topics: Vec<Cow<'static, str>>,
+    sub_topics: Vec<Cow<'static, str>>,
 }
 
 fn create_reactor_name(dag_id: u32, node_id: u32) -> Cow<'static, str> {
@@ -258,9 +272,10 @@ async fn register_intermediate_node(
     }
 }
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
-async fn build_dag(dag_data: DagData, sched_type: SchedulerType) -> Result<Arc<Dag>, LinkNumError> {
+pub(super) async fn build_dag(
+    dag_data: DagData,
+    sched_type: SchedulerType,
+) -> Result<Arc<Dag>, LinkNumError> {
     let dag = create_dag();
 
     for node in dag_data.get_nodes() {

@@ -30,6 +30,16 @@ pub enum DagError {
     MissingPendingTasks(u32),
 }
 
+impl core::fmt::Display for DagError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
+            DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
+            DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
+        }
+    }
+}
+
 struct PendingTask {
     node_idx: NodeIndex,
     spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
