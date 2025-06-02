@@ -1,3 +1,24 @@
+//! Provides functionality for building and executing Directed Acyclic Graphs (DAGs) of reactors.
+//!
+//! # Main Workflow
+//!
+//! 1. Create a new `Dag` instance by calling the `create_dag` function.
+//! 2. Define the graph structure by calling methods on the `Dag` instance (e.g., `register_reactor`) to register reactors as nodes.
+//! 3. Once all DAGs are defined, call the `finish_create_dags` function.
+//!    This validates the DAGs and spawns all registered reactor tasks, starting their execution.
+//!
+//! # Key Public Components
+//!
+//! - `Dag`: The central struct representing an individual task graph.
+//! - `create_dag()`: The entry point for creating a new DAG.
+//! - `register_xx_reactor()`: Methods to register different types of reactors.
+//! - `finish_create_dags()`: The function to validate the defined DAGs and start their execution.
+//! - `DagError`: Defines potential errors that can occur during DAG validation.
+//!
+//! # Example Usage
+//!
+//! See the `applications/tests/test_dag` example for practical usage.
+//!
 mod graph;
 mod unionfind;
 mod visit;
