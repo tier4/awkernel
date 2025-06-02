@@ -78,6 +78,10 @@ optional = true
 path = "../applications/tests/test_dvfs"
 optional = true
 
+[dependencies.test_voluntary_preemption]
+path = "../applications/tests/test_voluntary_preemption"
+optional = true
+
 [features]
 default = []
 perf = ["awkernel_services/perf"]
@@ -100,3 +104,4 @@ test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
+test_voluntary_preemption = ["dep:test_voluntary_preemption"]

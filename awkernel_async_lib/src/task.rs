@@ -22,7 +22,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -35,7 +35,7 @@ use futures::{
 use alloc::vec::Vec;
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::{preemption, thread::deallocate_thread_pool};
+pub use preempt::{preemption, thread::deallocate_thread_pool, voluntary_preemption};
 
 #[cfg(not(feature = "no_preempt"))]
 use preempt::thread::PtrWorkerThreadContext;
@@ -47,6 +47,9 @@ static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
+
+static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
+    array![_ => AtomicBool::new(false); NUM_MAX_CPU];
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -627,6 +630,8 @@ pub fn run_main() {
         perf::start_kernel();
 
         if let Some(task) = get_next_task() {
+            PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -887,7 +892,7 @@ pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
 }
 
 #[inline(always)]
-pub fn set_need_preemption(task_id: u32) {
+pub fn set_need_preemption(task_id: u32, cpu_id: usize) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
@@ -896,6 +901,8 @@ pub fn set_need_preemption(task_id: u32) {
         let mut info = task.info.lock(&mut node);
         info.need_preemption = true;
     }
+
+    PREEMPTION_REQUEST[cpu_id].store(true, Ordering::Release);
 }
 
 pub fn panicking() {
