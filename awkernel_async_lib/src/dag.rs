@@ -43,7 +43,7 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
-use awkernel_lib::delay::cpu_counter;
+use awkernel_lib::time::Time;
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -93,8 +93,8 @@ struct NodeInfo {
 
 #[cfg(feature = "perf")]
 struct ResponseInfo {
-    release_time: Vec<u64>,
-    response_time: Vec<u64>,
+    release_time: Vec<Time>,
+    response_time: Vec<Duration>,
 }
 
 #[cfg(feature = "perf")]
@@ -106,22 +106,12 @@ impl ResponseInfo {
         }
     }
 
-    fn add_release_time(&mut self, current_time: u64) {
+    fn add_release_time(&mut self, current_time: Time) {
         self.release_time.push(current_time);
     }
 
-    fn add_response_time(&mut self, finish_time: u64) {
-        let release_time = self
-            .release_time
-            .get(self.response_time.len())
-            .expect("release_time is always recorded due to precedence constraints.");
-
-        // Finish time > release time due to precedence constraints.
-        self.response_time.push(finish_time - release_time);
-
-        let response = finish_time - release_time;
-        let count = self.response_time.len();
-        log::debug!("Response time#{count}: {response} ns");
+    fn add_response_time(&mut self, response_time: Duration) {
+        self.response_time.push(response_time);
     }
 }
 
@@ -441,22 +431,33 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
 #[cfg(feature = "perf")]
 fn create_release_recorder(dag_id: u32) -> MeasureF {
     let closure = move || {
-        let finish_time = cpu_counter();
+        let release_time = Time::now();
         let dag = get_dag(dag_id).unwrap();
         let mut node = MCSNode::new();
         let mut response_info = dag.response_info.lock(&mut node);
-        response_info.add_release_time(finish_time);
+        response_info.add_release_time(release_time);
     };
     Arc::new(closure) as MeasureF
 }
 
 #[cfg(feature = "perf")]
 fn record_response_time(dag_id: u32) {
-    let finish_time = cpu_counter();
+    let overhead_start = Time::now();
+
     let dag = get_dag(dag_id).unwrap();
     let mut node = MCSNode::new();
     let mut response_info = dag.response_info.lock(&mut node);
-    response_info.add_response_time(finish_time);
+
+    let release_time = response_info
+        .release_time
+        .get(response_info.response_time.len())
+        .expect("release_time is always recorded due to precedence constraints.");
+
+    let overhead = overhead_start.elapsed();
+
+    let response_time = release_time.elapsed();
+
+    response_info.add_response_time(response_time.saturating_sub(overhead));
 }
 
 async fn spawn_reactor<F, Args, Ret>(
