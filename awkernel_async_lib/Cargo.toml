@@ -43,5 +43,3 @@ no_preempt = []
 spinlock = ["awkernel_lib/spinlock"]
 clippy = []
 perf = []
-
-test_utils = []
