@@ -23,6 +23,9 @@ mod graph;
 mod unionfind;
 mod visit;
 
+#[cfg(feature = "perf")]
+mod performance;
+
 use crate::{
     dag::graph::{
         algo::{connected_components, is_cyclic_directed},
@@ -31,7 +34,6 @@ use crate::{
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
-
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -43,13 +45,13 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
-use awkernel_lib::time::Time;
-
-type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
+use performance::ResponseInfo;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+
+type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
 pub enum DagError {
     NotWeaklyConnected(u32),
@@ -89,30 +91,6 @@ struct NodeInfo {
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
-}
-
-#[cfg(feature = "perf")]
-struct ResponseInfo {
-    release_time: Vec<Time>,
-    response_time: Vec<Duration>,
-}
-
-#[cfg(feature = "perf")]
-impl ResponseInfo {
-    fn new() -> Self {
-        Self {
-            release_time: Vec::new(),
-            response_time: Vec::new(),
-        }
-    }
-
-    fn add_release_time(&mut self, current_time: Time) {
-        self.release_time.push(current_time);
-    }
-
-    fn add_response_time(&mut self, response_time: Duration) {
-        self.response_time.push(response_time);
-    }
 }
 
 pub struct Dag {
@@ -241,7 +219,7 @@ impl Dag {
         let measure_f: Option<MeasureF> = {
             #[cfg(feature = "perf")]
             {
-                Some(create_release_recorder(self.id))
+                Some(performance::create_release_recorder(self.id))
             }
             #[cfg(not(feature = "perf"))]
             {
@@ -290,7 +268,7 @@ impl Dag {
                 let dag_id = self.id;
                 move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
                     f(arg);
-                    record_response_time(dag_id);
+                    performance::record_response_time(dag_id);
                 }
             }
             #[cfg(not(feature = "perf"))]
@@ -426,38 +404,6 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     }
 
     Ok(())
-}
-
-#[cfg(feature = "perf")]
-fn create_release_recorder(dag_id: u32) -> MeasureF {
-    let closure = move || {
-        let release_time = Time::now();
-        let dag = get_dag(dag_id).unwrap();
-        let mut node = MCSNode::new();
-        let mut response_info = dag.response_info.lock(&mut node);
-        response_info.add_release_time(release_time);
-    };
-    Arc::new(closure) as MeasureF
-}
-
-#[cfg(feature = "perf")]
-fn record_response_time(dag_id: u32) {
-    let overhead_start = Time::now();
-
-    let dag = get_dag(dag_id).unwrap();
-    let mut node = MCSNode::new();
-    let mut response_info = dag.response_info.lock(&mut node);
-
-    let release_time = response_info
-        .release_time
-        .get(response_info.response_time.len())
-        .expect("release_time is always recorded due to precedence constraints.");
-
-    let overhead = overhead_start.elapsed();
-
-    let response_time = release_time.elapsed();
-
-    response_info.add_response_time(response_time.saturating_sub(overhead));
 }
 
 async fn spawn_reactor<F, Args, Ret>(
