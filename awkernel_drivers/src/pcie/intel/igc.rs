@@ -456,6 +456,19 @@ fn igc_get_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     )
 }
 
+/// igc_release_hw_control resets {CTRL_EXT|FWSM}:DRV_LOAD bit.
+/// For ASF and Pass Through versions of f/w this means that
+/// the driver is no longer loaded. For AMT versions of the
+/// f/w this means that the network i/f is closed.
+fn igc_release_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    let ctrl_ext = read_reg(info, igc_regs::IGC_CTRL_EXT)?;
+    write_reg(
+        info,
+        igc_regs::IGC_CTRL_EXT,
+        ctrl_ext & !IGC_CTRL_EXT_DRV_LOAD,
+    )
+}
+
 fn roundup2<T>(size: T, unit: T) -> T
 where
     T: Copy
