@@ -4,6 +4,7 @@ use awkernel_lib::sync::mutex::MCSNode;
 use awkernel_lib::time::Time;
 use core::time::Duration;
 
+/// The assumption is that there is one sink vertex and one source vertexe.
 pub(super) struct ResponseInfo {
     release_time: Vec<Time>,
     response_time: Vec<Duration>,

@@ -390,7 +390,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         let source_pending_tasks = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap_or_default()
+            lock.remove(&dag.id).unwrap()
         };
 
         for task in source_pending_tasks {
