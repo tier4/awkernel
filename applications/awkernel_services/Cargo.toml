@@ -25,3 +25,7 @@ path = "../awkernel_display"
 
 [features]
 perf = ["awkernel_shell/perf"]
+
+[dependencies.fatfs]
+path = "../../fatfs"
+default-features = false
