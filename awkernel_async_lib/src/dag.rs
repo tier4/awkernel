@@ -1,3 +1,24 @@
+//! Provides functionality for building and executing Directed Acyclic Graphs (DAGs) of reactors.
+//!
+//! # Main Workflow
+//!
+//! 1. Create a new `Dag` instance by calling the `create_dag` function.
+//! 2. Define the graph structure by calling methods on the `Dag` instance (e.g., `register_reactor`) to register reactors as nodes.
+//! 3. Once all DAGs are defined, call the `finish_create_dags` function.
+//!    This validates the DAGs and spawns all registered reactor tasks, starting their execution.
+//!
+//! # Key Public Components
+//!
+//! - `Dag`: The central struct representing an individual task graph.
+//! - `create_dag()`: The entry point for creating a new DAG.
+//! - `register_xx_reactor()`: Methods to register different types of reactors.
+//! - `finish_create_dags()`: The function to validate the defined DAGs and start their execution.
+//! - `DagError`: Defines potential errors that can occur during DAG validation.
+//!
+//! # Example Usage
+//!
+//! See the `applications/tests/test_dag` example for practical usage.
+//!
 mod graph;
 mod unionfind;
 mod visit;
@@ -8,8 +29,7 @@ use crate::{
         NodeIndex,
     },
     scheduler::SchedulerType,
-    spawn_periodic_reactor, spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender,
-    VectorToPublishers, VectorToSubscribers,
+    sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -326,4 +346,96 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     }
 
     Ok(())
+}
+
+async fn spawn_reactor<F, Args, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) -> u32
+where
+    F: Fn(
+            <Args::Subscribers as MultipleReceiver>::Item,
+        ) -> <Ret::Publishers as MultipleSender>::Item
+        + Send
+        + 'static,
+    Args: VectorToSubscribers,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+    Args::Subscribers: Send,
+{
+    let future = async move {
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            let results = f(args);
+            publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
+}
+
+async fn spawn_periodic_reactor<F, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+    period: Duration,
+) -> u32
+where
+    F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+{
+    // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
+    let future = async move {
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        loop {
+            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
+            let results = f();
+            publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
+}
+
+async fn spawn_sink_reactor<F, Args>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) -> u32
+where
+    F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
+    Args: VectorToSubscribers,
+    Args::Subscribers: Send,
+{
+    let future = async move {
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            f(args);
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
 }
