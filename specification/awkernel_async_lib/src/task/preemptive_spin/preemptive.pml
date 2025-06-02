@@ -79,7 +79,7 @@ inline invoke_preemption(task) {
 	if
 	:: task < lp_task -> 
 		tasks[lp_task].need_preemption = true;
-		printf("invoke_preemption: task = %d, lp_task = %d, lp_tid = %d\n",task,lp_task,lp_tid);
+		printf("[run_main] invoke_preemption(): hp_task = %d, lp_task = %d, lp_tid = %d\n",task,lp_task,lp_tid);
 		ipi_requests[lp_tid]!task;
 	:: else -> skip;
 	fi
@@ -95,7 +95,7 @@ inline wake_task(tid,task) {
 	queue!!task;
 	unlock(tid,lock_scheduler);
 
-	invoke_preemption(task);
+	atomic {invoke_preemption(task);}
 }
 
 // awkernel_async_lib::task::ArcWake::wake()
@@ -105,11 +105,11 @@ inline wake(tid,task) {
 	if
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
 		tasks[task].need_sched = true;
-		printf("wake(): task = %d,state = %d\n",task,tasks[task].state);
+		printf("[run_main|future|interrupt_handler] wake(): tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
 		unlock(tid,lock_info[task]);
 	:: tasks[task].state == Terminated -> unlock(tid,lock_info[task]);
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
-		printf("wake(): task = %d,state = %d\n",task,tasks[task].state);
+		printf("[run_main|future|interrupt_handler] wake(): tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
 		tasks[task].state = Runnable;
 		unlock(tid,lock_info[task]);
 		wake_task(tid,task);
@@ -140,7 +140,7 @@ inline get_next(tid) {
 		tasks[head].state = Running;
 		tasks[head].tid = tid;
 		
-		printf("Running: task = %d,state = %d\n",head,tasks[head].state);
+		printf("[run_main|interrupt_handler] get_next(): tid = %d, Chosen task = %d\n",tid, head);
 		
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_scheduler);
@@ -163,7 +163,7 @@ int future_tid[TASK_NUM] = -1; // task id -> future()を実行しているtid。
 //
 // A task will become "Terminated", after returning "Ready".
 proctype future(int task) provided (future_tid[task] != -1) {
-	printf("[future]: task = %d, future_tid[task] = %d\n",task,future_tid[task]);
+	printf("[future]: tid = %d, task = %d\n",future_tid[task],task);
 	if
 	:: task >= TASK_NUM / 2 -> // 上の例で言うstep2
 		wake(future_tid[task],task - TASK_NUM / 2);
@@ -183,16 +183,16 @@ proctype future(int task) provided (future_tid[task] != -1) {
 }
 
 proctype interrupt_handler(int tid) provided (interrupt_enabled[tid]) {
-	int hp_task;
 	do
     :: ipi_requests[tid]?_ ->
-		printf("interrupt_handler: tid = %d, received IPI request\n",tid);
+		printf("[interrupt_handler]: received IPI request. tid = %d, \n",tid);
 		int cur_task = result_next[tid];
 	    if
 		:: (tasks[cur_task].state != Running || !tasks[cur_task].need_preemption) -> 
-			printf("state: %d, need_preemption: %d\n",tasks[cur_task].state,tasks[cur_task].need_preemption);
+			printf("[interrupt_handler]: task = %d, state = %e, need_preemption = %d\n",cur_task,tasks[cur_task].state,tasks[cur_task].need_preemption);
 			assert(false);
 		:: else ->
+			int hp_task;
 			get_next(tid);
 			hp_task = result_next[tid];
 			assert(hp_task != -1);
@@ -254,12 +254,10 @@ proctype run_main(int tid) {
 	
 	unlock(tid,lock_info[task]);
 	
-	printf("execute task = %d\n",task);
-	
 	// Invoke a task.
-    interrupt_enabled[tid] = true;
+    atomic {interrupt_enabled[tid] = true; printf("[run_main] enable interrupt: tid = %d\n",tid);}
 	future_tid[task] = tid;
-	interrupt_enabled[tid] = false;
+	atomic {interrupt_enabled[tid] = false; printf("[run_main] disable interrupt: tid = %d\n",tid);}
 	
 	unlock(tid,lock_future[task]);
 	
@@ -267,16 +265,14 @@ proctype run_main(int tid) {
 	
 	if
 	:: result_future[tid] == Pending -> 
-		printf("Pending: tid = %d\n",tid);
+		printf("[run_main] result_future Pending: tid = %d\n",tid);
 	:: result_future[tid] == Ready -> 
-		printf("Ready: tid = %d\n",tid);
+		printf("[run_main] result_future Ready: tid = %d\n",tid);
 	fi
 	
 	if
 	:: result_future[tid] == Pending -> 
 		tasks[task].state = Waiting;
-		
-		printf("Waiting: task = %d,state = %d\n",task,tasks[task].state);
 		
 		if
 		:: tasks[task].need_sched -> 
@@ -296,7 +292,7 @@ proctype run_main(int tid) {
 		tasks[task].state = Terminated;
 		tasks[task].is_terminated = true;
 		
-		printf("Terminated: task = %d,state = %d,num_terminated = %d,\n",task,tasks[task].state,num_terminated);
+		printf("[run_main] Terminated: task = %d,state = %d,num_terminated = %d,\n",task,tasks[task].state,num_terminated);
 	fi
 	
 	unlock(tid,lock_info[task]);
