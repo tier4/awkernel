@@ -18,10 +18,6 @@ path = "../applications/awkernel_services"
 path = "../applications/rd_gen_to_dags"
 optional = true
 
-[dependencies.test_pubsub]
-path = "../applications/tests/test_pubsub"
-optional = true
-
 [dependencies.test_network]
 path = "../applications/tests/test_network"
 optional = true
@@ -91,7 +87,6 @@ rd_gen_to_dags = ["dep:rd_gen_to_dags"]
 
 # Test applications
 test_network = ["dep:test_network"]
-test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
