@@ -32,14 +32,6 @@ use crate::{
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 
-#[cfg(feature = "perf")]
-use crate::spawn_periodic_reactor_with_measure;
-#[cfg(feature = "perf")]
-use awkernel_lib::delay::cpu_counter;
-
-#[cfg(not(feature = "perf"))]
-use crate::spawn_periodic_reactor;
-
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -49,6 +41,11 @@ use alloc::{
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
+
+#[cfg(feature = "perf")]
+use awkernel_lib::delay::cpu_counter;
+
+type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
@@ -121,6 +118,10 @@ impl ResponseInfo {
 
         // Finish time > release time due to precedence constraints.
         self.response_time.push(finish_time - release_time);
+
+        let response = finish_time - release_time;
+        let count = self.response_time.len();
+        log::debug!("Response time#{count}: {response} ns");
     }
 }
 
@@ -147,6 +148,12 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.edge_count()
+    }
+
+    fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(deadline);
     }
 
     fn add_node_with_topic_edges(
@@ -210,17 +217,16 @@ impl Dag {
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
-
         pending_tasks
             .entry(self.id)
             .or_default()
             .push(PendingTask::new(node_idx, move || {
                 Box::pin(async move {
                     spawn_reactor::<F, Args, Ret>(
-                        reactor_name.clone(),
+                        reactor_name,
                         f,
-                        subscribe_topic_names.clone(),
-                        publish_topic_names.clone(),
+                        subscribe_topic_names,
+                        publish_topic_names,
                         sched_type,
                     )
                     .await
@@ -242,58 +248,35 @@ impl Dag {
     {
         let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
 
-        #[cfg(feature = "perf")]
-        {
-            let mut node = MCSNode::new();
-            let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
+        let measure_f: Option<MeasureF> = {
+            #[cfg(feature = "perf")]
+            {
+                Some(create_release_recorder(self.id))
+            }
+            #[cfg(not(feature = "perf"))]
+            {
+                None
+            }
+        };
 
-            let dag_id = self.id;
-            let measure_f = move || {
-                let release_time = cpu_counter();
-                let dag = get_dag(dag_id).unwrap();
-                let mut node = MCSNode::new();
-                let mut response_info = dag.response_info.lock(&mut node);
-                response_info.add_release_time(release_time);
-            };
-
-            source_pending_tasks
-                .entry(self.id)
-                .or_default()
-                .push(PendingTask::new(node_idx, move || {
-                    Box::pin(async move {
-                        spawn_periodic_reactor_with_measure::<_, Ret, _>(
-                            reactor_name.clone(),
-                            f,
-                            publish_topic_names.clone(),
-                            sched_type,
-                            period,
-                            measure_f,
-                        )
-                        .await
-                    })
-                }));
-        }
-
-        #[cfg(not(feature = "perf"))]
-        {
-            let mut node = MCSNode::new();
-            let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
-            source_pending_tasks
-                .entry(self.id)
-                .or_default()
-                .push(PendingTask::new(node_idx, move || {
-                    Box::pin(async move {
-                        spawn_periodic_reactor::<F, Ret>(
-                            reactor_name.clone(),
-                            f,
-                            publish_topic_names.clone(),
-                            sched_type,
-                            period,
-                        )
-                        .await
-                    })
-                }));
-        }
+        let mut node = MCSNode::new();
+        let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
+        source_pending_tasks
+            .entry(self.id)
+            .or_default()
+            .push(PendingTask::new(node_idx, move || {
+                Box::pin(async move {
+                    spawn_periodic_reactor::<F, Ret>(
+                        reactor_name,
+                        f,
+                        publish_topic_names,
+                        sched_type,
+                        period,
+                        measure_f,
+                    )
+                    .await
+                })
+            }));
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -309,56 +292,36 @@ impl Dag {
         Args::Subscribers: Send,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
+        self.set_relative_deadline(node_idx, relative_deadline);
 
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-
-        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+        let measure_f = {
+            #[cfg(feature = "perf")]
+            {
+                let dag_id = self.id;
+                move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
+                    f(arg);
+                    record_response_time(dag_id);
+                }
+            }
+            #[cfg(not(feature = "perf"))]
+            {
+                move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
+                    f(arg);
+                }
+            }
+        };
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
-
-        #[cfg(feature = "perf")]
-        {
-            let dag_id = self.id;
-
-            let wrapped_f = move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
-                f(arg);
-                {
-                    let finish_time = cpu_counter();
-                    let dag = get_dag(dag_id).unwrap();
-                    let mut node = MCSNode::new();
-                    let mut response_info = dag.response_info.lock(&mut node);
-                    response_info.add_response_time(finish_time);
-                }
-            };
-
-            pending_tasks
-                .entry(self.id)
-                .or_default()
-                .push(PendingTask::new(node_idx, move || {
-                    Box::pin(async move {
-                        spawn_sink_reactor::<_, Args>(
-                            reactor_name.clone(),
-                            wrapped_f,
-                            subscribe_topic_names.clone(),
-                            sched_type,
-                        )
-                        .await
-                    })
-                }));
-        }
-
-        #[cfg(not(feature = "perf"))]
         pending_tasks
             .entry(self.id)
             .or_default()
             .push(PendingTask::new(node_idx, move || {
                 Box::pin(async move {
-                    spawn_sink_reactor::<F, Args>(
-                        reactor_name.clone(),
-                        f,
-                        subscribe_topic_names.clone(),
+                    spawn_sink_reactor::<_, Args>(
+                        reactor_name,
+                        measure_f,
+                        subscribe_topic_names,
                         sched_type,
                     )
                     .await
@@ -475,6 +438,27 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     Ok(())
 }
 
+#[cfg(feature = "perf")]
+fn create_release_recorder(dag_id: u32) -> MeasureF {
+    let closure = move || {
+        let finish_time = cpu_counter();
+        let dag = get_dag(dag_id).unwrap();
+        let mut node = MCSNode::new();
+        let mut response_info = dag.response_info.lock(&mut node);
+        response_info.add_release_time(finish_time);
+    };
+    Arc::new(closure) as MeasureF
+}
+
+#[cfg(feature = "perf")]
+fn record_response_time(dag_id: u32) {
+    let finish_time = cpu_counter();
+    let dag = get_dag(dag_id).unwrap();
+    let mut node = MCSNode::new();
+    let mut response_info = dag.response_info.lock(&mut node);
+    response_info.add_response_time(finish_time);
+}
+
 async fn spawn_reactor<F, Args, Ret>(
     reactor_name: Cow<'static, str>,
     f: F,
@@ -519,12 +503,22 @@ async fn spawn_periodic_reactor<F, Ret>(
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
     period: Duration,
+    _on_release_measure: Option<MeasureF>,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
     Ret: VectorToPublishers,
     Ret::Publishers: Send,
 {
+    #[cfg(feature = "perf")]
+    let (release_measure, periodic_measure) = {
+        if let Some(measure) = _on_release_measure {
+            (measure.clone(), measure)
+        } else {
+            unreachable!("Measure function must be provided for performance tracking.");
+        }
+    };
+
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -533,13 +527,20 @@ where
         );
 
         loop {
-            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
             let results = f();
             publishers.send_all(results).await;
+            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
+            #[cfg(feature = "perf")]
+            periodic_measure();
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    let task_id = crate::task::spawn(reactor_name, future, sched_type);
+
+    #[cfg(feature = "perf")]
+    release_measure();
+
+    task_id
 }
 
 async fn spawn_sink_reactor<F, Args>(
