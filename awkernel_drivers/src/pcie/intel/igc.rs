@@ -134,19 +134,10 @@ impl Igc {
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
 
-        ops.reset_hw(&mut info, &mut hw).or(Err(InitFailure))?;
-
-        // Make sure we have a good EEPROM before we read from it.
-        if ops.validate(&mut info, &mut hw).is_err() {
-            // Some PCI-E parts fail the first check due to
-            // the link being in sleep state, call it again,
-            // if it fails a second time its a real issue.
-            ops.validate(&mut info, &mut hw).or(Err(InitFailure))?;
+        if igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw).is_err() {
+            let _ = igc_release_hw_control(&mut info);
+            return Err(InitFailure);
         }
-
-        ops.read_mac_addr(&mut info, &mut hw).or(Err(InitFailure))?;
-
-        // TODO: continue initialization
 
         let inner = RwLock::new(IgcInner::new(ops, info, hw));
 
@@ -529,4 +520,28 @@ impl IgcInner {
 
         Ok(())
     }
+}
+
+fn igc_attach_and_hw_control(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), PCIeDeviceErr> {
+    use PCIeDeviceErr::InitFailure;
+
+    ops.reset_hw(info, hw).or(Err(InitFailure))?;
+
+    // Make sure we have a good EEPROM before we read from it.
+    if ops.validate(info, hw).is_err() {
+        // Some PCI-E parts fail the first check due to
+        // the link being in sleep state, call it again,
+        // if it fails a second time its a real issue.
+        ops.validate(info, hw).or(Err(InitFailure))?;
+    }
+
+    ops.read_mac_addr(info, hw).or(Err(InitFailure))?;
+
+    // TODO: continue initialization
+
+    Ok(())
 }
