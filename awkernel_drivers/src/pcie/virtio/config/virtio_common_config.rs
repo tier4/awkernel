@@ -34,6 +34,8 @@ const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE: usize = 0x04;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT: usize = 0x08;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE: usize = 0x0c;
 const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT: usize = 0x16;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_SIZE: usize = 0x18;
 
 pub struct VirtioCommonConfig {
     bar: BaseAddress,
@@ -133,5 +135,23 @@ impl VirtioCommonConfig {
         );
 
         Ok(())
+    }
+
+    pub fn virtio_set_queue_select(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
+        self.bar.write16(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT,
+            idx,
+        );
+
+        Ok(())
+    }
+
+    pub fn virtio_get_queue_size(&self) -> Result<u16, VirtioDriverErr> {
+        let size = self
+            .bar
+            .read16(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_SIZE)
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(size)
     }
 }
