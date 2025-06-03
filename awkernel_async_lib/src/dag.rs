@@ -392,6 +392,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         }
 
         // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
+        // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
         let source_pending_task = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
