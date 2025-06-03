@@ -136,7 +136,7 @@ impl PageTable {
     }
 
     /// Generate SATP (Supervisor Address Translation and Protection) register value
-    /// 
+    ///
     /// RISC-V SATP register format for RV64:
     /// Bits 63-60: MODE field (4 bits)
     ///   - 0: Bare (no translation)
@@ -148,7 +148,7 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60        // MODE = 8 (Sv39 paging mode)
         | 0 << 44          // ASID = 0 (Address Space ID, not using multiple address spaces yet)
-        | self.root_ppn.0  // PPN = Physical Page Number of the root page table
+        | self.root_ppn.0 // PPN = Physical Page Number of the root page table
     }
 }
 

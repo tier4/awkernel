@@ -1,10 +1,7 @@
 use super::address::{PhysPageNum, VirtAddr, VirtPageNum};
 use super::frame_allocator::{frame_alloc, FrameTracker};
-use super::page_table::{PageTable, PageTableEntry, Flags as PTEFlags};
-use crate::{
-    console::unsafe_puts,
-    paging::PAGESIZE,
-};
+use super::page_table::{Flags as PTEFlags, PageTable, PageTableEntry};
+use crate::{console::unsafe_puts, paging::PAGESIZE};
 use alloc::vec::Vec;
 use core::arch::asm;
 
@@ -191,9 +188,11 @@ impl MemorySet {
 
     pub fn new_kernel() -> Self {
         let mut memory_set = Self::new_bare();
-        
+
         // Map kernel sections
-        unsafe { unsafe_puts("Mapping kernel text section...\r\n"); }
+        unsafe {
+            unsafe_puts("Mapping kernel text section...\r\n");
+        }
         memory_set.push(
             MapArea::new(
                 VirtAddr(stext as usize),
@@ -203,8 +202,10 @@ impl MemorySet {
             ),
             None,
         );
-        
-        unsafe { unsafe_puts("Mapping kernel rodata section...\r\n"); }
+
+        unsafe {
+            unsafe_puts("Mapping kernel rodata section...\r\n");
+        }
         memory_set.push(
             MapArea::new(
                 VirtAddr(srodata as usize),
@@ -214,8 +215,10 @@ impl MemorySet {
             ),
             None,
         );
-        
-        unsafe { unsafe_puts("Mapping kernel data section...\r\n"); }
+
+        unsafe {
+            unsafe_puts("Mapping kernel data section...\r\n");
+        }
         memory_set.push(
             MapArea::new(
                 VirtAddr(sdata as usize),
@@ -225,8 +228,10 @@ impl MemorySet {
             ),
             None,
         );
-        
-        unsafe { unsafe_puts("Mapping kernel bss section...\r\n"); }
+
+        unsafe {
+            unsafe_puts("Mapping kernel bss section...\r\n");
+        }
         memory_set.push(
             MapArea::new(
                 VirtAddr(sbss_with_stack as usize),
@@ -236,8 +241,10 @@ impl MemorySet {
             ),
             None,
         );
-        
-        unsafe { unsafe_puts("Mapping physical memory...\r\n"); }
+
+        unsafe {
+            unsafe_puts("Mapping physical memory...\r\n");
+        }
         memory_set.push(
             MapArea::new(
                 VirtAddr(ekernel as usize),
@@ -247,7 +254,7 @@ impl MemorySet {
             ),
             None,
         );
-        
+
         memory_set
     }
 
@@ -288,8 +295,8 @@ impl MapArea {
 }
 
 // Static kernel memory set
-use crate::sync::mutex::Mutex;
 use crate::sync::mcs::MCSNode;
+use crate::sync::mutex::Mutex;
 
 pub static KERNEL_SPACE: Mutex<Option<MemorySet>> = Mutex::new(None);
 
