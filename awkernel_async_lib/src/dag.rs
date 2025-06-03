@@ -49,7 +49,7 @@ use performance::ResponseInfo;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
-static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -229,10 +229,8 @@ impl Dag {
 
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
-        source_pending_tasks
-            .entry(self.id)
-            .or_default()
-            .push(PendingTask::new(node_idx, move || {
+        source_pending_tasks.entry(self.id).or_insert_with(|| {
+            PendingTask::new(node_idx, move || {
                 Box::pin(async move {
                     spawn_periodic_reactor::<F, Ret>(
                         reactor_name,
@@ -244,7 +242,8 @@ impl Dag {
                     )
                     .await
                 })
-            }));
+            })
+        });
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -387,19 +386,17 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             }
         }
 
-        let source_pending_tasks = {
+        let source_pending_task = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
             lock.remove(&dag.id).unwrap()
         };
 
-        for task in source_pending_tasks {
-            let task_id = (task.spawn)().await;
-            let mut graph_node = MCSNode::new();
-            let mut graph = dag.graph.lock(&mut graph_node);
-            if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
-                node_info.task_id = task_id;
-            }
+        let task_id = (source_pending_task.spawn)().await;
+        let mut graph_node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut graph_node);
+        if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
+            node_info.task_id = task_id;
         }
     }
 
@@ -450,7 +447,7 @@ async fn spawn_periodic_reactor<F, Ret>(
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
     period: Duration,
-    _on_release_measure: Option<MeasureF>,
+    _release_measure: Option<MeasureF>,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -459,7 +456,7 @@ where
 {
     #[cfg(feature = "perf")]
     let (release_measure, periodic_measure) = {
-        if let Some(measure) = _on_release_measure {
+        if let Some(measure) = _release_measure {
             (measure.clone(), measure)
         } else {
             unreachable!("Measure function must be provided for performance tracking.");
