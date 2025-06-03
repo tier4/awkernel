@@ -19,6 +19,10 @@
 //!
 //! See the `applications/tests/test_dag` example for practical usage.
 //!
+//! # Notes
+//!
+//!  The assumption is that there is one sink vertex and one source vertexe.
+//!
 mod graph;
 mod unionfind;
 mod visit;
