@@ -224,6 +224,11 @@ impl VirtioNetInner {
         Ok(())
     }
 
+    fn _virtio_pci_read_queue_size(&mut self, idx: u16) -> Result<u16, VirtioDriverErr> {
+        self.common_cfg.virtio_set_queue_select(idx)?;
+        self.common_cfg.virtio_get_queue_size()
+    }
+
     fn virtio_has_feature(&self, feature: u64) -> bool {
         self.active_features & feature != 0
     }
