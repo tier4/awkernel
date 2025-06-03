@@ -55,6 +55,9 @@ unsafe fn primary_hart(hartid: usize) {
     // Activate virtual memory (enable MMU and page tables)
     awkernel_lib::arch::rv64::activate_kernel_space();
 
+    // Verify VM system is working by getting kernel token
+    let _kernel_token = awkernel_lib::arch::rv64::get_kernel_token();
+
     // setup the VM
     let backup_start = HEAP_START;
     let backup_size = BACKUP_HEAP_SIZE;

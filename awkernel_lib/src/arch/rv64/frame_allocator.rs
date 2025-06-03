@@ -18,7 +18,7 @@ pub fn frame_alloc() -> Option<FrameTracker> {
     let mut node = MCSNode::new();
     let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
     if let Some(allocator_ref) = allocator.as_mut() {
-        allocator_ref.alloc().map(|ppn| FrameTracker::new(ppn))
+        allocator_ref.alloc().map(FrameTracker::new)
     } else {
         None
     }
@@ -119,7 +119,7 @@ impl FrameAllocator for PageAllocator {
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        if ppn.0 >= self.current || self.recycled.iter().any(|&v| v == ppn.0) {
+        if ppn.0 >= self.current || self.recycled.contains(&ppn.0) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn.0)
         }
         self.recycled.push(ppn.0)

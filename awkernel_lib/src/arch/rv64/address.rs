@@ -7,7 +7,7 @@ use core::{
 pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
 pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 
-pub const MEMORY_END: u64 = 0x80800_000;
+pub const MEMORY_END: u64 = 0x8080_0000;
 
 /// Design abstraction struct:
 /// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum

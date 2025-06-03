@@ -120,6 +120,7 @@ impl MapArea {
         page_table.map(vpn, ppn, pte_flags | PTEFlags::V);
     }
 
+    #[allow(dead_code)]
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         if self.map_type == MapType::Framed {
             // Find and remove the frame
@@ -135,6 +136,7 @@ impl MapArea {
         }
     }
 
+    #[allow(dead_code)]
     pub fn unmap(&mut self, page_table: &mut PageTable) {
         for vpn in self.vpn_range {
             self.unmap_one(page_table, vpn);
@@ -150,6 +152,7 @@ impl MemorySet {
         }
     }
 
+    #[allow(dead_code)]
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
@@ -162,6 +165,7 @@ impl MemorySet {
         self.areas.push(map_area);
     }
 
+    #[allow(dead_code)]
     pub fn insert_framed_area(
         &mut self,
         start_va: VirtAddr,
@@ -174,6 +178,7 @@ impl MemorySet {
         );
     }
 
+    #[allow(dead_code)]
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
             .areas

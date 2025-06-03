@@ -122,7 +122,7 @@ impl PageTable {
 
     pub fn unmap(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
-        assert!(pte.is_valid(), "vpn{:?} is invalid before unmapping", vpn);
+        assert!(pte.is_valid(), "vpn{vpn:?} is invalid before unmapping");
         *pte = PageTableEntry::empty();
     }
 
@@ -130,6 +130,7 @@ impl PageTable {
         self.find_pte(vpn).map(|pte| *pte)
     }
 
+    #[allow(dead_code)]
     pub fn translate_va(&mut self, va: VirtAddr) -> Option<PageTableEntry> {
         let vpn: VirtPageNum = va.into();
         self.translate(vpn)
@@ -143,27 +144,39 @@ impl PageTable {
     ///   - 8: Sv39 (39-bit virtual addressing, 3-level page tables)
     ///   - 9: Sv48 (48-bit virtual addressing, 4-level page tables)
     ///   - 10: Sv57 (57-bit virtual addressing, 5-level page tables)
-    /// Bits 59-44: ASID (Address Space Identifier, 16 bits)
-    /// Bits 43-0:  PPN (Physical Page Number of root page table, 44 bits)
+    ///     Bits 59-44: ASID (Address Space Identifier, 16 bits)
+    ///     Bits 43-0:  PPN (Physical Page Number of root page table, 44 bits)
     pub fn token(&self) -> usize {
-        8usize << 60        // MODE = 8 (Sv39 paging mode)
-        | 0 << 44          // ASID = 0 (Address Space ID, not using multiple address spaces yet)
+        (8usize << 60)        // MODE = 8 (Sv39 paging mode)
         | self.root_ppn.0 // PPN = Physical Page Number of the root page table
     }
 }
 
+/// Get the current page table from SATP register
 pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {
-    // TODO: Read actual SATP register when riscv crate is available
-    // For now, create a new page table
-    if let Some(tracker) = frame_alloc() {
-        let page_table = PageTable {
-            root_ppn: tracker.ppn,
-            frames: vec![tracker],
-        };
-        Some(page_table)
-    } else {
-        None
+    use core::arch::asm;
+
+    // Read SATP register
+    let satp: usize;
+    unsafe {
+        asm!("csrr {}, satp", out(reg) satp);
     }
+
+    // Extract PPN from SATP (bits 43:0)
+    let root_ppn = PhysPageNum(satp & ((1usize << 44) - 1));
+
+    // Check if paging is enabled (MODE field in bits 63:60)
+    let mode = (satp >> 60) & 0xF;
+    if mode == 0 {
+        // Bare mode - no translation
+        return None;
+    }
+
+    // Return page table with current root
+    Some(PageTable {
+        root_ppn,
+        frames: vec![], // Don't manage frames for current page table
+    })
 }
 
 // Frame type for integration with common paging interface
