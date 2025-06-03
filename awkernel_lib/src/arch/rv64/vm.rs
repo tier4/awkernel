@@ -270,7 +270,7 @@ impl MemorySet {
             asm!("sfence.vma");
         }
     }
-
+    #[allow(dead_code)]
     pub fn translate(&mut self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
@@ -318,7 +318,7 @@ pub fn activate_kernel_space() {
         kernel_space.activate();
     }
 }
-
+#[allow(dead_code)]
 pub fn kernel_token() -> usize {
     let mut node = MCSNode::new();
     let kernel_space = KERNEL_SPACE.lock(&mut node);
