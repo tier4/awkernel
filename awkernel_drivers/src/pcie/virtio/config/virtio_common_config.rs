@@ -138,10 +138,8 @@ impl VirtioCommonConfig {
     }
 
     pub fn virtio_set_queue_select(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
-        self.bar.write16(
-            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT,
-            idx,
-        );
+        self.bar
+            .write16(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT, idx);
 
         Ok(())
     }
