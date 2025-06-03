@@ -33,6 +33,7 @@ SECTIONS
     __debug_line_start = .;
     __debug_line_size = 0;
 
+
     PROVIDE (srodata = .);
     .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
     PROVIDE (erodata = .);
