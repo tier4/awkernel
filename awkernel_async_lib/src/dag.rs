@@ -233,7 +233,8 @@ impl Dag {
 
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
-        source_pending_tasks.entry(self.id).or_insert_with(|| {
+        source_pending_tasks.insert(
+            self.id,
             PendingTask::new(node_idx, move || {
                 Box::pin(async move {
                     spawn_periodic_reactor::<F, Ret>(
@@ -246,8 +247,8 @@ impl Dag {
                     )
                     .await
                 })
-            })
-        });
+            }),
+        );
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -390,6 +391,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             }
         }
 
+        // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
         let source_pending_task = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
