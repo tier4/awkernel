@@ -54,11 +54,13 @@ pub fn init_page_allocator() {
 pub trait FrameAllocator {
     fn new() -> Self;
     fn alloc(&mut self) -> Option<PhysPageNum>;
+    #[allow(dead_code)]
     fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 
 /// An abstraction to use Rust's borrowchecker to guarantee safety of memory
+#[derive(Debug)]
 pub struct FrameTracker {
     pub ppn: PhysPageNum,
 }

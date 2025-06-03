@@ -134,6 +134,22 @@ impl PageTable {
         let vpn: VirtPageNum = va.into();
         self.translate(vpn)
     }
+
+    /// Generate SATP (Supervisor Address Translation and Protection) register value
+    /// 
+    /// RISC-V SATP register format for RV64:
+    /// Bits 63-60: MODE field (4 bits)
+    ///   - 0: Bare (no translation)
+    ///   - 8: Sv39 (39-bit virtual addressing, 3-level page tables)
+    ///   - 9: Sv48 (48-bit virtual addressing, 4-level page tables)
+    ///   - 10: Sv57 (57-bit virtual addressing, 5-level page tables)
+    /// Bits 59-44: ASID (Address Space Identifier, 16 bits)
+    /// Bits 43-0:  PPN (Physical Page Number of root page table, 44 bits)
+    pub fn token(&self) -> usize {
+        8usize << 60        // MODE = 8 (Sv39 paging mode)
+        | 0 << 44          // ASID = 0 (Address Space ID, not using multiple address spaces yet)
+        | self.root_ppn.0  // PPN = Physical Page Number of the root page table
+    }
 }
 
 pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {

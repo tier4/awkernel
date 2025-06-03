@@ -46,6 +46,15 @@ unsafe fn primary_hart(hartid: usize) {
 
     super::console::init_port(UART_BASE);
 
+    // Initialize memory management (page allocator)
+    awkernel_lib::arch::rv64::init_page_allocator();
+    
+    // Initialize virtual memory system
+    awkernel_lib::arch::rv64::init_kernel_space();
+    
+    // Activate virtual memory (enable MMU and page tables)
+    awkernel_lib::arch::rv64::activate_kernel_space();
+
     // setup the VM
     let backup_start = HEAP_START;
     let backup_size = BACKUP_HEAP_SIZE;
