@@ -79,8 +79,8 @@ inline invoke_preemption(task) {
 	if
 	:: task < lp_task -> 
 		tasks[lp_task].need_preemption = true;
-		printf("[run_main] invoke_preemption(): hp_task = %d, lp_task = %d, lp_tid = %d\n",task,lp_task,lp_tid);
-		ipi_requests[lp_tid]!task;
+		printf("invoke_preemption() send IPI: hp_task = %d, lp_task = %d, lp_tid = %d, interrupt_enabled[lp_tid] = %d\n",task,lp_task,lp_tid,interrupt_enabled[lp_tid]);
+		ipi_requests[lp_tid]!task;  // interrupt_enabled[lp_tid]がfalseの可能性はある。
 	:: else -> skip;
 	fi
 
@@ -105,11 +105,13 @@ inline wake(tid,task) {
 	if
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
 		tasks[task].need_sched = true;
-		printf("[run_main|future|interrupt_handler] wake(): tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
+		printf("wake() set need_sched: tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
 		unlock(tid,lock_info[task]);
-	:: tasks[task].state == Terminated -> unlock(tid,lock_info[task]);
+	:: tasks[task].state == Terminated -> 
+		printf("wake() already terminated: tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
+	    unlock(tid,lock_info[task]);
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
-		printf("[run_main|future|interrupt_handler] wake(): tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
+		printf("wake() call wake_task(): tid = %d, task = %d, state = %e\n",tid,task,tasks[task].state);
 		tasks[task].state = Runnable;
 		unlock(tid,lock_info[task]);
 		wake_task(tid,task);
@@ -140,19 +142,21 @@ inline get_next(tid) {
 		tasks[head].state = Running;
 		tasks[head].tid = tid;
 		
-		printf("[run_main|interrupt_handler] get_next(): tid = %d, Chosen task = %d\n",tid, head);
+		printf("get_next(): tid = %d, Chosen task = %d\n",tid, head);
 		
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_scheduler);
 		
 		result_next[tid] = head;
 	:: else -> // queue内に実行可能なタスクが無い場合
+		// printf("get_next(): tid = %d, No runnable task\n",tid);
 		unlock(tid,lock_scheduler);
 		result_next[tid] = - 1;
 	fi
 }
 
 int future_tid[TASK_NUM] = -1; // task id -> future()を実行しているtid。-1である場合、実行されていない。
+bool executing_future[WORKERS] = false; // future()を実行中かどうかのフラグ。これがtrueの場合、run_main()は実行されない。関数呼び出しを模倣している。
 
 // If there is 2 tasks, and their task ID's are 0 and 1.
 // This future will execute as follows.
@@ -163,34 +167,41 @@ int future_tid[TASK_NUM] = -1; // task id -> future()を実行しているtid。
 //
 // A task will become "Terminated", after returning "Ready".
 proctype future(int task) provided (future_tid[task] != -1) {
-	printf("[future]: tid = %d, task = %d\n",future_tid[task],task);
-	if
-	:: task >= TASK_NUM / 2 -> // 上の例で言うstep2
-		wake(future_tid[task],task - TASK_NUM / 2);
-		result_future[future_tid[task]] = Ready
-	:: else -> 
+	do
+	::printf("Start future: tid = %d, task = %d\n",future_tid[task],task);
 		if
-		:: wake_other[task] -> //上の例で言うstep3
-			result_future[future_tid[task]] = Ready;
-		:: else -> //上の例で言うstep1
-			wake(future_tid[task],task + TASK_NUM / 2);
-			wake_other[task] = true;
-			result_future[future_tid[task]] = Pending;
+		:: task >= TASK_NUM / 2 -> // 上の例で言うstep2
+			wake(future_tid[task],task - TASK_NUM / 2);
+			result_future[future_tid[task]] = Ready
+		:: else -> 
+			if
+			:: wake_other[task] -> //上の例で言うstep3
+				result_future[future_tid[task]] = Ready;
+			:: else -> //上の例で言うstep1
+				wake(future_tid[task],task + TASK_NUM / 2);
+				wake_other[task] = true;
+				result_future[future_tid[task]] = Pending;
+			fi
 		fi
-	fi
 
-	future_tid[task] = -1;
+		atomic {
+			printf("Complete future: tid = %d, task = %d\n",future_tid[task],task);
+			assert(executing_future[future_tid[task]]);
+			executing_future[future_tid[task]] = false; // future()を実行中でないことを示す。
+			future_tid[task] = -1;
+		}
+	od
 }
 
 proctype interrupt_handler(int tid) provided (interrupt_enabled[tid]) {
 	do
     :: ipi_requests[tid]?_ ->
-		printf("[interrupt_handler]: received IPI request. tid = %d, \n",tid);
 		int cur_task = result_next[tid];
+		printf("Received IPI request. tid = %d, cur_task = %d\n",tid,cur_task);
 	    if
 		:: (tasks[cur_task].state != Running || !tasks[cur_task].need_preemption) -> 
-			printf("[interrupt_handler]: task = %d, state = %e, need_preemption = %d\n",cur_task,tasks[cur_task].state,tasks[cur_task].need_preemption);
-			assert(false);
+		    printf("Ignore IPI request: tid = %d, cur_task = %d, state = %e, need_preemption = %d\n",tid,cur_task,tasks[cur_task].state,tasks[cur_task].need_preemption);
+			skip;
 		:: else ->
 			int hp_task;
 			get_next(tid);
@@ -199,24 +210,27 @@ proctype interrupt_handler(int tid) provided (interrupt_enabled[tid]) {
 			future_tid[cur_task] = -1;
 			// TODO: lock for task
 			future_tid[hp_task] = tid;
+			printf("Context switch: tid = %d, cur_task = %d, hp_task = %d\n",tid,cur_task,hp_task);
 			lock(tid,lock_info[cur_task]);
 			tasks[cur_task].state = Preempted;
 			unlock(tid,lock_info[cur_task]);
-			wake(tid,cur_task);
+			wake_task(tid,cur_task);
 		fi
 	od
 }
 
-proctype run_main(int tid) {
+proctype run_main(int tid) provided (!executing_future[tid]) {
 	start:
 	if
 	:: num_terminated == TASK_NUM -> goto end;
 	:: else -> skip;
 	fi
 	
-	get_next(tid);
-	
-	int task = result_next[tid];
+	int task;
+	atomic {
+		get_next(tid);
+		task = result_next[tid];
+	}
 	
 	if
 	:: task == - 1 -> goto start;
@@ -255,9 +269,9 @@ proctype run_main(int tid) {
 	unlock(tid,lock_info[task]);
 	
 	// Invoke a task.
-    atomic {interrupt_enabled[tid] = true; printf("[run_main] enable interrupt: tid = %d\n",tid);}
-	future_tid[task] = tid;
-	atomic {interrupt_enabled[tid] = false; printf("[run_main] disable interrupt: tid = %d\n",tid);}
+    atomic {interrupt_enabled[tid] = true; printf("enable interrupt: tid = %d, task = %d\n",tid,task); future_tid[task] = tid; executing_future[tid] = true;} // 実装と異なる
+	interrupt_enabled[tid] = false;
+	printf("disable interrupt: tid = %d\n",tid);
 	
 	unlock(tid,lock_future[task]);
 	
@@ -265,9 +279,9 @@ proctype run_main(int tid) {
 	
 	if
 	:: result_future[tid] == Pending -> 
-		printf("[run_main] result_future Pending: tid = %d\n",tid);
+		printf("result_future Pending: tid = %d, task = %d\n",tid,task);
 	:: result_future[tid] == Ready -> 
-		printf("[run_main] result_future Ready: tid = %d\n",tid);
+		printf("result_future Ready: tid = %d, task = %d\n",tid,task);
 	fi
 	
 	if
@@ -292,7 +306,7 @@ proctype run_main(int tid) {
 		tasks[task].state = Terminated;
 		tasks[task].is_terminated = true;
 		
-		printf("[run_main] Terminated: task = %d,state = %d,num_terminated = %d,\n",task,tasks[task].state,num_terminated);
+		printf("Terminated: tid = %d, task = %d,state = %e,num_terminated = %d,\n",tid,task,tasks[task].state,num_terminated);
 	fi
 	
 	unlock(tid,lock_info[task]);
@@ -312,11 +326,12 @@ init {
 		
 		wake(0,i);
 
-		run future(i) priority 2;
+		run future(i) priority 1;
 	}
 
 	for (i: 0 .. WORKERS - 1) {
-		run interrupt_handler(i) priority 3;
+		// interrupt_handlerが動いている際に、他のCPUのスレッドにも影響を及ぼす実装になっている。
+		run interrupt_handler(i) priority 2;
 	}
 	
 	for (i: 0 .. WORKERS - 1) {
