@@ -134,19 +134,10 @@ impl Igc {
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
 
-        ops.reset_hw(&mut info, &mut hw).or(Err(InitFailure))?;
-
-        // Make sure we have a good EEPROM before we read from it.
-        if ops.validate(&mut info, &mut hw).is_err() {
-            // Some PCI-E parts fail the first check due to
-            // the link being in sleep state, call it again,
-            // if it fails a second time its a real issue.
-            ops.validate(&mut info, &mut hw).or(Err(InitFailure))?;
+        if igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw).is_err() {
+            let _ = igc_release_hw_control(&mut info);
+            return Err(InitFailure);
         }
-
-        ops.read_mac_addr(&mut info, &mut hw).or(Err(InitFailure))?;
-
-        // TODO: continue initialization
 
         let inner = RwLock::new(IgcInner::new(ops, info, hw));
 
@@ -456,6 +447,19 @@ fn igc_get_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     )
 }
 
+/// igc_release_hw_control resets {CTRL_EXT|FWSM}:DRV_LOAD bit.
+/// For ASF and Pass Through versions of f/w this means that
+/// the driver is no longer loaded. For AMT versions of the
+/// f/w this means that the network i/f is closed.
+fn igc_release_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    let ctrl_ext = read_reg(info, igc_regs::IGC_CTRL_EXT)?;
+    write_reg(
+        info,
+        igc_regs::IGC_CTRL_EXT,
+        ctrl_ext & !IGC_CTRL_EXT_DRV_LOAD,
+    )
+}
+
 fn roundup2<T>(size: T, unit: T) -> T
 where
     T: Copy
@@ -516,4 +520,38 @@ impl IgcInner {
 
         Ok(())
     }
+}
+
+fn igc_attach_and_hw_control(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), PCIeDeviceErr> {
+    use PCIeDeviceErr::InitFailure;
+
+    ops.reset_hw(info, hw).or(Err(InitFailure))?;
+
+    // Make sure we have a good EEPROM before we read from it.
+    if ops.validate(info, hw).is_err() {
+        // Some PCI-E parts fail the first check due to
+        // the link being in sleep state, call it again,
+        // if it fails a second time its a real issue.
+        ops.validate(info, hw).or(Err(InitFailure))?;
+    }
+
+    ops.read_mac_addr(info, hw).or(Err(InitFailure))?;
+
+    if !igc_is_valid_ether_addr(&hw.mac.addr) {
+        log::error!("igc: Invalid MAC address read from EEPROM");
+        return Err(PCIeDeviceErr::InitFailure);
+    }
+
+    // TODO: continue initialization
+
+    Ok(())
+}
+
+fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
+    // Check if the address is a multicast address or a zero address.
+    !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
 }
