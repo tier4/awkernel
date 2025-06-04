@@ -1,8 +1,45 @@
 #define TASK_NUM 4
-#define WORKERS 2// ワーカスレッドの数。これらは特に制約無く実行されるので、CPUを専有しており、実質CPUの数とみなせる。
+#define WORKERS TASK_NUM// ワーカスレッドの数。各futureにつき１つ用意する。
+#define CPU_NUM 2
 #define NUM_PROC WORKERS
 
 #include "../cooperative_spin/fair_lock.pml"
+
+// NOTE: 計算量爆発する場合は、これらのロックをまとめることを検討。
+FairLock lock_info[TASK_NUM];// TaskInfoに対するロック
+FairLock lock_future[TASK_NUM];// Task.futureに対するロック。struct TaskはTaskInfoとfutureを持つ
+FairLock lock_scheduler = false;// スケジューラのqueueに対するロック
+
+int worker_executing[WORKERS] = -1; // worker_id -> cpu_id. 実行されていない場合は-1が入る。各ワーカスレッドが現在コア上で実行中かどうかのフラグ。これは実装に無い。
+bool worker_attached[WORKERS] = false; // ワーカスレッドがタスクにアタッチされているかどうかのフラグ。
+int running_tasks[CPU_NUM] = -1; // cpu_id -> task_id。-1の場合は実行中のタスクが無いことを示す。
+
+inline get_running_num(ret) {
+	ret = 0;
+	int j;
+	for (j : 0 .. CPU_NUM - 1) {
+		if
+		:: running_tasks[j] != -1 -> 
+			ret++;
+		:: else
+		fi
+	}
+}
+
+inline get_tid(cpu_id, ret) {
+	ret = -1;
+	int i;
+	for (i : 0 .. WORKERS - 1) {
+		if
+		:: worker_executing[i] == cpu_id -> 
+			ret = i;
+			break;
+		:: else
+		fi
+	}
+	
+	assert(ret != -1);
+}
 
 mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending,Preempted };// Panickedは無視されている。
 
@@ -13,7 +50,7 @@ typedef TaskInfo {
 	bool is_terminated;
 	int id;  // これを優先度としても扱う。小さいほど高優先度。
 	bool need_preemption;
-	int tid; // このタスクを実行しているスレッドID。Awkernelには無いが、検証のために追加している。
+	int thread; // tid.プリエンプトされた場合、ワーカスレッドをコンテキストとして持つ。それ以外は-1
 };
 
 TaskInfo tasks[TASK_NUM];
@@ -21,81 +58,61 @@ TaskInfo tasks[TASK_NUM];
 // Queue of the PrioritizedFIFO scheduler
 chan queue = [TASK_NUM * 2] of { int }; // これにはタスクIDが入る。タスクID=priorityとみなす。
 
-// NOTE: 計算量爆発する場合は、これらのロックをまとめることを検討。
-FairLock lock_info[TASK_NUM];// TaskInfoに対するロック
-FairLock lock_future[TASK_NUM];// Task.futureに対するロック。struct TaskはTaskInfoとfutureを持つ
-FairLock lock_scheduler = false;// スケジューラのqueueに対するロック
-
 // 関数の返り値をグローバル変数に格納するスタイルで書かれている。
-int result_next[WORKERS];// get_next()の結果を格納する。これはタスクIDが入る
-mtype result_future[WORKERS];// future()の結果を格納する。これはReadyかPendingが入る
+int result_next[WORKERS];// tid->get_next()の結果を格納する。これはタスクIDが入る
+mtype result_future[WORKERS];// tid->future()の結果を格納する。これはReadyかPendingが入る
 
 bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフラグ。wakeしてる場合は、そのタスクがReadyになるまではPendingになる。
-
 int num_terminated = 0;// 検証のための変数。
 
-inline get_running_num(count) {
-	count = 0;
-	int j;
-	for (j : 0 .. TASK_NUM - 1) {
-		if
-		:: tasks[j].state == Running -> count++;
-		:: else -> skip;
-		fi
-	}	
-}
+chan ipi_requests[CPU_NUM] = [WORKERS] of { int }; // IPIリクエストを受け取るチャネル。intはとりあえずタスクID。
+bool interrupt_enabled[CPU_NUM] = false;
 
-chan ipi_requests[WORKERS] = [WORKERS] of { int }; // IPIリクエストを受け取るチャネル。intはとりあえずタスクID。
-bool interrupt_enabled[WORKERS] = false;
-
-inline get_lowest_priority_task(ret_task, ret_tid) {
+inline get_lowest_priority_task(ret_task, ret_cpu_id) {
 	int k;
 	ret_task = -1;
-	for (k : 0 .. TASK_NUM - 1) {
+	for (k : 0 .. CPU_NUM - 1) {
 		if
-		:: tasks[k].state == Running -> 
+		:: running_tasks[k] != -1 -> 
 			if
-			:: tasks[k].id > ret_task -> ret_task = tasks[k].id; ret_tid = tasks[k].tid;
-			:: else -> skip;
+			:: running_tasks[k] > ret_task -> ret_task = running_tasks[k]; ret_cpu_id = k;
+			:: else
 			fi
-		:: else -> skip;
+		:: else
 		fi
 	}
 }
 
-// task: idであり、優先度。
 inline invoke_preemption(task) {
 	int running_num;
 	get_running_num(running_num);
 	if
-	:: running_num < WORKERS -> 
-		goto finish;
-	:: else -> skip;
+	:: running_num < CPU_NUM -> 
+		goto end_invoke_preemption;
+	:: else
 	fi
 
 	int lp_task;
-	int lp_tid;
-	get_lowest_priority_task(lp_task, lp_tid);
+	int lp_cpu_id;
+	get_lowest_priority_task(lp_task, lp_cpu_id);
 	if
 	:: task < lp_task -> 
 		tasks[lp_task].need_preemption = true;
-		printf("invoke_preemption() send IPI: hp_task = %d, lp_task = %d, lp_tid = %d, interrupt_enabled[lp_tid] = %d\n",task,lp_task,lp_tid,interrupt_enabled[lp_tid]);
-		ipi_requests[lp_tid]!task;  // interrupt_enabled[lp_tid]がfalseの可能性はある。
-	:: else -> skip;
+		printf("invoke_preemption() send IPI: hp_task = %d, lp_task = %d, lp_cpu_id = %d, interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
+		ipi_requests[lp_cpu_id]!task;  // interrupt_enabled[lp_cpu_id]がfalseの可能性はある。
+	:: else
 	fi
 
-	finish:
+	end_invoke_preemption:
 }
 
 // awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()
-// - task: int. TaskInfoのID、すなわち、タスクID
-// - tid: int. WORKERSのID、すなわち、スレッドID
 inline wake_task(tid,task) {
 	lock(tid,lock_scheduler);
 	queue!!task;
 	unlock(tid,lock_scheduler);
 
-	atomic {invoke_preemption(task);}
+	invoke_preemption(task);
 }
 
 // awkernel_async_lib::task::ArcWake::wake()
@@ -136,12 +153,10 @@ inline get_next(tid) {
 			goto start_get_next;
 		:: tasks[head].state == Preempted ->
 		    tasks[head].need_preemption = false;
-		:: else -> skip;  // これが無いと処理が進まない。
+		:: else
 		fi
 		
 		tasks[head].state = Running;
-		tasks[head].tid = tid;
-		
 		printf("get_next(): tid = %d, Chosen task = %d\n",tid, head);
 		
 		unlock(tid,lock_info[head]);
@@ -151,12 +166,9 @@ inline get_next(tid) {
 	:: else -> // queue内に実行可能なタスクが無い場合
 		// printf("get_next(): tid = %d, No runnable task\n",tid);
 		unlock(tid,lock_scheduler);
-		result_next[tid] = - 1;
+		result_next[tid] = -1;
 	fi
 }
-
-int future_tid[TASK_NUM] = -1; // task id -> future()を実行しているtid。-1である場合、実行されていない。
-bool executing_future[WORKERS] = false; // future()を実行中かどうかのフラグ。これがtrueの場合、run_main()は実行されない。関数呼び出しを模倣している。
 
 // If there is 2 tasks, and their task ID's are 0 and 1.
 // This future will execute as follows.
@@ -166,64 +178,119 @@ bool executing_future[WORKERS] = false; // future()を実行中かどうかの�
 // step3: Task 0 returns "Ready".
 //
 // A task will become "Terminated", after returning "Ready".
-proctype future(int task) provided (future_tid[task] != -1) {
-	do
-	::printf("Start future: tid = %d, task = %d\n",future_tid[task],task);
+inline future(tid, task) {
+    if
+        :: task >= TASK_NUM / 2 ->
+            wake(tid, task - TASK_NUM / 2);
+            result_future[tid] = Ready;
+        :: else ->
+            if
+                :: wake_other[task] ->
+                    result_future[tid] = Ready;
+                    printf("future(): tid = %d, task = %d\n", tid, task);
+                :: else ->
+                    wake(tid, task + TASK_NUM / 2);
+                    wake_other[task] = true;
+                    result_future[tid] = Pending;
+            fi
+    fi
+}
+
+inline context_switch(cpu_id, cur_tid, next_tid) {
+	printf("context_switch(): cpu_id = %d, cur_tid = %d, next_tid = %d\n", cpu_id, cur_tid, next_tid);
+	assert(worker_executing[cur_tid] == cpu_id);
+    worker_executing[cur_tid] = -1;
+	worker_executing[next_tid] = cpu_id;
+	assert(worker_attached[next_tid]);
+	worker_attached[next_tid] = false;
+}
+
+inline yield_preempted_and_wake_task(cpu_id, cur_task, cur_tid, next_tid) {
+	lock(tid,lock_info[cur_task]);
+	tasks[cur_task].thread = cur_tid;
+	tasks[cur_task].state = Preempted;
+	unlock(tid,lock_info[cur_task]);
+	worker_attached[cur_tid] = true;
+	context_switch(cpu_id, tasks[cur_task].thread, next_tid);
+	wake_task(next_tid,cur_task);  // re_schedule()
+}
+
+inline take_pooled_thread(ret) {
+	ret = -1;
+	int k;
+	for (k : 0 .. WORKERS - 1) {
 		if
-		:: task >= TASK_NUM / 2 -> // 上の例で言うstep2
-			wake(future_tid[task],task - TASK_NUM / 2);
-			result_future[future_tid[task]] = Ready
-		:: else -> 
-			if
-			:: wake_other[task] -> //上の例で言うstep3
-				result_future[future_tid[task]] = Ready;
-			:: else -> //上の例で言うstep1
-				wake(future_tid[task],task + TASK_NUM / 2);
-				wake_other[task] = true;
-				result_future[future_tid[task]] = Pending;
-			fi
+		:: (worker_executing[k] == -1 && !worker_attached[k]) -> 
+			ret = k;
+			break;
+		:: else
 		fi
+	}
 
-		atomic {
-			printf("Complete future: tid = %d, task = %d\n",future_tid[task],task);
-			assert(executing_future[future_tid[task]]);
-			executing_future[future_tid[task]] = false; // future()を実行中でないことを示す。
-			future_tid[task] = -1;
-		}
-	od
+	assert(ret != -1);
 }
 
-proctype interrupt_handler(int tid) provided (interrupt_enabled[tid]) {
+// awkernel_async_lib::task::do_preemption()
+proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 	do
-    :: ipi_requests[tid]?_ ->
-		int cur_task = result_next[tid];
-		printf("Received IPI request. tid = %d, cur_task = %d\n",tid,cur_task);
-	    if
-		:: (tasks[cur_task].state != Running || !tasks[cur_task].need_preemption) -> 
-		    printf("Ignore IPI request: tid = %d, cur_task = %d, state = %e, need_preemption = %d\n",tid,cur_task,tasks[cur_task].state,tasks[cur_task].need_preemption);
-			skip;
-		:: else ->
-			int hp_task;
-			get_next(tid);
-			hp_task = result_next[tid];
-			assert(hp_task != -1);
-			future_tid[cur_task] = -1;
-			// TODO: lock for task
-			future_tid[hp_task] = tid;
-			printf("Context switch: tid = %d, cur_task = %d, hp_task = %d\n",tid,cur_task,hp_task);
-			lock(tid,lock_info[cur_task]);
-			tasks[cur_task].state = Preempted;
-			unlock(tid,lock_info[cur_task]);
-			wake_task(tid,cur_task);
+    :: ipi_requests[cpu_id]?_ ->
+		int cur_task = running_tasks[cpu_id];
+		printf("Received IPI request. cpu_id = %d, cur_task = %d\n",cpu_id,cur_task);
+
+		if
+		:: cur_task == -1 -> printf("There is no running task in cpu %d", cpu_id); goto finish;
+		:: else
 		fi
+
+		int tid;
+		get_tid(cpu_id, tid);
+		lock(tid,lock_info[cur_task]);
+		if
+		:: !tasks[cur_task].need_preemption -> 
+		    unlock(tid,lock_info[cur_task]);
+			printf("need_preemption is false: cpu_id = %d, cur_task = %d", cpu_id,cur_task);
+			goto finish;
+		:: else -> unlock(tid,lock_info[cur_task]);
+	    fi
+
+        // If there is a task to be invoked next, execute the task.
+		get_next(tid);
+		int hp_task = result_next[tid];
+		if
+		:: hp_task == -1 -> 
+			printf("get_next() returns None: %d", cpu_id);
+			goto finish;
+		:: else
+		fi
+
+		int next_thread;
+		lock(tid,lock_info[hp_task]);
+		if
+		:: tasks[hp_task].thread != -1 -> // preempted task
+		    next_thread = tasks[hp_task].thread;
+			unlock(tid,lock_info[hp_task]);
+		    yield_preempted_and_wake_task(cpu_id, cur_task, tid, next_thread);
+		:: else ->  // Otherwise, get a thread from the thread
+		    unlock(tid,lock_info[hp_task]);
+			take_pooled_thread(next_thread);
+			yield_preempted_and_wake_task(cpu_id, cur_task, tid, next_thread);
+		fi
+
+		finish:
 	od
 }
 
-proctype run_main(int tid) provided (!executing_future[tid]) {
+inline yield_and_pool(cpu_id, cur_task, cur_tid, next_tid) {
+	assert(!worker_attached[cur_tid]);
+	context_switch(cpu_id, cur_tid, next_tid);
+	wake_task(next_tid,cur_task);  // re_schedule()
+}
+
+proctype run_main(int tid) provided (worker_executing[tid] != -1) {
 	start:
 	if
 	:: num_terminated == TASK_NUM -> goto end;
-	:: else -> skip;
+	:: else
 	fi
 	
 	int task;
@@ -236,12 +303,23 @@ proctype run_main(int tid) provided (!executing_future[tid]) {
 	:: task == - 1 -> goto start;
 	:: else -> skip;
 	fi
+
+	// If the next task is a preempted task, then the current task will yield to the thread holding the next task.
+	// After that, the current thread will be stored in the thread pool.
+	lock(tid,lock_info[task]);
+	if
+	:: tasks[task].thread != -1 ->
+		  unlock(tid,lock_info[task]);
+	      yield_and_pool(worker_executing[tid], task, tid, tasks[task].thread);
+		  goto start;
+	:: else -> unlock(tid,lock_info[task]);
+	fi
 	
 	try_lock(tid,lock_future[task]);
 	
 	if
 	:: result_try_lock[tid] == false -> 
-		// This task is running on another CPU,
+		// This task is running_tasks on another CPU,
 		// and re-schedule the task to avoid starvation just in case.
 		wake(tid,task);
 		goto start;
@@ -267,11 +345,13 @@ proctype run_main(int tid) provided (!executing_future[tid]) {
 	fi
 	
 	unlock(tid,lock_info[task]);
+
+	running_tasks[worker_executing[tid]] = task;
 	
 	// Invoke a task.
-    atomic {interrupt_enabled[tid] = true; printf("enable interrupt: tid = %d, task = %d\n",tid,task); future_tid[task] = tid; executing_future[tid] = true;} // 実装と異なる
+    interrupt_enabled[tid] = true;
+	future(tid, task);
 	interrupt_enabled[tid] = false;
-	printf("disable interrupt: tid = %d\n",tid);
 	
 	unlock(tid,lock_future[task]);
 	
@@ -323,19 +403,22 @@ init {
 	for (i: 0 .. TASK_NUM - 1) {
 		tasks[i].id = i;
 		tasks[i].state = Ready;
+		tasks[i].thread = -1;
 		
 		wake(0,i);
-
-		run future(i) priority 1;
 	}
 
-	for (i: 0 .. WORKERS - 1) {
-		// interrupt_handlerが動いている際に、他のCPUのスレッドにも影響を及ぼす実装になっている。
+	for (i: 0 .. CPU_NUM - 1) {
+		// HACK: interrupt_handlerが動いている際に、他のCPUのスレッドのrun_main()にも影響を及ぼす実装になっている。
 		run interrupt_handler(i) priority 2;
 	}
 	
 	for (i: 0 .. WORKERS - 1) {
 		run run_main(i) priority 1;
+	}
+
+	for (i: 0 .. CPU_NUM - 1) {
+		worker_executing[i] = true;
 	}
 }
 
