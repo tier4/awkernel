@@ -193,17 +193,24 @@ inline get_next_task(tid,ret) {
 inline context_switch(cpu_id,cur_tid,next_tid) {
 	printf("context_switch(): cpu_id = %d,cur_tid = %d,next_tid = %d\n",cpu_id,cur_tid,next_tid);
 	assert(workers[cur_tid].executing_in == cpu_id);
-	workers[next_tid].executing_in = cpu_id;
-	workers[cur_tid].executing_in = - 1;
+	atomic {
+		workers[next_tid].executing_in = cpu_id;
+		workers[cur_tid].executing_in = - 1;
+	}
+}
+
+inline set_preempt_context(task,tid) {
+	tasks[task].thread = tid;
+	workers[tid].used_as_preempt_ctx = true;
 }
 
 inline yield_preempted_and_wake_task(cpu_id,cur_task,cur_tid,next_tid) {
 	lock(cur_tid,lock_info[cur_task]);
-	tasks[cur_task].thread = cur_tid;
+	set_preempt_context(cur_task,cur_tid);
 	tasks[cur_task].state = Preempted;
 	unlock(cur_tid,lock_info[cur_task]);
-	workers[cur_tid].used_as_preempt_ctx = true;
-	context_switch(cpu_id,tasks[cur_task].thread,next_tid);
+
+	context_switch(cpu_id,cur_tid,next_tid);
 	wake_task(next_tid,cur_task);// re_schedule()
 }
 
