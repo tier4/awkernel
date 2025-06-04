@@ -425,11 +425,16 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !inter
 
 
 init {
-	int i;
+	byte i;
 	
 	for (i: 0 .. CPU_NUM - 1) {
-		// HACK: interrupt_handlerが動いている際に、他のCPUのスレッドのrun_main()にも影響を及ぼす実装になっている。
 		run interrupt_handler(i) priority 2;
+	}
+
+	for (i: 0 .. WORKER_NUM - 1) {
+		workers[i].executing_in = - 1;
+		workers[i].used_as_preempt_ctx = false;
+		run run_main(i) priority 1;
 	}
 	
 	for (i: 0 .. TASK_NUM - 1) {
@@ -439,14 +444,7 @@ init {
 		
 		wake(0,i);
 	}
-	
-	
-	for (i: 0 .. WORKER_NUM - 1) {
-		workers[i].executing_in = - 1;
-		workers[i].used_as_preempt_ctx = false;
-		run run_main(i) priority 1;
-	}
-	
+
 	for (i: 0 .. CPU_NUM - 1) {
 		workers[i].executing_in = i;
 	}
