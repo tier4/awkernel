@@ -119,9 +119,7 @@ impl Msix {
     }
 
     /// Returns the size of the MSI-X table.
-    /// The size is represented as N - 1, where N is the number of entries.
-    /// For example, if the table has 256 entries, this function returns 255.
     pub fn get_table_size(&self) -> u16 {
-        self.table_size
+        self.table_size + 1
     }
 }
