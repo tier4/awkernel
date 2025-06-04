@@ -1,4 +1,5 @@
-use super::address::{PhysAddr, PhysPageNum, MEMORY_END};
+use super::address::{PhysPageNum, MEMORY_END};
+use crate::addr::{phy_addr::PhyAddr, Addr};
 use crate::sync::mcs::MCSNode;
 use alloc::vec::Vec;
 
@@ -43,8 +44,8 @@ pub fn init_page_allocator() {
     }
     if let Some(allocator_ref) = allocator.as_mut() {
         allocator_ref.init(
-            PhysAddr::from(ekernel as usize).ceil(),
-            PhysAddr::from(MEMORY_END as usize).floor(),
+            PhyAddr::from_usize(ekernel as usize).ceil(),
+            PhyAddr::from_usize(MEMORY_END as usize).floor(),
         );
     } else {
         panic!("[Error] Failed to initialize FrameAllocator!");

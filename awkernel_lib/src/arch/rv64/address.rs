@@ -1,4 +1,5 @@
 use super::page_table::PageTableEntry;
+use crate::addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr};
 use core::{
     self,
     fmt::{self, Debug, Formatter},
@@ -26,33 +27,11 @@ pub const VPN_WIDTH: usize = VA_WIDTH - PAGE_OFFSET;
 
 #[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PhysAddr(pub usize);
-
-#[repr(C)]
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct VirtAddr(pub usize);
-
-#[repr(C)]
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhysPageNum(pub usize);
 
 #[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirtPageNum(pub usize);
-
-// implement Debugging trait for debug
-
-impl Debug for PhysAddr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("PA: {:#x}", self.0))
-    }
-}
-
-impl Debug for VirtAddr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("VA: {:#x}", self.0))
-    }
-}
 
 impl Debug for PhysPageNum {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -66,19 +45,6 @@ impl Debug for VirtPageNum {
     }
 }
 
-/// From<usize> trait
-impl From<usize> for PhysAddr {
-    fn from(v: usize) -> Self {
-        Self(v & ((1_u64 << PA_WIDTH as u64) - 1) as usize)
-    }
-}
-
-impl From<usize> for VirtAddr {
-    fn from(v: usize) -> Self {
-        Self(v & ((1_u64 << VA_WIDTH as u64) - 1) as usize)
-    }
-}
-
 impl From<usize> for PhysPageNum {
     fn from(v: usize) -> Self {
         Self(v & ((1 << PPN_WIDTH) - 1))
@@ -88,22 +54,6 @@ impl From<usize> for PhysPageNum {
 impl From<usize> for VirtPageNum {
     fn from(v: usize) -> Self {
         Self(v & ((1 << VPN_WIDTH) - 1))
-    }
-}
-
-impl From<PhysAddr> for usize {
-    fn from(v: PhysAddr) -> Self {
-        v.0
-    }
-}
-
-impl From<VirtAddr> for usize {
-    fn from(v: VirtAddr) -> Self {
-        if v.0 >= ((1 << VPN_WIDTH) - 1) {
-            v.0 | (!((1 << VPN_WIDTH) - 1))
-        } else {
-            v.0
-        }
     }
 }
 
@@ -128,38 +78,38 @@ impl From<VirtAddr> for VirtPageNum {
 
 impl From<VirtPageNum> for VirtAddr {
     fn from(v: VirtPageNum) -> Self {
-        Self(v.0 << PAGE_OFFSET)
+        VirtAddr::from_usize(v.0 << PAGE_OFFSET)
     }
 }
 
-impl From<PhysAddr> for PhysPageNum {
-    fn from(v: PhysAddr) -> Self {
+impl From<PhyAddr> for PhysPageNum {
+    fn from(v: PhyAddr) -> Self {
         assert_eq!(v.page_offset(), 0);
         v.floor()
     }
 }
 
-impl From<PhysPageNum> for PhysAddr {
+impl From<PhysPageNum> for PhyAddr {
     fn from(v: PhysPageNum) -> Self {
-        Self(v.0 << PAGE_OFFSET)
+        PhyAddr::from_usize(v.0 << PAGE_OFFSET)
     }
 }
 
 impl VirtAddr {
     pub fn floor(&self) -> VirtPageNum {
-        VirtPageNum(self.0 / PAGE_SIZE)
+        VirtPageNum(self.as_usize() / PAGE_SIZE)
     }
 
     pub fn ceil(&self) -> VirtPageNum {
-        if self.0 == 0 {
+        if self.as_usize() == 0 {
             VirtPageNum(0)
         } else {
-            VirtPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
+            VirtPageNum((self.as_usize() - 1 + PAGE_SIZE) / PAGE_SIZE)
         }
     }
 
     pub fn page_offset(&self) -> usize {
-        self.0 & (PAGE_SIZE - 1)
+        self.as_usize() & (PAGE_SIZE - 1)
     }
 
     pub fn aligned(&self) -> bool {
@@ -169,15 +119,15 @@ impl VirtAddr {
 
 impl PhysPageNum {
     pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
-        let pa: PhysAddr = (*self).into();
-        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, 512) }
+        let pa: PhyAddr = (*self).into();
+        unsafe { core::slice::from_raw_parts_mut(pa.as_usize() as *mut PageTableEntry, 512) }
     }
     pub fn get_bytes_array(&self) -> &'static mut [u8] {
-        let pa: PhysAddr = (*self).into();
-        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096) }
+        let pa: PhyAddr = (*self).into();
+        unsafe { core::slice::from_raw_parts_mut(pa.as_usize() as *mut u8, 4096) }
     }
     pub fn get_mut<T>(&self) -> &'static mut T {
-        let pa: PhysAddr = (*self).into();
+        let pa: PhyAddr = (*self).into();
         pa.get_mut()
     }
 }
@@ -194,21 +144,21 @@ impl VirtPageNum {
     }
 }
 
-impl PhysAddr {
+impl PhyAddr {
     pub fn floor(&self) -> PhysPageNum {
-        PhysPageNum(self.0 / PAGE_SIZE)
+        PhysPageNum(self.as_usize() / PAGE_SIZE)
     }
 
     pub fn ceil(&self) -> PhysPageNum {
-        if self.0 == 0 {
+        if self.as_usize() == 0 {
             PhysPageNum(0)
         } else {
-            PhysPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
+            PhysPageNum((self.as_usize() - 1 + PAGE_SIZE) / PAGE_SIZE)
         }
     }
 
     pub fn page_offset(&self) -> usize {
-        self.0 & (PAGE_SIZE - 1)
+        self.as_usize() & (PAGE_SIZE - 1)
     }
 
     pub fn aligned(&self) -> bool {
@@ -216,10 +166,10 @@ impl PhysAddr {
     }
 
     pub fn get_ref<T>(&self) -> &'static T {
-        unsafe { (self.0 as *const T).as_ref().unwrap() }
+        unsafe { (self.as_usize() as *const T).as_ref().unwrap() }
     }
 
     pub fn get_mut<T>(&self) -> &'static mut T {
-        unsafe { (self.0 as *mut T).as_mut().unwrap() }
+        unsafe { (self.as_usize() as *mut T).as_mut().unwrap() }
     }
 }

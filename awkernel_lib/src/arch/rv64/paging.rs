@@ -1,4 +1,4 @@
-use super::address::{PhysAddr as RVPhysAddr, PhysPageNum, VirtAddr as RVVirtAddr, VirtPageNum};
+use super::address::{PhysPageNum, VirtPageNum};
 use super::page_table::get_page_table;
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -20,9 +20,9 @@ impl crate::paging::Mapper for super::RV64 {
         let phy_addr_aligned = phy_addr.as_usize() & !(PAGESIZE - 1);
 
         // Get current page table
-        if let Some(mut page_table) = get_page_table(RVVirtAddr(vm_addr_aligned)) {
-            let vpn = VirtPageNum::from(RVVirtAddr(vm_addr_aligned));
-            let ppn = PhysPageNum::from(RVPhysAddr(phy_addr_aligned));
+        if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(vm_addr_aligned)) {
+            let vpn = VirtPageNum::from(VirtAddr::from_usize(vm_addr_aligned));
+            let ppn = PhysPageNum::from(PhyAddr::from_usize(phy_addr_aligned));
 
             let mut rv_flags = super::page_table::Flags::V | super::page_table::Flags::A;
 
@@ -47,9 +47,9 @@ impl crate::paging::Mapper for super::RV64 {
     }
 
     unsafe fn unmap(vm_addr: VirtAddr) {
-        let vm_addr_aligned = VirtAddr::new(vm_addr.as_usize() & !(PAGESIZE - 1));
-        if let Some(mut page_table) = get_page_table(RVVirtAddr(vm_addr_aligned.as_usize())) {
-            let vpn = VirtPageNum::from(RVVirtAddr(vm_addr_aligned.as_usize()));
+        let vm_addr_aligned = VirtAddr::from_usize(vm_addr.as_usize() & !(PAGESIZE - 1));
+        if let Some(mut page_table) = get_page_table(vm_addr_aligned) {
+            let vpn = VirtPageNum::from(vm_addr_aligned);
             page_table.unmap(vpn);
         }
     }
@@ -58,13 +58,13 @@ impl crate::paging::Mapper for super::RV64 {
         let higher = vm_addr.as_usize() & !(PAGESIZE - 1);
         let lower = vm_addr.as_usize() & (PAGESIZE - 1);
 
-        if let Some(mut page_table) = get_page_table(RVVirtAddr(higher)) {
-            let vpn = VirtPageNum::from(RVVirtAddr(higher));
+        if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(higher)) {
+            let vpn = VirtPageNum::from(VirtAddr::from_usize(higher));
             if let Some(pte) = page_table.translate(vpn) {
                 if pte.is_valid() {
                     let ppn = pte.ppn();
                     let phy_addr = (ppn.0 << 12) | lower;
-                    return Some(PhyAddr::new(phy_addr));
+                    return Some(PhyAddr::from_usize(phy_addr));
                 }
             }
         }

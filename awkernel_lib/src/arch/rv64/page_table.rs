@@ -1,5 +1,6 @@
-use super::address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PPN_WIDTH};
+use super::address::{PhysPageNum, VirtPageNum, PAGE_SIZE, PPN_WIDTH};
 use super::frame_allocator::{frame_alloc, FrameTracker};
+use crate::addr::{phy_addr::PhyAddr, virt_addr::VirtAddr};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -181,17 +182,16 @@ pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {
 
 // Frame type for integration with common paging interface
 pub struct Page {
-    addr: PhysAddr,
+    addr: PhyAddr,
 }
 
 impl crate::paging::Frame for Page {
-    fn start_address(&self) -> crate::addr::phy_addr::PhyAddr {
-        crate::addr::phy_addr::PhyAddr::new(self.addr.0)
+    fn start_address(&self) -> PhyAddr {
+        self.addr
     }
 
-    fn set_address(&mut self, addr: crate::addr::phy_addr::PhyAddr) {
-        use crate::addr::Addr;
-        self.addr = PhysAddr(addr.as_usize());
+    fn set_address(&mut self, addr: PhyAddr) {
+        self.addr = addr;
     }
 
     fn size(&self) -> usize {
@@ -205,7 +205,7 @@ pub struct RV64PageAllocator;
 impl crate::paging::FrameAllocator<Page, &'static str> for RV64PageAllocator {
     fn allocate_frame(&mut self) -> Result<Page, &'static str> {
         if let Some(tracker) = frame_alloc() {
-            let addr = PhysAddr((tracker.ppn.0) << 12); // Convert PPN to physical address
+            let addr = PhyAddr::new((tracker.ppn.0) << 12); // Convert PPN to physical address
             core::mem::forget(tracker); // Transfer ownership to Page
             Ok(Page { addr })
         } else {
@@ -217,14 +217,13 @@ impl crate::paging::FrameAllocator<Page, &'static str> for RV64PageAllocator {
 impl crate::paging::PageTable<Page, RV64PageAllocator, &'static str> for PageTable {
     unsafe fn map_to(
         &mut self,
-        virt_addr: crate::addr::virt_addr::VirtAddr,
-        phy_addr: crate::addr::phy_addr::PhyAddr,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
         flags: crate::paging::Flags,
         _page_allocator: &mut RV64PageAllocator,
     ) -> Result<(), &'static str> {
-        use crate::addr::Addr;
-        let vpn = VirtPageNum::from(VirtAddr(virt_addr.as_usize()));
-        let ppn = PhysPageNum::from(PhysAddr(phy_addr.as_usize()));
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
 
         let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
 

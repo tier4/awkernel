@@ -1,6 +1,7 @@
-use super::address::{PhysPageNum, VirtAddr, VirtPageNum};
+use super::address::{PhysPageNum, VirtPageNum};
 use super::frame_allocator::{frame_alloc, FrameTracker};
 use super::page_table::{Flags as PTEFlags, PageTable, PageTableEntry};
+use crate::addr::{virt_addr::VirtAddr, Addr};
 use crate::{console::unsafe_puts, paging::PAGESIZE};
 use alloc::vec::Vec;
 use core::arch::asm;
@@ -200,8 +201,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr(stext as usize),
-                VirtAddr(etext as usize),
+                VirtAddr::from_usize(stext as usize),
+                VirtAddr::from_usize(etext as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::X,
             ),
@@ -213,8 +214,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr(srodata as usize),
-                VirtAddr(erodata as usize),
+                VirtAddr::from_usize(srodata as usize),
+                VirtAddr::from_usize(erodata as usize),
                 MapType::Identical,
                 MapPermission::R,
             ),
@@ -226,8 +227,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr(sdata as usize),
-                VirtAddr(edata as usize),
+                VirtAddr::from_usize(sdata as usize),
+                VirtAddr::from_usize(edata as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
@@ -239,8 +240,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr(sbss_with_stack as usize),
-                VirtAddr(ebss as usize),
+                VirtAddr::from_usize(sbss_with_stack as usize),
+                VirtAddr::from_usize(ebss as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
@@ -252,8 +253,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr(ekernel as usize),
-                VirtAddr(super::address::MEMORY_END as usize),
+                VirtAddr::from_usize(ekernel as usize),
+                VirtAddr::from_usize(super::address::MEMORY_END as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
