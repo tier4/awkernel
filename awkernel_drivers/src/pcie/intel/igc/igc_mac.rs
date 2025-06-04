@@ -424,3 +424,51 @@ pub(super) fn igc_get_speed_and_duplex_copper_generic(
 
     Ok((speed, duplex))
 }
+
+/// Generates a multicast address hash value which is used to determine
+/// the multicast filter table array address and new table value.
+pub(super) fn igc_hash_mc_addr_generic(hw: &IgcHw, mc_addr: &[u8; ETHER_ADDR_LEN]) -> u32 {
+    // Register count multiplied by bits per register
+    let hash_mask = ((hw.mac.mta_reg_count * 32) - 1) as u32;
+
+    // For a mc_filter_type of 0, bit_shift is the number of left-shifts
+    // where 0xFF would still fall within the hash mask.
+    let mut bit_shift = 0;
+    while hash_mask >> bit_shift != 0xFF {
+        bit_shift += 1;
+    }
+
+    // The portion of the address that is used for the hash table
+    // is determined by the mc_filter_type setting.
+    // The algorithm is such that there is a total of 8 bits of shifting.
+    // The bit_shift for a mc_filter_type of 0 represents the number of
+    // left-shifts where the MSB of mc_addr[5] would still fall within
+    // the hash_mask.  Case 0 does this exactly.  Since there are a total
+    // of 8 bits of shifting, then mc_addr[4] will shift right the
+    // remaining number of bits. Thus 8 - bit_shift.  The rest of the
+    // cases are a variation of this algorithm...essentially raising the
+    // number of bits to shift mc_addr[5] left, while still keeping the
+    // 8-bit shifting total.
+    //
+    // For example, given the following Destination MAC Address and an
+    // mta register count of 128 (thus a 4096-bit vector and 0xFFF mask),
+    // we can see that the bit_shift for case 0 is 4.  These are the hash
+    // values resulting from each mc_filter_type...
+    // [0] [1] [2] [3] [4] [5]
+    // 01  AA  00  12  34  56
+    // LSB           MSB
+    //
+    // case 0: hash_value = ((0x34 >> 4) | (0x56 << 4)) & 0xFFF = 0x563
+    // case 1: hash_value = ((0x34 >> 3) | (0x56 << 5)) & 0xFFF = 0xAC6
+    // case 2: hash_value = ((0x34 >> 2) | (0x56 << 6)) & 0xFFF = 0x163
+    // case 3: hash_value = ((0x34 >> 0) | (0x56 << 8)) & 0xFFF = 0x634
+
+    match hw.mac.mc_filter_type {
+        1 => bit_shift += 1,
+        2 => bit_shift += 2,
+        3 => bit_shift += 4,
+        _ => (),
+    }
+
+    hash_mask & ((mc_addr[4] as u32 >> (8 - bit_shift)) | ((mc_addr[5] as u32) << bit_shift))
+}
