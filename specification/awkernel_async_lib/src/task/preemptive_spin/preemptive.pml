@@ -9,7 +9,7 @@
 FairLock lock_info[TASK_NUM];
 FairLock lock_future[TASK_NUM];
 FairLock lock_queue = false;
-FairLock lock_next_task = false;
+FairLock lock_next_task[CPU_NUM];
 
 typedef Worker {
 	short executing_in;// cpu_id when this is executed,- 1 otherwise.
@@ -170,14 +170,14 @@ inline preempt_get_next(tid,ret) {
 	assert(cpu_id_ != - 1);
 	
 	ret = - 1;
-	lock(tid,lock_next_task);
+	lock(tid,lock_next_task[cpu_id_]);
 	if
 	:: NEXT_TASK[cpu_id_] != - 1 -> 
 		ret = NEXT_TASK[cpu_id_];
 		NEXT_TASK[cpu_id_] = - 1;
 	:: else
 	fi
-	unlock(tid,lock_next_task);
+	unlock(tid,lock_next_task[cpu_id_]);
 }
 
 /* awkernel_async_lib::task::get_next_task() */
@@ -192,6 +192,7 @@ inline get_next_task(tid,ret) {
 
 inline context_switch(cpu_id,cur_tid,next_tid) {
 	printf("context_switch(): cpu_id = %d,cur_tid = %d,next_tid = %d\n",cpu_id,cur_tid,next_tid);
+	assert(workers[next_tid].used_as_preempt_ctx == false);
 	assert(workers[cur_tid].executing_in == cpu_id);
 	atomic {
 		workers[next_tid].executing_in = cpu_id;
@@ -257,11 +258,10 @@ inline get_tid(cpu_id,ret) {
 /* kernel::x86_64::interrupt_handler::preemption() ~ awkernel_async_lib::task::do_preemption() */
 proctype interrupt_handler(byte cpu_id) provided (interrupt_enabled[cpu_id]) {
 	do
-	:: ipi_requests[cpu_id]?_ -> 
+	:: atomic {ipi_requests[cpu_id]?_ -> interrupted[cpu_id] = true; }
 		printf("Received IPI request. cpu_id = %d\n",cpu_id);
 		short tid;
 		get_tid(cpu_id,tid);
-		interrupted[cpu_id] = true;
 		
 		short cur_task = RUNNING[cpu_id];
 		if
@@ -299,10 +299,10 @@ proctype interrupt_handler(byte cpu_id) provided (interrupt_enabled[cpu_id]) {
 		:: else -> // Otherwise,get a thread from the thread
 			unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
-			lock(tid,lock_next_task);
+			lock(tid,lock_next_task[cpu_id]);
 			assert(NEXT_TASK[cpu_id] == - 1);
 			NEXT_TASK[cpu_id] = hp_task;
-			unlock(tid,lock_next_task);
+			unlock(tid,lock_next_task[cpu_id]);
 			yield_preempted_and_wake_task(cpu_id,cur_task,tid,next_thread);
 		fi
 		
