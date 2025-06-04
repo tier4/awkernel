@@ -470,8 +470,5 @@ pub(super) fn igc_hash_mc_addr_generic(hw: &IgcHw, mc_addr: &[u8; ETHER_ADDR_LEN
         _ => (),
     }
 
-    let hash_value =
-        hash_mask & ((mc_addr[4] as u32 >> (8 - bit_shift)) | ((mc_addr[5] as u32) << bit_shift));
-
-    hash_value
+    hash_mask & ((mc_addr[4] as u32 >> (8 - bit_shift)) | ((mc_addr[5] as u32) << bit_shift))
 }
