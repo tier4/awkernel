@@ -3,6 +3,7 @@
 #define CPU_NUM 2
 #define NUM_PROC WORKER_NUM
 
+#include "future_mock.pml"
 #include "../cooperative_spin/fair_lock.pml"
 FairLock lock_info[TASK_NUM];
 FairLock lock_future[TASK_NUM];
@@ -33,7 +34,7 @@ short RUNNING[CPU_NUM] = - 1;// task_id when this CPU is executing a task, -1 ot
 short NEXT_TASK[CPU_NUM] = - 1;// Preempted task_id to be executed next, -1 if there is no preempted task.
 
 chan ipi_requests[CPU_NUM] = [CPU_NUM] of { byte };// Message type is not accessed.
-bool interrupted[CPU_NUM] = false;// True if this CPU is interrupted by an IPI request, false otherwise.
+bool interrupted[CPU_NUM] = false;// true if this CPU is interrupted by an IPI request, false otherwise.
 bool interrupt_enabled[CPU_NUM] = false;
 
 /* Queue of the PrioritizedFIFO scheduler */
@@ -128,13 +129,8 @@ inline wake(tid,task) {
 	fi
 }
 
-int result_next[WORKER_NUM];// tid -> get_next()の結果を格納する。これはタスクIDが入る
-mtype result_future[WORKER_NUM];// tid -> future()の結果を格納する。これはReadyかPendingが入る
-
-bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフラグ。wakeしてる場合は、そのタスクがReadyになるまではPendingになる。
-
 /* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next() */
-inline scheduler_get_next(tid) {
+inline scheduler_get_next(tid,ret) {
 	lock(tid,lock_scheduler);
 	
 	int head;
@@ -160,49 +156,23 @@ inline scheduler_get_next(tid) {
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_scheduler);
 		
-		result_next[tid] = head;
+		ret = head;
 	:: else -> // queue内に実行可能なタスクが無い場合
 		unlock(tid,lock_scheduler);
-		result_next[tid] = - 1;
+		ret = - 1;
 	fi
 }
 
 // awkernel_async_lib::task::get_next_task()
-inline get_next(tid) {
+inline get_next(tid,ret) {
 	int _cpu_id = workers[tid].executing_in;
 	assert(_cpu_id != - 1);
 	if
 	:: NEXT_TASK[_cpu_id] != - 1 -> 
-		result_next[tid] = NEXT_TASK[_cpu_id];
+		ret = NEXT_TASK[_cpu_id];
 		NEXT_TASK[_cpu_id] = - 1;
 	:: else -> 
-		scheduler_get_next(tid);
-	fi
-}
-
-// If there is 2 tasks, and their task ID's are 0 and 1.
-// This future will execute as follows.
-//
-// step1: Task 0 wakes Task 1 up, and returns "Pending".
-// step2: Task 1 wakes Task 0 up, and returns "Ready".
-// step3: Task 0 returns "Ready".
-//
-// A task will become "Terminated", after returning "Ready".
-inline future(tid,task) {
-	if
-	:: task >= TASK_NUM / 2 -> 
-		wake(tid,task - TASK_NUM / 2);
-		result_future[tid] = Ready;
-	:: else -> 
-		if
-		:: wake_other[task] -> 
-			result_future[tid] = Ready;
-			printf("future(): tid = %d,task = %d\n",tid,task);
-		:: else -> 
-			wake(tid,task + TASK_NUM / 2);
-			wake_other[task] = true;
-			result_future[tid] = Pending;
-		fi
+		scheduler_get_next(tid,ret);
 	fi
 }
 
@@ -287,8 +257,8 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
-		get_next(tid);
-		int hp_task = result_next[tid];
+		int hp_task;
+		get_next(tid,hp_task);
 		if
 		:: hp_task == - 1 -> 
 			printf("get_next() returns None: %d",cpu_id);
@@ -333,8 +303,7 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 	
 	int task;
 	atomic {
-		get_next(tid);
-		task = result_next[tid];
+		get_next(tid,task);
 	}
 	
 	if
@@ -390,8 +359,9 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 	RUNNING[cpu_id] = task;
 	
 	// Invoke a task.
+	mtype poll_result;
 	interrupt_enabled[cpu_id] = true;
-	future(tid,task);
+	future(tid,task,poll_result);
 	interrupt_enabled[cpu_id] = false;
 	unlock(tid,lock_future[task]);
 	
@@ -399,7 +369,7 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 
 	lock(tid,lock_info[task]);
 	if
-	:: result_future[tid] == Pending -> 
+	:: poll_result == Pending -> 
 		printf("result_future Pending: tid = %d,task = %d\n",tid,task);
 		tasks[task].state = Waiting;
 		
@@ -411,7 +381,7 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 			goto start;
 		:: else -> skip;
 		fi
-	:: result_future[tid] == Ready -> 
+	:: poll_result == Ready -> 
 		printf("result_future Ready: tid = %d,task = %d\n",tid,task);
 		if
 		:: tasks[task].state != Terminated -> 
