@@ -22,7 +22,7 @@ typedef TaskInfo {
 	mtype state;
 	bool need_sched;
 	bool is_terminated;
-	short id;// This also represents the priority of the task. The lower the value, the higher the priority.
+	byte id;// This also represents the priority of the task. The lower the value, the higher the priority.
 	bool need_preemption;
 	int thread;// tid when this task is preempted, -1 otherwise.
 };
@@ -31,19 +31,15 @@ TaskInfo tasks[TASK_NUM];
 
 short RUNNING[CPU_NUM] = - 1;// task_id when this CPU is executing a task, -1 otherwise.
 short NEXT_TASK[CPU_NUM] = - 1;// Preempted task_id to be executed next, -1 if there is no preempted task.
+
+chan ipi_requests[CPU_NUM] = [CPU_NUM] of { byte };// Message type is not accessed.
 bool interrupted[CPU_NUM] = false;// True if this CPU is interrupted by an IPI request, false otherwise.
+bool interrupt_enabled[CPU_NUM] = false;
 
 /* Queue of the PrioritizedFIFO scheduler */
-chan queue = [TASK_NUM * 2] of { int };// これにはタスクIDが入る。タスクID = priorityとみなす。
+chan queue = [TASK_NUM * 2] of { byte };// task_ids in ascending order of priority.
 
-int result_next[WORKER_NUM];// tid -> get_next()の結果を格納する。これはタスクIDが入る
-mtype result_future[WORKER_NUM];// tid -> future()の結果を格納する。これはReadyかPendingが入る
-
-bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフラグ。wakeしてる場合は、そのタスクがReadyになるまではPendingになる。
-int num_terminated = 0;// 検証のための変数。
-
-chan ipi_requests[CPU_NUM] = [WORKER_NUM] of { int };// IPIリクエストを受け取るチャネル。intはとりあえずタスクID。
-bool interrupt_enabled[CPU_NUM] = false;
+int num_terminated = 0;// For verification.
 
 inline exists_idle_cpu(ret) {
 	ret = false;
@@ -68,11 +64,11 @@ inline get_lowest_priority_task(ret_task,ret_cpu_id) {
 				ret_cpu_id = j;
 			:: else
 			fi
-		:: else
+		:: else -> ret_task = -1;break;
 		fi
 	}
 
-	assert(ret_task != - 1);
+	// ret_task may be -1, if there is idle CPU.
 }
 
 inline set_need_preemption(tid,task) {
@@ -93,7 +89,7 @@ inline invoke_preemption(tid,task) {
 	int lp_cpu_id;
 	get_lowest_priority_task(lp_task,lp_cpu_id);
 	if
-	:: task < lp_task -> 
+	:: task < lp_task -> // If lp_task is -1, preemption will not occur.
 		set_need_preemption(tid,lp_task);
 		printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 		ipi_requests[lp_cpu_id]!task;
@@ -103,7 +99,7 @@ inline invoke_preemption(tid,task) {
 	finish_invoke_preemption:
 }
 
-// awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()
+/* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task() */
 inline wake_task(tid,task) {
 	lock(tid,lock_scheduler);
 	queue!!task;
@@ -112,7 +108,7 @@ inline wake_task(tid,task) {
 	invoke_preemption(tid,task);
 }
 
-// awkernel_async_lib::task::ArcWake::wake()
+/* awkernel_async_lib::task::ArcWake::wake() */
 inline wake(tid,task) {
 	lock(tid,lock_info[task]);
 	
@@ -132,7 +128,12 @@ inline wake(tid,task) {
 	fi
 }
 
-// awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next()
+int result_next[WORKER_NUM];// tid -> get_next()の結果を格納する。これはタスクIDが入る
+mtype result_future[WORKER_NUM];// tid -> future()の結果を格納する。これはReadyかPendingが入る
+
+bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフラグ。wakeしてる場合は、そのタスクがReadyになるまではPendingになる。
+
+/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next() */
 inline scheduler_get_next(tid) {
 	lock(tid,lock_scheduler);
 	
