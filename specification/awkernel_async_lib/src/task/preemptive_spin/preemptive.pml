@@ -216,11 +216,12 @@ inline yield_preempted_and_wake_task(cpu_id,cur_task,cur_tid,next_tid) {
 
 inline take_pooled_thread(ret) {
 	ret = - 1;
-	int k;
-	for (k : 0 .. WORKER_NUM - 1) {
+
+	byte i;
+	for (i : 0 .. WORKER_NUM - 1) {
 		if
-		:: (workers[k].executing_in == - 1 && !workers[k].used_as_preempt_ctx) -> 
-			ret = k;
+		:: (workers[i].executing_in == - 1 && !workers[i].used_as_preempt_ctx) -> 
+			ret = i;
 			break;
 		:: else
 		fi
@@ -253,16 +254,16 @@ inline get_tid(cpu_id,ret) {
 	assert(ret != - 1);
 }
 
-// awkernel_async_lib::task::do_preemption()
-proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
+/* kernel::x86_64::interrupt_handler::preemption() ~ awkernel_async_lib::task::do_preemption() */
+proctype interrupt_handler(byte cpu_id) provided (interrupt_enabled[cpu_id]) {
 	do
 	:: ipi_requests[cpu_id]?_ -> 
-		interrupted[cpu_id] = true;
-		int tid;
+		printf("Received IPI request. cpu_id = %d\n",cpu_id);
+		short tid;
 		get_tid(cpu_id,tid);
-		int cur_task = RUNNING[cpu_id];
-		printf("Received IPI request. cpu_id = %d,cur_tid = %d,cur_task = %d\n",cpu_id,tid,cur_task);
-		
+		interrupted[cpu_id] = true;
+
+		short cur_task = RUNNING[cpu_id];
 		if
 		:: cur_task == - 1 -> printf("There is no running task in cpu %d",cpu_id);goto finish;
 		:: else
@@ -278,7 +279,7 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
-		int hp_task;
+		short hp_task;
 		get_next_task(tid,hp_task);
 		if
 		:: hp_task == - 1 -> 
@@ -288,7 +289,7 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		fi
 		
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
-		int next_thread;
+		short next_thread;
 		lock(tid,lock_info[hp_task]);
 		if
 		:: tasks[hp_task].thread != - 1 -> // preempted task
@@ -310,28 +311,28 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 	od
 }
 
-inline yield_and_pool(cpu_id,cur_task,cur_tid,next_tid) {
+inline yield_and_pool(cur_task,cur_tid,next_tid) {
+	assert(workers[cur_tid].executing_in != - 1);
+	byte cpu_id = workers[cur_tid].executing_in;
 	printf("yield_and_pool(): cpu_id = %d,cur_task = %d,cur_tid = %d,next_tid = %d\n",cpu_id,cur_task,cur_tid,next_tid);
 	assert(!workers[cur_tid].used_as_preempt_ctx);
 	context_switch(cpu_id,cur_tid,next_tid);
 	wake_task(next_tid,cur_task);// re_schedule()
 }
 
-proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interrupted[workers[tid].executing_in]) {
+proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !interrupted[workers[tid].executing_in]) {
 	start:
 	if
 	:: num_terminated == TASK_NUM -> goto end;
 	:: else
 	fi
 	
-	int task;
-	atomic {
-		get_next_task(tid,task);
-	}
+	short task;
+	get_next_task(tid,task);
 	
 	if
 	:: task == - 1 -> goto start;
-	:: else -> skip;
+	:: else
 	fi
 	
 	// If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -339,23 +340,22 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 	lock(tid,lock_info[task]);
 	if
 	:: tasks[task].thread != - 1 -> 
-		int next_ctx;
+		byte next_ctx;
 		take_preempt_context(task,next_ctx);
 		unlock(tid,lock_info[task]);
-		yield_and_pool(workers[tid].executing_in,task,tid,next_ctx);
+		yield_and_pool(task,tid,next_ctx);
 		goto start;
 	:: else -> unlock(tid,lock_info[task]);
 	fi
 	
 	try_lock(tid,lock_future[task]);
-	
 	if
 	:: result_try_lock[tid] == false -> 
 		// This task is running on another CPU,
 		// and re-schedule the task to avoid starvation just in case.
 		wake(tid,task);
 		goto start;
-	:: else -> skip;
+	:: else
 	fi
 	
 	// Can remove this?
@@ -363,22 +363,20 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 	:: tasks[task].is_terminated -> 
 		unlock(tid,lock_future[task]);
 		goto start;
-	:: else -> skip;
+	:: else
 	fi
 	
 	lock(tid,lock_info[task]);
-	
 	if
 	:: tasks[task].state == Terminated -> 
 		unlock(tid,lock_info[task]);
 		unlock(tid,lock_future[task]);
 		goto start;
-	:: else -> skip;
+	:: else
 	fi
-	
 	unlock(tid,lock_info[task]);
 	
-	int cpu_id = workers[tid].executing_in;
+	byte cpu_id = workers[tid].executing_in;
 	RUNNING[cpu_id] = task;
 	
 	// Invoke a task.
@@ -402,7 +400,7 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 			unlock(tid,lock_info[task]);
 			wake_task(tid,task);
 			goto start;
-		:: else -> skip;
+		:: else;
 		fi
 	:: poll_result == Ready -> 
 		printf("result_future Ready: tid = %d,task = %d\n",tid,task);
