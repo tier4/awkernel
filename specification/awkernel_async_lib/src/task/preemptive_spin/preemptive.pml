@@ -13,6 +13,8 @@ FairLock lock_scheduler = false;// スケジューラのqueueに対するロッ�
 int worker_executing[WORKERS] = -1; // worker_id -> cpu_id. 実行されていない場合は-1が入る。各ワーカスレッドが現在コア上で実行中かどうかのフラグ。これは実装に無い。
 bool worker_attached[WORKERS] = false; // ワーカスレッドがタスクにアタッチされているかどうかのフラグ。
 int running_tasks[CPU_NUM] = -1; // cpu_id -> task_id。-1の場合は実行中のタスクが無いことを示す。
+int next_tasks[CPU_NUM] = -1; // プリエンプション用のタスク置き場。
+bool interrupted[CPU_NUM] = false; // 割り込みを実行中かのフラグ。
 
 inline get_running_num(ret) {
 	ret = 0;
@@ -27,6 +29,7 @@ inline get_running_num(ret) {
 }
 
 inline get_tid(cpu_id, ret) {
+	assert(cpu_id != -1);
 	ret = -1;
 	int i;
 	for (i : 0 .. WORKERS - 1) {
@@ -88,7 +91,7 @@ inline invoke_preemption(task) {
 	get_running_num(running_num);
 	if
 	:: running_num < CPU_NUM -> 
-		goto end_invoke_preemption;
+		goto finish_invoke_preemption;
 	:: else
 	fi
 
@@ -103,7 +106,7 @@ inline invoke_preemption(task) {
 	:: else
 	fi
 
-	end_invoke_preemption:
+	finish_invoke_preemption:
 }
 
 // awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()
@@ -136,7 +139,7 @@ inline wake(tid,task) {
 }
 
 // awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next()
-inline get_next(tid) {
+inline scheduler_get_next(tid) {
 	lock(tid,lock_scheduler);
 	
 	int head;
@@ -157,16 +160,29 @@ inline get_next(tid) {
 		fi
 		
 		tasks[head].state = Running;
-		printf("get_next(): tid = %d, Chosen task = %d\n",tid, head);
+		printf("scheduler_get_next(): tid = %d, Chosen task = %d\n",tid, head);
 		
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_scheduler);
 		
 		result_next[tid] = head;
 	:: else -> // queue内に実行可能なタスクが無い場合
-		// printf("get_next(): tid = %d, No runnable task\n",tid);
+		// printf("scheduler_get_next(): tid = %d, No runnable task\n",tid);
 		unlock(tid,lock_scheduler);
 		result_next[tid] = -1;
+	fi
+}
+
+// awkernel_async_lib::task::get_next_task()
+inline get_next(tid) {
+    int _cpu_id = worker_executing[tid];
+	assert(_cpu_id != -1);
+	if
+	:: next_tasks[_cpu_id] != -1 -> 
+		result_next[tid] = next_tasks[_cpu_id];
+		next_tasks[_cpu_id] = -1;
+	:: else -> 
+		scheduler_get_next(tid);
 	fi
 }
 
@@ -199,17 +215,15 @@ inline future(tid, task) {
 inline context_switch(cpu_id, cur_tid, next_tid) {
 	printf("context_switch(): cpu_id = %d, cur_tid = %d, next_tid = %d\n", cpu_id, cur_tid, next_tid);
 	assert(worker_executing[cur_tid] == cpu_id);
-    worker_executing[cur_tid] = -1;
 	worker_executing[next_tid] = cpu_id;
-	assert(worker_attached[next_tid]);
-	worker_attached[next_tid] = false;
+    worker_executing[cur_tid] = -1;
 }
 
 inline yield_preempted_and_wake_task(cpu_id, cur_task, cur_tid, next_tid) {
-	lock(tid,lock_info[cur_task]);
+	lock(cur_tid,lock_info[cur_task]);
 	tasks[cur_task].thread = cur_tid;
 	tasks[cur_task].state = Preempted;
-	unlock(tid,lock_info[cur_task]);
+	unlock(cur_tid,lock_info[cur_task]);
 	worker_attached[cur_tid] = true;
 	context_switch(cpu_id, tasks[cur_task].thread, next_tid);
 	wake_task(next_tid,cur_task);  // re_schedule()
@@ -230,20 +244,28 @@ inline take_pooled_thread(ret) {
 	assert(ret != -1);
 }
 
+inline take_preempt_context(task, ret) {
+	ret = tasks[task].thread;
+	tasks[task].thread = -1;
+	assert(worker_attached[ret])
+	worker_attached[ret] = false;
+}
+
 // awkernel_async_lib::task::do_preemption()
 proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 	do
     :: ipi_requests[cpu_id]?_ ->
+		interrupted[cpu_id] = true;
+		int tid;
+		get_tid(cpu_id, tid);
 		int cur_task = running_tasks[cpu_id];
-		printf("Received IPI request. cpu_id = %d, cur_task = %d\n",cpu_id,cur_task);
+		printf("Received IPI request. cpu_id = %d, cur_tid = %d, cur_task = %d\n",cpu_id,tid,cur_task);
 
 		if
 		:: cur_task == -1 -> printf("There is no running task in cpu %d", cpu_id); goto finish;
 		:: else
 		fi
 
-		int tid;
-		get_tid(cpu_id, tid);
 		lock(tid,lock_info[cur_task]);
 		if
 		:: !tasks[cur_task].need_preemption -> 
@@ -263,30 +285,35 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		:: else
 		fi
 
+		printf("Preemption Occurs: cpu_id = %d, cur_task = %d, hp_task = %d\n", cpu_id, cur_task, hp_task);
 		int next_thread;
 		lock(tid,lock_info[hp_task]);
 		if
 		:: tasks[hp_task].thread != -1 -> // preempted task
-		    next_thread = tasks[hp_task].thread;
+			take_preempt_context(hp_task, next_thread);
 			unlock(tid,lock_info[hp_task]);
 		    yield_preempted_and_wake_task(cpu_id, cur_task, tid, next_thread);
 		:: else ->  // Otherwise, get a thread from the thread
 		    unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
+			assert(next_tasks[cpu_id] == -1);
+			next_tasks[cpu_id] = hp_task;
 			yield_preempted_and_wake_task(cpu_id, cur_task, tid, next_thread);
 		fi
 
 		finish:
+		interrupted[cpu_id] = false;
 	od
 }
 
 inline yield_and_pool(cpu_id, cur_task, cur_tid, next_tid) {
+	printf("yield_and_pool(): cpu_id = %d, cur_task = %d, cur_tid = %d, next_tid = %d\n", cpu_id, cur_task, cur_tid, next_tid);
 	assert(!worker_attached[cur_tid]);
 	context_switch(cpu_id, cur_tid, next_tid);
 	wake_task(next_tid,cur_task);  // re_schedule()
 }
 
-proctype run_main(int tid) provided (worker_executing[tid] != -1) {
+proctype run_main(int tid) provided (worker_executing[tid] != -1 && !interrupted[worker_executing[tid]]) {
 	start:
 	if
 	:: num_terminated == TASK_NUM -> goto end;
@@ -309,8 +336,10 @@ proctype run_main(int tid) provided (worker_executing[tid] != -1) {
 	lock(tid,lock_info[task]);
 	if
 	:: tasks[task].thread != -1 ->
+		  int next_ctx;
+		  take_preempt_context(task, next_ctx);
 		  unlock(tid,lock_info[task]);
-	      yield_and_pool(worker_executing[tid], task, tid, tasks[task].thread);
+	      yield_and_pool(worker_executing[tid], task, tid, next_ctx);
 		  goto start;
 	:: else -> unlock(tid,lock_info[task]);
 	fi
@@ -346,16 +375,19 @@ proctype run_main(int tid) provided (worker_executing[tid] != -1) {
 	
 	unlock(tid,lock_info[task]);
 
-	running_tasks[worker_executing[tid]] = task;
+	int cpu_id = worker_executing[tid];
+	running_tasks[cpu_id] = task;
 	
 	// Invoke a task.
-    interrupt_enabled[tid] = true;
+    interrupt_enabled[cpu_id] = true;
 	future(tid, task);
-	interrupt_enabled[tid] = false;
+	interrupt_enabled[cpu_id] = false;
 	
 	unlock(tid,lock_future[task]);
 	
 	lock(tid,lock_info[task]);
+
+	running_tasks[cpu_id] = -1;
 	
 	if
 	:: result_future[tid] == Pending -> 
@@ -380,7 +412,7 @@ proctype run_main(int tid) provided (worker_executing[tid] != -1) {
 		if
 		:: tasks[task].state != Terminated -> 
 			num_terminated++;
-		:: else -> skip;
+		:: else -> assert(false);
 		fi
 		
 		tasks[task].state = Terminated;
@@ -400,6 +432,11 @@ proctype run_main(int tid) provided (worker_executing[tid] != -1) {
 init {
 	int i;
 	
+	for (i: 0 .. CPU_NUM - 1) {
+		// HACK: interrupt_handlerが動いている際に、他のCPUのスレッドのrun_main()にも影響を及ぼす実装になっている。
+		run interrupt_handler(i) priority 2;
+	}
+
 	for (i: 0 .. TASK_NUM - 1) {
 		tasks[i].id = i;
 		tasks[i].state = Ready;
@@ -408,17 +445,13 @@ init {
 		wake(0,i);
 	}
 
-	for (i: 0 .. CPU_NUM - 1) {
-		// HACK: interrupt_handlerが動いている際に、他のCPUのスレッドのrun_main()にも影響を及ぼす実装になっている。
-		run interrupt_handler(i) priority 2;
-	}
 	
 	for (i: 0 .. WORKERS - 1) {
 		run run_main(i) priority 1;
 	}
 
 	for (i: 0 .. CPU_NUM - 1) {
-		worker_executing[i] = true;
+		worker_executing[i] = i;
 	}
 }
 
