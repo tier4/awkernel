@@ -12,7 +12,7 @@ FairLock lock_scheduler = false;
 
 typedef Worker {
 	short executing_in;// cpu_id when this is executed, -1 otherwise.
-	bool attached_by_preempt_context;
+	bool used_as_preempt_ctx;
 }
 
 Worker workers[WORKER_NUM];
@@ -212,7 +212,7 @@ inline yield_preempted_and_wake_task(cpu_id,cur_task,cur_tid,next_tid) {
 	tasks[cur_task].thread = cur_tid;
 	tasks[cur_task].state = Preempted;
 	unlock(cur_tid,lock_info[cur_task]);
-	workers[cur_tid].attached_by_preempt_context = true;
+	workers[cur_tid].used_as_preempt_ctx = true;
 	context_switch(cpu_id,tasks[cur_task].thread,next_tid);
 	wake_task(next_tid,cur_task);// re_schedule()
 }
@@ -222,7 +222,7 @@ inline take_pooled_thread(ret) {
 	int k;
 	for (k : 0 .. WORKER_NUM - 1) {
 		if
-		:: (workers[k].executing_in == - 1 && !workers[k].attached_by_preempt_context) -> 
+		:: (workers[k].executing_in == - 1 && !workers[k].used_as_preempt_ctx) -> 
 			ret = k;
 			break;
 		:: else
@@ -235,8 +235,8 @@ inline take_pooled_thread(ret) {
 inline take_preempt_context(task,ret) {
 	ret = tasks[task].thread;
 	tasks[task].thread = - 1;
-	assert(workers[ret].attached_by_preempt_context);
-	workers[ret].attached_by_preempt_context = false;
+	assert(workers[ret].used_as_preempt_ctx);
+	workers[ret].used_as_preempt_ctx = false;
 }
 
 inline get_tid(cpu_id,ret) {
@@ -312,7 +312,7 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 
 inline yield_and_pool(cpu_id,cur_task,cur_tid,next_tid) {
 	printf("yield_and_pool(): cpu_id = %d,cur_task = %d,cur_tid = %d,next_tid = %d\n",cpu_id,cur_task,cur_tid,next_tid);
-	assert(!workers[cur_tid].attached_by_preempt_context);
+	assert(!workers[cur_tid].used_as_preempt_ctx);
 	context_switch(cpu_id,cur_tid,next_tid);
 	wake_task(next_tid,cur_task);// re_schedule()
 }
@@ -452,7 +452,7 @@ init {
 	
 	for (i: 0 .. WORKER_NUM - 1) {
 		workers[i].executing_in = - 1;
-		workers[i].attached_by_preempt_context = false;
+		workers[i].used_as_preempt_ctx = false;
 		run run_main(i) priority 1;
 	}
 	
