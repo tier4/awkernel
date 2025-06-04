@@ -5,9 +5,11 @@
 
 #include "future_mock.pml"
 #include "../cooperative_spin/fair_lock.pml"
+
 FairLock lock_info[TASK_NUM];
 FairLock lock_future[TASK_NUM];
-FairLock lock_scheduler = false;
+FairLock lock_queue = false;
+FairLock lock_next_task = false;
 
 typedef Worker {
 	short executing_in;// cpu_id when this is executed, -1 otherwise.
@@ -102,9 +104,9 @@ inline invoke_preemption(tid,task) {
 
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task() */
 inline wake_task(tid,task) {
-	lock(tid,lock_scheduler);
+	lock(tid,lock_queue);
 	queue!!task;
-	unlock(tid,lock_scheduler);
+	unlock(tid,lock_queue);
 	
 	invoke_preemption(tid,task);
 }
@@ -129,9 +131,9 @@ inline wake(tid,task) {
 	fi
 }
 
-/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next() */
+/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next_task() */
 inline scheduler_get_next(tid,ret) {
-	lock(tid,lock_scheduler);
+	lock(tid,lock_queue);
 	
 	int head;
 	
@@ -154,25 +156,37 @@ inline scheduler_get_next(tid,ret) {
 		printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
 		
 		unlock(tid,lock_info[head]);
-		unlock(tid,lock_scheduler);
-		
+		unlock(tid,lock_queue);
 		ret = head;
-	:: else -> // queue内に実行可能なタスクが無い場合
-		unlock(tid,lock_scheduler);
+	:: else ->
+		unlock(tid,lock_queue);
 		ret = - 1;
 	fi
 }
 
-// awkernel_async_lib::task::get_next_task()
-inline get_next(tid,ret) {
-	int _cpu_id = workers[tid].executing_in;
-	assert(_cpu_id != - 1);
+/* awkernel_async_lib::task::preempt::get_next_task() */
+inline preempt_get_next(tid,ret) {
+	short cpu_id_ = workers[tid].executing_in;
+	assert(cpu_id_ != - 1);
+
+	ret = -1;
+	lock(tid,lock_next_task);
 	if
-	:: NEXT_TASK[_cpu_id] != - 1 -> 
-		ret = NEXT_TASK[_cpu_id];
-		NEXT_TASK[_cpu_id] = - 1;
-	:: else -> 
+	:: NEXT_TASK[cpu_id_] != - 1 -> 
+		ret = NEXT_TASK[cpu_id_];
+		NEXT_TASK[cpu_id_] = - 1;
+	:: else
+	fi
+	unlock(tid,lock_next_task);
+}
+
+/* awkernel_async_lib::task::get_next_task() */
+inline get_next_task(tid,ret) {
+	preempt_get_next(tid,ret);
+	if
+	:: ret == - 1 -> 
 		scheduler_get_next(tid,ret);
+	:: else
 	fi
 }
 
@@ -258,10 +272,10 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		
 		// If there is a task to be invoked next, execute the task.
 		int hp_task;
-		get_next(tid,hp_task);
+		get_next_task(tid,hp_task);
 		if
 		:: hp_task == - 1 -> 
-			printf("get_next() returns None: %d",cpu_id);
+			printf("get_next_task() returns None: %d",cpu_id);
 			goto finish;
 		:: else
 		fi
@@ -277,8 +291,10 @@ proctype interrupt_handler(int cpu_id) provided (interrupt_enabled[cpu_id]) {
 		:: else -> // Otherwise,get a thread from the thread
 			unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
+			lock(tid,lock_next_task);
 			assert(NEXT_TASK[cpu_id] == - 1);
 			NEXT_TASK[cpu_id] = hp_task;
+			unlock(tid,lock_next_task);
 			yield_preempted_and_wake_task(cpu_id,cur_task,tid,next_thread);
 		fi
 		
@@ -303,7 +319,7 @@ proctype run_main(int tid) provided (workers[tid].executing_in != - 1 && !interr
 	
 	int task;
 	atomic {
-		get_next(tid,task);
+		get_next_task(tid,task);
 	}
 	
 	if
