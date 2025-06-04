@@ -541,7 +541,17 @@ fn igc_attach_and_hw_control(
 
     ops.read_mac_addr(info, hw).or(Err(InitFailure))?;
 
+    if !igc_is_valid_ether_addr(&hw.mac.addr) {
+        log::error!("igc: Invalid MAC address read from EEPROM");
+        return Err(PCIeDeviceErr::InitFailure);
+    }
+
     // TODO: continue initialization
 
     Ok(())
+}
+
+fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
+    // Check if the address is a multicast address or a zero address.
+    !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
 }
