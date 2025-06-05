@@ -223,7 +223,7 @@ endif
 check_riscv64: FORCE
 	cargo +$(RUSTV) check_rv64
 
-qemu-riscv64: target/riscv64gc-unknown-none-elf/$(BUILD)/awkernel
+qemu-riscv64: target/riscv64gc-unknown-none-elf/release/awkernel
 	qemu-system-riscv64 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
 
