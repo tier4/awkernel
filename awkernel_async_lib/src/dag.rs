@@ -33,6 +33,7 @@ mod performance;
 use crate::{
     dag::graph::{
         algo::{connected_components, is_cyclic_directed},
+        direction::Direction,
         NodeIndex,
     },
     scheduler::SchedulerType,
@@ -54,8 +55,6 @@ use performance::ResponseInfo;
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
-static SOURCE_NODE_NUM: Mutex<BTreeMap<u32, usize>> = Mutex::new(BTreeMap::new()); // key: dag_id, value: number of source nodes
-static SINK_NODE_NUM: Mutex<BTreeMap<u32, usize>> = Mutex::new(BTreeMap::new()); // key: dag_id, value: number of sink nodes
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -130,6 +129,18 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.edge_count()
+    }
+
+    fn get_source_nodes(&self) -> Vec<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.externals(Direction::Incoming).collect()
+    }
+
+    fn get_sink_nodes(&self) -> Vec<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.externals(Direction::Outgoing).collect()
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -259,11 +270,6 @@ impl Dag {
                 })
             }),
         );
-
-        let mut node = MCSNode::new();
-        let mut source_node_num = SOURCE_NODE_NUM.lock(&mut node);
-        let num = source_node_num.entry(self.id).or_insert(0);
-        *num += 1;
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -314,11 +320,6 @@ impl Dag {
                     .await
                 })
             }));
-
-        let mut node = MCSNode::new();
-        let mut sink_node_num = SINK_NODE_NUM.lock(&mut node);
-        let num = sink_node_num.entry(self.id).or_insert(0);
-        *num += 1;
     }
 }
 
@@ -376,23 +377,19 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
-    let mut node = MCSNode::new();
-    let source_node_num = SOURCE_NODE_NUM.lock(&mut node);
-    let count = source_node_num
-        .get(&dag.id)
-        .copied()
-        .ok_or(DagError::NoSourceNode(dag.id))?;
-    if count > 1 {
+    let source_nodes = dag.get_source_nodes();
+    if source_nodes.is_empty() {
+        return Err(DagError::NoSourceNode(dag.id));
+    }
+    if source_nodes.len() > 1 {
         return Err(DagError::MultipleSourceNodes(dag.id));
     }
 
-    let mut node = MCSNode::new();
-    let sink_node_num = SINK_NODE_NUM.lock(&mut node);
-    let count = sink_node_num
-        .get(&dag.id)
-        .copied()
-        .ok_or(DagError::NoSinkNode(dag.id))?;
-    if count > 1 {
+    let sink_nodes = dag.get_sink_nodes();
+    if sink_nodes.is_empty() {
+        return Err(DagError::NoSinkNode(dag.id));
+    }
+    if sink_nodes.len() > 1 {
         return Err(DagError::MultipleSinkNodes(dag.id));
     }
 
