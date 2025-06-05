@@ -54,6 +54,8 @@ use performance::ResponseInfo;
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static SOURCE_NODE_NUM: Mutex<BTreeMap<u32, usize>> = Mutex::new(BTreeMap::new()); // key: dag_id, value: number of source nodes
+static SINK_NODE_NUM: Mutex<BTreeMap<u32, usize>> = Mutex::new(BTreeMap::new()); // key: dag_id, value: number of sink nodes
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -61,6 +63,10 @@ pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
+    NoSourceNode(u32),
+    NoSinkNode(u32),
+    MultipleSourceNodes(u32),
+    MultipleSinkNodes(u32),
 }
 
 impl core::fmt::Display for DagError {
@@ -69,6 +75,10 @@ impl core::fmt::Display for DagError {
             DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
             DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
+            DagError::NoSourceNode(id) => write!(f, "DAG#{id} has no source node"),
+            DagError::NoSinkNode(id) => write!(f, "DAG#{id} has no sink node"),
+            DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
+            DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
         }
     }
 }
@@ -249,6 +259,11 @@ impl Dag {
                 })
             }),
         );
+
+        let mut node = MCSNode::new();
+        let mut source_node_num = SOURCE_NODE_NUM.lock(&mut node);
+        let num = source_node_num.entry(self.id).or_insert(0);
+        *num += 1;
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -299,6 +314,11 @@ impl Dag {
                     .await
                 })
             }));
+
+        let mut node = MCSNode::new();
+        let mut sink_node_num = SINK_NODE_NUM.lock(&mut node);
+        let num = sink_node_num.entry(self.id).or_insert(0);
+        *num += 1;
     }
 }
 
@@ -356,6 +376,35 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
+    // Currently, the existence of multiple source/sink nodes does not affect the function itself.
+    // However, it may affect the performance measurement.
+    // In the future, this might be treated as an error
+    let mut node = MCSNode::new();
+    let source_node_num = SOURCE_NODE_NUM.lock(&mut node);
+    let count = source_node_num
+        .get(&dag.id)
+        .copied()
+        .ok_or(DagError::NoSourceNode(dag.id))?;
+    #[cfg(feature = "perf")]
+    {
+        if count > 1 {
+            return Err(DagError::MultipleSourceNodes(dag.id));
+        }
+    }
+
+    let mut node = MCSNode::new();
+    let sink_node_num = SINK_NODE_NUM.lock(&mut node);
+    let count = sink_node_num
+        .get(&dag.id)
+        .copied()
+        .ok_or(DagError::NoSinkNode(dag.id))?;
+    #[cfg(feature = "perf")]
+    {
+        if count > 1 {
+            return Err(DagError::MultipleSinkNodes(dag.id));
+        }
+    }
+
     let mut pending_node = MCSNode::new();
     if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
         return Err(DagError::MissingPendingTasks(dag.id));
@@ -374,6 +423,9 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
+        if get_dag(dag.id).is_none() {
+            continue;
+        }
         validate_dag(dag)?;
 
         let pending_tasks = {
