@@ -381,26 +381,26 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     // In the future, this might be treated as an error
     let mut node = MCSNode::new();
     let source_node_num = SOURCE_NODE_NUM.lock(&mut node);
-    let count = source_node_num
+    let _count = source_node_num
         .get(&dag.id)
         .copied()
         .ok_or(DagError::NoSourceNode(dag.id))?;
     #[cfg(feature = "perf")]
     {
-        if count > 1 {
+        if _count > 1 {
             return Err(DagError::MultipleSourceNodes(dag.id));
         }
     }
 
     let mut node = MCSNode::new();
     let sink_node_num = SINK_NODE_NUM.lock(&mut node);
-    let count = sink_node_num
+    let _count = sink_node_num
         .get(&dag.id)
         .copied()
         .ok_or(DagError::NoSinkNode(dag.id))?;
     #[cfg(feature = "perf")]
     {
-        if count > 1 {
+        if _count > 1 {
             return Err(DagError::MultipleSinkNodes(dag.id));
         }
     }
