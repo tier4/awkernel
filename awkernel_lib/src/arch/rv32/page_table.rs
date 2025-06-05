@@ -1,25 +1,22 @@
-use super::address::{
-    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PA_WIDTH, PPN_WIDTH, VA_WIDTH,
-    VPN_WIDTH,
-};
+use super::address::{PhysPageNum, VirtPageNum, PAGE_SIZE, PPN_WIDTH};
+use super::frame_allocator::{frame_alloc, FrameTracker};
+use crate::addr::{phy_addr::PhyAddr, virt_addr::VirtAddr};
 use alloc::vec;
 use alloc::vec::Vec;
-use super::frame_allocator::{FrameTracker, frame_alloc};
-use crate::{delay::wait_forever, memory::PAGESIZE};
 use bitflags::*;
-use super::frame_allocator::*;
-use riscv::register::satp;
 
-/// PTE Flags of RISC V SV32 page table
-///  V - Valid
-///  R - Read
-///  W - Write
-///  X - eXecute
-///  U - User
-///  G - Global
-///  A - Accessed
-///  D - Dirty
 bitflags! {
+    /// PTE Flags for RISC-V Sv32 page table
+    /// Based on RISC-V Privileged Architecture Specification
+    ///
+    /// V - Valid: The PTE is valid
+    /// R - Read: Supervisor/User can read the page
+    /// W - Write: Supervisor/User can write the page
+    /// X - Execute: Supervisor/User can execute instructions on the page
+    /// U - User: Page is accessible to user mode
+    /// G - Global: Mapping exists in all address spaces
+    /// A - Accessed: Page has been accessed since A bit was cleared
+    /// D - Dirty: Page has been written since D bit was cleared
     #[derive(PartialEq)]
     pub struct Flags: u8 {
         const V = 1 << 0;
@@ -47,9 +44,7 @@ impl PageTableEntry {
     }
 
     pub fn empty() -> Self {
-        PageTableEntry {
-            bits: 0,
-        }
+        PageTableEntry { bits: 0 }
     }
 
     pub fn ppn(&self) -> PhysPageNum {
@@ -132,33 +127,134 @@ impl PageTable {
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) -> bool {
         let pte = self.find_pte_create(vpn).unwrap();
         if pte.is_valid() {
-            panic!("vpn{:?} is mapped before mapping", vpn);
+            // Page already mapped
             return false;
         }
         *pte = PageTableEntry::new(ppn, flags | Flags::V);
-        return true;
+        true
     }
 
     pub fn unmap(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
-        assert!(pte.is_valid(), "vpn{:?} is invalid before unmapping", vpn);
+        assert!(pte.is_valid(), "vpn{vpn:?} is invalid before unmapping");
         *pte = PageTableEntry::empty();
     }
-    
-    pub fn translate(&self, vpn: VirtPageNum) {
+
+    pub fn translate(&mut self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.find_pte(vpn).map(|pte| *pte)
     }
-    
-    pub fn translate_va(&self, va: VirtAddr) -> Option
+
+    #[allow(dead_code)]
+    pub fn translate_va(&mut self, va: VirtAddr) -> Option<PageTableEntry> {
+        let vpn: VirtPageNum = va.into();
+        self.translate(vpn)
+    }
+
+    /// Generate SATP (Supervisor Address Translation and Protection) register value
+    ///
+    /// RISC-V SATP register format for RV32 (Sv32):
+    /// Bits 31: MODE field (1 bit)
+    ///   - 0: Bare (no translation)
+    ///   - 1: Sv32 (32-bit virtual addressing, 2-level page tables)
+    ///     Bits 30-22: ASID (Address Space Identifier, 9 bits)
+    ///     Bits 21-0: PPN (Physical Page Number of root page table, 22 bits)
+    ///
+    /// For Sv32, MODE=1 enables virtual memory translation with 2-level page tables
+    /// and supports 32-bit virtual addresses with 4KB pages.
+    pub fn token(&self) -> usize {
+        (1usize << 31)        // MODE = 1 (Sv32 paging mode)
+        | self.root_ppn.0 // PPN = Physical Page Number of the root page table
+    }
 }
 
-pub fn get_page_table(va: VirtAddr) -> Option<PageTable> {
-    let root_ppn = unsafe { satp::read().ppn() };
-    let root_frame = FrameTracker::new(root_ppn.into());
-    let mut page_table = PageTable {
-        root_ppn: root_ppn.into(),
-        frames: vec![root_frame],
-    };
+/// Get the current page table from SATP register
+pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {
+    use core::arch::asm;
 
-    Some(page_table)
+    // Read SATP register
+    let satp: usize;
+    unsafe {
+        asm!("csrr {}, satp", out(reg) satp);
+    }
+
+    // Extract PPN from SATP (bits 21:0 for Sv32)
+    let root_ppn = PhysPageNum(satp & ((1usize << 22) - 1));
+
+    // Check if paging is enabled (MODE field in bit 31)
+    let mode = (satp >> 31) & 0x1;
+    if mode == 0 {
+        // Bare mode - no translation
+        return None;
+    }
+
+    // Return page table with current root
+    Some(PageTable {
+        root_ppn,
+        frames: vec![], // Don't manage frames for current page table
+    })
+}
+
+// Frame type for integration with common paging interface
+pub struct Page {
+    addr: PhyAddr,
+}
+
+impl crate::paging::Frame for Page {
+    fn start_address(&self) -> PhyAddr {
+        self.addr
+    }
+
+    fn set_address(&mut self, addr: PhyAddr) {
+        self.addr = addr;
+    }
+
+    fn size(&self) -> usize {
+        PAGE_SIZE
+    }
+}
+
+// Page allocator for integration with common paging interface
+pub struct RV32PageAllocator;
+
+impl crate::paging::FrameAllocator<Page, &'static str> for RV32PageAllocator {
+    fn allocate_frame(&mut self) -> Result<Page, &'static str> {
+        if let Some(tracker) = frame_alloc() {
+            let addr = PhyAddr::new((tracker.ppn.0) << 12); // Convert PPN to physical address
+            core::mem::forget(tracker); // Transfer ownership to Page
+            Ok(Page { addr })
+        } else {
+            Err("Out of memory")
+        }
+    }
+}
+
+impl crate::paging::PageTable<Page, RV32PageAllocator, &'static str> for PageTable {
+    unsafe fn map_to(
+        &mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &mut RV32PageAllocator,
+    ) -> Result<(), &'static str> {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D; // Writable and dirty
+        }
+
+        rv_flags |= Flags::R; // Always readable
+
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
 }

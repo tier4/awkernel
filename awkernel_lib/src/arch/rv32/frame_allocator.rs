@@ -1,11 +1,7 @@
-use super::address::{
-    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, MEMORY_END, PAGE_SIZE, PA_WIDTH, PPN_WIDTH,
-    VA_WIDTH, VPN_WIDTH,
-};
-use alloc::vec::Vec;
-use alloc::sync::Arc;
+use super::address::{PhysPageNum, MEMORY_END};
+use crate::addr::{phy_addr::PhyAddr, Addr};
 use crate::sync::mcs::MCSNode;
-use crate::sync::mutex::Mutex;
+use alloc::vec::Vec;
 
 type FrameAllocatorImpl = PageAllocator;
 
@@ -16,14 +12,26 @@ type FrameAllocatorImpl = PageAllocator;
 /// SAFETY
 ///
 /// Based on MCSLock, thread safe
-pub static FRAME_ALLOCATOR: Arc<Mutex<Option<FrameAllocatorImpl>>> = {
-    let mut frame_allocator_ref = Some(FrameAllocatorImpl::new());
-    unsafe { Arc::new(Mutex::new(frame_allocator_ref)) }
-};
+pub static FRAME_ALLOCATOR: crate::sync::mutex::Mutex<Option<FrameAllocatorImpl>> =
+    crate::sync::mutex::Mutex::new(None);
 
-pub fn frame_alloc() -> Option<FrameTracker> {}
+pub fn frame_alloc() -> Option<FrameTracker> {
+    let mut node = MCSNode::new();
+    let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if let Some(allocator_ref) = allocator.as_mut() {
+        allocator_ref.alloc().map(FrameTracker::new)
+    } else {
+        None
+    }
+}
 
-pub fn frame_dealloc(ppn: PhysPageNum) {}
+pub fn frame_dealloc(ppn: PhysPageNum) {
+    let mut node = MCSNode::new();
+    let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if let Some(allocator_ref) = allocator.as_mut() {
+        allocator_ref.dealloc(ppn);
+    }
+}
 
 pub fn init_page_allocator() {
     extern "C" {
@@ -31,32 +39,29 @@ pub fn init_page_allocator() {
     }
     let mut node = MCSNode::new();
     let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if allocator.is_none() {
+        *allocator = Some(FrameAllocatorImpl::new());
+    }
     if let Some(allocator_ref) = allocator.as_mut() {
         allocator_ref.init(
-            PhysAddr::from(ekernel as usize).ceil(),
-            PhysAddr::from(MEMORY_END as usize).floor(),
+            PhyAddr::from_usize(ekernel as usize).ceil(),
+            PhyAddr::from_usize(MEMORY_END as usize).floor(),
         );
     } else {
-        *allocator = Some(FrameAllocatorImpl::new());
-        if let Some(allocator_ref) = allocator.as_mut() {
-            allocator_ref.init(
-                PhysAddr::from(ekernel as usize).ceil(),
-                PhysAddr::from(MEMORY_END as usize).floor(),
-            );
-        } else {
-            panic!("[Error] Failed to initialize FrameAllocator!");
-        }
+        panic!("[Error] Failed to initialize FrameAllocator!");
     }
 }
 
 pub trait FrameAllocator {
     fn new() -> Self;
     fn alloc(&mut self) -> Option<PhysPageNum>;
+    #[allow(dead_code)]
     fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 
 /// An abstraction to use Rust's borrowchecker to guarantee safety of memory
+#[derive(Debug)]
 pub struct FrameTracker {
     pub ppn: PhysPageNum,
 }
@@ -65,9 +70,7 @@ impl FrameTracker {
     pub fn new(ppn: PhysPageNum) -> Self {
         // page cleaning
         let bytes_array = ppn.get_bytes_array();
-        for i in bytes_array {
-            *i = 0;
-        }
+        bytes_array.fill(0);
         Self { ppn }
     }
 }
@@ -97,13 +100,11 @@ impl FrameAllocator for PageAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
             Some(ppn.into())
+        } else if self.current == self.end {
+            None
         } else {
-            if self.current == self.end {
-                None
-            } else {
-                self.current += 1;
-                Some((self.current - 1).into())
-            }
+            self.current += 1;
+            Some((self.current - 1).into())
         }
     }
 
@@ -119,7 +120,7 @@ impl FrameAllocator for PageAllocator {
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        if ppn.0 >= self.current || self.recycled.iter().find(|&&v| v == ppn.0).is_some() {
+        if ppn.0 >= self.current || self.recycled.contains(&ppn.0) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn.0)
         }
         self.recycled.push(ppn.0)

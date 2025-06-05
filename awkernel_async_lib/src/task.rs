@@ -21,10 +21,13 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
-use core::{
-    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-    task::{Context, Poll},
-};
+#[cfg(target_pointer_width = "64")]
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+
+#[cfg(target_pointer_width = "32")]
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+use core::task::{Context, Poll};
 use futures::{
     future::{BoxFuture, Fuse, FusedFuture},
     task::{waker_ref, ArcWake},
@@ -46,7 +49,11 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
+#[cfg(target_pointer_width = "64")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
+
+#[cfg(target_pointer_width = "32")]
+pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU];
@@ -932,16 +939,25 @@ pub fn panicking() {
 }
 
 pub struct PriorityInfo {
+    #[cfg(target_pointer_width = "64")]
     pub priority: AtomicU64,
+
+    #[cfg(target_pointer_width = "32")]
+    pub priority: AtomicU32,
 }
 
 impl PriorityInfo {
     fn new(scheduler_priority: u8, task_priority: u64) -> Self {
         PriorityInfo {
+            #[cfg(target_pointer_width = "64")]
             priority: AtomicU64::new(Self::combine_priority(scheduler_priority, task_priority)),
+
+            #[cfg(target_pointer_width = "32")]
+            priority: AtomicU32::new(Self::combine_priority(scheduler_priority, task_priority)),
         }
     }
 
+    #[cfg(target_pointer_width = "64")]
     pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
         self.priority.store(
             Self::combine_priority(scheduler_priority, task_priority),
@@ -949,9 +965,28 @@ impl PriorityInfo {
         );
     }
 
+    #[cfg(target_pointer_width = "32")]
+    pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
+        self.priority.store(
+            Self::combine_priority(scheduler_priority, task_priority),
+            Ordering::Relaxed,
+        );
+    }
+
+    #[cfg(target_pointer_width = "64")]
     fn combine_priority(scheduler_priority: u8, task_priority: u64) -> u64 {
         assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
         ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1))
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    fn combine_priority(scheduler_priority: u8, task_priority: u64) -> u32 {
+        let task_priority_32 = task_priority as u32;
+        assert!(
+            task_priority_32 < (1 << 24),
+            "Task priority exceeds 24 bits for 32-bit"
+        );
+        ((scheduler_priority as u32) << 24) | (task_priority_32 & ((1 << 24) - 1))
     }
 }
 
@@ -959,7 +994,11 @@ impl Clone for PriorityInfo {
     fn clone(&self) -> Self {
         let value = self.priority.load(Ordering::Relaxed);
         PriorityInfo {
+            #[cfg(target_pointer_width = "64")]
             priority: AtomicU64::new(value),
+
+            #[cfg(target_pointer_width = "32")]
+            priority: AtomicU32::new(value),
         }
     }
 }

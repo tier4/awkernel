@@ -80,7 +80,7 @@ x86 = [
     "awkernel_sync/x86_mwait",
 ]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_sync/aarch64"]
-rv32 = ["dep:riscv"]
+rv32 = ["dep:riscv", "awkernel_sync/rv32"]
 rv64 = ["awkernel_sync/rv64"]
 std = ["dep:libc", "dep:socket2", "awkernel_sync/std"]
 spinlock = ["awkernel_sync/spinlock"]
