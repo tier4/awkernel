@@ -46,6 +46,26 @@ const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 
 const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
+/// Packet header structure
+#[repr(C, packed)]
+struct _VirtioNetHdr {
+    flags: u8,
+    gso_type: u8,
+    hdr_len: u16,
+    gso_size: u16,
+    csum_start: u16,
+    csum_offset: u16,
+    num_buffers: u16, // only present if VIRTIO_NET_F_MRG_RXBUF is negotiated
+}
+
+const _VIRTIO_NET_HDR_F_NEEDS_CSUM: u8 = 1;
+const _VIRTIO_NET_HDR_F_DATA_VALID: u8 = 2;
+const _VIRTIO_NET_HDR_GSO_NONE: u8 = 0;
+const _VIRTIO_NET_HDR_GSO_TCPV4: u8 = 1;
+const _VIRTIO_NET_HDR_GSO_UDP: u8 = 3;
+const _VIRTIO_NET_HDR_GSO_TCPV6: u8 = 4;
+const _VIRTIO_NET_HDR_GSO_ECN: u8 = 0x80;
+
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
 }
@@ -222,6 +242,11 @@ impl VirtioNetInner {
         }
 
         Ok(())
+    }
+
+    fn _virtio_pci_read_queue_size(&mut self, idx: u16) -> Result<u16, VirtioDriverErr> {
+        self.common_cfg.virtio_set_queue_select(idx)?;
+        self.common_cfg.virtio_get_queue_size()
     }
 
     fn virtio_has_feature(&self, feature: u64) -> bool {

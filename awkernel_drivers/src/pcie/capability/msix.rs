@@ -117,4 +117,11 @@ impl Msix {
 
         Ok(irq)
     }
+
+    /// Returns the size of the MSI-X table.
+    /// Because the table size in the config space represents the number of entries minus one,
+    /// this method returns `table_size + 1`.
+    pub fn get_table_size(&self) -> u16 {
+        self.table_size + 1
+    }
 }
