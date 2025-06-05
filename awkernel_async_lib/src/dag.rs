@@ -376,33 +376,24 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
-    // Currently, the existence of multiple source/sink nodes does not affect the function itself.
-    // However, it may affect the performance measurement.
-    // In the future, this might be treated as an error
     let mut node = MCSNode::new();
     let source_node_num = SOURCE_NODE_NUM.lock(&mut node);
-    let _count = source_node_num
+    let count = source_node_num
         .get(&dag.id)
         .copied()
         .ok_or(DagError::NoSourceNode(dag.id))?;
-    #[cfg(feature = "perf")]
-    {
-        if _count > 1 {
-            return Err(DagError::MultipleSourceNodes(dag.id));
-        }
+    if count > 1 {
+        return Err(DagError::MultipleSourceNodes(dag.id));
     }
 
     let mut node = MCSNode::new();
     let sink_node_num = SINK_NODE_NUM.lock(&mut node);
-    let _count = sink_node_num
+    let count = sink_node_num
         .get(&dag.id)
         .copied()
         .ok_or(DagError::NoSinkNode(dag.id))?;
-    #[cfg(feature = "perf")]
-    {
-        if _count > 1 {
-            return Err(DagError::MultipleSinkNodes(dag.id));
-        }
+    if count > 1 {
+        return Err(DagError::MultipleSinkNodes(dag.id));
     }
 
     let mut pending_node = MCSNode::new();
