@@ -1,0 +1,99 @@
+extern crate alloc;
+
+use alloc::{string::String, vec::Vec};
+use core::fmt::{self, Debug};
+use fatfs::{IoBase, Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write};
+
+pub struct InMemoryDisk {
+    data: Vec<u8>,
+    position: u64,
+}
+
+impl IoBase for InMemoryDisk {
+    type Error = InMemoryDiskError;
+}
+
+impl Read for InMemoryDisk {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let len = (self.data.len() as u64 - self.position) as usize;
+        let bytes_to_read = core::cmp::min(buf.len(), len);
+        if bytes_to_read == 0 {
+            return Ok(0);
+        }
+        buf[..bytes_to_read].copy_from_slice(
+            &self.data[self.position as usize..self.position as usize + bytes_to_read],
+        );
+        self.position += bytes_to_read as u64;
+        Ok(bytes_to_read)
+    }
+}
+
+impl Write for InMemoryDisk {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let len = (self.data.len() as u64 - self.position) as usize;
+        let bytes_to_write = core::cmp::min(buf.len(), len);
+        if bytes_to_write == 0 {
+            return Ok(0);
+        }
+        self.data[self.position as usize..self.position as usize + bytes_to_write]
+            .copy_from_slice(&buf[..bytes_to_write]);
+        self.position += bytes_to_write as u64;
+        Ok(bytes_to_write)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(()) // In-memory, nothing to flush
+    }
+}
+
+impl Seek for InMemoryDisk {
+    fn seek(&mut self, pos: ExternalFatFsSeekFrom) -> Result<u64, Self::Error> {
+        let new_position = match pos {
+            ExternalFatFsSeekFrom::Start(offset) => offset as i64,
+            ExternalFatFsSeekFrom::Current(offset) => self.position as i64 + offset,
+            ExternalFatFsSeekFrom::End(offset) => self.data.len() as i64 + offset,
+        };
+
+        if new_position < 0 || new_position > self.data.len() as i64 {
+            return Err(InMemoryDiskError::OutOfBounds);
+        }
+
+        self.position = new_position as u64;
+        Ok(self.position)
+    }
+}
+
+#[derive(Debug)]
+pub enum InMemoryDiskError {
+    OutOfBounds,
+    WriteZero,
+    UnexpectedEof,
+    _Interrupted,
+    _Other(String),
+}
+
+impl fmt::Display for InMemoryDiskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InMemoryDiskError::OutOfBounds => write!(f, "Out of bounds access"),
+            InMemoryDiskError::WriteZero => write!(f, "Failed to write whole buffer"),
+            InMemoryDiskError::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
+            InMemoryDiskError::_Interrupted => write!(f, "Operation interrupted"),
+            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {}", msg),
+        }
+    }
+}
+
+impl fatfs::IoError for InMemoryDiskError {
+    fn is_interrupted(&self) -> bool {
+        matches!(self, InMemoryDiskError::_Interrupted)
+    }
+
+    fn new_unexpected_eof_error() -> Self {
+        InMemoryDiskError::UnexpectedEof
+    }
+
+    fn new_write_zero_error() -> Self {
+        InMemoryDiskError::WriteZero
+    }
+}
