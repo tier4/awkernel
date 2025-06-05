@@ -1,20 +1,23 @@
+#![feature(allocator_api)]
 #![cfg_attr(not(test), no_std)]
 
-pub mod interrupt_controler;
-pub mod net;
+extern crate alloc;
+
+pub mod device;
+pub mod hal;
+pub mod ic;
+pub mod if_media;
+pub mod interrupt_controller;
 pub mod uart;
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#[cfg(feature = "aarch64")]
+pub mod psci;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[cfg(feature = "aarch64")]
+pub mod raspi5;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#[cfg(feature = "pcie")]
+pub mod pcie;
+
+#[cfg(feature = "mii")]
+pub mod mii;

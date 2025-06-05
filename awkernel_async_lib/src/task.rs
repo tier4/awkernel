@@ -3,26 +3,17 @@
 //! - `Task` represents a task. This is handled as `Arc<Task>`.
 //!     - `Task::wake()` and `Task::wake_by_ref()` call `Task::scheduler::wake_task()` to wake the task up.
 //!     - `Task::info`, which type is `TaskInfo`, contains information of the task.
-//! - `TaskList` is a list of tasks.
-//!     - This is used by schedulers. See `awkernel_async_lib::scheduler::round_robin`.
-//!     - `TaskList::push()` takes `Arc<Task>` and pushes it to the tail.
-//!     - `TaskList::pop()` returns `Arc<Task>` from the head.`
 //! - `TaskInfo` represents information of task.
-//!     - `TaskInfo::next` is used by `TaskList` to construct a linked list.
 //! - `Tasks` is a set of tasks.
 
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::{
-    delay::wait_microsec,
-    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
-};
+use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
     sync::Arc,
-    vec::Vec,
 };
 use array_macro::array;
 use awkernel_lib::{
@@ -31,7 +22,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -40,75 +31,41 @@ use futures::{
     Future, FutureExt,
 };
 
-#[cfg(not(feature = "no_preempt"))]
-pub use preempt::{deallocate_thread_pool, preemption};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 #[cfg(not(feature = "no_preempt"))]
-use preempt::PtrWorkerThreadContext;
+pub use preempt::{preemption, thread::deallocate_thread_pool, voluntary_preemption};
+
+#[cfg(not(feature = "no_preempt"))]
+use preempt::thread::PtrWorkerThreadContext;
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
+pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
 
-/// List of tasks.
-pub(crate) struct TaskList {
-    head: Option<Arc<Task>>,
-    tail: Option<Arc<Task>>,
-}
-
-impl TaskList {
-    pub(crate) const fn new() -> Self {
-        TaskList {
-            head: None,
-            tail: None,
-        }
-    }
-
-    /// Push a task to the tail.
-    pub(crate) fn push(&mut self, task: Arc<Task>) {
-        if let Some(tail) = &self.tail {
-            {
-                let mut node = MCSNode::new();
-                let mut info = tail.info.lock(&mut node);
-                info.next = Some(task.clone());
-            }
-
-            self.tail = Some(task);
-        } else {
-            self.head = Some(task.clone());
-            self.tail = Some(task);
-        }
-    }
-
-    /// Pop a task from the head.
-    pub(crate) fn pop(&mut self) -> Option<Arc<Task>> {
-        if let Some(head) = self.head.take() {
-            let next = {
-                let mut node = MCSNode::new();
-                let mut info = head.info.lock(&mut node);
-                info.next.take()
-            };
-
-            if next.is_none() {
-                self.tail = None;
-            }
-            self.head = next;
-
-            Some(head)
-        } else {
-            None
-        }
-    }
-}
+static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
+    array![_ => AtomicBool::new(false); NUM_MAX_CPU];
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
+    pub name: Cow<'static, str>,
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
+    pub priority: PriorityInfo,
+}
+
+impl Task {
+    #[inline(always)]
+    pub fn scheduler_name(&self) -> SchedulerType {
+        self.scheduler.scheduler_name()
+    }
 }
 
 unsafe impl Sync for Task {}
@@ -121,7 +78,40 @@ impl ArcWake for Task {
     }
 
     fn wake(self: Arc<Self>) {
-        self.scheduler.wake_task(self);
+        let panicked;
+
+        {
+            use State::*;
+
+            let mut node = MCSNode::new();
+            let mut info = self.info.lock(&mut node);
+
+            match info.state {
+                Running | Runnable | Preempted => {
+                    info.need_sched = true;
+                    return;
+                }
+                Terminated | Panicked => {
+                    return;
+                }
+                Ready | Waiting => {
+                    info.state = Runnable;
+                }
+            }
+
+            panicked = info.panicked;
+        }
+
+        NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+
+        if panicked {
+            scheduler::panicked::SCHEDULER.wake_task(self);
+        } else {
+            self.scheduler.wake_task(self);
+        }
+
+        // Notify the primary CPU to wake up workers.
+        awkernel_lib::cpu::wake_cpu(0);
     }
 }
 
@@ -129,7 +119,12 @@ impl ArcWake for Task {
 pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
-    next: Option<Arc<Task>>,
+    pub(crate) num_preempt: u64,
+    last_executed_time: awkernel_lib::time::Time,
+    absolute_deadline: Option<u64>,
+    need_sched: bool,
+    pub(crate) need_preemption: bool,
+    panicked: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -137,31 +132,71 @@ pub struct TaskInfo {
 
 impl TaskInfo {
     #[cfg(not(feature = "no_preempt"))]
+    #[inline(always)]
     pub(crate) fn take_preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
         self.thread.take()
     }
 
     #[cfg(not(feature = "no_preempt"))]
+    #[inline(always)]
     pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
+        assert!(self.thread.is_none());
         self.thread = Some(ctx)
     }
 
+    #[inline(always)]
     pub fn get_state(&self) -> State {
         self.state
     }
 
+    #[inline(always)]
     pub fn get_scheduler_type(&self) -> SchedulerType {
-        self.scheduler_type
+        if self.panicked {
+            SchedulerType::Panicked
+        } else {
+            self.scheduler_type
+        }
+    }
+
+    #[inline(always)]
+    pub fn update_last_executed(&mut self) {
+        self.last_executed_time = awkernel_lib::time::Time::now();
+    }
+
+    #[inline(always)]
+    pub fn get_last_executed(&self) -> awkernel_lib::time::Time {
+        self.last_executed_time
+    }
+
+    #[inline(always)]
+    pub fn update_absolute_deadline(&mut self, deadline: u64) {
+        self.absolute_deadline = Some(deadline);
+    }
+
+    #[inline(always)]
+    pub fn get_absolute_deadline(&self) -> Option<u64> {
+        self.absolute_deadline
+    }
+
+    #[inline(always)]
+    pub fn get_num_preemption(&self) -> u64 {
+        self.num_preempt
+    }
+
+    #[inline(always)]
+    pub fn panicked(&self) -> bool {
+        self.panicked
     }
 }
 
 /// State of task.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
     Running,
-    InQueue,
+    Runnable,
     Waiting,
+    Preempted,
     Terminated,
     Panicked,
 }
@@ -183,14 +218,15 @@ impl Tasks {
 
     fn spawn(
         &mut self,
+        name: Cow<'static, str>,
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
-            if self.candidate_id == 0 {
-                self.candidate_id += 1;
+            if id == 0 {
+                id += 1;
             }
 
             // Find an unused task ID.
@@ -198,21 +234,36 @@ impl Tasks {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
                     state: State::Ready,
-                    next: None,
+                    num_preempt: 0,
+                    last_executed_time: awkernel_lib::time::Time::now(),
+                    absolute_deadline: None,
+                    need_sched: false,
+                    need_preemption: false,
+                    panicked: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
                 });
 
+                // Set the task priority.
+                // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
+                let task_priority = match scheduler_type {
+                    SchedulerType::PrioritizedFIFO(priority)
+                    | SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    _ => MAX_TASK_PRIORITY,
+                };
+
                 let task = Task {
+                    name,
                     future: Mutex::new(future),
                     scheduler,
                     id,
                     info,
+                    priority: PriorityInfo::new(scheduler.priority(), task_priority),
                 };
 
                 e.insert(Arc::new(task));
-                self.candidate_id += 1;
+                self.candidate_id = id;
 
                 return id;
             } else {
@@ -223,12 +274,14 @@ impl Tasks {
         }
     }
 
+    #[inline(always)]
     fn wake(&self, id: u32) {
         if let Some(task) = self.id_to_task.get(&id) {
             task.clone().wake();
         }
     }
 
+    #[inline(always)]
     fn remove(&mut self, id: u32) {
         self.id_to_task.remove(&id);
     }
@@ -246,9 +299,10 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn(async { Ok(()) }, SchedulerType::RoundRobin);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
 /// ```
 pub fn spawn(
+    name: Cow<'static, str>,
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
@@ -258,8 +312,13 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(future.fuse(), scheduler, sched_type);
-    tasks.wake(id);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
+    let task = tasks.id_to_task.get(&id).cloned();
+    drop(tasks);
+
+    if let Some(task) = task {
+        task.wake();
+    }
 
     id
 }
@@ -271,6 +330,7 @@ pub fn spawn(
 /// ```
 /// if let Some(task_id) = awkernel_async_lib::task::get_current_task(1) { }
 /// ```
+#[inline(always)]
 pub fn get_current_task(cpu_id: usize) -> Option<u32> {
     let id = RUNNING[cpu_id].load(Ordering::Relaxed);
     if id == 0 {
@@ -280,6 +340,7 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
     }
 }
 
+#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
@@ -291,21 +352,305 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
+#[cfg(feature = "perf")]
+pub mod perf {
+    use awkernel_lib::cpu::NUM_MAX_CPU;
+    use core::ptr::{read_volatile, write_volatile};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum PerfState {
+        Boot = 0,
+        Kernel,
+        Task,
+        ContextSwitch,
+        Interrupt,
+        Idle,
+    }
+
+    impl From<u8> for PerfState {
+        fn from(value: u8) -> Self {
+            match value {
+                0 => Self::Boot,
+                1 => Self::Kernel,
+                2 => Self::Task,
+                3 => Self::ContextSwitch,
+                4 => Self::Interrupt,
+                5 => Self::Idle,
+                _ => panic!("From<u8> for PerfState::from: invalid value"),
+            }
+        }
+    }
+
+    static mut PERF_STATES: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut START_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut KERNEL_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut KERNEL_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut KERNEL_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    fn update_time_and_state(next_state: PerfState) {
+        let end = awkernel_lib::delay::cpu_counter();
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        if state == next_state {
+            return;
+        }
+
+        let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
+
+        if start > 0 && start <= end {
+            let diff = end - start;
+
+            match state {
+                PerfState::Kernel => unsafe {
+                    let t = read_volatile(&KERNEL_TIME[cpu_id]);
+                    write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&KERNEL_COUNT[cpu_id]);
+                    write_volatile(&mut KERNEL_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&KERNEL_WCET[cpu_id]);
+                    write_volatile(&mut KERNEL_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Task => unsafe {
+                    let t = read_volatile(&TASK_TIME[cpu_id]);
+                    write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&TASK_COUNT[cpu_id]);
+                    write_volatile(&mut TASK_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&TASK_WCET[cpu_id]);
+                    write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Interrupt => unsafe {
+                    let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
+                    write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
+                    write_volatile(&mut INTERRUPT_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&INTERRUPT_WCET[cpu_id]);
+                    write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitch => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Idle => unsafe {
+                    let t = read_volatile(&IDLE_TIME[cpu_id]);
+                    write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&IDLE_COUNT[cpu_id]);
+                    write_volatile(&mut IDLE_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&IDLE_WCET[cpu_id]);
+                    write_volatile(&mut IDLE_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Boot => (),
+            }
+        }
+
+        let cnt = awkernel_lib::delay::cpu_counter();
+
+        unsafe {
+            // Overhead of this.
+            let t = read_volatile(&PERF_TIME[cpu_id]);
+            write_volatile(&mut PERF_TIME[cpu_id], t + (cnt - end));
+            let c = read_volatile(&PERF_COUNT[cpu_id]);
+            write_volatile(&mut PERF_COUNT[cpu_id], c + 1);
+            let wcet = read_volatile(&PERF_WCET[cpu_id]);
+            write_volatile(&mut PERF_WCET[cpu_id], wcet.max(cnt - end));
+
+            // State transition.
+            write_volatile(&mut START_TIME[cpu_id], cnt);
+            write_volatile(&mut PERF_STATES[cpu_id], next_state as u8);
+        }
+    }
+
+    #[inline(always)]
+    pub fn start_kernel() {
+        update_time_and_state(PerfState::Kernel);
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_task() {
+        update_time_and_state(PerfState::Task);
+    }
+
+    /// Return the previous state.
+    #[inline(always)]
+    pub fn start_interrupt() -> PerfState {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        let previous: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        update_time_and_state(PerfState::Interrupt);
+        previous
+    }
+
+    #[inline(always)]
+    pub fn transition_to(next: PerfState) {
+        match next {
+            PerfState::Boot => unreachable!(),
+            PerfState::Kernel => start_kernel(),
+            PerfState::Task => start_task(),
+            PerfState::ContextSwitch => start_context_switch(),
+            PerfState::Interrupt => {
+                start_interrupt();
+            }
+            PerfState::Idle => start_idle(),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_context_switch() {
+        update_time_and_state(PerfState::ContextSwitch);
+    }
+
+    #[inline(always)]
+    pub fn start_idle() {
+        update_time_and_state(PerfState::Idle);
+    }
+
+    #[inline(always)]
+    pub fn get_kernel_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&KERNEL_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_task_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&TASK_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_interrupt_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&INTERRUPT_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_context_switch_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_idle_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&IDLE_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_perf_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&PERF_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_ave_kernel_time(cpu_id: usize) -> Option<f64> {
+        let total = get_kernel_time(cpu_id);
+        let count = unsafe { read_volatile(&KERNEL_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_task_time(cpu_id: usize) -> Option<f64> {
+        let total = get_task_time(cpu_id);
+        let count = unsafe { read_volatile(&TASK_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_interrupt_time(cpu_id: usize) -> Option<f64> {
+        let total = get_interrupt_time(cpu_id);
+        let count = unsafe { read_volatile(&INTERRUPT_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_context_switch_time(cpu_id: usize) -> Option<f64> {
+        let total = get_context_switch_time(cpu_id);
+        let count = unsafe { read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_idle_time(cpu_id: usize) -> Option<f64> {
+        let total = get_idle_time(cpu_id);
+        let count = unsafe { read_volatile(&IDLE_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_perf_time(cpu_id: usize) -> Option<f64> {
+        let total = get_perf_time(cpu_id);
+        let count = unsafe { read_volatile(&PERF_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_kernel_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&KERNEL_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_task_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&TASK_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_idle_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&IDLE_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_interrupt_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&INTERRUPT_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_context_switch_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_perf_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&PERF_WCET[cpu_id]) }
+    }
+}
+
 pub fn run_main() {
     loop {
+        #[cfg(feature = "perf")]
+        perf::start_kernel();
+
         if let Some(task) = get_next_task() {
+            PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
-
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
                 if let Some(ctx) = info.take_preempt_context() {
+                    info.update_last_executed();
                     drop(info);
 
+                    #[cfg(feature = "perf")]
+                    perf::start_context_switch();
+
                     unsafe { preempt::yield_and_pool(ctx) };
+
+                    #[cfg(feature = "perf")]
+                    perf::start_kernel();
+
                     continue;
                 }
             }
@@ -315,64 +660,101 @@ pub fn run_main() {
 
             let result = {
                 let mut node = MCSNode::new();
-                let mut guard = task.future.lock(&mut node);
+                let Some(mut guard) = task.future.try_lock(&mut node) else {
+                    // This task is running on another CPU,
+                    // and re-schedule the task to avoid starvation just in case.
+                    task.wake();
+                    continue;
+                };
 
+                // Can remove this?
                 if guard.is_terminated() {
                     continue;
                 }
 
+                {
+                    let mut node = MCSNode::new();
+                    let mut info = task.info.lock(&mut node);
+
+                    if matches!(info.state, State::Terminated | State::Panicked) {
+                        continue;
+                    }
+
+                    info.update_last_executed();
+                }
+
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
                 unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
+                    awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
-
-                let cpu_id = awkernel_lib::cpu::cpu_id();
 
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
-                let result = {
-                    catch_unwind(|| {
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                catch_unwind(|| {
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
+                    {
                         awkernel_lib::interrupt::enable();
+                    }
 
-                        #[allow(clippy::let_and_return)]
-                        let result = guard.poll_unpin(&mut ctx);
+                    #[cfg(feature = "perf")]
+                    perf::start_task();
 
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    #[allow(clippy::let_and_return)]
+                    let result = guard.poll_unpin(&mut ctx);
+
+                    #[cfg(feature = "perf")]
+                    perf::start_kernel();
+
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
+                    {
                         awkernel_lib::interrupt::disable();
-                        result
-                    })
-                };
+                    }
 
-                RUNNING[cpu_id].store(0, Ordering::Relaxed);
-
-                result
+                    result
+                })
             };
+
+            let cpu_id = awkernel_lib::cpu::cpu_id();
 
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
+
+            let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+            assert_eq!(running_id, task.id);
+
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
 
             match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
-                    let mut node = MCSNode::new();
-                    let mut info = task.info.lock(&mut node);
                     info.state = State::Waiting;
+
+                    if info.need_sched {
+                        info.need_sched = false;
+                        drop(info);
+                        task.clone().wake();
+                    }
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
 
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Terminated;
-                    }
+                    info.state = State::Terminated;
+                    drop(info);
 
                     if let Err(msg) = result {
                         log::warn!("Task has been terminated but failed: {msg}");
@@ -380,30 +762,26 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
                     tasks.remove(task.id);
                 }
-                Err(err) => {
+                Err(_) => {
                     // Caught panic.
-
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Panicked;
-                    }
-
-                    log::error!("Task has panicked!: {:?}", err);
+                    info.state = State::Panicked;
+                    drop(info);
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
                     tasks.remove(task.id);
                 }
             }
         } else {
-            #[cfg(feature = "std")]
-            wait_microsec(10);
+            #[cfg(feature = "perf")]
+            perf::start_idle();
 
-            #[cfg(not(feature = "std"))]
-            wait_microsec(1);
+            awkernel_lib::cpu::sleep_cpu();
+            awkernel_lib::timer::disable();
         }
     }
 }
@@ -422,6 +800,7 @@ pub unsafe fn run() {
 }
 
 /// Wake `task_id` up.
+#[inline(always)]
 pub fn wake(task_id: u32) {
     let mut node = MCSNode::new();
     let gurad = TASKS.lock(&mut node);
@@ -439,4 +818,220 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     }
 
     result
+}
+
+#[derive(Debug)]
+pub struct RunningTask {
+    pub cpu_id: usize,
+    pub task_id: u32,
+}
+
+pub fn get_tasks_running() -> Vec<RunningTask> {
+    let mut tasks = Vec::new();
+    let num_cpus = awkernel_lib::cpu::num_cpu();
+
+    for (cpu_id, task) in RUNNING.iter().enumerate() {
+        if cpu_id >= num_cpus {
+            break;
+        }
+
+        let task_id = task.load(Ordering::Relaxed);
+        tasks.push(RunningTask { cpu_id, task_id });
+    }
+
+    tasks
+}
+
+#[inline(always)]
+pub fn get_num_preemption() -> usize {
+    #[cfg(not(feature = "no_preempt"))]
+    {
+        preempt::get_num_preemption()
+    }
+
+    #[cfg(feature = "no_preempt")]
+    {
+        0
+    }
+}
+
+#[inline(always)]
+pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Time> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_last_executed()
+    })
+}
+
+#[inline(always)]
+pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_scheduler_type()
+    })
+}
+
+#[inline(always)]
+pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).and_then(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_absolute_deadline()
+    })
+}
+
+#[inline(always)]
+pub fn set_need_preemption(task_id: u32, cpu_id: usize) {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    if let Some(task) = tasks.id_to_task.get(&task_id) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.need_preemption = true;
+    }
+
+    PREEMPTION_REQUEST[cpu_id].store(true, Ordering::Release);
+}
+
+pub fn panicking() {
+    let Some(task_id) = get_current_task(awkernel_lib::cpu::cpu_id()) else {
+        return;
+    };
+
+    {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+
+        if let Some(task) = tasks.id_to_task.get(&task_id) {
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+            info.scheduler_type = SchedulerType::Panicked;
+            info.panicked = true;
+        } else {
+            #[allow(clippy::needless_return)]
+            return;
+        }
+    }
+
+    #[cfg(not(feature = "no_preempt"))]
+    unsafe {
+        preempt::preemption();
+    }
+}
+
+pub struct PriorityInfo {
+    pub priority: AtomicU64,
+}
+
+impl PriorityInfo {
+    fn new(scheduler_priority: u8, task_priority: u64) -> Self {
+        PriorityInfo {
+            priority: AtomicU64::new(Self::combine_priority(scheduler_priority, task_priority)),
+        }
+    }
+
+    pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
+        self.priority.store(
+            Self::combine_priority(scheduler_priority, task_priority),
+            Ordering::Relaxed,
+        );
+    }
+
+    fn combine_priority(scheduler_priority: u8, task_priority: u64) -> u64 {
+        assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
+        ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1))
+    }
+}
+
+impl Clone for PriorityInfo {
+    fn clone(&self) -> Self {
+        let value = self.priority.load(Ordering::Relaxed);
+        PriorityInfo {
+            priority: AtomicU64::new(value),
+        }
+    }
+}
+
+impl PartialEq for PriorityInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority.load(Ordering::Relaxed) == other.priority.load(Ordering::Relaxed)
+    }
+}
+
+impl Eq for PriorityInfo {}
+
+impl PartialOrd for PriorityInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PriorityInfo {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.priority
+            .load(Ordering::Relaxed)
+            .cmp(&other.priority.load(Ordering::Relaxed))
+    }
+}
+
+pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
+    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
+
+    let running_tasks: Vec<RunningTask> = get_tasks_running()
+        .into_iter()
+        .filter(|task| task.task_id != 0)
+        .collect();
+
+    let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+        running_tasks
+            .into_iter()
+            .filter_map(|task| {
+                tasks
+                    .id_to_task
+                    .get(&task.task_id)
+                    .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
+            })
+            .collect()
+    };
+
+    for (task_id, cpu_id, priority_info) in priority_infos {
+        if lowest_task
+            .as_ref()
+            .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+        {
+            lowest_task = Some((task_id, cpu_id, priority_info));
+        }
+    }
+
+    lowest_task
+}
+
+/// Wake workers up.
+pub fn wake_workers() {
+    let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
+    let num_cpu = awkernel_lib::cpu::num_cpu();
+
+    for i in 1..num_cpu {
+        if num_tasks == 0 {
+            break;
+        }
+
+        if awkernel_lib::cpu::wake_cpu(i) {
+            num_tasks -= 1;
+        }
+    }
 }

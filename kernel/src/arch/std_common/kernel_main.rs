@@ -1,15 +1,14 @@
 use crate::{arch::std_common::console, kernel_info::KernelInfo};
-use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::null_mut};
 use libc::c_void;
 
 // #[cfg(target_os = "linux")]
 // use core::mem::size_of;
 
-#[start]
 #[no_mangle]
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Initialize.
+    unsafe { crate::config::init() };
     awkernel_lib::arch::std_common::init();
     awkernel_lib::arch::std_common::init_per_thread(0);
     console::init();
@@ -39,6 +38,7 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: 0,
+        num_cpu: nprocs(),
     };
     crate::main(kernel_info);
 
@@ -102,6 +102,7 @@ extern "C" fn thread_func(cpu: *mut c_void) -> *mut c_void {
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: cpu as usize,
+        num_cpu: nprocs(),
     };
     crate::main(kernel_info);
 

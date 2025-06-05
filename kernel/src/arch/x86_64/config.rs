@@ -1,4 +1,11 @@
-pub const HEAP_START: u64 = 128 * 1024 * 1024 * 1024; // 128GiB
+pub const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MiB
+pub const STACK_START: usize = 256 * 1024 * 1024; // 256MiB
 
-pub const STACK_SIZE: u64 = 2 * 1024 * 1024; // 2MiB
-pub const STACK_START: u64 = 256 * 1024 * 1024; // 256MiB
+pub const DMA_START: usize = 0x40000000000;
+
+pub const HEAP_START: usize = 0x41000000000;
+
+pub const PREEMPT_IRQ: u16 = 255;
+pub const WAKEUP_IRQ: u16 = 254;
+
+pub const DMA_SIZE: usize = 64 * 1024 * 1024; // 64MiB

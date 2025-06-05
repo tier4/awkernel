@@ -1,17 +1,11 @@
-/// The number of logical CPUs.
-pub const CORE_COUNT: usize = 4;
-
-/// The number of NUMA nodes.
-pub const CLUSTER_COUNT: usize = 1;
-
-// Topology information.
-pub const MAX_CPUS_PER_CLUSTER: usize = 4;
-pub const _NUM_PWR_DOMAINS: usize = CLUSTER_COUNT + CORE_COUNT;
-
-#[cfg(feature = "raspi3")]
-pub const UART_IRQ: usize = 57;
-
-#[cfg(feature = "raspi4")]
-pub const UART_IRQ: usize = 121 + 32;
-
 pub const UART_CLOCK: usize = 48000000;
+
+/// For Raspberry Pi 3, IRQ#0 is an interrupt of ARM Mailbox0,
+/// and for Raspberry Pi 4, IRQ#0 is a local interrupt of GICv2.
+pub const PREEMPT_IRQ: u16 = 0;
+
+pub const WAKEUP_IRQ: u16 = 1;
+
+pub const HEAP_START: usize = 0x50_0000_0000;
+
+pub const DMA_SIZE: usize = 8 * 1024 * 1024; // 8MiB

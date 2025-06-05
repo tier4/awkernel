@@ -16,10 +16,6 @@ pub fn offset_from_align(length: usize, alignment: usize) -> usize {
     length & (alignment - 1)
 }
 
-//extern "C" {
-//    static __KERNEL_VIRTUAL_BASE_ADDR: u64;
-//}
-
 #[inline(always)]
 const fn kernel_virtual_base_addr() -> u64 {
     0xffff_0000_0000_0000

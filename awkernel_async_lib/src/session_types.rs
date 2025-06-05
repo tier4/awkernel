@@ -30,8 +30,8 @@
 //! let _ = async {
 //!     let (server, client) = session_channel::<Server>();
 //!
-//!     awkernel_async_lib::spawn(async { srv(server).await; }, SchedulerType::RoundRobin).await;
-//!     awkernel_async_lib::spawn(async { cli(client).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn("server".into(), async { srv(server).await; }, SchedulerType::FIFO).await;
+//!     awkernel_async_lib::spawn("client".into(), async { cli(client).await; }, SchedulerType::FIFO).await;
 //! };
 //! ```
 //!
@@ -61,18 +61,20 @@
 //! SOFTWARE.
 //! ```
 
-#![cfg_attr(feature = "cargo-clippy", allow(clippy::double_must_use))]
-#![cfg_attr(feature = "cargo-clippy", allow(clippy::type_complexity))]
+#![cfg_attr(feature = "clippy", allow(clippy::double_must_use))]
+#![cfg_attr(feature = "clippy", allow(clippy::type_complexity))]
 use crate::{
     channel::unbounded::{self, Receiver, Sender},
     r#yield,
 };
-use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::{self, PhantomData},
     mem, ptr,
     sync::atomic::{AtomicPtr, Ordering},
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec::Vec};
 
 pub use Branch::*;
 
@@ -217,7 +219,6 @@ impl<E, P> Chan<E, P> {
 impl<E, P, A: marker::Send + 'static> Chan<E, Send<A, P>> {
     /// Send a value of type `A` over the channel. Returns a channel with
     /// protocol `P`
-    #[must_use]
     pub async fn send(self, v: A) -> Chan<E, P> {
         unsafe {
             write_chan(&self, v);
@@ -230,7 +231,6 @@ impl<E, P, A: marker::Send + 'static> Chan<E, Send<A, P>> {
 impl<E, P, A: marker::Send + 'static> Chan<E, Recv<A, P>> {
     /// Receives a value of type `A` from the channel. Returns a tuple
     /// containing the resulting channel and the received value.
-    #[must_use]
     pub async fn recv(self) -> (Chan<E, P>, A) {
         unsafe {
             let v = read_chan(&self).await;
@@ -239,7 +239,6 @@ impl<E, P, A: marker::Send + 'static> Chan<E, Recv<A, P>> {
     }
 
     /// Non-blocking receive.
-    #[must_use]
     pub fn try_recv(self) -> Result<(Chan<E, P>, A), Self> {
         unsafe {
             if let Some(v) = try_read_chan(&self) {
@@ -253,7 +252,6 @@ impl<E, P, A: marker::Send + 'static> Chan<E, Recv<A, P>> {
 
 impl<E, P, Q> Chan<E, Choose<P, Q>> {
     /// Perform an active choice, selecting protocol `P`.
-    #[must_use]
     pub async fn sel1(self) -> Chan<E, P> {
         unsafe {
             write_chan(&self, true);
@@ -263,7 +261,6 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
     }
 
     /// Perform an active choice, selecting protocol `Q`.
-    #[must_use]
     pub async fn sel2(self) -> Chan<E, Q> {
         unsafe {
             write_chan(&self, false);
@@ -273,7 +270,6 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
     }
 
     /// Perform an active choice, selecting protocol `Q`.
-    #[must_use]
     fn sel2_ny(self) -> Chan<E, Q> {
         unsafe {
             write_chan(&self, false);
@@ -284,7 +280,6 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
 
 /// Convenience function. This is identical to `.sel2()`
 impl<Z, A, B> Chan<Z, Choose<A, B>> {
-    #[must_use]
     pub async fn skip(self) -> Chan<Z, B> {
         let result = self.sel2_ny();
         r#yield().await;
@@ -294,7 +289,6 @@ impl<Z, A, B> Chan<Z, Choose<A, B>> {
 
 /// Convenience function. This is identical to `.sel2().sel2()`
 impl<Z, A, B, C> Chan<Z, Choose<A, Choose<B, C>>> {
-    #[must_use]
     pub async fn skip2(self) -> Chan<Z, C> {
         let result = self.sel2_ny().sel2_ny();
         r#yield().await;
@@ -304,7 +298,6 @@ impl<Z, A, B, C> Chan<Z, Choose<A, Choose<B, C>>> {
 
 /// Convenience function. This is identical to `.sel2().sel2().sel2()`
 impl<Z, A, B, C, D> Chan<Z, Choose<A, Choose<B, Choose<C, D>>>> {
-    #[must_use]
     pub async fn skip3(self) -> Chan<Z, D> {
         let result = self.sel2_ny().sel2_ny().sel2_ny();
         r#yield().await;
@@ -314,7 +307,6 @@ impl<Z, A, B, C, D> Chan<Z, Choose<A, Choose<B, Choose<C, D>>>> {
 
 /// Convenience function. This is identical to `.sel2().sel2().sel2().sel2()`
 impl<Z, A, B, C, D, E> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, E>>>>> {
-    #[must_use]
     pub async fn skip4(self) -> Chan<Z, E> {
         let result = self.sel2_ny().sel2_ny().sel2_ny().sel2_ny();
         r#yield().await;
@@ -324,7 +316,6 @@ impl<Z, A, B, C, D, E> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, E>>>>> {
 
 /// Convenience function. This is identical to `.sel2().sel2().sel2().sel2().sel2()`
 impl<Z, A, B, C, D, E, F> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, Choose<E, F>>>>>> {
-    #[must_use]
     pub async fn skip5(self) -> Chan<Z, F> {
         let result = self.sel2_ny().sel2_ny().sel2_ny().sel2_ny().sel2_ny();
         r#yield().await;
@@ -336,7 +327,6 @@ impl<Z, A, B, C, D, E, F> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, Choose
 impl<Z, A, B, C, D, E, F, G>
     Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, Choose<E, Choose<F, G>>>>>>>
 {
-    #[must_use]
     pub async fn skip6(self) -> Chan<Z, G> {
         let result = self
             .sel2_ny()
@@ -354,7 +344,6 @@ impl<Z, A, B, C, D, E, F, G>
 impl<Z, A, B, C, D, E, F, G, H>
     Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, Choose<E, Choose<F, Choose<G, H>>>>>>>>
 {
-    #[must_use]
     pub async fn skip7(self) -> Chan<Z, H> {
         let result = self
             .sel2_ny()
@@ -385,7 +374,7 @@ impl<E, P, Q> Chan<E, Offer<P, Q>> {
     }
 
     /// Poll for choice.
-    #[must_use]
+    #[allow(clippy::type_complexity)]
     pub fn try_offer(self) -> Result<Branch<Chan<E, P>, Chan<E, Q>>, Self> {
         unsafe {
             if let Some(b) = try_read_chan(&self) {
@@ -404,7 +393,6 @@ impl<E, P, Q> Chan<E, Offer<P, Q>> {
 impl<E, P> Chan<E, Rec<P>> {
     /// Enter a recursive environment, putting the current environment on the
     /// top of the environment stack.
-    #[must_use]
     pub fn enter(self) -> Chan<(P, E), P> {
         unsafe { self.cast() }
     }
@@ -412,7 +400,6 @@ impl<E, P> Chan<E, Rec<P>> {
 
 impl<E, P> Chan<(P, E), Var<Z>> {
     /// Recurse to the environment on the top of the environment stack.
-    #[must_use]
     pub fn zero(self) -> Chan<(P, E), P> {
         unsafe { self.cast() }
     }
@@ -420,7 +407,6 @@ impl<E, P> Chan<(P, E), Var<Z>> {
 
 impl<E, P, N> Chan<(P, E), Var<S<N>>> {
     /// Pop the top environment from the environment stack.
-    #[must_use]
     pub fn succ(self) -> Chan<E, Var<N>> {
         unsafe { self.cast() }
     }
@@ -470,14 +456,13 @@ impl<'c> ChanSelect<'c> {
     }
 }
 
-impl<'c> Default for ChanSelect<'c> {
+impl Default for ChanSelect<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Returns two session channels
-#[must_use]
 pub fn session_channel<P: HasDual>() -> (Chan<(), P>, Chan<(), P::Dual>) {
     let (tx1, rx1) = unbounded::new();
     let (tx2, rx2) = unbounded::new();

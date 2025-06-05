@@ -60,3 +60,10 @@ dkms.conf
 **/target
 **/*.rs.bk
 **/Cargo.lock
+
+# Generated Files at Compile Time
+
+kernel/ld/aarch64-link-bsp.lds
+x86_64_uefi_pxe_boot/*
+
+.ovmfpath/

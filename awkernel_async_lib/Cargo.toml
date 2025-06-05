@@ -9,11 +9,17 @@ edition = "2021"
 pin-project = "1"
 log = "0.4"
 array-macro = "2.1"
+fixedbitset = "0.5.7"
 
 [dependencies.futures]
 version = "0.3"
 default-features = false
-features = ["alloc", "async-await", "cfg-target-has-atomic"]
+features = ["alloc", "async-await"]
+
+[dependencies.futures-util]
+version = "0.3"
+default-features = false
+features = ["alloc", "async-await", "async-await-macro"]
 
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
@@ -22,7 +28,18 @@ default-features = false
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
 
+[dependencies.awkernel_futures_macro]
+path = "../awkernel_futures_macro"
+
+[dependencies.smoltcp]
+path = "../smoltcp"
+default-features = false
+features = ["awkernel"]
+
 [features]
 default = []
 std = ["awkernel_lib/std", "no_preempt"]
 no_preempt = []
+spinlock = ["awkernel_lib/spinlock"]
+clippy = []
+perf = []

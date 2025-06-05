@@ -7,28 +7,41 @@ pub mod x86_64;
 #[cfg(all(feature = "rv32", not(feature = "std")))]
 pub mod rv32;
 
+#[cfg(all(feature = "rv64", not(feature = "std")))]
+pub mod rv64;
+
 #[cfg(feature = "std")]
 pub mod std_common;
 
 #[cfg(all(feature = "aarch64", not(feature = "std")))]
-use self::aarch64 as arch_mod;
+pub(crate) use self::aarch64::AArch64 as ArchImpl;
 
 #[cfg(all(feature = "x86", not(feature = "std")))]
-use self::x86_64 as arch_mod;
+pub(crate) use self::x86_64::X86 as ArchImpl;
 
 #[cfg(all(feature = "rv32", not(feature = "std")))]
-use self::rv32 as arch_mod;
+pub(crate) use self::rv32::RV32 as ArchImpl;
+
+#[cfg(all(feature = "rv64", not(feature = "std")))]
+pub(crate) use self::rv64::RV64 as ArchImpl;
 
 #[cfg(feature = "std")]
-use self::std_common as arch_mod;
+pub(crate) use self::std_common::StdCommon as ArchImpl;
 
-pub(crate) type ArchDelay = arch_mod::delay::ArchDelay;
-pub(crate) type ArchInterrupt = arch_mod::interrupt::ArchInterrupt;
-
+#[allow(dead_code)]
 #[cfg(not(feature = "std"))]
-pub type ArchContext = arch_mod::context::Context;
+trait Arch:
+    super::delay::Delay
+    + super::interrupt::Interrupt
+    + super::cpu::CPU
+    + super::paging::Mapper
+    + super::dvfs::Dvfs
+{
+}
 
-pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;
-
-#[cfg(not(feature = "std"))]
-pub(crate) type ArchMemory = arch_mod::memory::Memory;
+#[allow(dead_code)]
+#[cfg(feature = "std")]
+trait Arch:
+    super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::dvfs::Dvfs
+{
+}

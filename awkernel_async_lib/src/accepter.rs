@@ -3,11 +3,13 @@ use crate::{
     channel::unbounded::{self, Receiver, RecvErr, Sender},
     session_types::{self as S},
 };
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::borrow::Cow;
 use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 
-/// Channel so that a server accepts a connection.
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
+/// Channel so that a server accepts a connection.
 pub(crate) type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
 
 /// `P` is a protocol of a server.

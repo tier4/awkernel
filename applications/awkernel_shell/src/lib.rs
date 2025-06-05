@@ -3,43 +3,72 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
     task::{self, TaskResult},
 };
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
-use blisp::embedded;
+use blisp::{embedded, runtime::FFI};
 use core::time::Duration;
 
+const SERVICE_NAME: &str = "[Awkernel] shell";
+
 pub fn init() {
-    let task_id = task::spawn(console_handler(), SchedulerType::RoundRobin);
+    let task_id = task::spawn(SERVICE_NAME.into(), console_handler(), SchedulerType::FIFO);
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
-        if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
-            .is_err()
+        if awkernel_lib::interrupt::register_handler(
+            irq,
+            "serial port (awkernel_shell)".into(),
+            Box::new(move |_irq| task::wake(task_id)),
+        )
+        .is_err()
         {
-            log::error!("Failed to initialize the shell.");
+            log::warn!("Failed to initialize UART's interrupt handler.");
         }
     }
 }
 
 async fn console_handler() -> TaskResult {
-    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(InfoFfi)]).unwrap();
+    log::info!("Start {SERVICE_NAME}.");
+
+    #[allow(unused_mut)]
+    let mut functions: Vec<Box<dyn FFI + Send>> = vec![
+        Box::new(HelpFfi),
+        Box::new(TaskFfi),
+        Box::new(InterruptFfi),
+        Box::new(IfconfigFfi),
+    ];
+
+    #[cfg(feature = "perf")]
+    functions.push(Box::new(PerfFfi));
+
+    let code = if cfg!(feature = "perf") {
+        format!("{CODE}\r\n{PERF_CODE}")
+    } else {
+        CODE.to_string()
+    };
+
+    let exprs = blisp::init(&code, functions).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
 
-    console::print("\nWelcome to Autoware Kernel!\n\n");
-    console::print("You can use BLisp language as follows.\n");
-    console::print("https://ytakano.github.io/blisp/\n\n");
-    console::print("> (factorial 20)\n");
-    console::print("2432902008176640000\n");
-    console::print("> (+ 10 20)\n");
-    console::print("30\n");
+    console::print("\r\nWelcome to Awkernel!\r\n\r\n");
+    console::print("You can use BLisp language as follows.\r\n");
+    console::print("https://ytakano.github.io/blisp/\r\n\r\n");
+    console::print("> (factorial 20)\r\n");
+    console::print("2432902008176640000\r\n");
+    console::print("> (+ 10 20)\r\n");
+    console::print("30\r\n");
 
-    console::print("\nEnjoy!\n\n");
+    console::print("\r\nEnjoy!\r\n\r\n");
 
     console::print("> ");
     loop {
@@ -59,19 +88,19 @@ async fn console_handler() -> TaskResult {
             } else if c == b'\r' || c == b'\n' {
                 // newline
                 if line.is_empty() {
-                    console::print("\n> ");
+                    console::print("\r\n> ");
                     continue;
                 }
 
                 if let Ok(line_u8) = alloc::str::from_utf8(&line) {
                     if !IS_STD {
-                        console::print("\n");
+                        console::print("\r\n");
                     }
 
                     // Evaluate the line.
                     eval(line_u8, &blisp_ctx);
 
-                    console::print("\n> ");
+                    console::print("\r\n> ");
                 } else {
                     console::print("Error: Input string is not UTF-8.");
                 }
@@ -102,14 +131,14 @@ fn eval(expr: &str, ctx: &blisp::semantics::Context) {
                     }
                     Err(e) => {
                         console::print(&e);
-                        console::print("\n\ntry as follows\n> (help)\n");
+                        console::print("\r\n\r\ntry as follows\r\n> (help)\r\n");
                     }
                 }
             }
         }
         Err(err) => {
             console::print(&err.msg);
-            console::print("\n\ntry as follows\n> (help)\n");
+            console::print("\r\n\r\ntry as follows\r\n> (help)\r\n");
         }
     }
 }
@@ -125,40 +154,167 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export help () (IO (-> () []))
     (help_ffi))
 
-(export info () (IO (-> () []))
-    (info_ffi))
+(export task () (IO (-> () []))
+    (task_ffi))
+
+(export interrupt () (IO (-> () []))
+    (interrupt_ffi))
+
+(export ifconfig () (IO (-> () []))
+    (ifconfig_ffi))
 ";
+
+const PERF_CODE: &str = "(export perf () (IO (-> () []))
+    (perf_ffi))";
 
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel v202306\n");
-    console::print("BLisp grammer: https://ytakano.github.io/blisp/\n\n");
+    console::print("Awkernel v202306\r\n");
+    console::print("BLisp grammer: https://ytakano.github.io/blisp/\r\n\r\n");
 
-    console::print("BLisp functions:\n");
-    console::print(CODE);
+    console::print("BLisp functions:\r\n");
+
+    let mut lines = String::new();
+
+    lines.push_str("(help)      ; print this message\r\n");
+    lines.push_str("(task)      ; print tasks\r\n");
+    lines.push_str("(interrupt) ; print interrupt information\r\n");
+    lines.push_str("(ifconfig)  ; print network interfaces\r\n");
+
+    #[cfg(feature = "perf")]
+    lines.push_str("(perf)      ; print performance information\r\n");
+
+    console::print(lines.as_str());
 }
 
 #[embedded]
-fn info_ffi() {
+fn task_ffi() {
+    let msg = format!("Uptime: {}\r\n", awkernel_async_lib::uptime(),);
+    console::print(&msg);
+
     print_tasks();
+
+    console::print("\r\n");
+
+    let msg = format!(
+        "Total preemption: {}\r\n",
+        awkernel_async_lib::task::get_num_preemption(),
+    );
+    console::print(&msg);
+
+    console::print("Running Tasks:\r\n");
+    for task in awkernel_async_lib::task::get_tasks_running().iter() {
+        let msg = if task.task_id != 0 {
+            format!("  cpu: {:>3}, task: {:>5}\r\n", task.cpu_id, task.task_id)
+        } else {
+            format!("  cpu: {:>3}, task:\r\n", task.cpu_id)
+        };
+        console::print(&msg);
+    }
+}
+
+#[embedded]
+fn interrupt_ffi() {
+    let handlers = awkernel_lib::interrupt::get_handlers();
+
+    console::print("IRQ Name\r\n");
+    for (k, v) in handlers.iter() {
+        let msg = format!("{k:>3} name: {v}\r\n");
+        console::print(&msg);
+    }
+}
+
+#[embedded]
+fn ifconfig_ffi() {
+    let ifs = awkernel_lib::net::get_all_interface();
+    for netif in ifs.iter() {
+        let msg = format!("{netif}\r\n\r\n");
+        console::print(&msg);
+    }
+}
+
+#[cfg(feature = "perf")]
+#[embedded]
+fn perf_ffi() {
+    console::print("Perform non-primary CPU [tsc]:\r\n");
+    console::print(" cpu | Type           |   kernel_time  |    task_time   |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
+    console::print("=====|================|================|================|================|================|================|================\r\n");
+
+    use awkernel_async_lib::task::perf;
+
+    for cpu_id in 0..awkernel_lib::cpu::num_cpu() {
+        let kernel_time = perf::get_kernel_time(cpu_id);
+        let task_time = perf::get_task_time(cpu_id);
+        let idle_time = perf::get_idle_time(cpu_id);
+        let interrupt_time = perf::get_interrupt_time(cpu_id);
+        let contxt_switch_time = perf::get_context_switch_time(cpu_id);
+        let perf_time = perf::get_perf_time(cpu_id);
+
+        let msg = format!(
+            "{cpu_id:>4} | Total          |{kernel_time:>15} |{task_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
+        );
+
+        console::print(&msg);
+
+        let ave_kernel_time = perf::get_ave_kernel_time(cpu_id).unwrap_or(0.0);
+        let ave_task_time = perf::get_ave_task_time(cpu_id).unwrap_or(0.0);
+        let ave_idle_time = perf::get_ave_idle_time(cpu_id).unwrap_or(0.0);
+        let ave_interrupt_time = perf::get_ave_interrupt_time(cpu_id).unwrap_or(0.0);
+        let ave_contxt_switch_time = perf::get_ave_context_switch_time(cpu_id).unwrap_or(0.0);
+        let ave_perf_time = perf::get_ave_perf_time(cpu_id).unwrap_or(0.0);
+
+        let msg_ave = format!(
+            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_contxt_switch_time:>15.2} |{ave_perf_time:>15.2}\r\n",
+        );
+
+        console::print(&msg_ave);
+
+        let worst_kernel_time = perf::get_kernel_wcet(cpu_id);
+        let worst_task_time = perf::get_task_wcet(cpu_id);
+        let worst_idle_time = perf::get_idle_wcet(cpu_id);
+        let worst_interrupt_time = perf::get_interrupt_wcet(cpu_id);
+        let worst_contxt_switch_time = perf::get_context_switch_wcet(cpu_id);
+        let worst_perf_time = perf::get_perf_wcet(cpu_id);
+
+        let msg_worst = format!(
+            "     | Worst          | {worst_kernel_time:>14} | {worst_task_time:>14} |{worst_idle_time:>15} |{worst_interrupt_time:>15} |{worst_contxt_switch_time:>15} |{worst_perf_time:>15}\r\n",
+        );
+
+        console::print(&msg_worst);
+
+        if cpu_id < awkernel_lib::cpu::num_cpu() - 1 {
+            console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+        }
+    }
 }
 
 fn print_tasks() {
     let tasks = task::get_tasks();
 
-    console::print("Tasks:\n");
-    console::print("ID\tState\tScheduler\n");
+    console::print("Tasks:\r\n");
+
+    let msg = format!(
+        "{:>5}  {:<10} {:>14} {:>14} name\r\n",
+        "ID", "State", "#Preemption", "Last Executed"
+    );
+    console::print(&msg);
 
     for t in tasks {
         let mut node = MCSNode::new();
-        let task = t.info.lock(&mut node);
+        let info = t.info.lock(&mut node);
+
+        let state = format!("{:?}", info.get_state());
 
         let msg = format!(
-            "{}\t{:?}\t{:?}\n",
+            "{:>5}{} {:<10} {:>14} {:>14} {}\r\n",
             t.id,
-            task.get_state(),
-            task.get_scheduler_type()
+            if info.panicked() { "*" } else { " " },
+            state,
+            info.get_num_preemption(),
+            info.get_last_executed().uptime().as_micros(),
+            t.name,
         );
+
         console::print(&msg);
     }
 }

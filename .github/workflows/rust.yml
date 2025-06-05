@@ -1,0 +1,75 @@
+name: Rust
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 13 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly-2025-05-22
+      - name: Use Rust nightly
+        run: rustup default nightly-2025-05-22
+      - name: Add Rust components
+        run: rustup component add rust-src llvm-tools-preview clippy rustfmt
+      - name: Add Rust targets
+        run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
+      - name: Install libssl1.1
+        run: wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1-1ubuntu2.1~18.04.23_amd64.deb && sudo dpkg -i libssl1.1_1.1.1-1ubuntu2.1~18.04.23_amd64.deb
+      - name: Install cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+      - name: Install cargo-binutils
+        run: cargo binstall cargo-binutils -y
+      - name: Install cargo-udeps
+        run: cargo binstall cargo-udeps -y
+
+      - name: Cargo fmt
+        run: cargo fmt && git diff --exit-code
+
+      - name: Build aarch64_virt
+        run: make check_aarch64 BSP=aarch64_virt
+      - name: Build aarch64 raspi5
+        run: make check_aarch64 BSP=raspi5
+      - name: Build aarch64 raspi4
+        run: make check_aarch64 BSP=raspi4
+      - name: Build aarch64 raspi3
+        run: make check_aarch64 BSP=raspi3
+      - name: Build x86_64
+        run: make check_x86_64
+      - name: Build RISCV64
+        run: make check_riscv64
+      - name: Build std
+        run: make check_std
+
+      - name: Clippy aarch64_virt
+        run: cargo clippy_aarch64_virt -- --deny warnings
+      - name: Clippy raspi
+        run: cargo clippy_raspi -- --deny warnings
+      - name: Cliipy raspi5
+        run: cargo clippy_raspi5 -- --deny warnings
+      - name: Clippy x86_64
+        run: cargo clippy_x86 -- --deny warnings
+      - name: Clippy RISCV64
+        run: cargo clippy_rv64 -- --deny warnings
+      - name: Clippy std
+        run: cargo clippy_std -- --deny warnings
+      - name: Clippy rd_gen_to_dags
+        run: cargo clippy_rd_gen_to_dags -- --deny warnings
+
+      - name: udeps
+        run: make udeps
+
+      - name: test
+        run: RUSTFLAGS="-D warnings" make test

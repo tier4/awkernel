@@ -1,24 +1,52 @@
 [alias]
-x86 = "build --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi3 = "build --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi4 = "build --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+x86 = "build --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+aarch64 = "build --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 rv32 = "build --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+rv64 = "build --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 std = "build --package awkernel --no-default-features --features std"
 
 test_awkernel_lib = "test --package awkernel_lib --no-default-features --features std"
 test_awkernel_async_lib = "test --package awkernel_async_lib --no-default-features --features std"
-test_awkernel_drivers = "test --package awkernel_drivers"
+test_awkernel_drivers = "test --package awkernel_drivers --no-default-features --features std"
+test_smoltcp = "test --package smoltcp --no-default-features --features std --features awkernel"
+test_rd_gen_to_dags = "test --package rd_gen_to_dags --no-default-features --features std --features milliseconds"
 
-check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
-check_std = "check --package awkernel --quiet --message-format=json"
-
-clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi3 = "clippy --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi4 = "clippy --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_raspi = "clippy --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_raspi5 = "clippy --package awkernel --no-default-features --features raspi5 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_aarch64_virt = "clippy --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_std = "clippy --package awkernel --no-default-features --features std"
+clippy_rv32 = "clippy --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_rv64 = "clippy --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_rd_gen_to_dags = "clippy --package rd_gen_to_dags --no-default-features  --features std --features milliseconds"
+
+check_aarch64 = "check --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_x86 = "check --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_rv32 = "check --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_rv64 = "check --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
+check_std = "check --package awkernel --no-default-features --features std"
+
+doc_raspi = "doc --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_aarch64_virt = "doc --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_x86 = "doc --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+
+udeps_x86 = "udeps --package awkernel --no-default-features --features x86"
+udeps_raspi = "udeps --package awkernel --no-default-features --features x86"
+udeps_aarch64_virt = "udeps --package awkernel --no-default-features --features aarch64_virt"
+udeps_lib_x86 = "udeps --package awkernel_lib --no-default-features --features x86"
+udeps_lib_aarch64 = "udeps --package awkernel_lib --no-default-features --features aarch64"
+udeps_lib_rv64 = "udeps --package awkernel_lib --no-default-features --features rv64"
+udeps_async_lib = "udeps --package awkernel_async_lib --no-default-features --features std"
+udeps_drivers_x86 = "udeps --package awkernel_drivers --no-default-features --features x86"
+udeps_drivers_raspi = "udeps --package awkernel_drivers --no-default-features --features aarch64 --features raspi --features pl011"
+udeps_async_lib_verified = "udeps --package awkernel_async_lib_verified"
 
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
 [target.riscv32imac-unknown-none-elf]
-rustflags = [ "-C", "link-arg=-Trv32-link.lds" ]
+rustflags = ["-C", "link-arg=-Tkernel/ld/rv32-link.lds"]
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = ["-C", "link-arg=-Tkernel/ld/rv64-link.lds"]

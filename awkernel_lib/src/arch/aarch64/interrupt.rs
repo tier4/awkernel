@@ -1,8 +1,6 @@
 use crate::interrupt::Interrupt;
 
-pub struct ArchInterrupt;
-
-impl Interrupt for ArchInterrupt {
+impl Interrupt for super::AArch64 {
     fn get_flag() -> usize {
         awkernel_aarch64::daif::get() as usize
     }
@@ -13,6 +11,11 @@ impl Interrupt for ArchInterrupt {
 
     fn enable() {
         unsafe { core::arch::asm!("msr daifclr, #0b0010",) };
+    }
+
+    fn are_enabled() -> bool {
+        let daif = awkernel_aarch64::daif::get();
+        (daif & (1 << 7)) == 0
     }
 
     fn set_flag(flag: usize) {

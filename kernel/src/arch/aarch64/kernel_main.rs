@@ -1,115 +1,159 @@
 //! # Boot process
 //!
-//! ## Raspberry Pi
-//!
-//! 1. The entrypoint, `_start` in `kernel/asm/aarch64/device/raspi.S`, is called.
+//! 1. The entrypoint, `_start` in `kernel/asm/aarch64/boot.S`, is called.
 //! 2. [`kernel_main`] is called.
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, cpu, mmu};
+use super::bsp::DeviceTreeRef;
 use crate::{
-    arch::aarch64::{
-        cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
-        mmu::{get_stack_el1_end, get_stack_el1_start},
-    },
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    arch::aarch64::bsp::SoC,
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap};
-use core::{
-    ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicBool, Ordering},
+use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
+use awkernel_lib::{
+    console::{unsafe_print_hex_u32, unsafe_puts},
+    delay::wait_forever,
+    dma_pool, heap,
 };
-use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START};
+use core::{
+    arch::asm,
+    ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
+};
 
-static mut PRIMARY_READY: bool = false;
+static mut CPU_READY: usize = 0;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static NUM_CPUS: AtomicU16 = AtomicU16::new(0);
 
-/// Entry point from assembly code.
+static mut TTBR0_EL1: usize = 0;
+
+/// The entry point from `boot.S`.
 #[no_mangle]
-pub unsafe extern "C" fn kernel_main() -> ! {
+pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
-    if cpu::core_pos() == 0 {
-        raspi::start_non_primary(); // Wake non-primary CPUs up.
-        primary_cpu();
+    awkernel_lib::delay::wait_millisec(10);
+
+    if awkernel_lib::cpu::cpu_id() == 0 {
+        primary_cpu(device_tree_base);
     } else {
-        while !unsafe { read_volatile(&PRIMARY_READY) } {}
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        while read_volatile(addr_of!(CPU_READY)) != cpu_id {}
         non_primary_cpu();
     }
 
     wait_forever();
 }
 
-/// 1. Initialize MMU.
-/// 2. Start non-primary CPUs.
+/// 1. Initialize the device (UART, etc.).
+/// 2. Initialize the virtual memory.
 /// 3. Enable MMU.
-/// 4. Enable heap allocator.
-/// 5. Board specific initialization (IRQ controller, etc).
-unsafe fn primary_cpu() {
-    // Initialize UART.
-    super::bsp::init_device();
+/// 4. Start non-primary CPUs.
+/// 5. Enable heap allocator.
+/// 6. Board specific initialization (Interrupt controller, etc).
+unsafe fn primary_cpu(device_tree_base: usize) {
+    unsafe { crate::config::init() };
 
-    match awkernel_aarch64::get_current_el() {
-        0 => unsafe_puts("EL0\n"),
-        1 => unsafe_puts("EL1\n"),
-        2 => unsafe_puts("EL2\n"),
-        3 => unsafe_puts("EL3\n"),
-        _ => (),
-    }
+    let device_tree = load_device_tree(device_tree_base);
+    let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
 
-    // 1. Initialize MMU.
-    mmu::init_memory_map();
-    if mmu::init().is_none() {
-        unsafe_puts("Failed to init MMU.\n");
+    // 1. Initialize device (UART, etc.).
+    if initializer.init_device().is_err() {
         wait_forever();
     }
 
-    // 2. Start non-primary CPUs.
-    write_volatile(&mut PRIMARY_READY, true);
+    match awkernel_aarch64::get_current_el() {
+        0 => unsafe_puts("EL0\r\n"),
+        1 => unsafe_puts("EL1\r\n"),
+        2 => unsafe_puts("EL2\r\n"),
+        3 => unsafe_puts("EL3\r\n"),
+        _ => unsafe_puts("EL other\r\n"),
+    }
+
+    unsafe_puts("Device Tree: 0x");
+    unsafe_print_hex_u32(device_tree_base as u32);
+    unsafe_puts("\r\n");
+
+    // 2. Initialize the virtual memory.
+    let vm = match initializer.init_virtual_memory() {
+        Ok(vm) => vm,
+        Err(msg) => {
+            unsafe_puts("failed to initialize the virtual memory\r\n");
+            unsafe_puts(msg);
+            unsafe_puts("\r\n");
+            wait_forever();
+        }
+    };
+
+    let Some(ttbr0) = vm.get_ttbr0_addr() else {
+        unsafe_puts("failed to get TTBR0_EL0\r\n");
+        wait_forever();
+    };
+
+    write_volatile(addr_of_mut!(TTBR0_EL1), ttbr0);
+
+    dsb_sy();
+
+    // Invalidate all TLB
+    dsb_ishst();
+    tlbi_vmalle1is();
+    dsb_ish();
+    isb();
 
     // 3. Enable MMU.
-    mmu::enable();
+    super::vm::enable(ttbr0);
+
+    // 4. Start non-primary CPUs.
+    let cpu_ready = read_volatile(addr_of!(CPU_READY));
+    write_volatile(addr_of_mut!(CPU_READY), cpu_ready + 1);
+    super::vm::flush_cache();
+
+    unsafe_puts("The virtual memory has been successfully enabled.\r\n");
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
-    awkernel_lib::arch::aarch64::set_cluster_info(MAX_CPUS_PER_CLUSTER, CLUSTER_COUNT);
 
-    let backup_start = HEAP_START as usize;
-    let backup_size = BACKUP_HEAP_SIZE as usize;
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = HEAP_SIZE as usize;
+    awkernel_lib::delay::wait_sec(3);
 
-    // 4. Enable heap allocator.
+    // 5. Enable heap allocator.
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
+
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    // 5. Board specific initialization.
-    super::bsp::init();
+    for i in 0..initializer.get_segment_count() {
+        if let Some(dma_pool) = initializer.get_dma_pool(i) {
+            dma_pool::init_dma_pool(i, dma_pool, DMA_SIZE);
+        }
+    }
+
+    // 6. Board specific initialization (Interrupt controller, PCIe, etc).
+    if let Err(msg) = initializer.init() {
+        unsafe_puts("failed init()\r\n");
+        unsafe_puts(msg);
+        unsafe_puts("\r\n");
+        wait_forever();
+    }
 
     log::info!(
-        "Stack memory: start = 0x{:x}, end = 0x{:x}",
-        get_stack_el1_end(),
-        get_stack_el1_start()
-    );
-
-    log::info!(
-        "Primary heap: start = 0x{:x}, size = {}",
+        "Primary heap: 0x{:016x} - {:016x} ({}[MiB])",
         primary_start,
-        primary_size
+        primary_start + primary_size,
+        primary_size >> 20
     );
 
     log::info!(
-        "Backup heap: start = 0x{:x}, size = {}",
+        "Backup heap : 0x{:016x} - {:016x} ({}[MiB])",
         backup_start,
-        backup_size
-    );
-
-    log::info!(
-        "Device memory: start = 0x{:x}, end = 0x{:x}",
-        DEVICE_MEM_START,
-        DEVICE_MEM_END
+        backup_start + backup_size,
+        backup_size >> 20
     );
 
     if awkernel_aarch64::spsel::get() & 1 == 0 {
@@ -118,33 +162,81 @@ unsafe fn primary_cpu() {
         log::info!("Use SP_ELx.");
     }
 
+    log::info!("{device_tree}");
+
+    let num_cpu = initializer.get_num_cpus();
+    NUM_CPUS.store(num_cpu as u16, Ordering::SeqCst);
+
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: 0,
+        num_cpu,
     };
+
     crate::main::<()>(kernel_info);
 }
 
+/// 1. Enable the virtual memory.
+/// 2. Wait until the primary CPU is enabled.
+/// 3. Initialization for non-primary CPUs.
 unsafe fn non_primary_cpu() {
-    mmu::enable();
+    let mut ttbr0;
 
+    // flush TLB
+    asm!(
+        "
+        dsb     sy
+
+        dsb     ishst
+        tlbi    vmalle1is
+        dsb     ish
+        isb
+
+        ldr     {ttbr0}, [{ttbr0_addr}]
+        isb
+        ",
+        ttbr0 = out(reg) ttbr0,
+        ttbr0_addr = in(reg) addr_of!(TTBR0_EL1),
+    );
+
+    let cpu_ready = read_volatile(addr_of!(CPU_READY));
+
+    super::vm::enable(ttbr0);
+    write_volatile(addr_of_mut!(CPU_READY), cpu_ready + 1);
+    super::vm::flush_cache();
+
+    // 2. Wait until the primary CPU is enabled.
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
-        core::hint::spin_loop();
+        awkernel_lib::delay::wait_millisec(1);
     }
 
-    unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
+    // 3. Initialization for non-primary CPUs.
+    unsafe {
+        awkernel_lib::arch::aarch64::init_non_primary(); // Initialize timer.
+        awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
+    }
 
-    awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
+    let num_cpu = NUM_CPUS.load(Ordering::SeqCst) as usize;
 
     let kernel_info = KernelInfo {
         info: (),
-        cpu_id: cpu::core_pos(),
+        cpu_id: awkernel_lib::cpu::cpu_id(),
+        num_cpu,
     };
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     crate::main::<()>(kernel_info);
+}
+
+#[allow(dead_code)]
+unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
+    if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
+        tree
+    } else {
+        wait_forever();
+    }
 }

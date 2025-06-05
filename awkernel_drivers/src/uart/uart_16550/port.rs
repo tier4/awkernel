@@ -20,6 +20,10 @@ impl SerialPort {
     ///
     /// This function is unsafe because the caller must ensure that the given base address
     /// really points to a serial port device.
+    ///
+    /// # Safety
+    ///
+    /// `base` must be the base address of UART 16550.
     pub const unsafe fn new(base: u16) -> Self {
         Self {
             data: Port::new(base),
@@ -108,6 +112,20 @@ impl SerialPort {
             Some(unsafe { self.data.read() })
         } else {
             None
+        }
+    }
+
+    /// Enable the interrupt.
+    pub fn enable_interrupt(&mut self) {
+        unsafe {
+            self.int_en.write(0x01);
+        }
+    }
+
+    /// Disable the interrupt.
+    pub fn disable_interrupt(&mut self) {
+        unsafe {
+            self.int_en.write(0x00);
         }
     }
 }

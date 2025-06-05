@@ -1,46 +1,53 @@
 {
-    // For AArch64
+    "rust-analyzer.showUnlinkedFileNotification": false,
+    "tlaplus.tlc.modelChecker.options": "-workers auto",
+    "editor.formatOnSave": true,
+    // For AArch64 Virt
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
-    //     "+nightly",
+    //     "+nightly-2025-05-22",
     //     "check_no_std",
-    //     "--target=aarch64-kernel.json",
+    //     "--target=targets/aarch64-kernel.json",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
-    //     "+nightly",
+    //     "+nightly-2025-05-22",
     //     "check_no_std",
-    //     "--target=aarch64-kernel.json",
+    //     "--target=targets/aarch64-kernel.json",
     // ],
-    // "rust-analyzer.cargo.features": ["aarch64"],
+    // "rust-analyzer.cargo.features": [
+    //     "aarch64_virt"
+    // ],
     // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
-        "+nightly",
+        "+nightly-2025-05-22",
         "check_no_std",
-        "--target=x86_64-kernel.json",
+        "--target=targets/x86_64-kernel.json",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
-        "+nightly",
+        "+nightly-2025-05-22",
         "check_no_std",
-        "--target=x86_64-kernel.json",
+        "--target=targets/x86_64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "raspi4"
+        "x86"
     ],
-    "rust-analyzer.showUnlinkedFileNotification": false,
-    "tlaplus.tlc.modelChecker.options": "-workers auto",
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
-    //     "+nightly",
+    //     "+nightly-2025-05-22",
     //     "check_std",
+    //     "--quiet",
+    //     "--message-format=json"
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
-    //     "+nightly",
+    //     "+nightly-2025-05-22",
     //     "check_std",
+    //     "--quiet",
+    //     "--message-format=json"
     // ],
     // "rust-analyzer.cargo.features": [
     //     "std"

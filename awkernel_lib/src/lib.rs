@@ -1,31 +1,49 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "std", feature(thread_local))]
-#![feature(core_intrinsics)]
+#![feature(allocator_api)]
+#![cfg_attr(feature = "std", feature(io_error_inprogress))]
 
 use core::{cell::Cell, marker::PhantomData};
 
 use alloc::rc::Rc;
 
+pub mod addr;
 pub mod arch;
-
+pub mod config;
 pub mod console;
 pub mod cpu;
 pub mod delay;
+pub mod device_tree;
+pub mod dvfs;
+pub mod graphics;
 pub mod interrupt;
+pub mod local_heap;
 pub mod logger;
 pub mod mmio;
+pub mod net;
+pub mod priority_queue;
+pub mod sanity;
 pub mod sync;
+pub mod time;
 pub mod timer;
 pub mod unwind;
+
+#[cfg(feature = "std")]
+pub mod file_control;
+
+#[cfg(feature = "std")]
+pub mod select;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;
 
 #[cfg(not(feature = "std"))]
-pub mod context;
+pub mod dma_pool;
 
 #[cfg(not(feature = "std"))]
-pub mod memory;
+pub mod context;
+
+pub mod paging;
 
 extern crate alloc;
 
@@ -37,3 +55,10 @@ pub const IS_STD: bool = true;
 
 #[cfg(not(feature = "std"))]
 pub const IS_STD: bool = false;
+
+#[macro_export]
+macro_rules! err_msg {
+    ($m:expr) => {
+        concat!(file!(), ":", line!(), ":", column!(), ": ", $m)
+    };
+}

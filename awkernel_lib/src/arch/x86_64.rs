@@ -1,24 +1,28 @@
-use self::{acpi::AcpiMapper, page_allocator::PageAllocator};
+use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use ::acpi::AcpiTables;
-use x86_64::structures::paging::{OffsetPageTable, PhysFrame};
 
 pub mod acpi;
-pub mod context;
-pub(super) mod cpu;
-pub(super) mod delay;
+pub mod cpu;
+pub mod delay;
+pub(super) mod dvfs;
+pub mod fault;
 pub(super) mod interrupt;
-pub(super) mod memory;
-pub mod mmu;
+pub mod interrupt_remap;
+pub mod kvm;
+pub mod msr;
 pub mod page_allocator;
+pub mod page_table;
+pub(super) mod paging;
 
-pub fn init<T>(
+pub struct X86;
+
+impl super::Arch for X86 {}
+
+pub fn init(
     acpi: &AcpiTables<AcpiMapper>,
-    page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+    page_table: &mut page_table::PageTable,
+    page_allocator: &mut VecPageAllocator,
+) -> Result<(), &'static str> {
     // Initialize timer.
-    acpi::init(acpi);
-    delay::init(acpi, page_table, page_allocator);
+    delay::init(acpi, page_table, page_allocator)
 }

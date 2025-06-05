@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 blisp = "0.4"
 log = "0.4"
+byteorder = { version = "1.0", default-features = false }
 
 [dependencies.awkernel_async_lib]
 path = "../../awkernel_async_lib"
@@ -16,3 +17,6 @@ default-features = false
 [dependencies.awkernel_lib]
 path = "../../awkernel_lib"
 default-features = false
+
+[features]
+perf = []

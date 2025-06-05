@@ -2,15 +2,18 @@
 
 use super::Cancel;
 use crate::scheduler;
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::task::Poll;
+use core::{task::Poll, time::Duration};
 use futures::{future::FusedFuture, Future};
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 #[must_use = "use `.await` to sleep"]
 pub struct Sleep {
     state: Arc<Mutex<State>>,
-    dur: u64,
+    dur: Duration,
 }
 
 #[derive(Debug)]
@@ -32,10 +35,7 @@ impl Future for Sleep {
         let mut guard = self.state.lock(&mut node);
 
         match &*guard {
-            State::Wait => {
-                *guard = State::Canceled;
-                Poll::Ready(State::Canceled)
-            }
+            State::Wait => Poll::Pending,
             State::Canceled => Poll::Ready(State::Canceled),
             State::Finished => Poll::Ready(State::Finished),
             State::Ready => {
@@ -51,9 +51,8 @@ impl Future for Sleep {
                         let mut guard = state.lock(&mut node);
                         if let State::Wait = &*guard {
                             *guard = State::Finished;
+                            waker.wake();
                         }
-
-                        waker.wake();
                     }),
                     self.dur,
                 );
@@ -81,7 +80,7 @@ impl Cancel for Sleep {
 
 impl Sleep {
     // Create a `Sleep`.
-    pub(super) fn new(dur: u64) -> Self {
+    pub(super) fn new(dur: Duration) -> Self {
         let state = Arc::new(Mutex::new(State::Ready));
         Self { state, dur }
     }

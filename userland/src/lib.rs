@@ -1,131 +1,62 @@
 #![no_std]
-use alloc::{borrow::Cow, format};
-use awkernel_async_lib::{
-    pubsub::{create_publisher, create_subscriber, Attribute},
-    scheduler::SchedulerType,
-    spawn, uptime,
-};
-use core::{
-    ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
 
 extern crate alloc;
 
-const RTT_SIZE: usize = 1024 * 8;
-
-static mut RTT: [u64; RTT_SIZE] = [0; RTT_SIZE];
-static COUNT: AtomicUsize = AtomicUsize::new(0);
-
-fn add_rtt(rtt: u64) {
-    let index = COUNT.fetch_add(1, Ordering::Relaxed);
-    unsafe { write_volatile(&mut RTT[index & (RTT_SIZE - 1)], rtt) };
-}
+use alloc::borrow::Cow;
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    awkernel_shell::init();
+    awkernel_services::run().await;
 
-    spawn(
-        async move {
-            loop {
-                awkernel_async_lib::sleep(Duration::from_secs(120)).await;
+    #[cfg(feature = "rd_gen_to_dags")]
+    rd_gen_to_dags::run().await; // run the rd_gen_to_dags application
 
-                let mut total = 0;
-                let mut count = 0;
-                let mut worst = 0;
+    #[cfg(feature = "test_network")]
+    test_network::run().await; // test for network
 
-                for i in 0..RTT_SIZE {
-                    let rtt = unsafe { read_volatile(&RTT[i]) };
-                    if rtt > 0 {
-                        total += rtt;
-                        count += 1;
-                    }
+    #[cfg(feature = "test_pubsub")]
+    test_pubsub::run().await; // test for pubsub
 
-                    if rtt > worst {
-                        worst = rtt;
-                    }
-                }
+    #[cfg(feature = "test_rpi_hal")]
+    test_rpi_hal::run().await; // test for RPi HAL
 
-                if count > 0 {
-                    let ave = total as f64 / count as f64;
-                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
-                }
-            }
-        },
-        SchedulerType::RoundRobin,
-    )
-    .await;
+    #[cfg(feature = "test_graphics")]
+    test_graphics::run().await; // test for graphics
 
-    for i in 0..1024 {
-        let topic_a = format!("topic_a_{i}");
-        let topic_b = format!("topic_b_{i}");
+    #[cfg(feature = "test_prioritized_fifo")]
+    test_prioritized_fifo::run().await; // test for prioritized_fifo
 
-        let publisher1 =
-            create_publisher::<()>(topic_a.clone().into(), Attribute::default()).unwrap();
-        let subscriber1 =
-            create_subscriber::<()>(topic_b.clone().into(), Attribute::default()).unwrap();
+    #[cfg(feature = "test_rr")]
+    test_rr::run().await; // test for Round Robin scheduler
 
-        let publisher2 = create_publisher::<()>(topic_b.into(), Attribute::default()).unwrap();
-        let subscriber2 = create_subscriber::<()>(topic_a.into(), Attribute::default()).unwrap();
+    #[cfg(feature = "test_priority_based_rr")]
+    test_priority_based_rr::run().await; // test for priority_based_rr
 
-        spawn(
-            async move {
-                loop {
-                    subscriber2.recv().await;
-                    publisher2.send(()).await;
-                }
-            },
-            SchedulerType::RoundRobin,
-        )
-        .await;
+    #[cfg(feature = "test_async_mutex")]
+    test_async_mutex::run().await; // test for async_mutex
 
-        spawn(
-            async move {
-                loop {
-                    let start = uptime();
-                    publisher1.send(()).await;
-                    subscriber1.recv().await;
-                    let end = uptime();
+    #[cfg(feature = "test_gedf")]
+    test_gedf::run().await; // test for Global Earliest Deadline First scheduler
 
-                    let elapsed = end - start;
-                    add_rtt(elapsed);
+    #[cfg(feature = "test_measure_channel")]
+    test_measure_channel::run().await; // measure channel
 
-                    awkernel_async_lib::sleep(Duration::from_millis(200)).await;
-                }
-            },
-            SchedulerType::RoundRobin,
-        )
-        .await;
-    }
+    #[cfg(feature = "test_measure_channel_heavy")]
+    test_measure_channel_heavy::run().await; // measure channel heavy
 
-    #[cfg(all(
-        not(any(target_os = "linux", target_os = "macos")),
-        target_arch = "aarch64"
-    ))]
-    for i in 0..4 {
-        spawn(
-            async move {
-                loop {
-                    // log::debug!(
-                    //     "do preemption: task = {i}, cpu_id = {}",
-                    //     awkernel_async_lib::cpu_id()
-                    // );
+    #[cfg(feature = "test_load_udp")]
+    test_load_udp::run().await; // load test udp
 
-                    awkernel_async_lib::task::preemption();
+    #[cfg(feature = "test_sched_preempt")]
+    test_sched_preempt::run().await; // tests related to preemption between schedulers
 
-                    // log::debug!(
-                    //     "end preemption: task = {i}, cpu_id = {}",
-                    //     awkernel_async_lib::cpu_id()
-                    // );
+    #[cfg(feature = "test_dag")]
+    test_dag::run().await; // test for DAG
 
-                    awkernel_async_lib::sleep(Duration::from_millis(5000)).await;
-                }
-            },
-            SchedulerType::RoundRobin,
-        )
-        .await;
-    }
+    #[cfg(feature = "test_dvfs")]
+    test_dvfs::run().await; // test for DVFS
+
+    #[cfg(feature = "test_voluntary_preemption")]
+    test_voluntary_preemption::run().await; // test for voluntary preemption
 
     Ok(())
 }

@@ -48,11 +48,11 @@ type SLBitmap = u64; // must be longer than SLLEN
 use crate::{
     console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
+    delay,
     sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
-    intrinsics::abort,
     mem::transmute,
     ptr::{self, NonNull},
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -146,9 +146,15 @@ pub struct Guard<'a> {
     flag: u32,
 }
 
-impl<'a> Drop for Guard<'a> {
+impl Drop for Guard<'_> {
     fn drop(&mut self) {
         unsafe { self.talloc.restore(self.index, self.flag) };
+    }
+}
+
+impl Default for Talloc {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -159,7 +165,12 @@ impl Talloc {
         Self {
             primary: Allocator::new(),
             backup: BackUpAllocator::new(),
-            flags: unsafe { transmute(flags) },
+            flags: unsafe {
+                transmute::<
+                    [i32; NUM_MAX_CPU / 32],
+                    [core::sync::atomic::AtomicU32; NUM_MAX_CPU / 32],
+                >(flags)
+            },
             primary_start: AtomicUsize::new(0),
             primary_size: AtomicUsize::new(0),
             backup_start: AtomicUsize::new(0),
@@ -181,8 +192,16 @@ impl Talloc {
         unsafe { self.backup.init(backup_start, backup_size) };
     }
 
+    #[inline(always)]
     fn cpu_index() -> (usize, u32) {
         let cpu_id = cpu::cpu_id();
+        let index = cpu_id >> 5;
+        let id = cpu_id & (32 - 1);
+        (index, id as u32)
+    }
+
+    #[inline(always)]
+    fn cpu_index_cpu_id(cpu_id: usize) -> (usize, u32) {
         let index = cpu_id >> 5;
         let id = cpu_id & (32 - 1);
         (index, id as u32)
@@ -192,8 +211,20 @@ impl Talloc {
     /// # Safety
     ///
     /// After calling this function, the heap memory allocator uses both the primary and backup allocators.
+    #[inline]
     pub unsafe fn use_primary_then_backup(&self) {
         let (index, cpu_id) = Self::cpu_index();
+        let mask = !(1 << cpu_id);
+        self.flags[index].fetch_and(mask, Ordering::Relaxed);
+    }
+
+    /// use both the primary and backup allocators
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses both the primary and backup allocators.
+    #[inline]
+    pub unsafe fn use_primary_then_backup_cpu_id(&self, cpu_id: usize) {
+        let (index, cpu_id) = Self::cpu_index_cpu_id(cpu_id);
         let mask = !(1 << cpu_id);
         self.flags[index].fetch_and(mask, Ordering::Relaxed);
     }
@@ -203,13 +234,27 @@ impl Talloc {
     /// # Safety
     ///
     /// After calling this function, the heap memory allocator uses only the primary allocator.
+    #[inline]
     pub unsafe fn use_primary(&self) {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
         self.flags[index].fetch_or(mask, Ordering::Relaxed);
     }
 
+    /// use only the primary allocator
+    ///
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses only the primary allocator.
+    #[inline]
+    pub unsafe fn use_primary_cpu_id(&self, cpu_id: usize) {
+        let (index, cpu_id) = Self::cpu_index_cpu_id(cpu_id);
+        let mask = 1 << cpu_id;
+        self.flags[index].fetch_or(mask, Ordering::Relaxed);
+    }
+
     /// Save the configuration and it will be restored when dropping `Guard`.
+    #[inline]
     pub fn save(&self) -> Guard {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
@@ -221,17 +266,20 @@ impl Talloc {
         }
     }
 
+    #[inline]
     unsafe fn restore(&self, index: usize, flag: u32) {
         self.flags[index].fetch_or(flag, Ordering::Relaxed);
     }
 
     /// check whether using the primary allocator
+    #[inline]
     pub fn is_primary(&self) -> bool {
         let (index, cpu_id) = Self::cpu_index();
         let val = self.flags[index].load(Ordering::Relaxed);
         (val & (1 << cpu_id)) != 0
     }
 
+    #[inline]
     pub fn is_primary_mem(&self, ptr: *mut u8) -> bool {
         let addr = ptr as usize;
         let start = self.primary_start.load(Ordering::Relaxed);
@@ -246,12 +294,12 @@ unsafe impl GlobalAlloc for BackUpAllocator {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         if let Some(mut ptr) = guard.allocate(layout) {
-            return ptr.as_mut();
+            ptr.as_mut()
         } else {
             drop(guard);
-            unsafe_puts("failed to allocate heap memory\n");
-            unsafe_puts("aborting...\n");
-            abort(); // there is no free memory left
+            unsafe_puts("failed to allocate heap memory\r\n");
+            unsafe_puts("aborting...\r\n");
+            delay::wait_forever(); // there is no free memory left
         }
     }
 
@@ -306,6 +354,8 @@ impl BackUpAllocator {
 
 unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
     let heap_mem = core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size);
-    let Some(heap_mem) = NonNull::new(heap_mem) else { return; };
+    let Some(heap_mem) = NonNull::new(heap_mem) else {
+        return;
+    };
     allocator.insert_free_block_ptr(heap_mem);
 }

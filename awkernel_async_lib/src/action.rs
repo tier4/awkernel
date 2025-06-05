@@ -21,7 +21,7 @@
 //!
 //!     // Accept a connection.
 //!     while let Ok(server_recv_goal) = server.accept().await {
-//!         spawn(server_main(server_recv_goal), SchedulerType::RoundRobin).await;
+//!         spawn("server".into(), server_main(server_recv_goal), SchedulerType::FIFO).await;
 //!     }
 //! }
 //!
@@ -466,10 +466,13 @@ pub fn create_server<G, F: Send, R>(
 /// - `R`: type of result.
 pub async fn create_client<G: 'static, F: 'static + Send, R: 'static>(
     name: Cow<'static, str>,
-) -> Result<ClientSendGoal<G, F, R>, &'static str> {
+) -> Result<ClientSendGoal<'static, G, F, R>, &'static str> {
     let mut node = MCSNode::new();
-    let mut services = SERVICES.lock(&mut node);
-    let tx = services.create_client::<ProtoClient<G, F, R>>(name, drop_accepter)?;
+
+    let tx = {
+        let mut services = SERVICES.lock(&mut node);
+        services.create_client::<ProtoClient<G, F, R>>(name, drop_accepter)?
+    };
 
     let (tx1, rx1) = unbounded::new();
     let (tx2, rx2) = unbounded::new();

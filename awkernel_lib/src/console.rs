@@ -1,7 +1,13 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
-use alloc::boxed::Box;
-use core::{fmt::Write, ptr::write_volatile};
+use core::{
+    fmt::Write,
+    ptr::{addr_of_mut, write_volatile},
+    str::from_utf8_unchecked,
+};
 use log::Log;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 pub trait Console: Write + Send {
     /// Enable the serial port.
@@ -20,7 +26,7 @@ pub trait Console: Write + Send {
     fn acknowledge_recv_interrupt(&mut self);
 
     /// Get IRQ#.
-    fn irq_id(&self) -> usize;
+    fn irq_id(&self) -> u16;
 
     /// Read a byte.
     fn get(&mut self) -> Option<u8>;
@@ -32,7 +38,7 @@ pub trait Console: Write + Send {
 static mut UNSAFE_PUTS: Option<unsafe fn(&str)> = None;
 
 pub fn register_unsafe_puts(console: unsafe fn(&str)) {
-    unsafe { write_volatile(&mut UNSAFE_PUTS, Some(console)) }
+    unsafe { write_volatile(addr_of_mut!(UNSAFE_PUTS), Some(console)) }
 }
 
 /// # Safety
@@ -43,6 +49,71 @@ pub unsafe fn unsafe_puts(data: &str) {
     if let Some(console) = UNSAFE_PUTS {
         console(data);
     }
+}
+
+macro_rules! unsafe_print_hex {
+    ($n:expr, $result:expr) => {{
+        let mut num = $n;
+
+        let mut i = 0;
+        while num > 0 {
+            let n = num & 0xf;
+
+            $result[i] = if n < 10 {
+                b'0' + n as u8
+            } else {
+                b'a' + (n as u8 - 10)
+            };
+
+            num /= 16;
+            i += 1;
+        }
+
+        let mut msg = [b'0'];
+
+        for n in $result.iter().rev() {
+            msg[0] = *n;
+
+            let msg = from_utf8_unchecked(&msg);
+            unsafe_puts(msg);
+        }
+    }};
+}
+
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
+pub unsafe fn unsafe_print_hex_u32(num: u32) {
+    let mut result = [b'0'; 8];
+    unsafe_print_hex!(num, result);
+}
+
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
+pub unsafe fn unsafe_print_hex_u64(num: u64) {
+    let mut result = [b'0'; 16];
+    unsafe_print_hex!(num, result);
+}
+
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
+pub unsafe fn unsafe_print_hex_u96(num: u128) {
+    let mut result = [b'0'; 24];
+    unsafe_print_hex!(num, result);
+}
+
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
+pub unsafe fn unsafe_print_hex_u128(num: u128) {
+    let mut result = [b'0'; 32];
+    unsafe_print_hex!(num, result);
 }
 
 static CONSOLE: ConsoleContainer = ConsoleContainer {
@@ -80,9 +151,16 @@ pub fn register_console(console: Box<dyn Console>) {
     let mut node = MCSNode::new();
     let mut c = CONSOLE.console.lock(&mut node);
 
+    if c.is_some() {
+        return;
+    }
+
     *c = Some(console);
 
-    let _ = log::set_logger(&CONSOLE);
+    // Initialize the logger.
+    unsafe { crate::logger::init() };
+
+    crate::logger::set_raw_console(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
 }
 
@@ -137,11 +215,10 @@ pub fn acknowledge_recv_interrupt() {
 }
 
 /// Get IRQ#.
-pub fn irq_id() -> Option<usize> {
+pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let c = CONSOLE.console.lock(&mut node);
-
-    c.as_ref().map(|console| console.irq_id())
+    c.as_ref().as_ref().map(|console| console.irq_id())
 }
 
 /// Read a byte.

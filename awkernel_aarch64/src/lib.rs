@@ -328,12 +328,14 @@ pub enum EL {
 }
 
 /// enable FP/SIMD on EL3
+#[inline(always)]
 pub fn init_cptr_el3() {
     let val: u64 = 1 << 8; // enable FP/SIMD
     unsafe { asm!("msr CPTR_EL3, {}", in(reg) val) }
 }
 
 /// enable FP/SIMD on EL1
+#[inline(always)]
 pub fn init_cpacr_el1() {
     let val: u64 = 0b110011 << 16;
     unsafe { asm!("msr CPACR_EL1, {}", in(reg) val) }
@@ -352,6 +354,7 @@ macro_rules! sysreg {
             /// # Safety
             ///
             /// See "Arm Architecture Reference Manual".
+            #[inline(always)]
             pub unsafe fn set(v: u64) {
                 asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }
@@ -363,10 +366,27 @@ macro_rules! sysreg_read {
     ($x:ident) => {
         pub mod $x {
             use core::arch::asm;
+            #[inline(always)]
             pub fn get() -> u64 {
                 let v: u64;
                 unsafe { asm!(concat!("mrs {}, ", stringify!($x)), lateout(reg) v) };
                 v
+            }
+        }
+    }
+}
+
+macro_rules! sysreg_write {
+    ($x:ident) => {
+        pub mod $x {
+            use core::arch::asm;
+
+            /// # Safety
+            ///
+            /// See "Arm Architecture Reference Manual".
+            #[inline(always)]
+            pub unsafe fn set(v: u64) {
+                asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }
         }
     }
@@ -379,8 +399,10 @@ sysreg!(cntp_cval_el0);
 sysreg!(cntp_tval_el0);
 sysreg!(cntv_ctl_el0);
 sysreg!(cntv_cval_el0);
+sysreg!(cntv_tval_el0);
 sysreg!(cntfrq_el0);
 sysreg_read!(cntpct_el0);
+sysreg_read!(cntvct_el0);
 sysreg!(tpidr_el0);
 sysreg!(tpidrro_el0);
 sysreg!(pmcr_el0);
@@ -414,6 +436,18 @@ sysreg!(afsr0_el1);
 sysreg!(afsr1_el1);
 sysreg!(contextidr_el1);
 sysreg!(vbar_el1);
+sysreg!(icc_sre_el1);
+sysreg!(icc_ctlr_el1);
+sysreg!(icc_igrpen0_el1);
+sysreg!(icc_igrpen1_el1);
+sysreg!(icc_pmr_el1);
+sysreg_read!(icc_iar0_el1);
+sysreg_read!(icc_iar1_el1);
+sysreg_write!(icc_eoir0_el1);
+sysreg_write!(icc_eoir1_el1);
+sysreg_write!(icc_sgi0r_el1);
+sysreg_write!(icc_sgi1r_el1);
+sysreg_write!(icc_asgi1r_el1);
 sysreg_read!(mpidr_el1);
 sysreg_read!(midr_el1);
 sysreg_read!(id_aa64pfr1_el1);
@@ -447,30 +481,35 @@ sysreg!(cptr_el3);
 sysreg!(ttbr0_el3);
 sysreg!(tcr_el3);
 
+#[inline(always)]
 pub fn get_affinity_lv0() -> u64 {
     let mpidr: u64;
     unsafe { asm!("mrs {}, mpidr_el1", lateout(reg) mpidr) };
     mpidr & 0xFF
 }
 
+#[inline(always)]
 pub fn get_affinity_lv1() -> u64 {
     let mpidr: u64;
     unsafe { asm!("mrs {}, mpidr_el1", lateout(reg) mpidr) };
     (mpidr >> 8) & 0xFF
 }
 
+#[inline(always)]
 pub fn get_current_el() -> u32 {
     let el: u64;
     unsafe { asm!("mrs {}, CurrentEL", lateout(reg) el) };
     ((el >> 2) & 0x3) as u32
 }
 
+#[inline(always)]
 pub fn get_sp() -> u64 {
     let sp: u64;
     unsafe { asm!("mov {}, sp", lateout(reg) sp) };
     sp
 }
 
+#[inline(always)]
 pub fn set_sp(sp: u64) {
     unsafe { asm!("mov sp, {}", in(reg) sp) };
 }
@@ -494,84 +533,97 @@ pub fn get_armv8_6_ecv_support() -> u64 {
 }
 
 /// sev
+#[inline(always)]
 pub fn send_event() {
     unsafe { asm!("sev") };
 }
 
 /// sevl
+#[inline(always)]
 pub fn send_event_local() {
     unsafe { asm!("sevl") };
 }
 
 /// wfe
+#[inline(always)]
 pub fn wait_event() {
     unsafe { asm!("wfe") };
 }
 
 /// wfi
+#[inline(always)]
 pub fn wait_interrupt() {
     unsafe { asm!("wfi") };
 }
 
 /// dmb st
+#[inline(always)]
 pub fn dmb_st() {
     unsafe { asm!("dmb st") };
 }
 
 /// dmb ld
+#[inline(always)]
 pub fn dmb_ld() {
     unsafe { asm!("dmb ld") };
 }
 
 /// dmb sy
+#[inline(always)]
 pub fn dmb_sy() {
     unsafe { asm!("dmb sy") };
 }
 
 /// dsb st
+#[inline(always)]
 pub fn dsb_st() {
     unsafe { asm!("dsb st") };
 }
 
 /// dsb ld
+#[inline(always)]
 pub fn dsb_ld() {
     unsafe { asm!("dsb ld") };
 }
 
 /// dsb sy
+#[inline(always)]
 pub fn dsb_sy() {
     unsafe { asm!("dsb sy") };
 }
 
+/// dsb ishst
+#[inline(always)]
+pub fn dsb_ishst() {
+    unsafe { asm!("dsb ishst") };
+}
+
 /// dsb ish
+#[inline(always)]
 pub fn dsb_ish() {
     unsafe { asm!("dsb ish") };
 }
 
+/// tlbi vmalle1is
+///
+/// Invalidate all entries from the last level of stage 1 translation table walk used at EL1
+/// for the specified address and current VMID and for all ASID values, Inner Shareable
+#[inline(always)]
+pub fn tlbi_vmalle1is() {
+    unsafe { asm!("tlbi vmalle1is") };
+}
+
+#[inline(always)]
 pub fn eret() {
     unsafe { asm!("eret") };
 }
 
+#[inline(always)]
 pub fn isb() {
     unsafe { asm!("isb") };
 }
 
-pub fn start_non_primary() {
-    if cfg!(feature = "raspi3") {
-        unsafe {
-            asm!(
-                "mov {0}, #0xe0
-                 ldr {1}, =_start
-                 str {1}, [{0}]     // core #1
-                 str {1}, [{0},  8] // core #2
-                 str {1}, [{0}, 16] // core #3",
-            lateout(reg) _,
-            lateout(reg) _
-            );
-        }
-    }
-}
-
+#[inline(always)]
 pub fn is_secure() -> bool {
     let scr = scr_el3::get();
     scr & SCR_NS_BIT == 0

@@ -95,7 +95,7 @@ mod verification {
             dlist.insert(val, 0);
             vec.push(val);
         }
-    
+
         vec.sort();
         let mut tmp = vec[0];
         for i in 1..size {
@@ -103,7 +103,7 @@ mod verification {
             vec[i] = vec[i] - tmp;
             tmp = tmp2;
         }
-    
+
         let mut idx = 0;
         while let Some((t, _)) = dlist.front() {
             assert!(vec[idx] == t);

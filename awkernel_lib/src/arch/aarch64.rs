@@ -1,12 +1,14 @@
-pub mod arm_timer;
-pub mod context;
+pub mod armv8_timer;
 pub(super) mod cpu;
 pub(super) mod delay;
+pub(super) mod dvfs;
+pub mod exception_saved_regs;
 pub(super) mod interrupt;
-pub(super) mod memory;
 pub mod page_allocator;
 pub mod page_table;
-pub mod rpi_system_timer;
+pub(super) mod paging;
+
+pub use cpu::*;
 
 /// # Safety
 ///
@@ -24,4 +26,6 @@ pub unsafe fn init_non_primary() {
     delay::init_non_primary();
 }
 
-pub use cpu::set_cluster_info;
+pub struct AArch64;
+
+impl super::Arch for AArch64 {}
