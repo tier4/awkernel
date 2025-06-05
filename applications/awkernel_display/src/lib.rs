@@ -7,8 +7,8 @@ use awkernel_lib::graphics::{self, FrameBufferError};
 use core::time::Duration;
 use embedded_graphics::{
     mono_font::{
-        ascii::{FONT_10X20, FONT_8X13},
         MonoTextStyle,
+        ascii::{FONT_8X13, FONT_10X20},
     },
     pixelcolor::Rgb888,
 };
