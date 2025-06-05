@@ -3,9 +3,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-    PROVIDE (__executable_start = .);
-
     . = 0x80200000;
+    PROVIDE (__executable_start = .);
     __ram_start = .;
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }
@@ -16,6 +15,20 @@ SECTIONS
     PROVIDE (__etext = .);
     PROVIDE (_etext = .);
     PROVIDE (etext = .);
+
+    /* Debug symbols need to be close to text for RISC-V PC-relative addressing */
+    __debug_abbrev_start = .;
+    __debug_abbrev_size = 0;
+    __debug_info_start = .;
+    __debug_info_size = 0;
+    __debug_aranges_start = .;
+    __debug_aranges_size = 0;
+    __debug_ranges_start = .;
+    __debug_ranges_size = 0;
+    __debug_str_start = .;
+    __debug_str_size = 0;
+    __debug_line_start = .;
+    __debug_line_size = 0;
 
     .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
 
@@ -39,6 +52,6 @@ SECTIONS
     }
     . = ALIGN(1024 * 4);
 
-   /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) }
+   /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) *(.debug*) }
 }
 __bss_size = (__bss_end - __bss_start) >> 3;

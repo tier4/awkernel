@@ -2,27 +2,26 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   schedule:
-    - cron: '0 13 * * 1'
+    - cron: "0 13 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly-2025-04-29
+        run: rustup toolchain install nightly-2025-05-22
       - name: Use Rust nightly
-        run: rustup default nightly-2025-04-29
+        run: rustup default nightly-2025-05-22
       - name: Add Rust components
         run: rustup component add rust-src llvm-tools-preview clippy rustfmt
       - name: Add Rust targets

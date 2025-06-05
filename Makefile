@@ -55,7 +55,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2025-04-29
+RUSTV=nightly-2025-05-22
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
@@ -203,12 +203,24 @@ gdb-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	gdb-multiarch -x scripts/x86-debug.gdb
 
+# riscv32
+
+riscv32:
+	cargo +$(RUSTV) rv32 $(OPT)
+
+check_riscv32: FORCE
+	cargo +$(RUSTV) check_rv32
+
 # riscv64
 
 riscv64:
-	cargo +$(RUSTV) rv64 $(OPT)
+ifeq ($(RELEASE), 1)
+	cargo +$(RUSTV) rv64 --release
+else
+	cargo +$(RUSTV) rv64 --release
+endif
 
-check_riscv64: $(X86ASM)
+check_riscv64: FORCE
 	cargo +$(RUSTV) check_rv64
 
 qemu-riscv64: target/riscv64gc-unknown-none-elf/$(BUILD)/awkernel
