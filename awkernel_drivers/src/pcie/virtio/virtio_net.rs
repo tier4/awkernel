@@ -9,9 +9,11 @@ use crate::pcie::{
 };
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    dma_pool::DMAPool,
     net::net_device::{
         EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
+    paging::PAGESIZE,
     sync::rwlock::RwLock,
 };
 
@@ -45,6 +47,56 @@ const _VIRTIO_PCI_CAP_SHARED_MEMORY_CFG: u8 = 8; // Shared memory region
 const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 
 const VIRTIO_NET_S_LINK_UP: u16 = 1;
+
+const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
+
+// Virtio ring descriptors: 16 bytes.
+// These can chain together via "next".
+struct VirtqDesc {
+    _addr: u64,  // Address (guest-physical).
+    _len: u32,   // Length.
+    _flags: u16, // The flags as indicated above.
+    _next: u16,  // Next field if flags & NEXT.
+}
+
+struct VirtqAvail {
+    _flags: u16,
+    _idx: u16,
+    _ring: [VirtqDesc; MAX_VQ_SIZE],
+    _used_event: u16, // Only if VIRTIO_F_EVENT_IDX
+}
+
+// u32 is used here for ids for padding reasons.
+struct VirtqUsedElem {
+    _id: u32, // Index of start of used descriptor chain.
+    _len: u32, // The number of bytes written into the device writable portion of
+              // the buffer described by the descriptor chain.
+}
+
+struct VirtqUsed {
+    _flags: u16,
+    _idx: u16,
+    _ring: [VirtqUsedElem; MAX_VQ_SIZE],
+    _avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
+}
+
+// This is the memory layout on DMA
+struct VirtqDMA {
+    _desc: VirtqDesc,
+    _avail: VirtqAvail,
+    _used: VirtqUsed,
+}
+
+struct Virtq {
+    _dma: DMAPool<VirtqDMA>,
+    // TODO: add more fields
+}
+
+impl Virtq {
+    pub fn new(dma: DMAPool<VirtqDMA>) -> Self {
+        Self { _dma: dma }
+    }
+}
 
 /// Packet header structure
 #[repr(C, packed)]
@@ -244,7 +296,7 @@ impl VirtioNetInner {
         Ok(())
     }
 
-    fn _virtio_pci_read_queue_size(&mut self, idx: u16) -> Result<u16, VirtioDriverErr> {
+    fn virtio_pci_read_queue_size(&mut self, idx: u16) -> Result<u16, VirtioDriverErr> {
         self.common_cfg.virtio_set_queue_select(idx)?;
         self.common_cfg.virtio_get_queue_size()
     }
@@ -298,6 +350,34 @@ impl VirtioNetInner {
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
 
         Ok(())
+    }
+
+    /// Allocate a vq.
+    /// maxnsegs denotes how much space should be allocated for indirect descriptors.
+    /// maxnsegs == 1 can be used to disable use indirect descriptors for this queue.
+    #[allow(dead_code)]
+    fn virtio_alloc_vq(&mut self, index: u16, _maxnsegs: u16) -> Result<Virtq, VirtioDriverErr> {
+        let vq_size = self.virtio_pci_read_queue_size(index)? as usize;
+        if vq_size == 0 {
+            return Err(VirtioDriverErr::NoVirtqueue);
+        }
+        if (vq_size - 1) & vq_size != 0 {
+            return Err(VirtioDriverErr::InvalidQueueSize);
+        }
+        if vq_size > MAX_VQ_SIZE {
+            return Err(VirtioDriverErr::InvalidQueueSize);
+        }
+
+        // alloc and map the memory
+        let allocsize = core::mem::size_of::<Virtq>();
+        let dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+
+        // remember addresses and offsets for later use
+        let vq = Virtq::new(dma);
+
+        // TODO: continue Virtq initialization
+
+        Ok(vq)
     }
 
     fn vio_stop(&mut self) -> Result<(), VirtioDriverErr> {
