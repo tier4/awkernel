@@ -52,6 +52,7 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
 // Virtio ring descriptors: 16 bytes.
 // These can chain together via "next".
+#[repr(C, packed)]
 struct VirtqDesc {
     _addr: u64,  // Address (guest-physical).
     _len: u32,   // Length.
@@ -59,20 +60,23 @@ struct VirtqDesc {
     _next: u16,  // Next field if flags & NEXT.
 }
 
+#[repr(C, packed)]
 struct VirtqAvail {
     _flags: u16,
     _idx: u16,
-    _ring: [VirtqDesc; MAX_VQ_SIZE],
+    _ring: [u16; MAX_VQ_SIZE],
     _used_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
 // u32 is used here for ids for padding reasons.
+#[repr(C, packed)]
 struct VirtqUsedElem {
     _id: u32, // Index of start of used descriptor chain.
     _len: u32, // The number of bytes written into the device writable portion of
               // the buffer described by the descriptor chain.
 }
 
+#[repr(C, packed)]
 struct VirtqUsed {
     _flags: u16,
     _idx: u16,
@@ -81,11 +85,14 @@ struct VirtqUsed {
 }
 
 // This is the memory layout on DMA
+#[repr(C, packed)]
 struct VirtqDMA {
-    _desc: VirtqDesc,
-    _avail: VirtqAvail,
-    _used: VirtqUsed,
-}
+    _desc: [VirtqDesc; MAX_VQ_SIZE], // 4096 bytes
+    _avail: VirtqAvail,              // 518 bytes
+    _pad: [u8; 3578],                // 4096 - 518 = 3578 bytes
+    _used: VirtqUsed,                // 2054 bytes
+    _pad2: [u8; 2042],               // 4096 - 2054 = 2042 bytes
+} // 4096 * 3 = 12288 bytes in total
 
 struct Virtq {
     _dma: DMAPool<VirtqDMA>,
