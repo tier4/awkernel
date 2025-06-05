@@ -7,7 +7,7 @@ use crate::pcie::{
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, collections::LinkedList, sync::Arc, vec::Vec};
 use awkernel_lib::{
     dma_pool::DMAPool,
     net::net_device::{
@@ -96,12 +96,46 @@ struct VirtqDMA {
 
 struct Virtq {
     _dma: DMAPool<VirtqDMA>,
+    vq_freelist: LinkedList<VirtqEntry>,
     // TODO: add more fields
+}
+
+#[allow(dead_code)]
+struct VirtqEntry {
+    qe_index: u16, // index in vq_desc array
+    // The following are used only in the `head' entry
+    qe_next: i16,            // next enq slot
+    qe_indirect: i16,        // 1 if using indirect
+    qe_vr_index: i16,        // index in sc_reqs array
+    qe_desc_base: VirtqDesc, // pointer to vd array
 }
 
 impl Virtq {
     pub fn new(dma: DMAPool<VirtqDMA>) -> Self {
-        Self { _dma: dma }
+        Self {
+            _dma: dma,
+            vq_freelist: LinkedList::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn vq_alloc_entry(&mut self) -> Option<VirtqEntry> {
+        self.vq_freelist.pop_front()
+    }
+
+    #[allow(dead_code)]
+    fn vq_free_entry(&mut self, entry: VirtqEntry) {
+        self.vq_freelist.push_front(entry);
+    }
+
+    /// enqueue_prep: allocate a slot number
+    #[allow(dead_code)]
+    fn virtio_enqueue_prep(&mut self) -> Option<u16> {
+        let mut qe = self.vq_alloc_entry()?;
+
+        // next slot is not allocated yet
+        qe.qe_next = -1;
+        Some(qe.qe_index)
     }
 }
 
