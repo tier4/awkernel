@@ -3,7 +3,7 @@ use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAd
 // Notification structure layout
 // struct virtio_pci_notify_cfg {
 //     cap: struct virtio_pci_cap, (16 bytes)
-//     notify_off_multiplier: u8,
+//     notify_off_multiplier: u32,
 // }
 
 const VIRTIO_PCI_NOTIFY_CFG_NOTIFY_OFF_MULTIPLIER: usize = 0x10;
