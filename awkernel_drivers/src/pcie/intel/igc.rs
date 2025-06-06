@@ -588,8 +588,6 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
 
     let nmsix = msix.get_table_size();
 
-    log::debug!("nmsix = {nmsix}");
-
     if nmsix <= 1 {
         log::error!("igc: not enough msi-x vectors");
         return Err(PCIeDeviceErr::InitFailure);
