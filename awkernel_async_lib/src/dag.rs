@@ -33,6 +33,7 @@ mod performance;
 use crate::{
     dag::graph::{
         algo::{connected_components, is_cyclic_directed},
+        direction::Direction,
         NodeIndex,
     },
     scheduler::SchedulerType,
@@ -61,6 +62,8 @@ pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
+    MultipleSourceNodes(u32),
+    MultipleSinkNodes(u32),
 }
 
 impl core::fmt::Display for DagError {
@@ -69,6 +72,8 @@ impl core::fmt::Display for DagError {
             DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
             DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
+            DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
+            DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
         }
     }
 }
@@ -120,6 +125,18 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.edge_count()
+    }
+
+    fn get_source_nodes(&self) -> Vec<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.externals(Direction::Incoming).collect()
+    }
+
+    fn get_sink_nodes(&self) -> Vec<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.externals(Direction::Outgoing).collect()
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -361,25 +378,40 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
         return Err(DagError::MissingPendingTasks(dag.id));
     }
 
-    let mut graph_node = MCSNode::new();
-    let graph = dag.graph.lock(&mut graph_node);
-    if connected_components(&*graph) != 1 {
-        return Err(DagError::NotWeaklyConnected(dag.id));
+    {
+        let mut graph_node = MCSNode::new();
+        let graph = dag.graph.lock(&mut graph_node);
+        if connected_components(&*graph) != 1 {
+            return Err(DagError::NotWeaklyConnected(dag.id));
+        }
+        if is_cyclic_directed(&*graph) {
+            return Err(DagError::ContainsCycle(dag.id));
+        }
     }
-    if is_cyclic_directed(&*graph) {
-        return Err(DagError::ContainsCycle(dag.id));
+
+    if dag.get_source_nodes().len() > 1 {
+        return Err(DagError::MultipleSourceNodes(dag.id));
+    }
+    if dag.get_sink_nodes().len() > 1 {
+        return Err(DagError::MultipleSinkNodes(dag.id));
     }
     Ok(())
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
+        let dag_id = dag.id;
+        assert!(
+            get_dag(dag_id).is_some(),
+            "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
+        );
+
         validate_dag(dag)?;
 
         let pending_tasks = {
             let mut node = MCSNode::new();
             let mut lock = PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap()
+            lock.remove(&dag_id).unwrap()
         };
 
         for task in pending_tasks {
@@ -396,7 +428,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         let source_pending_task = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap()
+            lock.remove(&dag_id).unwrap()
         };
 
         let task_id = (source_pending_task.spawn)().await;

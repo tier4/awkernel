@@ -578,6 +578,24 @@ where
         }
     }
 
+    /// Return an iterator over either the nodes without edges to them
+    /// (`Incoming`) or from them (`Outgoing`).
+    ///
+    /// An *internal* node has both incoming and outgoing edges.
+    /// The nodes in `.externals(Incoming)` are the source nodes and
+    /// `.externals(Outgoing)` are the sinks of the graph.
+    ///
+    /// For a graph with undirected edges, both the sinks and the sources are
+    /// just the nodes without edges.
+    ///
+    /// The whole iteration computes in **O(|V|)** time where V is the set of nodes.
+    pub fn externals(&self, dir: Direction) -> Externals<N, Ix> {
+        Externals {
+            iter: self.nodes.iter().enumerate(),
+            dir,
+        }
+    }
+
     /// Return an iterator over the node indices of the graph.
     pub fn node_indices(&self) -> NodeIndices<Ix> {
         NodeIndices {
@@ -593,6 +611,39 @@ where
         EdgeReferences {
             iter: self.edges.iter().enumerate(),
         }
+    }
+}
+
+/// An iterator over either the nodes without edges to them or from them.
+#[derive(Debug, Clone)]
+pub struct Externals<'a, N: 'a, Ix: IndexType = DefaultIx> {
+    iter: iter::Enumerate<slice::Iter<'a, Node<N, Ix>>>,
+    dir: Direction,
+}
+
+impl<'a, N: 'a, Ix> Iterator for Externals<'a, N, Ix>
+where
+    Ix: IndexType,
+{
+    type Item = NodeIndex<Ix>;
+    fn next(&mut self) -> Option<NodeIndex<Ix>> {
+        let k = self.dir.index();
+        loop {
+            match self.iter.next() {
+                None => return None,
+                Some((index, node)) => {
+                    if node.next[k] == EdgeIndex::end() {
+                        return Some(NodeIndex::new(index));
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, upper) = self.iter.size_hint();
+        (0, upper)
     }
 }
 
