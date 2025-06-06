@@ -112,7 +112,7 @@ impl Igc {
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
 
-        igc_allocate_pci_resources(&mut info)?;
+        let (_irqs_queues, _irq_events) = igc_allocate_pci_resources(&mut info)?;
 
         // TODO:
         // - allocate tx/rx queues.
