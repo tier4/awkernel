@@ -342,6 +342,27 @@ impl VirtioNetInner {
         Ok(())
     }
 
+    fn _virtio_pci_setup_queue(&mut self, vq_idx: u16, addr: u64) -> Result<(), VirtioDriverErr> {
+        self.common_cfg.virtio_set_queue_select(vq_idx)?;
+
+        if addr == 0 {
+            self.common_cfg.virtio_set_queue_enable(0)?;
+            self.common_cfg.virtio_set_queue_desc(0)?;
+            self.common_cfg.virtio_set_queue_avail(0)?;
+            self.common_cfg.virtio_set_queue_used(0)?;
+        } else {
+            let avail_offset = 4096; // TODO: offset of _avail in VirtqDMA
+            let used_offset = 8192; // TODO: offset of _used in VirtqDMA
+            self.common_cfg.virtio_set_queue_desc(addr)?;
+            self.common_cfg
+                .virtio_set_queue_avail(addr + avail_offset)?;
+            self.common_cfg.virtio_set_queue_used(addr + used_offset)?;
+            self.common_cfg.virtio_set_queue_enable(1)?;
+        }
+
+        Ok(())
+    }
+
     fn virtio_pci_read_queue_size(&mut self, idx: u16) -> Result<u16, VirtioDriverErr> {
         self.common_cfg.virtio_set_queue_select(idx)?;
         self.common_cfg.virtio_get_queue_size()
