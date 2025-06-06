@@ -14,7 +14,8 @@ use crate::dir_entry::{SFN_PADDING, SFN_SIZE};
 use crate::error::{Error, IoError};
 use crate::file::File;
 use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
-use crate::io::{self, IoBase, Read, Seek, SeekFrom, Write};
+//use crate::io::{self, IoBase, Read, Seek, SeekFrom, Write};
+use super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::TimeProvider;
 
 const LFN_PADDING: u16 = 0xFFFF;

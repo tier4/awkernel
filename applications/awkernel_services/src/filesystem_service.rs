@@ -5,14 +5,18 @@ use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
-use awkernel_lib::{file::memfs::InMemoryDisk, heap::TALLOC, paging::PAGESIZE};
+use awkernel_lib::{
+    file::fatfs::{
+        format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase,
+        Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
+    },
+    file::memfs::InMemoryDisk,
+    heap::TALLOC,
+    paging::PAGESIZE,
+};
 use core::{
     alloc::{GlobalAlloc, Layout},
     fmt::{self, Debug},
-};
-use fatfs::{
-    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
-    Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
 };
 
 fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {
@@ -49,7 +53,7 @@ pub async fn run() {
 
     let data =
         unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
-    let mut disk = InMemoryDisk { data, position: 0 };
+    let mut disk = InMemoryDisk::new(data, 0);
 
     if format_volume(&mut disk, FormatVolumeOptions::new()).is_err() {
         log::info!("Error formatting the disk");

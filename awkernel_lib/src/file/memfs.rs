@@ -1,12 +1,19 @@
 extern crate alloc;
 
+use super::error::IoError;
+use super::io::{IoBase, Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write};
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Debug};
-use fatfs::{IoBase, Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write};
 
 pub struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
+}
+
+impl InMemoryDisk {
+    pub fn new(data: Vec<u8>, position: u64) -> Self {
+        InMemoryDisk { data, position }
+    }
 }
 
 impl IoBase for InMemoryDisk {
@@ -84,7 +91,7 @@ impl fmt::Display for InMemoryDiskError {
     }
 }
 
-impl fatfs::IoError for InMemoryDiskError {
+impl IoError for InMemoryDiskError {
     fn is_interrupted(&self) -> bool {
         matches!(self, InMemoryDiskError::_Interrupted)
     }

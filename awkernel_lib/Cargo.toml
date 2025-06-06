@@ -70,11 +70,6 @@ features = [
     "proto-igmp",
 ]
 
-[dependencies.fatfs]
-path = "../fatfs"
-default-features = false
-
-
 [features]
 default = ["x86"]
 x86 = [

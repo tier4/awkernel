@@ -16,7 +16,3 @@ default-features = false
 [dependencies.awkernel_lib]
 path = "../../../awkernel_lib"
 default-features = false
-
-[dependencies.fatfs]
-path = "../../../fatfs"
-default-features = false
