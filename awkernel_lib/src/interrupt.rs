@@ -561,3 +561,13 @@ pub fn eoi() {
 pub fn are_enabled() -> bool {
     ArchImpl::are_enabled()
 }
+
+/// Get interrupt flag state
+pub fn get_flag() -> usize {
+    ArchImpl::get_flag()
+}
+
+/// Set interrupt flag state  
+pub fn set_flag(flag: usize) {
+    ArchImpl::set_flag(flag)
+}
