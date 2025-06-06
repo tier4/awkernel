@@ -378,13 +378,15 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
         return Err(DagError::MissingPendingTasks(dag.id));
     }
 
-    let mut graph_node = MCSNode::new();
-    let graph = dag.graph.lock(&mut graph_node);
-    if connected_components(&*graph) != 1 {
-        return Err(DagError::NotWeaklyConnected(dag.id));
-    }
-    if is_cyclic_directed(&*graph) {
-        return Err(DagError::ContainsCycle(dag.id));
+    {
+        let mut graph_node = MCSNode::new();
+        let graph = dag.graph.lock(&mut graph_node);
+        if connected_components(&*graph) != 1 {
+            return Err(DagError::NotWeaklyConnected(dag.id));
+        }
+        if is_cyclic_directed(&*graph) {
+            return Err(DagError::ContainsCycle(dag.id));
+        }
     }
 
     if dag.get_source_nodes().len() > 1 {
