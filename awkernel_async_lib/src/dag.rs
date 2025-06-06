@@ -398,15 +398,18 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
-        if get_dag(dag.id).is_none() {
-            continue;
-        }
+        let dag_id = dag.id;
+        assert!(
+            get_dag(dag_id).is_some(),
+            "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
+        );
+
         validate_dag(dag)?;
 
         let pending_tasks = {
             let mut node = MCSNode::new();
             let mut lock = PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap()
+            lock.remove(&dag_id).unwrap()
         };
 
         for task in pending_tasks {
@@ -423,7 +426,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         let source_pending_task = {
             let mut node = MCSNode::new();
             let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap()
+            lock.remove(&dag_id).unwrap()
         };
 
         let task_id = (source_pending_task.spawn)().await;
