@@ -3,6 +3,7 @@ use crate::pcie::{
     pcie_id,
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
+        virtio_notify_cap::VirtioNotifyCap,
     },
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
@@ -39,7 +40,7 @@ const VIRTIO_CONFIG_DEVICE_STATUS_FAILED: u8 = 128;
 
 // Virtio Structure PCI Capabilities cfg_type
 const VIRTIO_PCI_CAP_COMMON_CFG: u8 = 1; // Common configuration
-const _VIRTIO_PCI_CAP_NOTIFY_CFG: u8 = 2; // Notifications
+const VIRTIO_PCI_CAP_NOTIFY_CFG: u8 = 2; // Notifications
 const _VIRTIO_PCI_CAP_ISR_CFG: u8 = 3; // ISR Status
 const VIRTIO_PCI_CAP_DEVICE_CFG: u8 = 4; // Device specific configuration
 const _VIRTIO_PCI_CAP_PCI_CFG: u8 = 5; // PCI configuration access
@@ -192,6 +193,7 @@ struct VirtioNetInner {
     mac_addr: [u8; 6],
     common_cfg: VirtioCommonConfig,
     net_cfg: VirtioNetConfig,
+    notify_cap: VirtioNotifyCap,
     driver_features: u64,
     active_features: u64,
     flags: NetFlags,
@@ -205,6 +207,7 @@ impl VirtioNetInner {
             mac_addr: [0; 6],
             common_cfg: VirtioCommonConfig::default(),
             net_cfg: VirtioNetConfig::default(),
+            notify_cap: VirtioNotifyCap::default(),
             driver_features: 0,
             active_features: 0,
             flags: NetFlags::empty(),
@@ -224,9 +227,11 @@ impl VirtioNetInner {
     fn virtio_pci_attach_10(&mut self) -> Result<(), VirtioDriverErr> {
         let common_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_COMMON_CFG)?;
         let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
+        let notify_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
 
         self.common_cfg.init(&self.info, common_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
+        self.notify_cap.init(&self.info, notify_cap)?;
 
         Ok(())
     }
