@@ -64,10 +64,8 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    ManySubscribeTopics(u32, usize), //dag_id, node_id
-    ManyPublishTopics(u32, usize),   //dag_id, node_id
-    FewSubscribeTopics(u32, usize),  //dag_id, node_id
-    FewPublishTopics(u32, usize),    //dag_id, node_id,
+    NoPublisherFound(u32, usize),  //dag_id, node_id
+    NoSubscriberFound(u32, usize), //dag_id, node_id,
 }
 
 impl core::fmt::Display for DagError {
@@ -78,24 +76,12 @@ impl core::fmt::Display for DagError {
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
             DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
             DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
-            DagError::ManySubscribeTopics(dag_id, node_id) => write!(
-                f,
-                "DAG#{dag_id} Node#{node_id} has too many subscribe topics."
-            ),
-            DagError::ManyPublishTopics(dag_id, node_id) => write!(
-                f,
-                "DAG#{dag_id} Node#{node_id} has too many publish topics. "
-            ),
-
-            DagError::FewSubscribeTopics(dag_id, node_id) => write!(
-                f,
-                "DAG#{dag_id} Node#{node_id} has too few subscribe topics."
-            ),
-
-            DagError::FewPublishTopics(dag_id, node_id) => write!(
-                f,
-                "DAG#{dag_id} Node#{node_id} has too many subscribe topics."
-            ),
+            DagError::NoPublisherFound(dag_id, node_id) => {
+                write!(f, "DAG #{} Node #{}: One or more subscribed topics have no corresponding publisher", dag_id, node_id)
+            }
+            DagError::NoSubscriberFound(dag_id, node_id) => {
+                write!(f, "DAG #{} Node #{}: One or more published topics have no corresponding subscriber", dag_id, node_id)
+            }
         }
     }
 }
@@ -405,16 +391,14 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     for node_id in graph.node_indices() {
         let node_info = graph.node_weight(node_id).unwrap();
         for direction in [Direction::Incoming, Direction::Outgoing] {
-            let (expect_num, few_error, many_error) = match direction {
+            let (expect_num, few_error) = match direction {
                 Direction::Incoming => (
                     node_info.subscribe_topics.len(),
-                    DagError::FewSubscribeTopics as DagErrorFn,
-                    DagError::ManySubscribeTopics as DagErrorFn,
+                    DagError::NoPublisherFound as DagErrorFn,
                 ),
                 Direction::Outgoing => (
                     node_info.publish_topics.len(),
-                    DagError::FewPublishTopics as DagErrorFn,
-                    DagError::ManyPublishTopics as DagErrorFn,
+                    DagError::NoSubscriberFound as DagErrorFn,
                 ),
             };
 
@@ -424,7 +408,7 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
                     return Err(few_error(dag.id, node_id.index()));
                 }
                 Ordering::Greater => {
-                    return Err(many_error(dag.id, node_id.index()));
+                    unreachable!("Invariant Violation: The number of edges must be less than or equal to the number of topics")
                 }
                 Ordering::Equal => {}
             }
