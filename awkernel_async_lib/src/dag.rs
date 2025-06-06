@@ -47,7 +47,7 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::{cmp::Ordering, future::Future, pin::Pin, time::Duration};
+use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -77,10 +77,10 @@ impl core::fmt::Display for DagError {
             DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
             DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
             DagError::NoPublisherFound(dag_id, node_id) => {
-                write!(f, "DAG #{} Node #{}: One or more subscribed topics have no corresponding publisher", dag_id, node_id)
+                write!(f, "DAG#{dag_id} Node#{node_id}: One or more subscribed topics have no corresponding publisher")
             }
             DagError::NoSubscriberFound(dag_id, node_id) => {
-                write!(f, "DAG #{} Node #{}: One or more published topics have no corresponding subscriber", dag_id, node_id)
+                write!(f, "DAG#{dag_id} Node#{node_id}: One or more published topics have no corresponding subscriber")
             }
         }
     }
