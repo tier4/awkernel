@@ -64,10 +64,10 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    ManySubscribeTopics(u32, usize, usize, usize), //dag_id, node_id, expected, actual,
-    ManyPublishTopics(u32, usize, usize, usize),   //dag_id, node_id, expected, actual,
-    FewSubscribeTopics(u32, usize, usize, usize),  //dag_id, node_id, expected, actual,
-    FewPublishTopics(u32, usize, usize, usize),    //dag_id, node_id, expected, actual,
+    ManySubscribeTopics(u32, usize), //dag_id, node_id
+    ManyPublishTopics(u32, usize),   //dag_id, node_id
+    FewSubscribeTopics(u32, usize),  //dag_id, node_id
+    FewPublishTopics(u32, usize),    //dag_id, node_id,
 }
 
 impl core::fmt::Display for DagError {
@@ -76,20 +76,26 @@ impl core::fmt::Display for DagError {
             DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
             DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
-            DagError::ManySubscribeTopics(dag_id, node_id, expected, actual) => {
-                write!(f, "DAG#{dag_id} Node#{node_id} has too many subscribe topics. Expexted {expected}, but found {actual}")
-            }
-            DagError::ManyPublishTopics(dag_id, node_id, expected, actual) => {
-                write!(f, "DAG#{dag_id} Node#{node_id} has too many publish topics. Expexted {expected}, but found {actual}")
-            }
-            DagError::FewSubscribeTopics(dag_id, node_id, expected, actual) => {
-                write!(f, "DAG#{dag_id} Node#{node_id} has too few subscribe topics. Expexted {expected}, but found {actual}")
-            }
-            DagError::FewPublishTopics(dag_id, node_id, expected, actual) => {
-                write!(f, "DAG#{dag_id} Node#{node_id} has too many subscribe topics. Expexted {expected}, but found {actual}")
-            }
             DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
             DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
+            DagError::ManySubscribeTopics(dag_id, node_id) => write!(
+                f,
+                "DAG#{dag_id} Node#{node_id} has too many subscribe topics."
+            ),
+            DagError::ManyPublishTopics(dag_id, node_id) => write!(
+                f,
+                "DAG#{dag_id} Node#{node_id} has too many publish topics. "
+            ),
+
+            DagError::FewSubscribeTopics(dag_id, node_id) => write!(
+                f,
+                "DAG#{dag_id} Node#{node_id} has too few subscribe topics."
+            ),
+
+            DagError::FewPublishTopics(dag_id, node_id) => write!(
+                f,
+                "DAG#{dag_id} Node#{node_id} has too many subscribe topics."
+            ),
         }
     }
 }
@@ -388,8 +394,11 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+/// This function detects inconsistencies between the declared topic connections and the actual graph structure.
+/// It prevents mis configurations such as topics that are published but have no subscriber and topics that are subscribed to but have no publisher,
+/// which can lead to unintentional message loss or reactors waiting forever.
 fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
-    type DagErrorFn = fn(u32, usize, usize, usize) -> DagError;
+    type DagErrorFn = fn(u32, usize) -> DagError;
 
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
@@ -412,10 +421,10 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
             let actual_num = graph.neighbors_directed(node_id, direction).count();
             match actual_num.cmp(&expect_num) {
                 Ordering::Less => {
-                    return Err(few_error(dag.id, node_id.index(), expect_num, actual_num));
+                    return Err(few_error(dag.id, node_id.index()));
                 }
                 Ordering::Greater => {
-                    return Err(many_error(dag.id, node_id.index(), expect_num, actual_num));
+                    return Err(many_error(dag.id, node_id.index()));
                 }
                 Ordering::Equal => {}
             }
