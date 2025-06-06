@@ -236,6 +236,7 @@ struct VirtioNetInner {
     common_cfg: VirtioCommonConfig,
     notify_cap: VirtioNotifyCap,
     net_cfg: VirtioNetConfig,
+    notify_cap: VirtioNotifyCap,
     driver_features: u64,
     active_features: u64,
     flags: NetFlags,
@@ -252,6 +253,7 @@ impl VirtioNetInner {
             common_cfg: VirtioCommonConfig::default(),
             notify_cap: VirtioNotifyCap::default(),
             net_cfg: VirtioNetConfig::default(),
+            notify_cap: VirtioNotifyCap::default(),
             driver_features: 0,
             active_features: 0,
             flags: NetFlags::empty(),
@@ -274,10 +276,12 @@ impl VirtioNetInner {
         let common_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_COMMON_CFG)?;
         let notify_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
         let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
+        let notify_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
 
         self.common_cfg.init(&self.info, common_cfg_cap)?;
         self.notify_cfg.init(&self.info, notify_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
+        self.notify_cap.init(&self.info, notify_cap)?;
 
         Ok(())
     }

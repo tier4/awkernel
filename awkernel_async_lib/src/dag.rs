@@ -64,6 +64,8 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
+    NoPublisherFound(u32, usize),  //dag_id, node_id
+    NoSubscriberFound(u32, usize), //dag_id, node_id,
 }
 
 impl core::fmt::Display for DagError {
@@ -74,6 +76,12 @@ impl core::fmt::Display for DagError {
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
             DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
             DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
+            DagError::NoPublisherFound(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: One or more subscribed topics have no corresponding publisher")
+            }
+            DagError::NoSubscriberFound(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: One or more published topics have no corresponding subscriber")
+            }
         }
     }
 }
@@ -372,6 +380,38 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+/// This validation prevents issues caused by the following misconfigurations:
+/// - Message Loss: A published topic is not subscribed to by any reactor.
+/// - Indefinite Wait: A subscribed topic has no corresponding publisher.
+fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
+    type DagErrorFn = fn(u32, usize) -> DagError;
+
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    for node_id in graph.node_indices() {
+        let node_info = graph.node_weight(node_id).unwrap();
+        for direction in [Direction::Incoming, Direction::Outgoing] {
+            let (expect_num, few_error) = match direction {
+                Direction::Incoming => (
+                    node_info.subscribe_topics.len(),
+                    DagError::NoPublisherFound as DagErrorFn,
+                ),
+                Direction::Outgoing => (
+                    node_info.publish_topics.len(),
+                    DagError::NoSubscriberFound as DagErrorFn,
+                ),
+            };
+
+            let actual_num = graph.neighbors_directed(node_id, direction).count();
+            if actual_num < expect_num {
+                return Err(few_error(dag.id, node_id.index()));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     let mut pending_node = MCSNode::new();
     if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
@@ -395,6 +435,8 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     if dag.get_sink_nodes().len() > 1 {
         return Err(DagError::MultipleSinkNodes(dag.id));
     }
+
+    validate_edge_connect(dag)?;
     Ok(())
 }
 
