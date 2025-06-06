@@ -3,6 +3,7 @@ use crate::pcie::{
     pcie_id,
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
+        virtio_notify_cap::VirtioNotifyCap,
     },
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
@@ -39,7 +40,7 @@ const VIRTIO_CONFIG_DEVICE_STATUS_FAILED: u8 = 128;
 
 // Virtio Structure PCI Capabilities cfg_type
 const VIRTIO_PCI_CAP_COMMON_CFG: u8 = 1; // Common configuration
-const _VIRTIO_PCI_CAP_NOTIFY_CFG: u8 = 2; // Notifications
+const VIRTIO_PCI_CAP_NOTIFY_CFG: u8 = 2; // Notifications
 const _VIRTIO_PCI_CAP_ISR_CFG: u8 = 3; // ISR Status
 const VIRTIO_PCI_CAP_DEVICE_CFG: u8 = 4; // Device specific configuration
 const _VIRTIO_PCI_CAP_PCI_CFG: u8 = 5; // PCI configuration access
@@ -95,8 +96,15 @@ struct VirtqDMA {
 } // 4096 * 3 = 12288 bytes in total
 
 struct Virtq {
-    _dma: DMAPool<VirtqDMA>,
+    vq_desc: [VirtqDesc; MAX_VQ_SIZE],
+    vq_avail: VirtqAvail,
+    vq_used: VirtqUsed,
+    _virtq_dma: DMAPool<VirtqDMA>,
+    vq_entries: Vec<VirtqEntry>,
     vq_freelist: LinkedList<VirtqEntry>,
+    vq_mask: u16,
+    vq_avail_idx: u16,
+    vq_queued: u16,
     // TODO: add more fields
 }
 
@@ -112,9 +120,40 @@ struct VirtqEntry {
 
 impl Virtq {
     pub fn new(dma: DMAPool<VirtqDMA>) -> Self {
+        let vq_size = MAX_VQ_SIZE;
+        let mut freelist = LinkedList::new();
+
+        // virtio_enqueue_trim needs monotonely raising entries, therefore initialize in reverse order
+        for i in (0..vq_size).rev() {
+            freelist.push_front(VirtqEntry {
+                qe_index: i as u16,
+                qe_next: 0,
+                qe_indirect: 0,
+                qe_vr_index: 0,
+                qe_desc_base: VirtqDesc::default(),
+            });
+        }
+
         Self {
-            _dma: dma,
-            vq_freelist: LinkedList::new(),
+            vq_desc: [VirtqDesc::default(); vq_size],
+            vq_avail: VirtqAvail {
+                _flags: 0,
+                _idx: 0,
+                _ring: [0; MAX_VQ_SIZE],
+                _used_event: 0,
+            },
+            vq_used: VirtqUsed {
+                _flags: 0,
+                _idx: 0,
+                _ring: [VirtqUsedElem::default(); MAX_VQ_SIZE],
+                _avail_event: 0,
+            },
+            _virtq_dma: dma,
+            vq_entries: vec![VirtqEntry::default(); vq_size],
+            vq_freelist: freelist,
+            vq_mask: vq_size - 1,
+            vq_avail_idx: 0,
+            vq_queued: 0,
         }
     }
 
@@ -150,6 +189,10 @@ struct _VirtioNetHdr {
     csum_offset: u16,
     num_buffers: u16, // only present if VIRTIO_NET_F_MRG_RXBUF is negotiated
 }
+
+const MCLSHIFT: u32 = 11;
+const MCLBYTES: u32 = 1 << MCLSHIFT;
+type TxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
 
 const _VIRTIO_NET_HDR_F_NEEDS_CSUM: u8 = 1;
 const _VIRTIO_NET_HDR_F_DATA_VALID: u8 = 2;
@@ -191,11 +234,14 @@ struct VirtioNetInner {
     info: PCIeInfo,
     mac_addr: [u8; 6],
     common_cfg: VirtioCommonConfig,
+    notify_cap: VirtioNotifyCap,
     net_cfg: VirtioNetConfig,
     driver_features: u64,
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    tx_vq: Option<Virtq>,
+    tx_dma: Option<DMAPool<TxBuffer>>,
 }
 
 impl VirtioNetInner {
@@ -204,11 +250,14 @@ impl VirtioNetInner {
             info,
             mac_addr: [0; 6],
             common_cfg: VirtioCommonConfig::default(),
+            notify_cap: VirtioNotifyCap::default(),
             net_cfg: VirtioNetConfig::default(),
             driver_features: 0,
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            tx_vq: None,
+            tx_dma: None,
         }
     }
 
@@ -223,9 +272,11 @@ impl VirtioNetInner {
 
     fn virtio_pci_attach_10(&mut self) -> Result<(), VirtioDriverErr> {
         let common_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_COMMON_CFG)?;
+        let notify_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
         let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
 
         self.common_cfg.init(&self.info, common_cfg_cap)?;
+        self.notify_cfg.init(&self.info, notify_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
 
         Ok(())
@@ -275,9 +326,17 @@ impl VirtioNetInner {
         // TODO: VIRTIO_NET_F_MRG_RXBUF related setup
         // TODO: VIRTIO_NET_F_GUEST_TSO related setup
         // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
+
+
         // TODO: setup virtio queues
+        // defrag for longer mbuf chains
+        let tx_max_segments = 16;
+        self.virtio_alloc_vq(0, tx_max_segments + 1)?;
+
         // TODO: setup control queue
         // TODO: setup interrupt
+
+        self.vio_alloc_mem()?;
 
         self.virtio_attach_finish()?;
 
@@ -342,6 +401,16 @@ impl VirtioNetInner {
         self.common_cfg.virtio_get_queue_size()
     }
 
+    fn virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
+        let offset =
+            self.common_cfg.virtio_get_queue_notify_off()? *
+            self.notify_cap.virtio_get_notify_off_multiplier()?;
+
+        self.notify_cfg.virtio_set_notify_off(offset, idx)?;
+
+        Ok(())
+    }
+
     fn virtio_has_feature(&self, feature: u64) -> bool {
         self.active_features & feature != 0
     }
@@ -396,7 +465,6 @@ impl VirtioNetInner {
     /// Allocate a vq.
     /// maxnsegs denotes how much space should be allocated for indirect descriptors.
     /// maxnsegs == 1 can be used to disable use indirect descriptors for this queue.
-    #[allow(dead_code)]
     fn virtio_alloc_vq(&mut self, index: u16, _maxnsegs: u16) -> Result<Virtq, VirtioDriverErr> {
         let vq_size = self.virtio_pci_read_queue_size(index)? as usize;
         if vq_size == 0 {
@@ -419,6 +487,64 @@ impl VirtioNetInner {
         // TODO: continue Virtq initialization
 
         Ok(vq)
+    }
+
+    /// enqueue: enqueue a single dmamap.
+    fn virtio_enqueue(&mut self, slot: u16) -> Result<(), VirtioDriverErr> {
+        let vq_entry = self.tx_vq.vq_entries[slot];
+        let vq_desc = vq_entry.qe_desc_base;
+        let next = vq_entry.qe_next;
+
+        assert!(next >= 0);
+
+        // TODO
+
+        Ok(())
+    }
+
+    fn publish_avail_idx(&mut self) {
+        self.tx_vq.vq_avail.idx = self.tx_vq.vq_avail_idx;
+        self.tx_vq.vq_queued = 1;
+    }
+
+    fn virtio_enqueue_commit(&mut self, slot: u16) -> Result<(), VirtioDriverErr> {
+        if slot < 0 {
+            return Ok(());
+        }
+
+        self.tx_vq.vq_avail_idx += 1;
+        self.tx_vq.vq_avail.ring[self.tx_vq.vq_avail_idx as usize & self.tx_vq.vq_mask] = slot;
+
+        self.publish_avail_idx();
+        self.virtio_pci_kick()?;
+
+        Ok(())
+    }
+
+    fn vio_alloc_mem(&mut self) -> Result<(), VirtioDriverErr> {
+        let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
+        let dma = DMAPool::new(0, allocsize / PAGESIZE)
+            .ok_or(VirtioDriverErr::DMAPool)?;
+        self.tx_dma = Some(dma);
+
+        Ok(())
+    }
+
+    fn vio_encap(&mut self, slot: u16, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
+        let len = frames[0].data.len();
+        let dst = &mut self.tx_dma.as_mut().unwrap()[slot];
+        core::mem::copy_nonoverlapping(frames[0].data.as_ptr(), dst.as_ptr(), len);
+
+        Ok(())
+    }
+
+    fn vio_start(&mut self, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
+        let slot = self.tx_vq.virtio_enqueue_prep()?;
+        self.vio_encap(slot, frames)?;
+        self.virtio_enqueue(slot)?;
+        self.virtio_enqueue_commit(slot)?;
+
+        Ok(())
     }
 
     fn vio_stop(&mut self) -> Result<(), VirtioDriverErr> {
@@ -468,7 +594,7 @@ impl PCIeDevice for VirtioNet {
 
 impl NetDevice for VirtioNet {
     fn num_queues(&self) -> usize {
-        todo!()
+        1
     }
 
     fn flags(&self) -> NetFlags {
@@ -513,8 +639,14 @@ impl NetDevice for VirtioNet {
         todo!()
     }
 
-    fn send(&self, _data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
-        todo!()
+    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+        assert!(que_id == 0);
+
+        let frames = [data];
+        let mut inner = self.inner.write();
+        inner.vio_start(&frames).or(Err(NetDevError::DeviceError))?;
+
+        Ok(())
     }
 
     fn up(&self) -> Result<(), NetDevError> {
