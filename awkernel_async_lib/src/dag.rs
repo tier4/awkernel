@@ -33,6 +33,7 @@ mod performance;
 use crate::{
     dag::graph::{
         algo::{connected_components, is_cyclic_directed},
+        direction::Direction,
         NodeIndex,
     },
     scheduler::SchedulerType,
@@ -46,7 +47,7 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::{future::Future, pin::Pin, time::Duration};
+use core::{cmp::Ordering, future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -61,6 +62,10 @@ pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
+    ManySubscribeTopics(u32, usize, usize, usize), //dag_id, node_id, expected, actual,
+    ManyPublishTopics(u32, usize, usize, usize),   //dag_id, node_id, expected, actual,
+    FewSubscribeTopics(u32, usize, usize, usize),  //dag_id, node_id, expected, actual,
+    FewPublishTopics(u32, usize, usize, usize),    //dag_id, node_id, expected, actual,
 }
 
 impl core::fmt::Display for DagError {
@@ -69,6 +74,18 @@ impl core::fmt::Display for DagError {
             DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
             DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
+            DagError::ManySubscribeTopics(dag_id, node_id, expected, actual) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has too many subscribe topics. Expexted {expected}, but found {actual}")
+            }
+            DagError::ManyPublishTopics(dag_id, node_id, expected, actual) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has too many publish topics. Expexted {expected}, but found {actual}")
+            }
+            DagError::FewSubscribeTopics(dag_id, node_id, expected, actual) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has too few subscribe topics. Expexted {expected}, but found {actual}")
+            }
+            DagError::FewPublishTopics(dag_id, node_id, expected, actual) => {
+                write!(f, "DAG#{dag_id} Node#{node_id} has too many subscribe topics. Expexted {expected}, but found {actual}")
+            }
         }
     }
 }
@@ -355,6 +372,43 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
+    type DagErrorFn = fn(u32, usize, usize, usize) -> DagError;
+
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    for node_id in graph.node_indices() {
+        let node_info = graph.node_weight(node_id).unwrap();
+        for direction in [Direction::Incoming, Direction::Outgoing] {
+            let (expect_num, few_error, many_error) = match direction {
+                Direction::Incoming => (
+                    node_info.subscribe_topics.len(),
+                    DagError::FewSubscribeTopics as DagErrorFn,
+                    DagError::ManySubscribeTopics as DagErrorFn,
+                ),
+                Direction::Outgoing => (
+                    node_info.publish_topics.len(),
+                    DagError::FewPublishTopics as DagErrorFn,
+                    DagError::ManyPublishTopics as DagErrorFn,
+                ),
+            };
+
+            let actual_num = graph.neighbors_directed(node_id, direction).count();
+            match actual_num.cmp(&expect_num) {
+                Ordering::Less => {
+                    return Err(few_error(dag.id, node_id.index(), expect_num, actual_num));
+                }
+                Ordering::Greater => {
+                    return Err(many_error(dag.id, node_id.index(), expect_num, actual_num));
+                }
+                Ordering::Equal => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     let mut pending_node = MCSNode::new();
     if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
@@ -369,6 +423,7 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     if is_cyclic_directed(&*graph) {
         return Err(DagError::ContainsCycle(dag.id));
     }
+    validate_edge_connect(dag)?;
     Ok(())
 }
 
