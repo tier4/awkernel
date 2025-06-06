@@ -347,9 +347,10 @@ impl VirtioNetInner {
             self.common_cfg.virtio_set_queue_used(0)?;
         } else {
             let avail_offset = 4096; // TODO: offset of _avail in VirtqDMA
-            let used_offset = 8192;  // TODO: offset of _used in VirtqDMA
+            let used_offset = 8192; // TODO: offset of _used in VirtqDMA
             self.common_cfg.virtio_set_queue_desc(addr)?;
-            self.common_cfg.virtio_set_queue_avail(addr + avail_offset)?;
+            self.common_cfg
+                .virtio_set_queue_avail(addr + avail_offset)?;
             self.common_cfg.virtio_set_queue_used(addr + used_offset)?;
             self.common_cfg.virtio_set_queue_enable(1)?;
         }

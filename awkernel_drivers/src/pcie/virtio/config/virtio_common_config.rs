@@ -159,7 +159,8 @@ impl VirtioCommonConfig {
     }
 
     pub fn virtio_set_queue_enable(&mut self, enable: u16) -> Result<(), VirtioDriverErr> {
-        self.bar.write16(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_ENABLE, enable);
+        self.bar
+            .write16(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_ENABLE, enable);
 
         Ok(())
     }
@@ -179,8 +180,10 @@ impl VirtioCommonConfig {
 
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DESC, addr_low);
-        self.bar
-            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DESC + 4, addr_high);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DESC + 4,
+            addr_high,
+        );
 
         Ok(())
     }
@@ -192,8 +195,10 @@ impl VirtioCommonConfig {
 
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER, addr_low);
-        self.bar
-            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER + 4, addr_high);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER + 4,
+            addr_high,
+        );
 
         Ok(())
     }
@@ -205,8 +210,10 @@ impl VirtioCommonConfig {
 
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE, addr_low);
-        self.bar
-            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE + 4, addr_high);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE + 4,
+            addr_high,
+        );
 
         Ok(())
     }
