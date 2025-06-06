@@ -41,7 +41,7 @@ impl VirtioNotifyCap {
         let multiplier = self
             .bar
             .read32(self.offset + VIRTIO_PCI_NOTIFY_CFG_NOTIFY_OFF_MULTIPLIER)
-            .ok_or(VirtioDriverErr::ReadFailure)? as u8;
+            .ok_or(VirtioDriverErr::ReadFailure)?;
 
         Ok(multiplier)
     }
