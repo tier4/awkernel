@@ -590,7 +590,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     let mut irqs_queues = Vec::with_capacity(nqueues as usize);
 
     for q in 0..nqueues {
-        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q);
+        let irq_name_rxtx = format!("{DEVICE_SHORT_NAME}-{bfd}-RxTx{q}");
         let mut irq_rxtx = msix
             .register_handler(
                 irq_name_rxtx.into(),
