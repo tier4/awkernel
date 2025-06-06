@@ -387,7 +387,6 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
         return Err(DagError::ContainsCycle(dag.id));
     }
 
-    // The absence of sink or source nodes can be detected by is_cyclic_directed().
     if dag.get_source_nodes().len() > 1 {
         return Err(DagError::MultipleSourceNodes(dag.id));
     }
