@@ -177,7 +177,7 @@ impl NetDevice for Igc {
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
-        "igc".into()
+        DEVICE_SHORT_NAME.into()
     }
 
     fn down(&self) -> Result<(), net_device::NetDevError> {
