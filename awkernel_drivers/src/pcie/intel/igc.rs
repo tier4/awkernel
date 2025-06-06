@@ -1,7 +1,8 @@
 //! This is a skelton of a PCIe device driver.
 
-use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    interrupt::IRQ,
     net::{
         ether::ETHER_TYPE_VLAN,
         net_device::{self, LinkStatus, NetDevice},
@@ -38,6 +39,10 @@ const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 
 const IGC_TXPBSIZE: u32 = 20408;
 const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
+
+const IGC_MAX_VECTORS: u16 = 8;
+
+const DEVICE_SHORT_NAME: &str = "igc";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -107,8 +112,9 @@ impl Igc {
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
 
+        igc_allocate_pci_resources(&mut info)?;
+
         // TODO:
-        // - allocate PCIe resources.
         // - allocate tx/rx queues.
 
         let ops = igc_setup_init_funcs(&mut info, &mut hw).or(Err(InitFailure))?;
@@ -554,4 +560,66 @@ fn igc_attach_and_hw_control(
 fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
     // Check if the address is a multicast address or a zero address.
     !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
+}
+
+/// Allocate PCI resources for the IGC device.
+/// This function initialize IRQs for the IGC device,
+/// and returns IRQs for the Rx/Tx queues and an IRQ for events.
+fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PCIeDeviceErr> {
+    let bfd = info.get_bfd();
+    let segment_number = info.segment_group as usize;
+
+    let msix = info.get_msix_mut().ok_or(PCIeDeviceErr::InitFailure)?;
+
+    let nmsix = msix.get_table_size();
+
+    if nmsix <= 1 {
+        log::error!("igc: not enough msi-x vectors");
+        return Err(PCIeDeviceErr::InitFailure);
+    }
+
+    let nmsix = nmsix - 1; // Give one vector to events.
+
+    let nqueues = if nmsix > IGC_MAX_VECTORS {
+        IGC_MAX_VECTORS
+    } else {
+        nmsix
+    };
+
+    // Initialize the IRQs for the Rx/Tx queues.
+    let mut irqs_queues = Vec::with_capacity(nqueues as usize);
+
+    for q in 0..nqueues {
+        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q);
+        let mut irq_rxtx = msix
+            .register_handler(
+                irq_name_rxtx.into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                q as usize,
+            )
+            .or(Err(PCIeDeviceErr::InitFailure))?;
+        irq_rxtx.enable();
+        irqs_queues.push(irq_rxtx);
+    }
+
+    // Initialize the IRQs for the events.
+    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
+    let mut irq_other = msix
+        .register_handler(
+            irq_name_tx.into(),
+            Box::new(move |irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+            segment_number,
+            awkernel_lib::cpu::raw_cpu_id() as u32,
+            irqs_queues.len(),
+        )
+        .or(Err(PCIeDeviceErr::InitFailure))?;
+    irq_other.enable();
+
+    Ok((irqs_queues, irq_other))
 }
