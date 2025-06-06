@@ -147,7 +147,22 @@ impl Igc {
 
         let inner = RwLock::new(IgcInner::new(ops, info, hw));
 
-        Ok(Igc { inner })
+        let igc = Self { inner };
+        let mac_addr = igc.mac_address();
+
+        log::info!(
+            "{}:{}: MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            igc.device_short_name(),
+            igc.device_name(),
+            mac_addr[0],
+            mac_addr[1],
+            mac_addr[2],
+            mac_addr[3],
+            mac_addr[4],
+            mac_addr[5]
+        );
+
+        Ok(igc)
     }
 }
 
@@ -573,6 +588,8 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
 
     let nmsix = msix.get_table_size();
 
+    log::debug!("nmsix = {nmsix}");
+
     if nmsix <= 1 {
         log::error!("igc: not enough msi-x vectors");
         return Err(PCIeDeviceErr::InitFailure);
@@ -607,10 +624,10 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     }
 
     // Initialize the IRQs for the events.
-    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
+    let irq_name_other = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
     let mut irq_other = msix
         .register_handler(
-            irq_name_tx.into(),
+            irq_name_other.into(),
             Box::new(move |irq| {
                 awkernel_lib::net::net_interrupt(irq);
             }),

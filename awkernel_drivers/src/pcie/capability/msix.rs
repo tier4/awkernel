@@ -89,7 +89,9 @@ impl Msix {
     where
         F: Fn(u16) + Send + 'static,
     {
-        if self.table_size as usize <= msi_x_entry {
+        // Because the table size in the config space represents the number of entries minus one,
+        // `self.table_size == msi_x_entry` is valid.
+        if (self.table_size as usize) < msi_x_entry {
             return Err(PCIeDeviceErr::Interrupt);
         }
 
