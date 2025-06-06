@@ -62,8 +62,6 @@ pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
-    NoSourceNode(u32),
-    NoSinkNode(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
 }
@@ -74,8 +72,6 @@ impl core::fmt::Display for DagError {
             DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
             DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
             DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
-            DagError::NoSourceNode(id) => write!(f, "DAG#{id} has no source node"),
-            DagError::NoSinkNode(id) => write!(f, "DAG#{id} has no sink node"),
             DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
             DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
         }
@@ -377,22 +373,6 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
-    let source_nodes = dag.get_source_nodes();
-    if source_nodes.is_empty() {
-        return Err(DagError::NoSourceNode(dag.id));
-    }
-    if source_nodes.len() > 1 {
-        return Err(DagError::MultipleSourceNodes(dag.id));
-    }
-
-    let sink_nodes = dag.get_sink_nodes();
-    if sink_nodes.is_empty() {
-        return Err(DagError::NoSinkNode(dag.id));
-    }
-    if sink_nodes.len() > 1 {
-        return Err(DagError::MultipleSinkNodes(dag.id));
-    }
-
     let mut pending_node = MCSNode::new();
     if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
         return Err(DagError::MissingPendingTasks(dag.id));
@@ -405,6 +385,14 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     }
     if is_cyclic_directed(&*graph) {
         return Err(DagError::ContainsCycle(dag.id));
+    }
+
+    // The absence of sink or source nodes can be detected by is_cyclic_directed().
+    if dag.get_source_nodes().len() > 1 {
+        return Err(DagError::MultipleSourceNodes(dag.id));
+    }
+    if dag.get_sink_nodes().len() > 1 {
+        return Err(DagError::MultipleSinkNodes(dag.id));
     }
     Ok(())
 }
