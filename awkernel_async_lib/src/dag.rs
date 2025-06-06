@@ -380,9 +380,9 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-/// This function detects inconsistencies between the declared topic connections and the actual graph structure.
-/// It prevents mis configurations such as topics that are published but have no subscriber and topics that are subscribed to but have no publisher,
-/// which can lead to unintentional message loss or reactors waiting forever.
+/// This validation prevents issues caused by the following misconfigurations:
+/// - Message Loss: A published topic is not subscribed to by any reactor.
+/// - Indefinite Wait: A subscribed topic has no corresponding publisher.
 fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     type DagErrorFn = fn(u32, usize) -> DagError;
 
