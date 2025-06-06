@@ -403,14 +403,8 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
             };
 
             let actual_num = graph.neighbors_directed(node_id, direction).count();
-            match actual_num.cmp(&expect_num) {
-                Ordering::Less => {
-                    return Err(few_error(dag.id, node_id.index()));
-                }
-                Ordering::Greater => {
-                    unreachable!("Invariant Violation: The number of edges must be less than or equal to the number of topics")
-                }
-                Ordering::Equal => {}
+            if actual_num < expect_num {
+                return Err(few_error(dag.id, node_id.index()));
             }
         }
     }
