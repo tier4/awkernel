@@ -8,6 +8,7 @@ use core::{cell::Cell, marker::PhantomData};
 use alloc::rc::Rc;
 
 pub mod addr;
+pub mod allocator;
 pub mod arch;
 pub mod config;
 pub mod console;

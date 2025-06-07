@@ -1,22 +1,23 @@
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
-use awkernel_lib::{file::memfs::InMemoryDisk, heap::TALLOC, paging::PAGESIZE};
+use awkernel_lib::{allocator::System, file::memfs::InMemoryDisk, paging::PAGESIZE};
+
 use core::{
     alloc::{GlobalAlloc, Layout},
-    fmt::{self, Debug},
+    fmt::Debug,
 };
 use fatfs::{
-    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
-    Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
+    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, Read, Seek,
+    SeekFrom as ExternalFatFsSeekFrom, Write,
 };
 
 fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {
-    log::error!("fatfs error: {:?}", fatfs_err);
+    log::error!("fatfs error: {fatfs_err:?}");
     match fatfs_err {
         FatFsError::NotFound => FileSystemError::NotFound,
         FatFsError::AlreadyExists => FileSystemError::AlreadyExists,
@@ -39,17 +40,15 @@ pub async fn run() {
     let (tx, rx) = bounded::new(Default::default());
     awkernel_async_lib::file::add_filesystem(tx);
 
-    let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
-        .expect("Invalid layout for memory filesystem");
-    let result = unsafe { TALLOC.alloc(layout) };
-    assert!(
-        !result.is_null(),
-        "NULL pointer allocated for memory filesystem"
-    );
+    let result = {
+        let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
+            .expect("Invalid layout for memory filesystem");
+        unsafe { System.alloc(layout) }
+    };
 
     let data =
         unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
-    let mut disk = InMemoryDisk { data, position: 0 };
+    let mut disk = InMemoryDisk::new(data, 0);
 
     if format_volume(&mut disk, FormatVolumeOptions::new()).is_err() {
         log::info!("Error formatting the disk");
@@ -63,10 +62,7 @@ pub async fn run() {
         let req = match rx.recv().await {
             Ok(r) => r,
             Err(e) => {
-                log::error!(
-                    "Failed to receive from service_rx: {:?}. Shutting down service.",
-                    e
-                );
+                log::error!("Failed to receive from service_rx: {e:?}. Shutting down service.");
                 break;
             }
         };
@@ -102,8 +98,7 @@ pub async fn run() {
             },
             FileSystemReq::Read { fd, bufsize } => {
                 if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
-                    let mut buf = Vec::new();
-                    buf.resize(bufsize, 0);
+                    let mut buf = vec![0; bufsize];
                     let res = file
                         .read(&mut buf)
                         .map(|bytes_read| {
@@ -111,12 +106,12 @@ pub async fn run() {
                             FileSystemRes::ReadResult(buf)
                         })
                         .map_err(|fatfs_err| {
-                            log::error!("[Read] Error reading from fd {}: {:?}", fd, fatfs_err);
+                            log::error!("[Read] Error reading from fd {fd}: {fatfs_err:?}");
                             map_fatfs_error(fatfs_err)
                         });
                     send_response(fd, client_tx, res, "[Read]").await;
                 } else {
-                    panic!("Read failed: File descriptor {} not found", fd);
+                    unreachable!();
                 }
             }
             FileSystemReq::Write { fd, buf } => {
@@ -125,12 +120,12 @@ pub async fn run() {
                         file.write(&buf)
                             .map(FileSystemRes::WriteBytes)
                             .map_err(|fatfs_err| {
-                                log::error!("[Write] Error writing to fd {}: {:?}", fd, fatfs_err);
+                                log::error!("[Write] Error writing to fd {fd}: {fatfs_err:?}");
                                 map_fatfs_error(fatfs_err)
                             });
                     send_response(fd, client_tx, res, "[Write]").await;
                 } else {
-                    panic!("Write failed: File descriptor {} not found", fd);
+                    unreachable!();
                 }
             }
             FileSystemReq::Seek { fd, from } => {
@@ -141,19 +136,19 @@ pub async fn run() {
                         .seek(fatfs_seek_from)
                         .map(FileSystemRes::SeekBytes)
                         .map_err(|fatfs_err| {
-                            log::error!("[Seek] Error seeking in fd {}: {:?}", fd, fatfs_err);
+                            log::error!("[Seek] Error seeking in fd {fd}: {fatfs_err:?}");
                             map_fatfs_error(fatfs_err)
                         });
                     send_response(fd, client_tx, res, "[Seek]").await;
                 } else {
-                    panic!("Seek failed: File descriptor {} not found", fd);
+                    unreachable!();
                 }
             }
             FileSystemReq::Close { fd } => {
                 if let Some((_file, client_tx)) = fd_to_file.remove(&fd) {
                     let _ = client_tx.send(Ok(FileSystemRes::Success)).await;
                 } else {
-                    panic!("Close failed: File descriptor {} not found", fd);
+                    unreachable!();
                 }
             }
         }
@@ -170,7 +165,7 @@ async fn send_response(
 ) {
     if let Err(e) = client_tx.send(res).await {
         panic!(
-            "{}] Failed to send response to client for fd {}: {:?}",
+            "[{}] Failed to send response to client for fd {}: {:?}",
             operation_name, fd, e
         );
     }

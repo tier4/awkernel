@@ -9,6 +9,12 @@ pub struct InMemoryDisk {
     position: u64,
 }
 
+impl InMemoryDisk {
+    pub fn new(data: Vec<u8>, position: u64) -> Self {
+        Self { data, position }
+    }
+}
+
 impl IoBase for InMemoryDisk {
     type Error = InMemoryDiskError;
 }
@@ -68,8 +74,8 @@ pub enum InMemoryDiskError {
     OutOfBounds,
     WriteZero,
     UnexpectedEof,
-    _Interrupted,
-    _Other(String),
+    Interrupted,
+    Other(String),
 }
 
 impl fmt::Display for InMemoryDiskError {
@@ -78,15 +84,15 @@ impl fmt::Display for InMemoryDiskError {
             InMemoryDiskError::OutOfBounds => write!(f, "Out of bounds access"),
             InMemoryDiskError::WriteZero => write!(f, "Failed to write whole buffer"),
             InMemoryDiskError::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
-            InMemoryDiskError::_Interrupted => write!(f, "Operation interrupted"),
-            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {}", msg),
+            InMemoryDiskError::Interrupted => write!(f, "Operation interrupted"),
+            InMemoryDiskError::Other(msg) => write!(f, "An error occurred: {msg}"),
         }
     }
 }
 
 impl fatfs::IoError for InMemoryDiskError {
     fn is_interrupted(&self) -> bool {
-        matches!(self, InMemoryDiskError::_Interrupted)
+        matches!(self, InMemoryDiskError::Interrupted)
     }
 
     fn new_unexpected_eof_error() -> Self {
