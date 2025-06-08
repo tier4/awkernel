@@ -371,7 +371,7 @@ impl DirEntryData {
         &self,
         wrt: &mut W,
     ) -> Result<(), Error<E>> {
-        trace!("DirEntryData::serialize");
+        log::trace!("DirEntryData::serialize");
         match self {
             DirEntryData::File(file) => file.serialize(wrt),
             DirEntryData::Lfn(lfn) => lfn.serialize(wrt),
@@ -381,7 +381,7 @@ impl DirEntryData {
     pub(crate) fn deserialize<E: IoError, R: Read<Error = Error<E>>>(
         rdr: &mut R,
     ) -> Result<Self, Error<E>> {
-        trace!("DirEntryData::deserialize");
+        log::trace!("DirEntryData::deserialize");
         let mut name = [0; SFN_SIZE];
         match rdr.read_exact(&mut name) {
             Err(Error::UnexpectedEof) => {

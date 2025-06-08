@@ -152,9 +152,9 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
                 // check if file or directory is expected
                 if is_dir.is_some() && Some(e.is_dir()) != is_dir {
                     if e.is_dir() {
-                        error!("Is a directory");
+                        log::error!("Is a directory");
                     } else {
-                        error!("Not a directory");
+                        log::error!("Not a directory");
                     }
                     return Err(Error::InvalidInput);
                 }
@@ -220,7 +220,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is not a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
-        trace!("Dir::open_dir {}", path);
+        log::trace!("Dir::open_dir {}", path);
         let (name, rest_opt) = split_path(path);
         let e = self.find_entry(name, Some(true), None)?;
         match rest_opt {
@@ -241,7 +241,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        trace!("Dir::open_file {}", path);
+        log::trace!("Dir::open_file {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -268,7 +268,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        trace!("Dir::create_file {}", path);
+        log::trace!("Dir::create_file {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -305,7 +305,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
-        trace!("Dir::create_dir {}", path);
+        log::trace!("Dir::create_dir {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -352,7 +352,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     }
 
     fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
-        trace!("Dir::is_empty");
+        log::trace!("Dir::is_empty");
         // check if directory contains no files
         for r in self.iter() {
             let e = r?;
@@ -380,7 +380,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::DirectoryIsNotEmpty` will be returned if the specified directory is not empty.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
-        trace!("Dir::remove {}", path);
+        log::trace!("Dir::remove {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -402,7 +402,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
-            trace!("removing dir entry {:?}", data);
+            log::trace!("removing dir entry {:?}", data);
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
             data.serialize(&mut stream)?;
@@ -432,7 +432,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         dst_dir: &Dir<IO, TP, OCC>,
         dst_path: &str,
     ) -> Result<(), Error<IO::Error>> {
-        trace!("Dir::rename {} {}", src_path, dst_path);
+        log::trace!("Dir::rename {} {}", src_path, dst_path);
         // traverse source path
         let (src_name, src_rest_opt) = split_path(src_path);
         if let Some(rest) = src_rest_opt {
@@ -455,7 +455,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         dst_dir: &Dir<IO, TP, OCC>,
         dst_name: &str,
     ) -> Result<(), Error<IO::Error>> {
-        trace!("Dir::rename_internal {} {}", src_name, dst_name);
+        log::trace!("Dir::rename_internal {} {}", src_name, dst_name);
         // find existing file
         let e = self.find_entry(src_name, None, None)?;
         // check if destionation filename is unused
@@ -480,7 +480,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
-            trace!("removing LFN entry {:?}", data);
+            log::trace!("removing LFN entry {:?}", data);
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
             data.serialize(&mut stream)?;
@@ -586,7 +586,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         name: &str,
         raw_entry: DirFileEntryData,
     ) -> Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>> {
-        trace!("Dir::write_entry {}", name);
+        log::trace!("Dir::write_entry {}", name);
         // check if name doesn't contain unsupported characters
         validate_long_name(name)?;
         // convert long name to UTF-16
@@ -674,7 +674,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> DirIter<'a, IO,
 
     #[allow(clippy::type_complexity)]
     fn read_dir_entry(&mut self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
-        trace!("DirIter::read_dir_entry");
+        log::trace!("DirIter::read_dir_entry");
         let mut lfn_builder = LongNameBuilder::new();
         let mut offset = self.stream.seek(SeekFrom::Current(0))?;
         let mut begin_offset = offset;
@@ -687,7 +687,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> DirIter<'a, IO,
             }
             // Check if this is deleted or volume ID entry
             if self.should_skip_entry(&raw_entry) {
-                trace!("skip entry");
+                log::trace!("skip entry");
                 lfn_builder.clear();
                 begin_offset = offset;
                 continue;
@@ -706,7 +706,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> DirIter<'a, IO,
                     lfn_builder.validate_chksum(data.name());
                     // Return directory entry
                     let short_name = ShortName::new(data.name());
-                    trace!("file entry {:?}", data.name());
+                    log::trace!("file entry {:?}", data.name());
                     return Ok(Some(DirEntry {
                         data,
                         short_name,
@@ -719,7 +719,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> DirIter<'a, IO,
                 }
                 DirEntryData::Lfn(data) => {
                     // Append to LFN buffer
-                    trace!("lfn entry");
+                    log::trace!("lfn entry");
                     lfn_builder.process(&data);
                 }
             }

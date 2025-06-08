@@ -1,18 +1,25 @@
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, vec::Vec};
 use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
 use awkernel_filesystem::fatfs::{
-    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
-    Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
+    fs::format_volume, fs::FileSystem, fs::FormatVolumeOptions, fs::FsOptions,
 };
-use awkernel_lib::{file::memfs::InMemoryDisk, heap::TALLOC, paging::PAGESIZE};
+use awkernel_lib::{
+    file::{
+        error::Error as FatFsError,
+        io::{Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write},
+        memfs::InMemoryDisk,
+    },
+    heap::TALLOC,
+    paging::PAGESIZE,
+};
 use core::{
     alloc::{GlobalAlloc, Layout},
-    fmt::{self, Debug},
+    fmt::Debug,
 };
 
 fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {

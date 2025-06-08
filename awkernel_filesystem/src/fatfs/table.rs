@@ -85,7 +85,7 @@ where
     E: IoError,
     Error<E>: From<S::Error>,
 {
-    trace!("write FAT - cluster {} value {:?}", cluster, value);
+    log::trace!("write FAT - cluster {} value {:?}", cluster, value);
     match fat_type {
         FatType::Fat12 => Fat12::set(fat, cluster, value),
         FatType::Fat16 => Fat16::set(fat, cluster, value),
@@ -156,7 +156,7 @@ where
     if let Some(n) = prev_cluster {
         write_fat(fat, fat_type, n, FatValue::Data(new_cluster))?;
     }
-    trace!("allocated cluster {}", new_cluster);
+    log::trace!("allocated cluster {}", new_cluster);
     Ok(new_cluster)
 }
 
@@ -494,7 +494,7 @@ impl FatTrait for Fat32 {
                 } else {
                     "end-of-chain"
                 };
-                warn!(
+                log::warn!(
                     "cluster number {} is a special value in FAT to indicate {}; it should never be seen as free",
                     cluster, tmp
                 );
@@ -509,7 +509,7 @@ impl FatTrait for Fat32 {
                 } else {
                     "end-of-chain"
                 };
-                warn!("cluster number {} is a special value in FAT to indicate {}; hiding potential FAT chain value {} and instead reporting as a bad sector", cluster, tmp, n);
+                log::warn!("cluster number {} is a special value in FAT to indicate {}; hiding potential FAT chain value {} and instead reporting as a bad sector", cluster, tmp, n);
                 FatValue::Bad // avoid accidental use or allocation into a FAT chain
             }
             n => FatValue::Data(n),

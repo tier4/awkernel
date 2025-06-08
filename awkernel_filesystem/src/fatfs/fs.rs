@@ -140,14 +140,14 @@ impl FsInfoSector {
     fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
         let lead_sig = rdr.read_u32_le()?;
         if lead_sig != Self::LEAD_SIG {
-            error!("invalid lead_sig in FsInfo sector: {}", lead_sig);
+            log::error!("invalid lead_sig in FsInfo sector: {}", lead_sig);
             return Err(Error::CorruptedFileSystem);
         }
         let mut reserved = [0_u8; 480];
         rdr.read_exact(&mut reserved)?;
         let struc_sig = rdr.read_u32_le()?;
         if struc_sig != Self::STRUC_SIG {
-            error!("invalid struc_sig in FsInfo sector: {}", struc_sig);
+            log::error!("invalid struc_sig in FsInfo sector: {}", struc_sig);
             return Err(Error::CorruptedFileSystem);
         }
         let free_cluster_count = match rdr.read_u32_le()? {
@@ -158,7 +158,9 @@ impl FsInfoSector {
         let next_free_cluster = match rdr.read_u32_le()? {
             0xFFFF_FFFF => None,
             0 | 1 => {
-                warn!("invalid next_free_cluster in FsInfo sector (values 0 and 1 are reserved)");
+                log::warn!(
+                    "invalid next_free_cluster in FsInfo sector (values 0 and 1 are reserved)"
+                );
                 None
             }
             // Note: other values are validated in FileSystem::new function using values from BPB
@@ -168,7 +170,7 @@ impl FsInfoSector {
         rdr.read_exact(&mut reserved2)?;
         let trail_sig = rdr.read_u32_le()?;
         if trail_sig != Self::TRAIL_SIG {
-            error!("invalid trail_sig in FsInfo sector: {}", trail_sig);
+            log::error!("invalid trail_sig in FsInfo sector: {}", trail_sig);
             return Err(Error::CorruptedFileSystem);
         }
         Ok(Self {
@@ -195,16 +197,17 @@ impl FsInfoSector {
         let max_valid_cluster_number = total_clusters + RESERVED_FAT_ENTRIES;
         if let Some(n) = self.free_cluster_count {
             if n > total_clusters {
-                warn!(
+                log::warn!(
                     "invalid free_cluster_count ({}) in fs_info exceeds total cluster count ({})",
-                    n, total_clusters
+                    n,
+                    total_clusters
                 );
                 self.free_cluster_count = None;
             }
         }
         if let Some(n) = self.next_free_cluster {
             if n > max_valid_cluster_number {
-                warn!(
+                log::warn!(
                     "invalid free_cluster_count ({}) in fs_info exceeds maximum cluster number ({})",
                     n, max_valid_cluster_number
                 );
@@ -389,7 +392,7 @@ impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
     ) -> Result<Self, Error<IO::Error>> {
         // Make sure given image is not seeked
         let mut disk = storage.into_storage();
-        trace!("FileSystem::new");
+        log::trace!("FileSystem::new");
         debug_assert!(disk.seek(SeekFrom::Current(0))? == 0);
 
         // read boot sector
@@ -424,7 +427,7 @@ impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
 
         // return FileSystem struct
         let status_flags = bpb.status_flags();
-        trace!("FileSystem::new end");
+        log::trace!("FileSystem::new end");
         Ok(Self {
             disk: Mutex::new(disk),
             options,
@@ -526,7 +529,7 @@ impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
         prev_cluster: Option<u32>,
         zero: bool,
     ) -> Result<u32, Error<IO::Error>> {
-        trace!("alloc_cluster");
+        log::trace!("alloc_cluster");
         let hint;
         {
             let mut node = MCSNode::new();
@@ -679,7 +682,7 @@ impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Returns a root directory object allowing for futher penetration of a filesystem structure.
     pub fn root_dir(&self) -> Dir<IO, TP, OCC> {
-        trace!("root_dir");
+        log::trace!("root_dir");
         let root_rdr = {
             match self.fat_type {
                 FatType::Fat12 | FatType::Fat16 => DirRawStream::Root(DiskSlice::from_sectors(
@@ -764,7 +767,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
 impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
-            error!("unmount failed {:?}", err);
+            log::error!("unmount failed {:?}", err);
         }
     }
 }
@@ -943,14 +946,14 @@ impl<B, S: IoBase> Seek for DiskSlice<B, S> {
         };
         if let Some(new_offset) = new_offset_opt {
             if new_offset > self.size {
-                error!("Seek beyond the end of the file");
+                log::error!("Seek beyond the end of the file");
                 Err(Error::InvalidInput)
             } else {
                 self.offset = new_offset;
                 Ok(self.offset)
             }
         } else {
-            error!("Invalid seek offset");
+            log::error!("Invalid seek offset");
             Err(Error::InvalidInput)
         }
     }
@@ -1233,7 +1236,7 @@ pub fn format_volume<S: ReadWriteSeek>(
     storage: &mut S,
     options: FormatVolumeOptions,
 ) -> Result<(), Error<S::Error>> {
-    trace!("format_volume");
+    log::trace!("format_volume");
     debug_assert!(storage.seek(SeekFrom::Current(0))? == 0);
 
     let total_sectors = if let Some(total_sectors) = options.total_sectors {
@@ -1243,7 +1246,7 @@ pub fn format_volume<S: ReadWriteSeek>(
         let total_sectors_64 = total_bytes / u64::from(options.bytes_per_sector);
         storage.seek(SeekFrom::Start(0))?;
         if total_sectors_64 > u64::from(u32::MAX) {
-            error!("Volume has too many sectors: {}", total_sectors_64);
+            log::error!("Volume has too many sectors: {}", total_sectors_64);
             return Err(Error::InvalidInput);
         }
         total_sectors_64 as u32 // safe case: possible overflow is handled above
@@ -1329,6 +1332,6 @@ pub fn format_volume<S: ReadWriteSeek>(
     }
 
     storage.seek(SeekFrom::Start(0))?;
-    trace!("format_volume end");
+    log::trace!("format_volume end");
     Ok(())
 }
