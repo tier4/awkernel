@@ -5,15 +5,11 @@ use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
-use awkernel_lib::{
-    file::fatfs::{
-        format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase,
-        Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
-    },
-    file::memfs::InMemoryDisk,
-    heap::TALLOC,
-    paging::PAGESIZE,
+use awkernel_filesystem::fatfs::{
+    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
+    Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
 };
+use awkernel_lib::{file::memfs::InMemoryDisk, heap::TALLOC, paging::PAGESIZE};
 use core::{
     alloc::{GlobalAlloc, Layout},
     fmt::{self, Debug},

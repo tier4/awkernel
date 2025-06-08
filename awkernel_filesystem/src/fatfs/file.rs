@@ -1,10 +1,10 @@
 use core::convert::TryFrom;
 
-use crate::dir_entry::DirEntryEditor;
-use crate::error::Error;
-use crate::fs::{FileSystem, ReadWriteSeek};
-use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
-use crate::time::{Date, DateTime, TimeProvider};
+use super::dir_entry::DirEntryEditor;
+use super::fs::{FileSystem, ReadWriteSeek};
+use super::time::{Date, DateTime, TimeProvider};
+use awkernel_lib::file::error::Error;
+use awkernel_lib::file::io::{IoBase, Read, Seek, SeekFrom, Write};
 
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
@@ -289,7 +289,8 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, I
             return Ok(0);
         }
         trace!("read {} bytes in cluster {}", read_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -329,7 +330,10 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_until_max_file_size = (MAX_FILE_SIZE - self.offset) as usize;
-        let write_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_until_max_file_size);
+        let write_size = buf
+            .len()
+            .min(bytes_left_in_cluster)
+            .min(bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
         if write_size == 0 {
             return Ok(0);
@@ -369,7 +373,8 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
             }
         };
         trace!("write {} bytes in cluster {}", write_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -392,7 +397,8 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write
+    for File<'_, IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -432,7 +438,12 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
                 new_offset = size;
             }
         }
-        trace!("file seek {} -> {} - entry {:?}", self.offset, new_offset, self.entry);
+        trace!(
+            "file seek {} -> {} - entry {:?}",
+            self.offset,
+            new_offset,
+            self.entry
+        );
         if new_offset == self.offset {
             // position is the same - nothing to do
             return Ok(u64::from(self.offset));

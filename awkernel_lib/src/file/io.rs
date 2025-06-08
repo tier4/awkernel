@@ -237,7 +237,7 @@ impl<T> From<T> for StdIoWrapper<T> {
     }
 }
 
-pub(crate) trait ReadLeExt {
+pub trait ReadLeExt {
     type Error;
     fn read_u8(&mut self) -> Result<u8, Self::Error>;
     fn read_u16_le(&mut self) -> Result<u16, Self::Error>;
@@ -266,7 +266,7 @@ impl<T: Read> ReadLeExt for T {
     }
 }
 
-pub(crate) trait WriteLeExt {
+pub trait WriteLeExt {
     type Error;
     fn write_u8(&mut self, n: u8) -> Result<(), Self::Error>;
     fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error>;
