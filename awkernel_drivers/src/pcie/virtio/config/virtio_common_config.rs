@@ -36,7 +36,11 @@ const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE: usize = 0x0c;
 const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT: usize = 0x16;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_SIZE: usize = 0x18;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_ENABLE: usize = 0x1c;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_NOTIFY_OFF: usize = 0x1e;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_DESC: usize = 0x20;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER: usize = 0x28;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE: usize = 0x30;
 
 pub struct VirtioCommonConfig {
     bar: BaseAddress,
@@ -154,6 +158,13 @@ impl VirtioCommonConfig {
         Ok(size)
     }
 
+    pub fn virtio_set_queue_enable(&mut self, enable: u16) -> Result<(), VirtioDriverErr> {
+        self.bar
+            .write16(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_ENABLE, enable);
+
+        Ok(())
+    }
+
     pub fn virtio_get_queue_notify_off(&self) -> Result<u16, VirtioDriverErr> {
         let off = self
             .bar
@@ -161,5 +172,49 @@ impl VirtioCommonConfig {
             .ok_or(VirtioDriverErr::ReadFailure)?;
 
         Ok(off)
+    }
+
+    pub fn virtio_set_queue_desc(&mut self, addr: u64) -> Result<(), VirtioDriverErr> {
+        let addr_low = addr as u32;
+        let addr_high = (addr >> 32) as u32;
+
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DESC, addr_low);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DESC + 4,
+            addr_high,
+        );
+
+        Ok(())
+    }
+
+    // Note: driver area means available ring
+    pub fn virtio_set_queue_avail(&mut self, addr: u64) -> Result<(), VirtioDriverErr> {
+        let addr_low = addr as u32;
+        let addr_high = (addr >> 32) as u32;
+
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER, addr_low);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DRIVER + 4,
+            addr_high,
+        );
+
+        Ok(())
+    }
+
+    // Note: device area means used ring
+    pub fn virtio_set_queue_used(&mut self, addr: u64) -> Result<(), VirtioDriverErr> {
+        let addr_low = addr as u32;
+        let addr_high = (addr >> 32) as u32;
+
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE, addr_low);
+        self.bar.write32(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_DEVICE + 4,
+            addr_high,
+        );
+
+        Ok(())
     }
 }
