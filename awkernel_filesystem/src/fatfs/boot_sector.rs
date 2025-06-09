@@ -158,8 +158,7 @@ impl BiosParameterBlock {
             // 32k is the largest value to maintain greatest compatibility
             // Many implementations appear to support 64k per cluster, and some may support 128k or larger
             // However, >32k is not as thoroughly tested...
-            log::warn!("fs compatibility: bytes_per_cluster value '{}' in BPB exceeds '{}', and thus may be incompatible with some implementations",
-                bytes_per_cluster, maximum_compatibility_bytes_per_cluster);
+            log::warn!("fs compatibility: bytes_per_cluster value '{bytes_per_cluster}' in BPB exceeds '{maximum_compatibility_bytes_per_cluster}', and thus may be incompatible with some implementations");
         }
         Ok(())
     }
@@ -258,9 +257,7 @@ impl BiosParameterBlock {
         let first_data_sector = self.first_data_sector();
         if total_sectors <= first_data_sector {
             log::error!(
-                "Invalid total_sectors value in BPB: expected value > {} but got {}",
-                first_data_sector,
-                total_sectors
+                "Invalid total_sectors value in BPB: expected value > {first_data_sector} but got {total_sectors}"
             );
             return Err(Error::CorruptedFileSystem);
         }
@@ -288,7 +285,7 @@ impl BiosParameterBlock {
             return Err(Error::CorruptedFileSystem);
         }
         if fat_type == FatType::Fat32 && total_clusters > 0x0FFF_FFFF {
-            log::error!("Invalid BPB: too many clusters {}", total_clusters);
+            log::error!("Invalid BPB: too many clusters {total_clusters}");
             return Err(Error::CorruptedFileSystem);
         }
 
@@ -298,8 +295,7 @@ impl BiosParameterBlock {
         let usable_fat_entries = total_fat_entries - RESERVED_FAT_ENTRIES;
         if usable_fat_entries < total_clusters {
             log::warn!(
-                "FAT is too small (allows allocation of {} clusters) compared to the total number of clusters ({})",
-                usable_fat_entries, total_clusters
+                "FAT is too small (allows allocation of {usable_fat_entries} clusters) compared to the total number of clusters ({total_clusters})"
             );
         }
         Ok(())
@@ -370,7 +366,7 @@ impl BiosParameterBlock {
 
     pub(crate) fn root_dir_sectors(&self) -> u32 {
         let root_dir_bytes = u32::from(self.root_entries) * DIR_ENTRY_SIZE;
-        (root_dir_bytes + u32::from(self.bytes_per_sector) - 1) / u32::from(self.bytes_per_sector)
+        root_dir_bytes.div_ceil(u32::from(self.bytes_per_sector))
     }
 
     pub(crate) fn sectors_per_all_fats(&self) -> u32 {
@@ -406,7 +402,7 @@ impl BiosParameterBlock {
 
     pub(crate) fn clusters_from_bytes(&self, bytes: u64) -> u32 {
         let cluster_size = u64::from(self.cluster_size());
-        ((bytes + cluster_size - 1) / cluster_size) as u32
+        bytes.div_ceil(cluster_size) as u32
     }
 
     pub(crate) fn fs_info_sector(&self) -> u32 {
@@ -603,7 +599,7 @@ fn determine_sectors_per_fat(
     let bits_per_cluster =
         u32::from(sectors_per_cluster) * u32::from(bytes_per_sector) * BITS_PER_BYTE;
     let t2 = u64::from(bits_per_cluster / fat_type.bits_per_fat_entry() + u32::from(fats));
-    let sectors_per_fat = (t1 + t2 - 1) / t2;
+    let sectors_per_fat = t1.div_ceil(t2);
     // Note: casting is safe here because number of sectors per FAT cannot be bigger than total sectors number
     sectors_per_fat as u32
 }
@@ -671,7 +667,7 @@ fn determine_root_dir_sectors(
         0
     } else {
         let root_dir_bytes = u32::from(root_dir_entries) * DIR_ENTRY_SIZE;
-        (root_dir_bytes + u32::from(bytes_per_sector) - 1) / u32::from(bytes_per_sector)
+        root_dir_bytes.div_ceil(u32::from(bytes_per_sector))
     }
 }
 

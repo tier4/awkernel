@@ -226,7 +226,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OC
         if let Some(ref mut e) = self.entry {
             let now = self.fs.options.time_provider.get_current_date_time();
             e.set_modified(now);
-            if e.inner().size().map_or(false, |s| offset > s) {
+            if e.inner().size().is_some_and(|s| offset > s) {
                 e.set_size(offset);
             }
         }
@@ -236,7 +236,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OC
 impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<'_, IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.flush() {
-            log::error!("flush failed {:?}", err);
+            log::error!("flush failed {err:?}");
         }
     }
 }
@@ -288,7 +288,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, I
         if read_size == 0 {
             return Ok(0);
         }
-        log::trace!("read {} bytes in cluster {}", read_size, current_cluster);
+        log::trace!("read {read_size} bytes in cluster {current_cluster}");
         let offset_in_fs =
             self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let read_bytes = {
@@ -359,7 +359,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
             } else {
                 // end of chain reached - allocate new cluster
                 let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir())?;
-                log::trace!("allocated cluster {}", new_cluster);
+                log::trace!("allocated cluster {new_cluster}");
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
                 }
@@ -372,7 +372,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
                 None => panic!("Offset inside cluster but no cluster allocated"),
             }
         };
-        log::trace!("write {} bytes in cluster {}", write_size, current_cluster);
+        log::trace!("write {write_size} bytes in cluster {current_cluster}");
         let offset_in_fs =
             self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let written_bytes = {

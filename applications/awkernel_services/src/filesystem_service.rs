@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
@@ -23,7 +23,7 @@ use core::{
 };
 
 fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {
-    log::error!("fatfs error: {:?}", fatfs_err);
+    log::error!("fatfs error: {fatfs_err:?}");
     match fatfs_err {
         FatFsError::NotFound => FileSystemError::NotFound,
         FatFsError::AlreadyExists => FileSystemError::AlreadyExists,
@@ -70,10 +70,7 @@ pub async fn run() {
         let req = match rx.recv().await {
             Ok(r) => r,
             Err(e) => {
-                log::error!(
-                    "Failed to receive from service_rx: {:?}. Shutting down service.",
-                    e
-                );
+                log::error!("Failed to receive from service_rx: {e:?}. Shutting down service.");
                 break;
             }
         };
@@ -109,8 +106,7 @@ pub async fn run() {
             },
             FileSystemReq::Read { fd, bufsize } => {
                 if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
-                    let mut buf = Vec::new();
-                    buf.resize(bufsize, 0);
+                    let mut buf = vec![0; bufsize];
                     let res = file
                         .read(&mut buf)
                         .map(|bytes_read| {
@@ -118,7 +114,7 @@ pub async fn run() {
                             FileSystemRes::ReadResult(buf)
                         })
                         .map_err(|fatfs_err| {
-                            log::error!("[Read] Error reading from fd {}: {:?}", fd, fatfs_err);
+                            log::error!("[Read] Error reading from fd {fd}: {fatfs_err:?}");
                             map_fatfs_error(fatfs_err)
                         });
                     send_response(fd, client_tx, res, "[Read]").await;
@@ -132,7 +128,7 @@ pub async fn run() {
                         file.write(&buf)
                             .map(FileSystemRes::WriteBytes)
                             .map_err(|fatfs_err| {
-                                log::error!("[Write] Error writing to fd {}: {:?}", fd, fatfs_err);
+                                log::error!("[Write] Error writing to fd {fd}: {fatfs_err:?}");
                                 map_fatfs_error(fatfs_err)
                             });
                     send_response(fd, client_tx, res, "[Write]").await;
@@ -148,7 +144,7 @@ pub async fn run() {
                         .seek(fatfs_seek_from)
                         .map(FileSystemRes::SeekBytes)
                         .map_err(|fatfs_err| {
-                            log::error!("[Seek] Error seeking in fd {}: {:?}", fd, fatfs_err);
+                            log::error!("[Seek] Error seeking in fd {fd}: {fatfs_err:?}");
                             map_fatfs_error(fatfs_err)
                         });
                     send_response(fd, client_tx, res, "[Seek]").await;

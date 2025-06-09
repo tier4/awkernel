@@ -221,7 +221,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is not a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
-        log::trace!("Dir::open_dir {}", path);
+        log::trace!("Dir::open_dir {path}");
         let (name, rest_opt) = split_path(path);
         let e = self.find_entry(name, Some(true), None)?;
         match rest_opt {
@@ -242,7 +242,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        log::trace!("Dir::open_file {}", path);
+        log::trace!("Dir::open_file {path}");
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -269,7 +269,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        log::trace!("Dir::create_file {}", path);
+        log::trace!("Dir::create_file {path}");
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -306,7 +306,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
-        log::trace!("Dir::create_dir {}", path);
+        log::trace!("Dir::create_dir {path}");
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -381,7 +381,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     /// * `Error::DirectoryIsNotEmpty` will be returned if the specified directory is not empty.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
-        log::trace!("Dir::remove {}", path);
+        log::trace!("Dir::remove {path}");
         // traverse path
         let (name, rest_opt) = split_path(path);
         if let Some(rest) = rest_opt {
@@ -403,7 +403,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
-            log::trace!("removing dir entry {:?}", data);
+            log::trace!("removing dir entry {data:?}");
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
             data.serialize(&mut stream)?;
@@ -433,7 +433,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         dst_dir: &Dir<IO, TP, OCC>,
         dst_path: &str,
     ) -> Result<(), Error<IO::Error>> {
-        log::trace!("Dir::rename {} {}", src_path, dst_path);
+        log::trace!("Dir::rename {src_path} {dst_path}");
         // traverse source path
         let (src_name, src_rest_opt) = split_path(src_path);
         if let Some(rest) = src_rest_opt {
@@ -456,7 +456,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         dst_dir: &Dir<IO, TP, OCC>,
         dst_name: &str,
     ) -> Result<(), Error<IO::Error>> {
-        log::trace!("Dir::rename_internal {} {}", src_name, dst_name);
+        log::trace!("Dir::rename_internal {src_name} {dst_name}");
         // find existing file
         let e = self.find_entry(src_name, None, None)?;
         // check if destionation filename is unused
@@ -481,7 +481,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
-            log::trace!("removing LFN entry {:?}", data);
+            log::trace!("removing LFN entry {data:?}");
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
             data.serialize(&mut stream)?;
@@ -587,7 +587,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         name: &str,
         raw_entry: DirFileEntryData,
     ) -> Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>> {
-        log::trace!("Dir::write_entry {}", name);
+        log::trace!("Dir::write_entry {name}");
         // check if name doesn't contain unsupported characters
         validate_long_name(name)?;
         // convert long name to UTF-16

@@ -86,7 +86,7 @@ impl fmt::Display for InMemoryDiskError {
             InMemoryDiskError::WriteZero => write!(f, "Failed to write whole buffer"),
             InMemoryDiskError::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
             InMemoryDiskError::_Interrupted => write!(f, "Operation interrupted"),
-            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {}", msg),
+            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {msg}"),
         }
     }
 }

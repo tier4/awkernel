@@ -139,14 +139,14 @@ impl FsInfoSector {
     fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
         let lead_sig = rdr.read_u32_le()?;
         if lead_sig != Self::LEAD_SIG {
-            log::error!("invalid lead_sig in FsInfo sector: {}", lead_sig);
+            log::error!("invalid lead_sig in FsInfo sector: {lead_sig}");
             return Err(Error::CorruptedFileSystem);
         }
         let mut reserved = [0_u8; 480];
         rdr.read_exact(&mut reserved)?;
         let struc_sig = rdr.read_u32_le()?;
         if struc_sig != Self::STRUC_SIG {
-            log::error!("invalid struc_sig in FsInfo sector: {}", struc_sig);
+            log::error!("invalid struc_sig in FsInfo sector: {struc_sig}");
             return Err(Error::CorruptedFileSystem);
         }
         let free_cluster_count = match rdr.read_u32_le()? {
@@ -169,7 +169,7 @@ impl FsInfoSector {
         rdr.read_exact(&mut reserved2)?;
         let trail_sig = rdr.read_u32_le()?;
         if trail_sig != Self::TRAIL_SIG {
-            log::error!("invalid trail_sig in FsInfo sector: {}", trail_sig);
+            log::error!("invalid trail_sig in FsInfo sector: {trail_sig}");
             return Err(Error::CorruptedFileSystem);
         }
         Ok(Self {
@@ -197,9 +197,7 @@ impl FsInfoSector {
         if let Some(n) = self.free_cluster_count {
             if n > total_clusters {
                 log::warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds total cluster count ({})",
-                    n,
-                    total_clusters
+                    "invalid free_cluster_count ({n}) in fs_info exceeds total cluster count ({total_clusters})"
                 );
                 self.free_cluster_count = None;
             }
@@ -207,8 +205,7 @@ impl FsInfoSector {
         if let Some(n) = self.next_free_cluster {
             if n > max_valid_cluster_number {
                 log::warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds maximum cluster number ({})",
-                    n, max_valid_cluster_number
+                    "invalid free_cluster_count ({n}) in fs_info exceeds maximum cluster number ({max_valid_cluster_number})"
                 );
                 self.next_free_cluster = None;
             }
@@ -766,7 +763,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
 impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
-            log::error!("unmount failed {:?}", err);
+            log::error!("unmount failed {err:?}");
         }
     }
 }
@@ -1245,7 +1242,7 @@ pub fn format_volume<S: ReadWriteSeek>(
         let total_sectors_64 = total_bytes / u64::from(options.bytes_per_sector);
         storage.seek(SeekFrom::Start(0))?;
         if total_sectors_64 > u64::from(u32::MAX) {
-            log::error!("Volume has too many sectors: {}", total_sectors_64);
+            log::error!("Volume has too many sectors: {total_sectors_64}");
             return Err(Error::InvalidInput);
         }
         total_sectors_64 as u32 // safe case: possible overflow is handled above
