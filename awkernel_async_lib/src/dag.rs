@@ -450,38 +450,43 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
 
         validate_dag(dag)?;
 
-        let pending_tasks = {
-            let mut node = MCSNode::new();
-            let mut lock = PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag_id).unwrap()
-        };
+        spawn_dag(dag).await;
+    }
 
-        for task in pending_tasks {
-            let task_id = (task.spawn)().await;
-            let mut graph_node = MCSNode::new();
-            let mut graph = dag.graph.lock(&mut graph_node);
-            if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
-                node_info.task_id = task_id;
-            }
-        }
+    Ok(())
+}
 
-        // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
-        // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
-        let source_pending_task = {
-            let mut node = MCSNode::new();
-            let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag_id).unwrap()
-        };
+async fn spawn_dag(dag: &Arc<Dag>) {
+    let dag_id = dag.id;
+    let pending_tasks = {
+        let mut node = MCSNode::new();
+        let mut lock = PENDING_TASKS.lock(&mut node);
+        lock.remove(&dag_id).unwrap()
+    };
 
-        let task_id = (source_pending_task.spawn)().await;
+    for task in pending_tasks {
+        let task_id = (task.spawn)().await;
         let mut graph_node = MCSNode::new();
         let mut graph = dag.graph.lock(&mut graph_node);
-        if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
+        if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
         }
     }
 
-    Ok(())
+    // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
+    // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
+    let source_pending_task = {
+        let mut node = MCSNode::new();
+        let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
+        lock.remove(&dag_id).unwrap()
+    };
+
+    let task_id = (source_pending_task.spawn)().await;
+    let mut graph_node = MCSNode::new();
+    let mut graph = dag.graph.lock(&mut graph_node);
+    if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
+        node_info.task_id = task_id;
+    }
 }
 
 async fn spawn_reactor<F, Args, Ret>(
