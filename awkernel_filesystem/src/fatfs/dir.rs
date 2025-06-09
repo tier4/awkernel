@@ -18,6 +18,7 @@ use super::time::TimeProvider;
 use awkernel_lib::file::error::{Error, IoError};
 use awkernel_lib::file::io::{IoBase, Read, Seek, SeekFrom, Write};
 
+#[cfg(feature = "lfn")]
 const LFN_PADDING: u16 = 0xFFFF;
 
 pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {

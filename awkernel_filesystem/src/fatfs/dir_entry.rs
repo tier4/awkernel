@@ -15,7 +15,7 @@ use super::time::{Date, DateTime};
 use crate::dir::LfnBuffer;
 use awkernel_lib::file::error::{Error, IoError};
 use awkernel_lib::file::io::{self, Read, ReadLeExt, Write, WriteLeExt};
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
+use awkernel_sync::mcs::MCSNode;
 
 bitflags! {
     /// A FAT file attributes.
@@ -216,10 +216,12 @@ impl DirFileEntryData {
         !self.is_dir()
     }
 
+    #[cfg(feature = "alloc")]
     fn lowercase_basename(&self) -> bool {
         self.reserved_0 & (1 << 3) != 0
     }
 
+    #[cfg(feature = "alloc")]
     fn lowercase_ext(&self) -> bool {
         self.reserved_0 & (1 << 4) != 0
     }

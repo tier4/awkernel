@@ -1,7 +1,6 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::string::String;
 use core::borrow::BorrowMut;
-use core::cell::{Cell, RefCell};
 use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;

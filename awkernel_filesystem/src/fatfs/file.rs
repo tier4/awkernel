@@ -6,7 +6,7 @@ use super::time::{Date, DateTime, TimeProvider};
 use awkernel_lib::file::error::Error;
 use awkernel_lib::file::io::{IoBase, Read, Seek, SeekFrom, Write};
 
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
+use awkernel_sync::mcs::MCSNode;
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
 
