@@ -45,4 +45,10 @@ impl VirtioNotifyCap {
 
         Ok(multiplier)
     }
+
+    pub fn virtio_set_notify(&mut self, offset: usize, idx: u16) -> Result<(), VirtioDriverErr> {
+        self.bar.write16(self.offset + offset, idx);
+
+        Ok(())
+    }
 }
