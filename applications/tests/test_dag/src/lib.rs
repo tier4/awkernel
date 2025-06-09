@@ -5,6 +5,7 @@ use alloc::{borrow::Cow, vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
+use awkernel_lib::device_tree::error;
 use core::time::Duration;
 
 const LOG_ENABLE: bool = false;
@@ -95,9 +96,10 @@ pub async fn run() {
         Ok(_) => {
             log::info!("DAG created successfully");
         }
-        Err(e) => {
-            for error in e {
-                log::error!("Error creating DAG: {error}");
+        Err(errors) => {
+            log::error!("Failed to create DAGs");
+            for error in errors {
+                log::error!("- {error}");
             }
         }
     }
