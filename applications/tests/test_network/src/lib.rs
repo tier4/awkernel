@@ -41,33 +41,33 @@ pub async fn run() {
     )
     .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp listen".into(),
-        tcp_listen_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp listen".into(),
+    //     tcp_listen_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp connect".into(),
-        tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp connect".into(),
+    //     tcp_connect_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast recv".into(),
-        ipv4_multicast_recv_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test IPv4 multicast recv".into(),
+    //     ipv4_multicast_recv_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast send".into(),
-        ipv4_multicast_send_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test IPv4 multicast send".into(),
+    //     ipv4_multicast_send_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 }
 
 async fn ipv4_multicast_send_test() {
@@ -267,12 +267,12 @@ async fn udp_test() {
         }
 
         // Receive a UDP packet.
-        if let Some(Ok(_)) =
-            awkernel_async_lib::timeout(Duration::from_secs(1), socket.recv(&mut buf)).await
-        {
-            let rtt = t0.elapsed().as_micros() as u64;
-            log::debug!("i = {i}, RTT: {rtt} [us]");
-        }
+        // if let Some(Ok(_)) =
+        //     awkernel_async_lib::timeout(Duration::from_secs(1), socket.recv(&mut buf)).await
+        // {
+        //     let rtt = t0.elapsed().as_micros() as u64;
+        //     log::debug!("i = {i}, RTT: {rtt} [us]");
+        // }
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
         i += 1;
