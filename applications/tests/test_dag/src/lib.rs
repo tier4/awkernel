@@ -5,7 +5,6 @@ use alloc::{borrow::Cow, vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
-use awkernel_lib::device_tree::error;
 use core::time::Duration;
 
 const LOG_ENABLE: bool = false;
