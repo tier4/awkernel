@@ -89,7 +89,18 @@ pub async fn run() {
     )
     .await;
 
-    let _ = finish_create_dags(&[dag.clone()]).await;
+    let result = finish_create_dags(&[dag.clone()]).await;
+
+    match result {
+        Ok(_) => {
+            log::info!("DAG created successfully");
+        }
+        Err(e) => {
+            for error in e {
+                log::error!("Error creating DAG: {error}");
+            }
+        }
+    }
 
     assert_eq!(dag.node_count(), 5);
     assert_eq!(dag.edge_count(), 5);
