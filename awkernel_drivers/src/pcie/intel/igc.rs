@@ -1,20 +1,25 @@
 //! This is a skelton of a PCIe device driver.
 
-use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
         ether::ETHER_TYPE_VLAN,
         net_device::{self, LinkStatus, NetDevice},
     },
-    sync::rwlock::RwLock,
+    paging::PAGESIZE,
+    sync::{mutex::Mutex, rwlock::RwLock},
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
 use igc_defines::*;
 use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
-use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
+use crate::pcie::{
+    intel::igc::igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+    PCIeDevice, PCIeDeviceErr, PCIeInfo,
+};
 
 mod i225;
 mod igc_api;
@@ -44,6 +49,9 @@ const IGC_MAX_VECTORS: u16 = 8;
 
 const DEVICE_SHORT_NAME: &str = "igc";
 
+const IGC_DEFAULT_RXD: usize = 1024;
+const IGC_DEFAULT_TXD: usize = 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
     NoBar0,
@@ -57,6 +65,31 @@ pub enum IgcDriverErr {
     Param,
     Phy,
     Config,
+}
+
+type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
+type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
+
+struct Rx {
+    rx_desc_head: usize,
+    rx_desc_tail: usize,
+    rx_desc_ring: DMAPool<RxRing>,
+
+    // Statistics
+    dropped_pkts: u64,
+}
+
+struct Tx {
+    tx_desc_head: usize,
+    tx_desc_tail: usize,
+    tx_desc_ring: DMAPool<TxRing>,
+}
+
+struct IgcQueue {
+    rx: Vec<Mutex<Rx>>,
+    tx: Vec<Mutex<Tx>>,
+    irq_to_queue: BTreeMap<u16, usize>,
+    irqs: Vec<IRQ>,
 }
 
 /// Check if the device is an Intel I225/I226.
@@ -101,6 +134,8 @@ pub struct IgcInner {
 
 pub struct Igc {
     inner: RwLock<IgcInner>,
+    queue: IgcQueue,
+    irq_events: IRQ,
 }
 
 impl Igc {
@@ -112,10 +147,9 @@ impl Igc {
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
 
-        let (_irqs_queues, _irq_events) = igc_allocate_pci_resources(&mut info)?;
+        let (irqs_queues, irq_events) = igc_allocate_pci_resources(&mut info)?;
 
-        // TODO:
-        // - allocate tx/rx queues.
+        let queue = igc_allocate_queues(&info, irqs_queues)?;
 
         let ops = igc_setup_init_funcs(&mut info, &mut hw).or(Err(InitFailure))?;
 
@@ -147,7 +181,11 @@ impl Igc {
 
         let inner = RwLock::new(IgcInner::new(ops, info, hw));
 
-        let igc = Self { inner };
+        let igc = Self {
+            inner,
+            queue,
+            irq_events,
+        };
         let mac_addr = igc.mac_address();
 
         log::info!(
@@ -206,12 +244,19 @@ impl NetDevice for Igc {
     }
 
     fn interrupt(&self, _irq: u16) -> Result<(), net_device::NetDevError> {
-        todo!("interrupt");
+        // TODO
+        Ok(())
     }
 
     fn irqs(&self) -> Vec<u16> {
-        // TODO
-        Vec::new()
+        let mut result = Vec::with_capacity(self.queue.irqs.len() + 1);
+        for irq in &self.queue.irqs {
+            result.push(irq.get_irq());
+        }
+
+        result.push(self.irq_events.get_irq());
+
+        result
     }
 
     fn link_speed(&self) -> u64 {
@@ -230,8 +275,7 @@ impl NetDevice for Igc {
     }
 
     fn num_queues(&self) -> usize {
-        // TODO
-        1
+        self.queue.rx.len()
     }
 
     fn recv(
@@ -256,9 +300,8 @@ impl NetDevice for Igc {
         Ok(())
     }
 
-    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
-        // TODO
-        None
+    fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
+        self.queue.irq_to_queue.get(&irq).copied()
     }
 }
 
@@ -637,4 +680,46 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     irq_other.enable();
 
     Ok((irqs_queues, irq_other))
+}
+
+fn igc_allocate_queues(info: &PCIeInfo, irqs: Vec<IRQ>) -> Result<IgcQueue, PCIeDeviceErr> {
+    assert!(core::mem::size_of::<RxRing>() % PAGESIZE == 0);
+    assert!(core::mem::size_of::<TxRing>() % PAGESIZE == 0);
+
+    let mut irq_to_queue = BTreeMap::new();
+    let mut rx = Vec::with_capacity(irqs.len());
+    let mut tx = Vec::with_capacity(irqs.len());
+
+    for (n, irq) in irqs.iter().enumerate() {
+        let irq_num = irq.get_irq();
+        irq_to_queue.insert(irq_num, n);
+
+        rx.push(Mutex::new(Rx {
+            rx_desc_head: 0,
+            rx_desc_tail: 0,
+            rx_desc_ring: DMAPool::new(
+                info.segment_group as usize,
+                core::mem::size_of::<RxRing>() / PAGESIZE,
+            )
+            .ok_or(PCIeDeviceErr::InitFailure)?,
+            dropped_pkts: 0,
+        }));
+
+        tx.push(Mutex::new(Tx {
+            tx_desc_head: 0,
+            tx_desc_tail: 0,
+            tx_desc_ring: DMAPool::new(
+                info.segment_group as usize,
+                core::mem::size_of::<TxRing>() / PAGESIZE,
+            )
+            .ok_or(PCIeDeviceErr::InitFailure)?,
+        }));
+    }
+
+    Ok(IgcQueue {
+        rx,
+        tx,
+        irq_to_queue,
+        irqs,
+    })
 }

@@ -12,14 +12,14 @@ use super::{
 pub(super) const IGC_RAR_ENTRIES_BASE: u16 = 16;
 
 /// Transmit Descriptor - Advanced
-union IgcAdvTxDesc {
+pub(super) union IgcAdvTxDesc {
     read: TxDescRead,
     wb: TxDescWb,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct TxDescRead {
+pub(super) struct TxDescRead {
     buffer_addr: u64, // Address of descriptor's data buf
     cmd_type_len: u32,
     olinfo_status: u32,
@@ -27,7 +27,7 @@ struct TxDescRead {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct TxDescWb {
+pub(super) struct TxDescWb {
     rsvd: u64, // Reserved
     nxtseq_seed: u32,
     status: u32,
@@ -36,7 +36,7 @@ struct TxDescWb {
 /// Context descriptors
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct IgcAdvTxContextDesc {
+pub(super) struct IgcAdvTxContextDesc {
     vlan_macip_lens: u32,
     ts: TxContextTS,
     type_tucmd_mlhl: u32,
@@ -44,7 +44,7 @@ struct IgcAdvTxContextDesc {
 }
 
 #[derive(Clone, Copy)]
-union TxContextTS {
+pub(super) union TxContextTS {
     launch_time: u32, // Launch time
     seqnum_seed: u32, // Sequence number seed
 }
@@ -52,40 +52,40 @@ union TxContextTS {
 /// Receive Descriptor - Advanced
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct IgcAdvRxDesc {
+pub(super) struct IgcAdvRxDesc {
     read: RxRead,
     wb: RxWb, // writeback
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct RxRead {
+pub(super) struct RxRead {
     pkt_addr: u64, // Packet buffer address
     hdr_addr: u64, // Header buffer address
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct RxHsRss {
+pub(super) struct RxHsRss {
     pkt_info: u16, // Packet type
     hdr_info: u16, // Split Header, header buffer len
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct RxCsumIp {
+pub(super) struct RxCsumIp {
     ip_id: u16, // IP id
     csum: u16,  // Packet checksum
 }
 
 #[derive(Clone, Copy)]
-union RxLoDword {
+pub(super) union RxLoDword {
     data: u32,
     hs_rss: RxHsRss,
 }
 
 #[derive(Clone, Copy)]
-union RxHiDword {
+pub(super) union RxHiDword {
     rss: u32, // RSS hash
     csum_ip: RxCsumIp,
 }
