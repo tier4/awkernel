@@ -994,9 +994,7 @@ impl LongNameBuilder {
 }
 
 // Dummy implementation for non-alloc build
-#[cfg(not(feature = "lfn"))]
 struct LongNameBuilder {}
-#[cfg(not(feature = "lfn"))]
 impl LongNameBuilder {
     fn new() -> Self {
         LongNameBuilder {}
@@ -1004,8 +1002,10 @@ impl LongNameBuilder {
     #[allow(clippy::unused_self)]
     fn clear(&mut self) {}
     #[allow(clippy::unused_self)]
+    #[cfg(feature = "lfn")]
     fn into_vec(self) {}
     #[allow(clippy::unused_self)]
+    #[cfg(feature = "lfn")]
     fn truncate(&mut self) {}
     #[allow(clippy::unused_self)]
     fn process(&mut self, _data: &DirLfnEntryData) {}

@@ -46,6 +46,7 @@ pub(crate) const SFN_SIZE: usize = 11;
 pub(crate) const SFN_PADDING: u8 = b' ';
 
 // Length in characters of a LFN fragment packed in one directory entry
+#[cfg(feature = "lfn")]
 pub(crate) const LFN_PART_LEN: usize = 13;
 
 // Bit used in order field to mark last LFN entry
@@ -301,6 +302,7 @@ pub(crate) struct DirLfnEntryData {
 }
 
 impl DirLfnEntryData {
+    #[cfg(feature = "lfn")]
     pub(crate) fn new(order: u8, checksum: u8) -> Self {
         Self {
             order,
@@ -310,12 +312,14 @@ impl DirLfnEntryData {
         }
     }
 
+    #[cfg(feature = "lfn")]
     pub(crate) fn copy_name_from_slice(&mut self, lfn_part: &[u16; LFN_PART_LEN]) {
         self.name_0.copy_from_slice(&lfn_part[0..5]);
         self.name_1.copy_from_slice(&lfn_part[5..5 + 6]);
         self.name_2.copy_from_slice(&lfn_part[11..11 + 2]);
     }
 
+    #[cfg(feature = "lfn")]
     pub(crate) fn copy_name_to_slice(&self, lfn_part: &mut [u16]) {
         debug_assert!(lfn_part.len() == LFN_PART_LEN);
         lfn_part[0..5].copy_from_slice(&self.name_0);
@@ -341,10 +345,12 @@ impl DirLfnEntryData {
         Ok(())
     }
 
+    #[cfg(feature = "lfn")]
     pub(crate) fn order(&self) -> u8 {
         self.order
     }
 
+    #[cfg(feature = "lfn")]
     pub(crate) fn checksum(&self) -> u8 {
         self.checksum
     }
