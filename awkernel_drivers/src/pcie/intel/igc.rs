@@ -85,11 +85,10 @@ struct Tx {
     tx_desc_ring: DMAPool<TxRing>,
 }
 
-struct IgcQueue {
-    rx: Vec<Mutex<Rx>>,
-    tx: Vec<Mutex<Tx>>,
-    irq_to_queue: BTreeMap<u16, usize>,
-    irqs: Vec<IRQ>,
+struct Queue {
+    rx: Mutex<Rx>,
+    tx: Mutex<Tx>,
+    me: usize,
 }
 
 /// Check if the device is an Intel I225/I226.
@@ -134,7 +133,9 @@ pub struct IgcInner {
 
 pub struct Igc {
     inner: RwLock<IgcInner>,
-    queue: IgcQueue,
+    que: Vec<Queue>,
+    irqs_to_queues: BTreeMap<u16, usize>,
+    irqs_queues: Vec<IRQ>,
     irq_events: IRQ,
 }
 
@@ -149,7 +150,7 @@ impl Igc {
 
         let (irqs_queues, irq_events) = igc_allocate_pci_resources(&mut info)?;
 
-        let queue = igc_allocate_queues(&info, irqs_queues)?;
+        let (que, irqs_to_queues) = igc_allocate_queues(&info, &irqs_queues)?;
 
         let ops = igc_setup_init_funcs(&mut info, &mut hw).or(Err(InitFailure))?;
 
@@ -183,7 +184,9 @@ impl Igc {
 
         let igc = Self {
             inner,
-            queue,
+            que,
+            irqs_to_queues,
+            irqs_queues,
             irq_events,
         };
         let mac_addr = igc.mac_address();
@@ -249,8 +252,8 @@ impl NetDevice for Igc {
     }
 
     fn irqs(&self) -> Vec<u16> {
-        let mut result = Vec::with_capacity(self.queue.irqs.len() + 1);
-        for irq in &self.queue.irqs {
+        let mut result = Vec::with_capacity(self.irqs_queues.len() + 1);
+        for irq in self.irqs_queues.iter() {
             result.push(irq.get_irq());
         }
 
@@ -275,7 +278,7 @@ impl NetDevice for Igc {
     }
 
     fn num_queues(&self) -> usize {
-        self.queue.rx.len()
+        self.que.len()
     }
 
     fn recv(
@@ -301,7 +304,7 @@ impl NetDevice for Igc {
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
-        self.queue.irq_to_queue.get(&irq).copied()
+        self.irqs_to_queues.get(&irq).copied()
     }
 }
 
@@ -682,19 +685,21 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     Ok((irqs_queues, irq_other))
 }
 
-fn igc_allocate_queues(info: &PCIeInfo, irqs: Vec<IRQ>) -> Result<IgcQueue, PCIeDeviceErr> {
+fn igc_allocate_queues(
+    info: &PCIeInfo,
+    irqs: &[IRQ],
+) -> Result<(Vec<Queue>, BTreeMap<u16, usize>), PCIeDeviceErr> {
     assert!(core::mem::size_of::<RxRing>() % PAGESIZE == 0);
     assert!(core::mem::size_of::<TxRing>() % PAGESIZE == 0);
 
     let mut irq_to_queue = BTreeMap::new();
-    let mut rx = Vec::with_capacity(irqs.len());
-    let mut tx = Vec::with_capacity(irqs.len());
+    let mut que = Vec::with_capacity(irqs.len());
 
     for (n, irq) in irqs.iter().enumerate() {
         let irq_num = irq.get_irq();
         irq_to_queue.insert(irq_num, n);
 
-        rx.push(Mutex::new(Rx {
+        let rx = Mutex::new(Rx {
             rx_desc_head: 0,
             rx_desc_tail: 0,
             rx_desc_ring: DMAPool::new(
@@ -703,9 +708,9 @@ fn igc_allocate_queues(info: &PCIeInfo, irqs: Vec<IRQ>) -> Result<IgcQueue, PCIe
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
             dropped_pkts: 0,
-        }));
+        });
 
-        tx.push(Mutex::new(Tx {
+        let tx = Mutex::new(Tx {
             tx_desc_head: 0,
             tx_desc_tail: 0,
             tx_desc_ring: DMAPool::new(
@@ -713,13 +718,10 @@ fn igc_allocate_queues(info: &PCIeInfo, irqs: Vec<IRQ>) -> Result<IgcQueue, PCIe
                 core::mem::size_of::<TxRing>() / PAGESIZE,
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
-        }));
+        });
+
+        que.push(Queue { rx, tx, me: n });
     }
 
-    Ok(IgcQueue {
-        rx,
-        tx,
-        irq_to_queue,
-        irqs,
-    })
+    Ok((que, irq_to_queue))
 }
