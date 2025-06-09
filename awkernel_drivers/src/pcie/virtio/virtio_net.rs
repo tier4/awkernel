@@ -426,14 +426,11 @@ impl VirtioNetInner {
         self.common_cfg.virtio_get_queue_size()
     }
 
-    fn virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
-        let offset =
-            self.common_cfg.virtio_get_queue_notify_off()? *
-            self.notify_cap.virtio_get_notify_off_multiplier()?;
+    fn _virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
+        let offset = self.common_cfg.virtio_get_queue_notify_off()? as usize
+            * self.notify_cap.virtio_get_notify_off_multiplier()? as usize;
 
-        self.notify_cfg.virtio_set_notify_off(offset, idx)?;
-
-        Ok(())
+        self.notify_cap.virtio_set_notify(offset, idx)
     }
 
     fn virtio_has_feature(&self, feature: u64) -> bool {
