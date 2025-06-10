@@ -58,8 +58,11 @@ pub async fn run() {
         Ok(_) => {
             log::info!("DAGs created successfully.");
         }
-        Err(e) => {
-            log::error!("Failed to create DAGs: {e}");
+        Err(errors) => {
+            log::error!("Failed to create DAGs");
+            for error in errors {
+                log::error!("- {error}");
+            }
         }
     }
 }
