@@ -366,6 +366,11 @@ impl Dags {
             }
         }
     }
+
+    #[inline(always)]
+    fn remove(&mut self, id: u32) {
+        self.id_to_dag.remove(&id);
+    }
 }
 
 pub fn create_dag() -> Arc<Dag> {
@@ -378,6 +383,20 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+fn remove_dag(id: u32) {
+    let mut node = MCSNode::new();
+    let mut dags = DAGS.lock(&mut node);
+    dags.remove(id);
+
+    let mut pending_node = MCSNode::new();
+    let mut pending_tasks = PENDING_TASKS.lock(&mut pending_node);
+    pending_tasks.remove(&id);
+
+    let mut source_pending_node = MCSNode::new();
+    let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut source_pending_node);
+    source_pending_tasks.remove(&id);
 }
 
 /// This validation prevents issues caused by the following misconfigurations:
@@ -446,13 +465,22 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
-    for dag in dags {
-        validate_dag(dag)?;
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    let error_list = dags
+        .iter()
+        .filter_map(|dag| validate_dag(dag).err())
+        .collect::<Vec<_>>();
 
-        spawn_dag(dag).await;
+    if !error_list.is_empty() {
+        for dag in dags {
+            remove_dag(dag.id);
+        }
+        return Err(error_list);
     }
 
+    for dag in dags {
+        spawn_dag(dag).await;
+    }
     Ok(())
 }
 
