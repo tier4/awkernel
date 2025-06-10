@@ -55,9 +55,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_dvfs")]
     test_dvfs::run().await; // test for DVFS
 
-    #[cfg(feature = "test_filesystem")]
-    test_filesystem::run().await; // test for file system
-
     #[cfg(feature = "test_voluntary_preemption")]
     test_voluntary_preemption::run().await; // test for voluntary preemption
 
