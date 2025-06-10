@@ -437,6 +437,7 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
         get_dag(dag_id).is_some(),
         "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
     );
+
     let mut pending_node = MCSNode::new();
     if PENDING_TASKS.lock(&mut pending_node).get(&dag_id).is_none() {
         return Err(DagError::MissingPendingTasks(dag_id));
