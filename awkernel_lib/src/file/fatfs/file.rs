@@ -1,12 +1,12 @@
 use core::convert::TryFrom;
 
-use crate::dir_entry::DirEntryEditor;
-use crate::error::Error;
-use crate::fs::{FileSystem, ReadWriteSeek};
-use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
-use crate::time::{Date, DateTime, TimeProvider};
+use super::super::error::Error;
+use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
+use super::dir_entry::DirEntryEditor;
+use super::fs::{FileSystem, ReadWriteSeek};
+use super::time::{Date, DateTime, TimeProvider};
 
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
+use awkernel_sync::mcs::MCSNode;
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
 
@@ -62,7 +62,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
     ///
     /// Will panic if this is the root directory.
     pub fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
-        trace!("File::truncate");
+        log::trace!("File::truncate");
         if let Some(ref mut e) = self.entry {
             e.set_size(self.offset);
             if self.offset == 0 {
@@ -226,7 +226,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OC
         if let Some(ref mut e) = self.entry {
             let now = self.fs.options.time_provider.get_current_date_time();
             e.set_modified(now);
-            if e.inner().size().map_or(false, |s| offset > s) {
+            if e.inner().size().is_some_and(|s| offset > s) {
                 e.set_size(offset);
             }
         }
@@ -236,7 +236,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OC
 impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<'_, IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.flush() {
-            error!("flush failed {:?}", err);
+            log::error!("flush failed {err:?}");
         }
     }
 }
@@ -260,7 +260,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for File<'_, IO, TP, OCC> 
 
 impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        trace!("File::read");
+        log::trace!("File::read");
         let cluster_size = self.fs.cluster_size();
         let current_cluster_opt = if self.offset % cluster_size == 0 {
             // next cluster
@@ -288,8 +288,9 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, I
         if read_size == 0 {
             return Ok(0);
         }
-        trace!("read {} bytes in cluster {}", read_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        log::trace!("read {read_size} bytes in cluster {current_cluster}");
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -324,12 +325,15 @@ where
 
 impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        trace!("File::write");
+        log::trace!("File::write");
         let cluster_size = self.fs.cluster_size();
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_until_max_file_size = (MAX_FILE_SIZE - self.offset) as usize;
-        let write_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_until_max_file_size);
+        let write_size = buf
+            .len()
+            .min(bytes_left_in_cluster)
+            .min(bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
         if write_size == 0 {
             return Ok(0);
@@ -355,7 +359,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
             } else {
                 // end of chain reached - allocate new cluster
                 let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir())?;
-                trace!("allocated cluster {}", new_cluster);
+                log::trace!("allocated cluster {new_cluster}");
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
                 }
@@ -368,8 +372,9 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
                 None => panic!("Offset inside cluster but no cluster allocated"),
             }
         };
-        trace!("write {} bytes in cluster {}", write_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        log::trace!("write {write_size} bytes in cluster {current_cluster}");
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -392,7 +397,8 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write
+    for File<'_, IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -411,7 +417,7 @@ where
 
 impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        trace!("File::seek");
+        log::trace!("File::seek");
         let size_opt = self.size();
         let new_offset_opt: Option<u32> = match pos {
             SeekFrom::Current(x) => i64::from(self.offset)
@@ -423,16 +429,21 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
                 .and_then(|n| u32::try_from(n).ok()),
         };
         let Some(mut new_offset) = new_offset_opt else {
-            error!("Invalid seek offset");
+            log::error!("Invalid seek offset");
             return Err(Error::InvalidInput);
         };
         if let Some(size) = size_opt {
             if new_offset > size {
-                warn!("Seek beyond the end of the file");
+                log::warn!("Seek beyond the end of the file");
                 new_offset = size;
             }
         }
-        trace!("file seek {} -> {} - entry {:?}", self.offset, new_offset, self.entry);
+        log::trace!(
+            "file seek {} -> {} - entry {:?}",
+            self.offset,
+            new_offset,
+            self.entry
+        );
         if new_offset == self.offset {
             // position is the same - nothing to do
             return Ok(u64::from(self.offset));
