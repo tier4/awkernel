@@ -78,16 +78,12 @@ optional = true
 path = "../applications/tests/test_dvfs"
 optional = true
 
-[dependencies.test_filesystem]
-path = "../applications/tests/test_filesystem"
-optional = true
-
 [dependencies.test_voluntary_preemption]
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
 [features]
-default = []
+default = [""]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
