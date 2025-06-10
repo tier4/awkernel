@@ -121,14 +121,19 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-pub struct IgcInner {
-    ops: Box<dyn IgcOperations + Sync + Send>,
-    info: PCIeInfo,
-    hw: IgcHw,
+#[derive(Debug)]
+struct LinkInfo {
     link_active: bool,
     link_speed: Option<IgcSpeed>,
     link_duplex: Option<IgcDuplex>,
     link_status: LinkStatus,
+}
+
+pub struct IgcInner {
+    ops: Box<dyn IgcOperations + Sync + Send>,
+    info: PCIeInfo,
+    hw: IgcHw,
+    link_info: LinkInfo,
 }
 
 pub struct Igc {
@@ -175,12 +180,15 @@ impl Igc {
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
 
-        if igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw).is_err() {
-            let _ = igc_release_hw_control(&mut info);
-            return Err(InitFailure);
-        }
+        let link_info = match igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw) {
+            Ok(link_info) => link_info,
+            Err(e) => {
+                log::error!("Failed to attach and get hardware control: {e:?}");
+                return Err(InitFailure);
+            }
+        };
 
-        let inner = RwLock::new(IgcInner::new(ops, info, hw));
+        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info));
 
         let igc = Self {
             inner,
@@ -264,12 +272,12 @@ impl NetDevice for Igc {
 
     fn link_speed(&self) -> u64 {
         let inner = self.inner.read();
-        inner.link_speed.map_or(0, |s| s as u64)
+        inner.link_info.link_speed.map_or(0, |s| s as u64)
     }
 
     fn link_status(&self) -> net_device::LinkStatus {
         let inner = self.inner.read();
-        inner.link_status
+        inner.link_info.link_status
     }
 
     fn mac_address(&self) -> [u8; 6] {
@@ -541,51 +549,18 @@ where
 }
 
 impl IgcInner {
-    fn new(ops: Box<dyn IgcOperations + Sync + Send>, info: PCIeInfo, hw: IgcHw) -> Self {
+    fn new(
+        ops: Box<dyn IgcOperations + Sync + Send>,
+        info: PCIeInfo,
+        hw: IgcHw,
+        link_info: LinkInfo,
+    ) -> Self {
         Self {
             ops,
             info,
             hw,
-            link_active: false,
-            link_speed: None,
-            link_duplex: None,
-            link_status: LinkStatus::Down,
+            link_info,
         }
-    }
-
-    fn igc_update_link_status(
-        &mut self,
-        ops: &dyn IgcOperations,
-        info: &mut PCIeInfo,
-        hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr> {
-        if hw.mac.get_link_status {
-            ops.check_for_link(info, hw)?;
-        }
-
-        self.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
-            if !self.link_active {
-                let (speed, duplex) = ops.get_link_up_info(info, hw)?;
-                self.link_speed = Some(speed);
-                self.link_duplex = Some(duplex);
-                self.link_active = true;
-            }
-
-            if self.link_duplex == Some(IgcDuplex::Full) {
-                LinkStatus::UpFullDuplex
-            } else {
-                LinkStatus::UpHalfDuplex
-            }
-        } else {
-            if self.link_active {
-                self.link_speed = None;
-                self.link_duplex = None;
-                self.link_active = false;
-            }
-            LinkStatus::Down
-        };
-
-        Ok(())
     }
 }
 
@@ -593,7 +568,7 @@ fn igc_attach_and_hw_control(
     ops: &dyn IgcOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
-) -> Result<(), PCIeDeviceErr> {
+) -> Result<LinkInfo, PCIeDeviceErr> {
     use PCIeDeviceErr::InitFailure;
 
     ops.reset_hw(info, hw).or(Err(InitFailure))?;
@@ -613,9 +588,24 @@ fn igc_attach_and_hw_control(
         return Err(PCIeDeviceErr::InitFailure);
     }
 
-    // TODO: continue initialization
+    let sc_fc = IgcFcMode::None; // No flow control request.
+    let sc_dmac = 0; // DMA Coalescing is disabled by default.
 
-    Ok(())
+    igc_reset(ops, info, hw, sc_fc, sc_dmac).or(Err(InitFailure))?;
+
+    hw.mac.get_link_status = true;
+    let mut link_info = LinkInfo {
+        link_active: false,
+        link_speed: None,
+        link_duplex: None,
+        link_status: LinkStatus::Down,
+    };
+    igc_update_link_status(ops, info, hw, &mut link_info).or(Err(InitFailure))?;
+
+    // The driver can now take control from firmware
+    igc_get_hw_control(info).or(Err(InitFailure))?;
+
+    Ok(link_info)
 }
 
 fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
@@ -724,4 +714,39 @@ fn igc_allocate_queues(
     }
 
     Ok((que, irq_to_queue))
+}
+
+fn igc_update_link_status(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    link_info: &mut LinkInfo,
+) -> Result<(), IgcDriverErr> {
+    if hw.mac.get_link_status {
+        ops.check_for_link(info, hw)?;
+    }
+
+    link_info.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
+        if !link_info.link_active {
+            let (speed, duplex) = ops.get_link_up_info(info, hw)?;
+            link_info.link_speed = Some(speed);
+            link_info.link_duplex = Some(duplex);
+            link_info.link_active = true;
+        }
+
+        if link_info.link_duplex == Some(IgcDuplex::Full) {
+            LinkStatus::UpFullDuplex
+        } else {
+            LinkStatus::UpHalfDuplex
+        }
+    } else {
+        if link_info.link_active {
+            link_info.link_speed = None;
+            link_info.link_duplex = None;
+            link_info.link_active = false;
+        }
+        LinkStatus::Down
+    };
+
+    Ok(())
 }
