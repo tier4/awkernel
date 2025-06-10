@@ -13,8 +13,8 @@ use super::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use super::time::{Date, DateTime};
 #[cfg(feature = "lfn")]
 use crate::dir::LfnBuffer;
-use awkernel_lib::file::error::{Error, IoError};
-use awkernel_lib::file::io::{self, Read, ReadLeExt, Write, WriteLeExt};
+use super::super::error::{Error, IoError};
+use super::super::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use awkernel_sync::mcs::MCSNode;
 
 bitflags! {

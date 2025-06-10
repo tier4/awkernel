@@ -10,7 +10,6 @@ members = [
     "awkernel_lib",
     "awkernel_aarch64",
     "awkernel_drivers",
-    "awkernel_filesystem",
     "applications/awkernel_services",
     "applications/awkernel_shell",
     "applications/awkernel_display",

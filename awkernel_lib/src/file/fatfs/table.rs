@@ -2,8 +2,8 @@ use core::borrow::BorrowMut;
 use core::marker::PhantomData;
 
 use super::fs::{FatType, FsStatusFlags};
-use awkernel_lib::file::error::{Error, IoError};
-use awkernel_lib::file::io::{self, Read, ReadLeExt, Seek, Write, WriteLeExt};
+use super::super::error::{Error, IoError};
+use super::super::io::{self, Read, ReadLeExt, Seek, Write, WriteLeExt};
 
 struct Fat<S> {
     phantom: PhantomData<S>,

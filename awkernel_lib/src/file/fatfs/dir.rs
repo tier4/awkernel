@@ -15,8 +15,8 @@ use super::dir_entry::{SFN_PADDING, SFN_SIZE};
 use super::file::File;
 use super::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
 use super::time::TimeProvider;
-use awkernel_lib::file::error::{Error, IoError};
-use awkernel_lib::file::io::{IoBase, Read, Seek, SeekFrom, Write};
+use super::super::error::{Error, IoError};
+use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 
 #[cfg(feature = "lfn")]
 const LFN_PADDING: u16 = 0xFFFF;
@@ -508,7 +508,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
                     first_free = i;
                 }
                 let pos = u64::from(first_free * DIR_ENTRY_SIZE);
-                stream.seek(awkernel_lib::file::io::SeekFrom::Start(pos))?;
+                stream.seek(super::super::io::SeekFrom::Start(pos))?;
                 return Ok(stream);
             } else if raw_entry.is_deleted() {
                 // free entry - calculate number of free entries in a row
@@ -519,7 +519,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
                 if num_free == num_entries {
                     // enough space for new file
                     let pos = u64::from(first_free * DIR_ENTRY_SIZE);
-                    stream.seek(awkernel_lib::file::io::SeekFrom::Start(pos))?;
+                    stream.seek(super::super::io::SeekFrom::Start(pos))?;
                     return Ok(stream);
                 }
             } else {
@@ -567,7 +567,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         // find space for new entries (multiple LFN entries and 1 SFN entry)
         let num_entries = lfn_iter.len() as u32 + 1;
         let mut stream = self.find_free_entries(num_entries)?;
-        let start_pos = stream.seek(awkernel_lib::file::io::SeekFrom::Current(0))?;
+        let start_pos = stream.seek(super::super::io::SeekFrom::Current(0))?;
         // write LFN entries before SFN entry
         for lfn_entry in lfn_iter {
             lfn_entry.serialize(&mut stream)?;
@@ -578,7 +578,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
     #[allow(clippy::type_complexity)]
     fn alloc_sfn_entry(&self) -> Result<(DirRawStream<'a, IO, TP, OCC>, u64), Error<IO::Error>> {
         let mut stream = self.find_free_entries(1)?;
-        let start_pos = stream.seek(awkernel_lib::file::io::SeekFrom::Current(0))?;
+        let start_pos = stream.seek(super::super::io::SeekFrom::Current(0))?;
         Ok((stream, start_pos))
     }
 
@@ -602,7 +602,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter>
         // write short name entry
         raw_entry.serialize(&mut stream)?;
         // Get position directory stream after entries were written
-        let end_pos = stream.seek(awkernel_lib::file::io::SeekFrom::Current(0))?;
+        let end_pos = stream.seek(super::super::io::SeekFrom::Current(0))?;
         // Get current absolute position on the storage
         // Unwrapping is safe because abs_pos() returns None only if stream is at position 0. This is not
         // the case because an entry was just written

@@ -14,8 +14,8 @@ use super::table::{
     RESERVED_FAT_ENTRIES,
 };
 use super::time::{DefaultTimeProvider, TimeProvider};
-use awkernel_lib::file::error::Error;
-use awkernel_lib::file::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
+use super::super::error::Error;
+use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 // FAT implementation based on:

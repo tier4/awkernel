@@ -3,8 +3,8 @@ use core::convert::TryFrom;
 use super::dir_entry::DirEntryEditor;
 use super::fs::{FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
-use awkernel_lib::file::error::Error;
-use awkernel_lib::file::io::{IoBase, Read, Seek, SeekFrom, Write};
+use super::super::error::Error;
+use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 
 use awkernel_sync::mcs::MCSNode;
 

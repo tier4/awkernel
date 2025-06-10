@@ -5,7 +5,7 @@ use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
-use awkernel_filesystem::fatfs::{
+use awkernel_lib::file::fatfs::{
     fs::format_volume, fs::FileSystem, fs::FormatVolumeOptions, fs::FsOptions,
 };
 use awkernel_lib::{
