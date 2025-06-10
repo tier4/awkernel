@@ -11,7 +11,7 @@ use awkernel_async_lib::net::{
     IpAddr,
 };
 
-const INTERFACE_ID: u64 = 0;
+const INTERFACE_ID: u64 = 1;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
@@ -33,6 +33,7 @@ const MULTICAST_PORT2: u16 = 30001;
 
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
+    log::info!("Added an IPv4 address to the interface.");
 
     awkernel_async_lib::spawn(
         "test udp".into(),

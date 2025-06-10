@@ -515,7 +515,8 @@ impl VirtioNetInner {
         }
 
         // alloc and map the memory
-        let allocsize = core::mem::size_of::<Virtq>();
+        let allocsize = core::mem::size_of::<VirtqDMA>();
+        log::info!("virtio-net: allocsize: {allocsize}, PAGESIZE: {PAGESIZE}");
         let dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
         // remember addresses and offsets for later use
@@ -608,15 +609,38 @@ impl VirtioNetInner {
     }
 
     fn vio_start(&mut self, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
+        log::info!("virtio-net: start");
         self.vio_tx_dequeue()?;
+        log::info!("virtio-net: tx dequeue done");
+        log::info!("virtio-net: frame size: {}", frames.len());
 
         for frame in frames {
             let slot = self.tx_vq.as_mut().unwrap().virtio_enqueue_prep().unwrap();
+            log::info!("virtio-net: slot: {}", slot);
             self.vio_encap(slot, frame)?;
+            log::info!("virtio-net: encap done");
             self.virtio_enqueue_reserve(slot)?;
+            log::info!("virtio-net: reserve done");
             self.virtio_enqueue(slot, true)?;
+            log::info!("virtio-net: enqueue done");
             self.virtio_enqueue_commit(slot)?;
+            log::info!("virtio-net: enqueue commit done");
         }
+
+        Ok(())
+    }
+
+    fn vio_iff(&mut self) -> Result<(), VirtioDriverErr> {
+        self.flags.insert(NetFlags::MULTICAST);
+        self.flags.insert(NetFlags::PROMISC);
+
+        Ok(())
+    }
+
+    fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
+        self.vio_stop()?;
+        self.vio_iff()?;
+        self.flags.insert(NetFlags::RUNNING);
 
         Ok(())
     }
@@ -672,7 +696,8 @@ impl NetDevice for VirtioNet {
     }
 
     fn flags(&self) -> NetFlags {
-        todo!()
+        let inner = self.inner.read();
+        inner.flags
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
@@ -680,7 +705,8 @@ impl NetDevice for VirtioNet {
     }
 
     fn capabilities(&self) -> NetCapabilities {
-        NetCapabilities::empty()
+        let inner = self.inner.read();
+        inner.capabilities
     }
 
     fn link_status(&self) -> LinkStatus {
@@ -710,7 +736,18 @@ impl NetDevice for VirtioNet {
     }
 
     fn can_send(&self) -> bool {
-        todo!()
+        let inner = self.inner.read();
+        if !inner.flags.contains(NetFlags::UP) {
+            log::info!("virtio-net: not up");
+            return false;
+        }
+
+        if self.link_status() == LinkStatus::Down {
+            log::info!("virtio-net: link down");
+            return false;
+        }
+
+        true
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
@@ -724,8 +761,21 @@ impl NetDevice for VirtioNet {
     }
 
     fn up(&self) -> Result<(), NetDevError> {
-        // TODO: Implement this
-        Ok(())
+        let mut inner = self.inner.write();
+        if inner.flags.contains(NetFlags::UP) {
+            return Err(NetDevError::AlreadyUp);
+        }
+
+        if let Err(err_init) = inner.vio_init() {
+            if let Err(err_stop) = inner.vio_stop() {
+                log::error!("virtio-net: stop failed: {err_stop:?}");
+            }
+            log::error!("virtio-net: init failed: {err_init:?}");
+            Err(NetDevError::DeviceError)
+        } else {
+            inner.flags.insert(NetFlags::UP);
+            Ok(())
+        }
     }
 
     fn down(&self) -> Result<(), NetDevError> {
