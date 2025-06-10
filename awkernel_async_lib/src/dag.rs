@@ -413,27 +413,33 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
+    let dag_id = dag.id;
+    assert!(
+        get_dag(dag_id).is_some(),
+        "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
+    );
+
     let mut pending_node = MCSNode::new();
-    if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
-        return Err(DagError::MissingPendingTasks(dag.id));
+    if PENDING_TASKS.lock(&mut pending_node).get(&dag_id).is_none() {
+        return Err(DagError::MissingPendingTasks(dag_id));
     }
 
     {
         let mut graph_node = MCSNode::new();
         let graph = dag.graph.lock(&mut graph_node);
         if connected_components(&*graph) != 1 {
-            return Err(DagError::NotWeaklyConnected(dag.id));
+            return Err(DagError::NotWeaklyConnected(dag_id));
         }
         if is_cyclic_directed(&*graph) {
-            return Err(DagError::ContainsCycle(dag.id));
+            return Err(DagError::ContainsCycle(dag_id));
         }
     }
 
     if dag.get_source_nodes().len() > 1 {
-        return Err(DagError::MultipleSourceNodes(dag.id));
+        return Err(DagError::MultipleSourceNodes(dag_id));
     }
     if dag.get_sink_nodes().len() > 1 {
-        return Err(DagError::MultipleSinkNodes(dag.id));
+        return Err(DagError::MultipleSinkNodes(dag_id));
     }
 
     validate_edge_connect(dag)?;
@@ -442,12 +448,6 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
-        let dag_id = dag.id;
-        assert!(
-            get_dag(dag_id).is_some(),
-            "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
-        );
-
         validate_dag(dag)?;
 
         spawn_dag(dag).await;
