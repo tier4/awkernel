@@ -12,6 +12,22 @@ pub struct RV64;
 
 impl super::Arch for RV64 {}
 
+/// # Safety
+///
+/// This function must be called at initialization,
+/// and called by the primary CPU.
+pub unsafe fn init_primary() {
+    delay::init_primary();
+}
+
+/// # Safety
+///
+/// This function must be called at initialization,
+/// and called by non-primary CPUs.
+pub unsafe fn init_non_primary() {
+    delay::init_non_primary();
+}
+
 pub fn init_page_allocator() {
     frame_allocator::init_page_allocator();
 }
@@ -37,4 +53,8 @@ pub fn translate_kernel_address(vpn: address::VirtPageNum) -> Option<page_table:
     } else {
         None
     }
+}
+
+pub fn get_heap_size() -> usize {
+    vm::get_heap_size()
 }

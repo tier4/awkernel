@@ -1,4 +1,4 @@
-# Awkernel
+yy# Awkernel
 
 Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
@@ -6,80 +6,80 @@ It can execute async/await applications in kernel space safely.
 ## Progress
 
 - [x] Zero-copy communications
-  - [x] Publish and subscribe
-  - [x] Service
-  - [x] Action
+    - [x] Publish and subscribe
+    - [x] Service
+    - [x] Action
 - [x] Channels
-  - [x] Bounded channel
-  - [x] Unbounded channel
-  - [x] Session-type based channel
+    - [x] Bounded channel
+    - [x] Unbounded channel
+    - [x] Session-type based channel
 - [x] Memory space isolation
 - [x] Timer interrupts
-  - [x] AArch64
-  - [x] x86_64
+    - [x] AArch64
+    - [x] x86_64
 - [x] Interrupt Controllers
-  - [x] AArch64
-    - [x] Raspberry Pi 3
-    - [x] GICv2
-    - [x] GICv3
-  - [x] x86_64
-    - [x] xAPIC
-    - [x] x2APIC
+    - [x] AArch64
+        - [x] Raspberry Pi 3
+        - [x] GICv2
+        - [x] GICv3
+    - [x] x86_64
+        - [x] xAPIC
+        - [x] x2APIC
 - [ ] Frame buffer
-  - [ ] AArch64 virt
-  - [x] Raspberry Pi 3 and 4
-  - [x] x86_64
+    - [ ] AArch64 virt
+    - [x] Raspberry Pi 3 and 4
+    - [x] x86_64
 - [ ] Diagnostics
 - [ ] Measurement
 - [ ] Power Management
-  - [ ] Shutdown
-  - [ ] Reboot
+    - [ ] Shutdown
+    - [ ] Reboot
 - [ ] Schedulers
-  - [x] FIFO scheduler
-  - [x] Round robin scheduler
-  - [ ] Priority Based Round robin scheduler
-  - [ ] EDF scheduler
-  - [ ] DAG scheduler
+    - [x] FIFO scheduler
+    - [x] Round robin scheduler
+    - [ ] Priority Based Round robin scheduler
+    - [ ] EDF scheduler
+    - [ ] DAG scheduler
 - [ ] Memory allocators
-  - [x] O(1) memory allocator
-  - [x] DMA pool
-  - [ ] NUMA aware memory allocator
+    - [x] O(1) memory allocator
+    - [x] DMA pool
+    - [ ] NUMA aware memory allocator
 - [ ] DVFS
-  - [ ] AArch64
-  - [ ] x86_64
+    - [ ] AArch64
+    - [ ] x86_64
 - [ ] PCIe
-  - [ ] MSI
-    - [x] x86_64 xAPIC and x2APIC
-    - [ ] AArch64 GICv3
-  - [ ] MSI-X
-    - [x] x86_64 xAPIC and x2APIC
-    - [ ] AArch64 GICv3
+    - [ ] MSI
+        - [x] x86_64 xAPIC and x2APIC
+        - [ ] AArch64 GICv3
+    - [ ] MSI-X
+        - [x] x86_64 xAPIC and x2APIC
+        - [ ] AArch64 GICv3
 - Network controllers
-  - [x] Intel Gb Ethernet Controller (e1000 Series)
-  - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
-  - [x] Intel 10Gb Ethernet Controller (X520 Series)
-  - [ ] Mellanox ConnectX-5 series
-  - [x] genet for Raspberry Pi
+    - [x] Intel Gb Ethernet Controller (e1000 Series)
+    - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
+    - [x] Intel 10Gb Ethernet Controller (X520 Series)
+    - [ ] Mellanox ConnectX-5 series
+    - [x] genet for Raspberry Pi
 - Networking
-  - [x] IPv4
-  - [ ] IPv6
-  - [x] UDP
-  - [x] TCP
-  - [ ] VLAN
-  - [x] IP multicast
-  - [ ] Offloading
-    - [ ] TSO
-    - [ ] IPv4 header checksum
-    - [x] UDP checksum
-    - [ ] TCP checksum
-    - [ ] VLAN hardware tagging
+    - [x] IPv4
+    - [ ] IPv6
+    - [x] UDP
+    - [x] TCP
+    - [ ] VLAN
+    - [x] IP multicast
+    - [ ] Offloading
+        - [ ] TSO
+        - [ ] IPv4 header checksum
+        - [x] UDP checksum
+        - [ ] TCP checksum
+        - [ ] VLAN hardware tagging
 - [ ] XHCI
 - [ ] Block devices
-  - [ ] NVMe
-  - [ ] AHCI
+    - [ ] NVMe
+    - [ ] AHCI
 - [ ] File systems
-  - [ ] FAT32
-  - [ ] Journaling file system
+    - [ ] FAT32
+    - [ ] Journaling file system
 
 ## Dependencies
 
@@ -105,25 +105,25 @@ $ cargo binstall mdbook-mermaid
 ## Crates
 
 - [kernel](./kernel/)
-  - boot code
-  - initialization
-    - virtual memory
-    - heap memory
-    - stack memory
-    - devices (UART, etc)
+    - boot code
+    - initialization
+        - virtual memory
+        - heap memory
+        - stack memory
+        - devices (UART, etc)
 - [awkernel_lib](./awkernel_lib/)
-  - library used by both [kernel](./kernel/) and [awkernel_async_lib](./awkernel_async_lib/)
+    - library used by both [kernel](./kernel/) and [awkernel_async_lib](./awkernel_async_lib/)
 - [awkernel_async_lib](./awkernel_async_lib/)
-  - asynchronous library for no_std
+    - asynchronous library for no_std
 - [awkernel_async_lib_verified](./awkernel_async_lib_verified/)
-  - verified library for awkernel_async_lib
-  - pure Rust (no dependencies on external functions and no inline assembly)
+    - verified library for awkernel_async_lib
+    - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_futures_macro](./awkernel_futures_macro/)
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
 - applications
-  - [awkernel_shell](./applications/awkernel_shell/)
+    - [awkernel_shell](./applications/awkernel_shell/)
 
 ```mermaid
 graph TD;
@@ -289,9 +289,9 @@ $ make aarch64 BSP=raspi4 RELEASE=1
 ### Boot
 
 - Serial
-  - port: GPIO 14 (Tx) and 15 (Rx)
-  - 8N1: eight data bits, no parity, one stop bit
-  - Speed: 115200
+    - port: GPIO 14 (Tx) and 15 (Rx)
+    - 8N1: eight data bits, no parity, one stop bit
+    - Speed: 115200
 
 ---
 
@@ -308,8 +308,8 @@ $ make aarch64 BSP=raspi5 RELEASE=1
 ### Boot
 
 - Serial
-  - 8N1: eight data bits, no parity, one stop bit
-  - Speed: 115200
+    - 8N1: eight data bits, no parity, one stop bit
+    - Speed: 115200
 
 ---
 
