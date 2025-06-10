@@ -517,3 +517,63 @@ fn igc_phy_setup_autoneg(
 
     Ok(())
 }
+
+/// Performs initial bounds checking on autoneg advertisement parameter, then
+/// configure to advertise the full capability.  Setup the PHY to autoneg
+/// and restart the negotiation process between the link partner.  If
+/// autoneg_wait_to_complete, then wait for autoneg to complete before exiting.
+fn igc_copper_link_autoneg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // Perform some bounds checking on the autoneg advertisement parameter.
+    hw.phy.autoneg_advertised &= hw.phy.autoneg_mask;
+
+    // If autoneg_advertised is zero, we assume it was not defaulted
+    // by the calling code so we set to advertise full capability.
+    if hw.phy.autoneg_advertised == 0 {
+        hw.phy.autoneg_advertised = hw.phy.autoneg_mask;
+    }
+
+    igc_phy_setup_autoneg(ops, info, hw)?;
+
+    // Restart auto-negotiation by setting the Auto Neg Enable bit and
+    // the Auto Neg Restart bit in the PHY control register.
+    let mut phy_ctrl = ops.read_reg(info, hw, PHY_CONTROL)?;
+    phy_ctrl |= MII_CR_AUTO_NEG_EN | MII_CR_RESTART_AUTO_NEG;
+    ops.write_reg(info, hw, PHY_CONTROL, phy_ctrl)?;
+
+    // Does the user want to wait for Auto-Neg to complete here, or
+    // check at a later time (for example, callback routine).
+    if hw.phy.autoneg_wait_to_complete {
+        igc_wait_autoneg(ops, info, hw)?;
+    }
+
+    hw.mac.get_link_status = true;
+
+    Ok(())
+}
+
+/// Waits for auto-negotiation to complete or for the auto-negotiation time
+/// limit to expire, which ever happens first.
+fn igc_wait_autoneg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // Break after autoneg completes or PHY_AUTO_NEG_LIMIT expires.
+    for _ in 0..PHY_AUTO_NEG_LIMIT {
+        ops.read_reg(info, hw, PHY_STATUS)?;
+        let phy_status = ops.read_reg(info, hw, PHY_STATUS)?;
+
+        if phy_status & MII_SR_AUTONEG_COMPLETE != 0 {
+            return Ok(());
+        }
+
+        wait_millisec(100);
+    }
+    // PHY_AUTO_NEG_TIME expiration doesn't guarantee auto-negotiation
+    // has completed.
+    Ok(())
+}
