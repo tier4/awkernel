@@ -9,12 +9,12 @@ use awkernel_lib::file::fatfs::{
     fs::format_volume, fs::FileSystem, fs::FormatVolumeOptions, fs::FsOptions,
 };
 use awkernel_lib::{
+    allocator::System,
     file::{
         error::Error as FatFsError,
         io::{Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write},
         memfs::InMemoryDisk,
     },
-    heap::TALLOC,
     paging::PAGESIZE,
 };
 use core::{
@@ -46,13 +46,11 @@ pub async fn run() {
     let (tx, rx) = bounded::new(Default::default());
     awkernel_async_lib::file::add_filesystem(tx);
 
-    let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
-        .expect("Invalid layout for memory filesystem");
-    let result = unsafe { TALLOC.alloc(layout) };
-    assert!(
-        !result.is_null(),
-        "NULL pointer allocated for memory filesystem"
-    );
+    let result = {
+        let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
+            .expect("Invalid layout for memory filesystem");
+        unsafe { System.alloc(layout) }
+    };
 
     let data =
         unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
