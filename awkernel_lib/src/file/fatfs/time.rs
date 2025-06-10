@@ -275,7 +275,9 @@ pub type DefaultTimeProvider = NullTimeProvider;
 
 #[cfg(test)]
 mod tests {
-    use super::{Date, DateTime, Time};
+    #[cfg(feature = "chrono")]
+    use super::DateTime;
+    use super::{Date, Time};
 
     #[test]
     fn date_new_no_panic_1980() {
@@ -324,6 +326,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "chrono")]
     fn date_time_from_chrono_leap_second() {
         let chrono_date_time = chrono::NaiveDate::from_ymd_opt(2016, 12, 31)
             .unwrap()

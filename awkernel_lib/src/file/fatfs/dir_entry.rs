@@ -748,9 +748,10 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> fmt::Debug for DirEntry<'_, IO, T
 
 #[cfg(test)]
 mod tests {
+    use super::super::fs::LossyOemCpConverter;
     use super::*;
-    use crate::fs::LossyOemCpConverter;
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_with_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -770,6 +771,7 @@ mod tests {
             .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_without_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -802,6 +804,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn lowercase_short_name() {
         let oem_cp_conv = LossyOemCpConverter::new();
