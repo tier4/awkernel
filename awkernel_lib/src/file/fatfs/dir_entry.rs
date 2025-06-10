@@ -7,14 +7,14 @@ use core::fmt;
 #[cfg(not(feature = "unicode"))]
 use core::iter;
 
+use super::super::error::{Error, IoError};
+use super::super::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use super::dir::{Dir, DirRawStream};
 use super::file::File;
 use super::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use super::time::{Date, DateTime};
 #[cfg(feature = "lfn")]
 use crate::dir::LfnBuffer;
-use super::super::error::{Error, IoError};
-use super::super::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use awkernel_sync::mcs::MCSNode;
 
 bitflags! {

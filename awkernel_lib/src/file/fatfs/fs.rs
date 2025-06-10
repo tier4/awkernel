@@ -5,6 +5,8 @@ use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
+use super::super::error::Error;
+use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
 use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
@@ -14,8 +16,6 @@ use super::table::{
     RESERVED_FAT_ENTRIES,
 };
 use super::time::{DefaultTimeProvider, TimeProvider};
-use super::super::error::Error;
-use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 // FAT implementation based on:

@@ -1,10 +1,10 @@
 use core::slice;
 
+use super::super::error::{Error, IoError};
+use super::super::io::{Read, ReadLeExt, Write, WriteLeExt};
 use super::dir_entry::DIR_ENTRY_SIZE;
 use super::fs::{FatType, FormatVolumeOptions, FsStatusFlags};
 use super::table::RESERVED_FAT_ENTRIES;
-use super::super::error::{Error, IoError};
-use super::super::io::{Read, ReadLeExt, Write, WriteLeExt};
 
 const BITS_PER_BYTE: u32 = 8;
 const KB_32: u32 = 1024;

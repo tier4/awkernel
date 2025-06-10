@@ -5,6 +5,8 @@ use core::str;
 #[cfg(feature = "lfn")]
 use core::{iter, slice};
 
+use super::super::error::{Error, IoError};
+use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use super::dir_entry::{
     DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes, ShortName,
     DIR_ENTRY_SIZE,
@@ -15,8 +17,6 @@ use super::dir_entry::{SFN_PADDING, SFN_SIZE};
 use super::file::File;
 use super::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
 use super::time::TimeProvider;
-use super::super::error::{Error, IoError};
-use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 
 #[cfg(feature = "lfn")]
 const LFN_PADDING: u16 = 0xFFFF;
