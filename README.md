@@ -1,4 +1,4 @@
-yy# Awkernel
+# Awkernel
 
 Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
