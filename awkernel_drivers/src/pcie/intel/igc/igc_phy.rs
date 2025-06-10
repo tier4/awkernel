@@ -1,6 +1,6 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 
-use crate::pcie::PCIeInfo;
+use crate::pcie::{intel::igc::IgcFcMode, PCIeInfo};
 
 use super::{
     igc_defines::*,
@@ -363,5 +363,157 @@ pub(super) fn igc_phy_has_link_generic(
 /// A downshift is detected by querying the PHY link health.
 pub(super) fn igc_check_downshift_generic(hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
     hw.phy.speed_downgraded = false;
+    Ok(())
+}
+
+/// Reads the MII auto-neg advertisement register and/or the 1000T control
+/// register and if the PHY is already setup for auto-negotiation, then
+/// return successful.  Otherwise, setup advertisement and flow control to
+/// the appropriate values for the wanted auto-negotiation.
+fn igc_phy_setup_autoneg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    let mut mii_1000t_ctrl_reg = 0;
+    let mut aneg_multigbt_an_ctrl = 0;
+
+    hw.phy.autoneg_advertised &= hw.phy.autoneg_mask;
+
+    // Read the MII Auto-Neg Advertisement Register (Address 4).
+    let mut mii_autoneg_adv_reg = ops.read_reg(info, hw, PHY_AUTONEG_ADV)?;
+
+    if hw.phy.autoneg_mask & ADVERTISE_1000_FULL != 0 {
+        // Read the MII 1000Base-T Control Register (Address 9).
+        mii_1000t_ctrl_reg = ops.read_reg(info, hw, PHY_1000T_CTRL)?;
+    }
+
+    if hw.phy.autoneg_mask & ADVERTISE_2500_FULL != 0 {
+        // Read the MULTI GBT AN Control Register - reg 7.32
+        aneg_multigbt_an_ctrl = ops.read_reg(
+            info,
+            hw,
+            (STANDARD_AN_REG_MASK << MMD_DEVADDR_SHIFT) | ANEG_MULTIGBT_AN_CTRL,
+        )?;
+    }
+
+    // Need to parse both autoneg_advertised and fc and set up
+    // the appropriate PHY registers.  First we will parse for
+    // autoneg_advertised software override.  Since we can advertise
+    // a plethora of combinations, we need to check each bit
+    // individually.
+    mii_autoneg_adv_reg &= !(NWAY_AR_100TX_FD_CAPS
+        | NWAY_AR_100TX_HD_CAPS
+        | NWAY_AR_10T_FD_CAPS
+        | NWAY_AR_10T_HD_CAPS);
+    mii_1000t_ctrl_reg &= !(CR_1000T_HD_CAPS | CR_1000T_FD_CAPS);
+
+    // Do we want to advertise 10 Mb Half Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_10_HALF != 0 {
+        mii_autoneg_adv_reg |= NWAY_AR_10T_HD_CAPS;
+    }
+
+    // Do we want to advertise 10 Mb Full Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_10_FULL != 0 {
+        mii_autoneg_adv_reg |= NWAY_AR_10T_FD_CAPS;
+    }
+
+    // Do we want to advertise 100 Mb Half Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_100_HALF != 0 {
+        mii_autoneg_adv_reg |= NWAY_AR_100TX_HD_CAPS;
+    }
+
+    // Do we want to advertise 100 Mb Full Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_100_FULL != 0 {
+        mii_autoneg_adv_reg |= NWAY_AR_100TX_FD_CAPS;
+    }
+
+    // We do not allow the Phy to advertise 1000 Mb Half Duplex
+    if hw.phy.autoneg_advertised & ADVERTISE_1000_HALF != 0 {
+        log::debug!("Advertise 1000mb Half duplex request denied!");
+    }
+
+    // Do we want to advertise 1000 Mb Full Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_1000_FULL != 0 {
+        mii_1000t_ctrl_reg |= CR_1000T_FD_CAPS;
+    }
+
+    // We do not allow the Phy to advertise 2500 Mb Half Duplex
+    if hw.phy.autoneg_advertised & ADVERTISE_2500_HALF != 0 {
+        log::debug!("Advertise 2500mb Half duplex request denied!");
+    }
+
+    // Do we want to advertise 2500 Mb Full Duplex?
+    if hw.phy.autoneg_advertised & ADVERTISE_2500_FULL != 0 {
+        aneg_multigbt_an_ctrl |= CR_2500T_FD_CAPS;
+    } else {
+        aneg_multigbt_an_ctrl &= !CR_2500T_FD_CAPS;
+    }
+
+    // Check for a software override of the flow control settings, and
+    // setup the PHY advertisement registers accordingly.  If
+    // auto-negotiation is enabled, then software will have to set the
+    // "PAUSE" bits to the correct value in the Auto-Negotiation
+    // Advertisement Register (PHY_AUTONEG_ADV) and re-start auto-
+    // negotiation.
+    //
+    // The possible values of the "fc" parameter are:
+    //      0:  Flow control is completely disabled
+    //      1:  Rx flow control is enabled (we can receive pause frames
+    //          but not send pause frames).
+    //      2:  Tx flow control is enabled (we can send pause frames
+    //          but we do not support receiving pause frames).
+    //      3:  Both Rx and Tx flow control (symmetric) are enabled.
+    //  other:  No software override.  The flow control configuration
+    //          in the EEPROM is used.
+    match hw.fc.current_mode {
+        IgcFcMode::None => {
+            // Flow control (Rx & Tx) is completely disabled by a
+            // software over-ride.
+            mii_autoneg_adv_reg &= !(NWAY_AR_ASM_DIR | NWAY_AR_PAUSE);
+        }
+        IgcFcMode::RxPause => {
+            // Rx Flow control is enabled, and Tx Flow control is
+            // disabled, by a software over-ride.
+            //
+            // Since there really isn't a way to advertise that we are
+            // capable of Rx Pause ONLY, we will advertise that we
+            // support both symmetric and asymmetric Rx PAUSE.  Later
+            // (in igc_config_fc_after_link_up) we will disable the
+            // hw's ability to send PAUSE frames.
+            mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR | NWAY_AR_PAUSE;
+        }
+        IgcFcMode::TxPause => {
+            // Tx Flow control is enabled, and Rx Flow control is
+            // disabled, by a software over-ride.
+            mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR;
+            mii_autoneg_adv_reg &= !NWAY_AR_PAUSE;
+        }
+        IgcFcMode::Full => {
+            // Flow control (both Rx and Tx) is enabled by a software
+            // over-ride.
+            mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR | NWAY_AR_PAUSE;
+        }
+        _ => {
+            log::debug!("Flow control param set incorrectly");
+            return Err(IgcDriverErr::Config);
+        }
+    }
+
+    ops.write_reg(info, hw, PHY_AUTONEG_ADV, mii_autoneg_adv_reg)?;
+
+    if hw.phy.autoneg_mask & ADVERTISE_1000_FULL != 0 {
+        ops.write_reg(info, hw, PHY_1000T_CTRL, mii_1000t_ctrl_reg)?;
+    }
+
+    if hw.phy.autoneg_mask & ADVERTISE_2500_FULL != 0 {
+        ops.write_reg(
+            info,
+            hw,
+            (STANDARD_AN_REG_MASK << MMD_DEVADDR_SHIFT) | ANEG_MULTIGBT_AN_CTRL,
+            aneg_multigbt_an_ctrl,
+        )?;
+    }
+
     Ok(())
 }

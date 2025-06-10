@@ -556,8 +556,8 @@ pub(super) const NWAY_ER_PAR_DETECT_FAULT: u32 = 0x0010; // LP 100TX Full Dplx C
 
 // 1000BASE-T Control Register
 pub(super) const CR_1000T_ASYM_PAUSE: u32 = 0x0080; // Advertise asymmetric pause bit
-pub(super) const CR_1000T_HD_CAPS: u32 = 0x0100; // Advertise 1000T HD capability
-pub(super) const CR_1000T_FD_CAPS: u32 = 0x0200; // Advertise 1000T FD capability
+pub(super) const CR_1000T_HD_CAPS: u16 = 0x0100; // Advertise 1000T HD capability
+pub(super) const CR_1000T_FD_CAPS: u16 = 0x0200; // Advertise 1000T FD capability
                                                  // 1=Repeater/switch device port 0=DTE device
 pub(super) const CR_1000T_REPEATER_DTE: u32 = 0x0400;
 // 1=Configure PHY as Master 0=Configure PHY as Slave
@@ -601,7 +601,7 @@ pub(super) const PHY_EXT_STATUS: u32 = 0x0F; // Extended Status Reg
 pub(super) const STANDARD_AN_REG_MASK: u32 = 0x0007; // MMD
 pub(super) const ANEG_MULTIGBT_AN_CTRL: u32 = 0x0020; // MULTI GBT AN Control Register
 pub(super) const MMD_DEVADDR_SHIFT: u32 = 16; // Shift MMD to higher bits
-pub(super) const CR_2500T_FD_CAPS: u32 = 0x0080; // Advertise 2500T FD capability
+pub(super) const CR_2500T_FD_CAPS: u16 = 0x0080; // Advertise 2500T FD capability
 
 pub(super) const PHY_CONTROL_LB: u32 = 0x4000; // PHY Loopback bit
 
