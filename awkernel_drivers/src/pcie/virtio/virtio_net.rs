@@ -464,12 +464,12 @@ impl VirtioNetInner {
         self.common_cfg.virtio_set_queue_select(idx)?;
         self.common_cfg.virtio_get_queue_size()
     }
-  
-  　fn virtio_pci_set_msix_config_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
+
+    fn virtio_pci_set_msix_config_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
         self.common_cfg.virtio_set_config_msix_vector(vector)
     }
-  
-  　fn virtio_pci_set_msix_queue_vector(
+
+    fn virtio_pci_set_msix_queue_vector(
         &mut self,
         idx: u16,
         vector: u16,
@@ -505,7 +505,7 @@ impl VirtioNetInner {
             .info
             .get_msix_mut()
             .ok_or(VirtioDriverErr::InitFailure)?;
-        let irq_name = format!("{}-{}-{}", DEVICE_SHORT_NAME, bfd, idx);
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-{idx}");
         let mut irq_new = msix
             .register_handler(
                 irq_name.into(),
@@ -634,7 +634,10 @@ impl VirtioNetInner {
     fn virtio_enqueue_reserve(&mut self, slot: usize) -> Result<(), VirtioDriverErr> {
         let tx = self.tx_vq.as_mut().unwrap();
 
-        log::info!("virtio-net: enqueue reserve: vq_entries size: {}", tx.vq_entries.len());
+        log::info!(
+            "virtio-net: enqueue reserve: vq_entries size: {}",
+            tx.vq_entries.len()
+        );
 
         assert!(tx.vq_entries[slot].qe_next == -1);
 
@@ -726,21 +729,14 @@ impl VirtioNetInner {
     }
 
     fn vio_start(&mut self, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
-        log::info!("virtio-net: start");
         self.vio_tx_dequeue()?;
-        log::info!("virtio-net: frame size: {}", frames.len());
 
         for frame in frames {
             let slot = self.tx_vq.as_mut().unwrap().virtio_enqueue_prep().unwrap();
-            log::info!("virtio-net: slot: {}", slot);
             self.vio_encap(slot, frame)?;
-            log::info!("virtio-net: encap done");
             self.virtio_enqueue_reserve(slot)?;
-            log::info!("virtio-net: reserve done");
             self.virtio_enqueue(slot, true)?;
-            log::info!("virtio-net: enqueue done");
             self.virtio_enqueue_commit(slot)?;
-            log::info!("virtio-net: enqueue commit done");
         }
 
         Ok(())
@@ -779,10 +775,6 @@ impl VirtioNetInner {
         // TODO: VIRTIO_NET_F_MQ related setup
         // TODO: VIRTIO_NET_F_CTRL_VQ related setup
 
-        Ok(())
-    }
-
-    fn vio_config_change(&mut self) -> Result<(), VirtioDriverErr> {
         Ok(())
     }
 
