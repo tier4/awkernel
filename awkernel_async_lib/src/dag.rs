@@ -366,6 +366,11 @@ impl Dags {
             }
         }
     }
+
+    #[inline(always)]
+    fn remove(&mut self, id: u32) {
+        self.id_to_dag.remove(&id);
+    }
 }
 
 pub fn create_dag() -> Arc<Dag> {
@@ -378,6 +383,20 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+fn remove_dag(id: u32) {
+    let mut node = MCSNode::new();
+    let mut dags = DAGS.lock(&mut node);
+    dags.remove(id);
+
+    let mut pending_node = MCSNode::new();
+    let mut pending_tasks = PENDING_TASKS.lock(&mut pending_node);
+    pending_tasks.remove(&id);
+
+    let mut source_pending_node = MCSNode::new();
+    let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut source_pending_node);
+    source_pending_tasks.remove(&id);
 }
 
 /// This validation prevents issues caused by the following misconfigurations:
@@ -413,75 +432,89 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
+    let dag_id = dag.id;
+    assert!(
+        get_dag(dag_id).is_some(),
+        "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
+    );
+
     let mut pending_node = MCSNode::new();
-    if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
-        return Err(DagError::MissingPendingTasks(dag.id));
+    if PENDING_TASKS.lock(&mut pending_node).get(&dag_id).is_none() {
+        return Err(DagError::MissingPendingTasks(dag_id));
     }
 
     {
         let mut graph_node = MCSNode::new();
         let graph = dag.graph.lock(&mut graph_node);
         if connected_components(&*graph) != 1 {
-            return Err(DagError::NotWeaklyConnected(dag.id));
+            return Err(DagError::NotWeaklyConnected(dag_id));
         }
         if is_cyclic_directed(&*graph) {
-            return Err(DagError::ContainsCycle(dag.id));
+            return Err(DagError::ContainsCycle(dag_id));
         }
     }
 
     if dag.get_source_nodes().len() > 1 {
-        return Err(DagError::MultipleSourceNodes(dag.id));
+        return Err(DagError::MultipleSourceNodes(dag_id));
     }
     if dag.get_sink_nodes().len() > 1 {
-        return Err(DagError::MultipleSinkNodes(dag.id));
+        return Err(DagError::MultipleSinkNodes(dag_id));
     }
 
     validate_edge_connect(dag)?;
     Ok(())
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
-    for dag in dags {
-        let dag_id = dag.id;
-        assert!(
-            get_dag(dag_id).is_some(),
-            "Invariant Violation: DAG with id {dag_id} must exist, but was not found.",
-        );
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    let error_list = dags
+        .iter()
+        .filter_map(|dag| validate_dag(dag).err())
+        .collect::<Vec<_>>();
 
-        validate_dag(dag)?;
-
-        let pending_tasks = {
-            let mut node = MCSNode::new();
-            let mut lock = PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag_id).unwrap()
-        };
-
-        for task in pending_tasks {
-            let task_id = (task.spawn)().await;
-            let mut graph_node = MCSNode::new();
-            let mut graph = dag.graph.lock(&mut graph_node);
-            if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
-                node_info.task_id = task_id;
-            }
+    if !error_list.is_empty() {
+        for dag in dags {
+            remove_dag(dag.id);
         }
+        return Err(error_list);
+    }
 
-        // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
-        // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
-        let source_pending_task = {
-            let mut node = MCSNode::new();
-            let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag_id).unwrap()
-        };
+    for dag in dags {
+        spawn_dag(dag).await;
+    }
+    Ok(())
+}
 
-        let task_id = (source_pending_task.spawn)().await;
+async fn spawn_dag(dag: &Arc<Dag>) {
+    let dag_id = dag.id;
+    let pending_tasks = {
+        let mut node = MCSNode::new();
+        let mut lock = PENDING_TASKS.lock(&mut node);
+        lock.remove(&dag_id).unwrap()
+    };
+
+    for task in pending_tasks {
+        let task_id = (task.spawn)().await;
         let mut graph_node = MCSNode::new();
         let mut graph = dag.graph.lock(&mut graph_node);
-        if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
+        if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
         }
     }
 
-    Ok(())
+    // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
+    // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
+    let source_pending_task = {
+        let mut node = MCSNode::new();
+        let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
+        lock.remove(&dag_id).unwrap()
+    };
+
+    let task_id = (source_pending_task.spawn)().await;
+    let mut graph_node = MCSNode::new();
+    let mut graph = dag.graph.lock(&mut graph_node);
+    if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
+        node_info.task_id = task_id;
+    }
 }
 
 async fn spawn_reactor<F, Args, Ret>(
