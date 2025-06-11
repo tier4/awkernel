@@ -3,7 +3,10 @@ use awkernel_lib::delay::{wait_microsec, wait_millisec};
 use crate::pcie::{
     intel::igc::{
         igc_mac::igc_config_fc_after_link_up_generic,
-        igc_phy::{igc_check_downshift_generic, igc_phy_has_link_generic},
+        igc_phy::{
+            igc_check_downshift_generic, igc_phy_has_link_generic, IGC_I225_PHPM,
+            IGC_I225_PHPM_GO_LINKD,
+        },
     },
     PCIeInfo,
 };
@@ -82,6 +85,14 @@ impl IgcMacOperations for I225Flash {
 
     fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_init_hw_base(self, info, hw)
+    }
+
+    fn setup_physical_interface(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        igc_setup_copper_link_i225(self, _info, _hw)
     }
 }
 
@@ -222,6 +233,14 @@ impl IgcMacOperations for I225NoFlash {
 
     fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_init_hw_base(self, info, hw)
+    }
+
+    fn setup_physical_interface(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        igc_setup_copper_link_i225(self, _info, _hw)
     }
 }
 
@@ -829,4 +848,24 @@ fn igc_set_ltr_i225(
     }
 
     Ok(())
+}
+
+/// Configures the link for auto-neg or forced speed and duplex.  Then we check
+/// for link, once link is established calls to configure collision distance
+/// and flow control are called.
+fn igc_setup_copper_link_i225(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    let mut ctrl = read_reg(info, IGC_CTRL)?;
+    ctrl |= IGC_CTRL_SLU; // Set the link up bit
+    ctrl &= !(IGC_CTRL_FRCSPD | IGC_CTRL_FRCDPX); // Clear forced speed and duplex bits
+    write_reg(info, IGC_CTRL, ctrl)?;
+
+    let mut phpm_reg = read_reg(info, IGC_I225_PHPM)?;
+    phpm_reg &= !IGC_I225_PHPM_GO_LINKD; // Clear the go link down bit
+    write_reg(info, IGC_I225_PHPM, phpm_reg)?;
+
+    igc_setup_link_generic(ops, info, hw)
 }

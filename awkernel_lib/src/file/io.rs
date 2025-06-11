@@ -1,4 +1,4 @@
-use crate::error::IoError;
+use super::error::IoError;
 
 /// Provides IO error as an associated type.
 ///
@@ -68,7 +68,6 @@ pub trait Read: IoBase {
         if buf.is_empty() {
             Ok(())
         } else {
-            debug!("failed to fill whole buffer in read_exact");
             Err(Self::Error::new_unexpected_eof_error())
         }
     }
@@ -103,7 +102,6 @@ pub trait Write: IoBase {
         while !buf.is_empty() {
             match self.write(buf) {
                 Ok(0) => {
-                    debug!("failed to write whole buffer in write_all");
                     return Err(Self::Error::new_write_zero_error());
                 }
                 Ok(n) => buf = &buf[n..],
@@ -239,7 +237,7 @@ impl<T> From<T> for StdIoWrapper<T> {
     }
 }
 
-pub(crate) trait ReadLeExt {
+pub trait ReadLeExt {
     type Error;
     fn read_u8(&mut self) -> Result<u8, Self::Error>;
     fn read_u16_le(&mut self) -> Result<u16, Self::Error>;
@@ -268,7 +266,7 @@ impl<T: Read> ReadLeExt for T {
     }
 }
 
-pub(crate) trait WriteLeExt {
+pub trait WriteLeExt {
     type Error;
     fn write_u8(&mut self, n: u8) -> Result<(), Self::Error>;
     fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error>;
