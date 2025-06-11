@@ -512,6 +512,17 @@ fn collect_errors_from_map(
     errors.into_iter()
 }
 
+// NOTE: On the architecture for this arity validation.
+//
+// Ideally, this validation would be performed at an earlier stage, such as inside
+// the `impl_tuple_to_pub_sub` macro in `pubsub.rs`.
+//
+// However, that approach would perform the check after the reactor is already spawned.
+// This would limit error handling to just stopping the affected reactor, and implementing
+// a full cleanup of all related DAG data and other reactors would be overly complex.
+//
+// Therefore, we adopted the current architecture: errors are first recorded
+// to a `static` variable, and then collected and reported in a batch by this function.
 fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<ArityMismatchError>> {
     let subscribe_errors = collect_errors_from_map(dag_id, &MISMATCH_SUBSCRIBE);
     let publish_errors = collect_errors_from_map(dag_id, &MISMATCH_PUBLISH);
@@ -593,8 +604,8 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut errors: Vec<DagError> = Vec::new();
 
-    // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
     for dag in dags {
+        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
         if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
             errors.extend(arg_errors.into_iter().map(DagError::from));
         } else if let Err(dag_validation_error) = validate_dag(dag) {
