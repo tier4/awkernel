@@ -606,6 +606,6 @@ fn igc_setup_copper_link_generic(
         ops.config_collision_dist(info, hw)?;
         igc_config_fc_after_link_up_generic(ops, info, hw)
     } else {
-        return Err(IgcDriverErr::Phy);
+        Err(IgcDriverErr::Phy)
     }
 }
