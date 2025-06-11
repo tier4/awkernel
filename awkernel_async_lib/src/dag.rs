@@ -91,7 +91,7 @@ pub enum DagError {
     NoPublisherFound(u32, usize),       // (dag_id, node_id)
     NoSubscriberFound(u32, usize),      // (dag_id, node_id)
     SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
-    PublisherArityMismatch(u32, usize), // (dag_id, node_id)
+    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
 }
 
 #[rustfmt::skip]
@@ -112,7 +112,7 @@ impl core::fmt::Display for DagError {
             DagError::SubscribeArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in subscribed topics and arguments")
             }
-            DagError::PublisherArityMismatch(dag_id, node_id) => {
+            DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
         }
