@@ -1,7 +1,7 @@
 #![no_std]
 
 extern crate alloc;
-use awkernel_async_lib::file::SeekFrom;
+use awkernel_async_lib::file::{FileDescriptor, SeekFrom};
 use core::str;
 
 pub async fn run() {
@@ -14,7 +14,7 @@ pub async fn run() {
 }
 
 async fn filesystem_test() {
-    let fd = match awkernel_async_lib::file::FileDescriptor::create("a.txt").await {
+    let fd = match FileDescriptor::create("a.txt").await {
         Ok(fd) => fd,
         Err(e) => {
             panic!("Failed to open a file - a.txt: {:?}", e);
