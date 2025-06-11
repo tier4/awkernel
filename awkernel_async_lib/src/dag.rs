@@ -56,7 +56,38 @@ static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
+static MISMATCH_SUBSCRIBE: Mutex<BTreeMap<u32, Vec<ArityMismatchError>>> =
+    Mutex::new(BTreeMap::new());
+static MISMATCH_PUBLISH: Mutex<BTreeMap<u32, Vec<ArityMismatchError>>> =
+    Mutex::new(BTreeMap::new());
+
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
+
+pub trait TupleSize {
+    const SIZE: usize;
+}
+
+macro_rules! impl_tuple_size {
+    (@count) => { 0 };
+    (@count $_head:ident $($tail:ident)*) => { 1 + impl_tuple_size!(@count $($tail)*) };
+
+    ($($T:ident),*) => {
+        impl<$($T),*> TupleSize for ($($T,)*) {
+            const SIZE: usize = impl_tuple_size!(@count $($T)*);
+        }
+    };
+}
+
+impl_tuple_size!();
+impl_tuple_size!(T1);
+impl_tuple_size!(T1, T2);
+impl_tuple_size!(T1, T2, T3);
+
+#[derive(Clone)]
+pub enum ArityMismatchError {
+    Subscribe(u32, usize), // (dag_id, node_id)
+    Publish(u32, usize),   // (dag_id, node_id)
+}
 
 pub enum DagError {
     NotWeaklyConnected(u32),
@@ -66,8 +97,16 @@ pub enum DagError {
     MultipleSinkNodes(u32),
     NoPublisherFound(u32, usize),  //dag_id, node_id
     NoSubscriberFound(u32, usize), //dag_id, node_id,
+    InvalidArgument(ArityMismatchError),
 }
 
+impl From<ArityMismatchError> for DagError {
+    fn from(err: ArityMismatchError) -> Self {
+        DagError::InvalidArgument(err)
+    }
+}
+
+#[rustfmt::skip]
 impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -81,6 +120,12 @@ impl core::fmt::Display for DagError {
             }
             DagError::NoSubscriberFound(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: One or more published topics have no corresponding subscriber")
+            }
+            DagError::InvalidArgument(ArityMismatchError::Subscribe(dag_id, node_id)) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in subscribed topics and arguments")
+            }
+            DagError::InvalidArgument(ArityMismatchError::Publish(dag_id, node_id)) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
         }
     }
@@ -209,8 +254,12 @@ impl Dag {
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
         Args::Subscribers: Send,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &publish_topic_names);
+        self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
+        self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -242,8 +291,10 @@ impl Dag {
         F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
+        self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
         let measure_f: Option<MeasureF> = {
             #[cfg(feature = "perf")]
@@ -287,9 +338,11 @@ impl Dag {
         F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
         Args: VectorToSubscribers,
         Args::Subscribers: Send,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
         self.set_relative_deadline(node_idx, relative_deadline);
+        self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
 
         let measure_f = {
             #[cfg(feature = "perf")]
@@ -324,6 +377,52 @@ impl Dag {
                     .await
                 })
             }));
+    }
+
+    fn check_arity_mismatch<T: TupleSize>(
+        &self,
+        topic_names: &[Cow<'static, str>],
+        error: ArityMismatchError,
+    ) {
+        if T::SIZE != topic_names.len() {
+            let mismatch_map = match error {
+                ArityMismatchError::Subscribe(_, _) => &MISMATCH_SUBSCRIBE,
+                ArityMismatchError::Publish(_, _) => &MISMATCH_PUBLISH,
+            };
+
+            let mut node = MCSNode::new();
+            let mut locked_mismatch_map = mismatch_map.lock(&mut node);
+
+            locked_mismatch_map.entry(self.id).or_default().push(error);
+        }
+    }
+
+    fn check_subscribe_mismatch<Args>(
+        &self,
+        subscribe_topic_names: &[Cow<'static, str>],
+        node_idx: NodeIndex,
+    ) where
+        Args: VectorToSubscribers,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
+    {
+        self.check_arity_mismatch::<<Args::Subscribers as MultipleReceiver>::Item>(
+            subscribe_topic_names,
+            ArityMismatchError::Subscribe(self.id, node_idx.index()),
+        );
+    }
+
+    fn check_publish_mismatch<Ret>(
+        &self,
+        publish_topic_names: &[Cow<'static, str>],
+        node_idx: NodeIndex,
+    ) where
+        Ret: VectorToPublishers,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
+    {
+        self.check_arity_mismatch::<<Ret::Publishers as MultipleSender>::Item>(
+            publish_topic_names,
+            ArityMismatchError::Publish(self.id, node_idx.index()),
+        );
     }
 }
 
@@ -399,6 +498,32 @@ fn remove_dag(id: u32) {
     source_pending_tasks.remove(&id);
 }
 
+fn collect_errors_from_map(
+    dag_id: u32,
+    mismatch_map: &Mutex<BTreeMap<u32, Vec<ArityMismatchError>>>,
+) -> impl Iterator<Item = ArityMismatchError> {
+    let mut node = MCSNode::new();
+    let locked_mismatch_map = mismatch_map.lock(&mut node);
+    let errors = locked_mismatch_map
+        .get(&dag_id)
+        .cloned()
+        .unwrap_or_default();
+
+    errors.into_iter()
+}
+
+fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<ArityMismatchError>> {
+    let subscribe_errors = collect_errors_from_map(dag_id, &MISMATCH_SUBSCRIBE);
+    let publish_errors = collect_errors_from_map(dag_id, &MISMATCH_PUBLISH);
+    let error_list: Vec<_> = subscribe_errors.chain(publish_errors).collect();
+
+    if error_list.is_empty() {
+        Ok(())
+    } else {
+        Err(error_list)
+    }
+}
+
 /// This validation prevents issues caused by the following misconfigurations:
 /// - Message Loss: A published topic is not subscribed to by any reactor.
 /// - Indefinite Wait: A subscribed topic has no corresponding publisher.
@@ -466,16 +591,22 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
-    let error_list = dags
-        .iter()
-        .filter_map(|dag| validate_dag(dag).err())
-        .collect::<Vec<_>>();
+    let mut errors: Vec<DagError> = Vec::new();
 
-    if !error_list.is_empty() {
+    // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
+    for dag in dags {
+        if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
+            errors.extend(arg_errors.into_iter().map(DagError::from));
+        } else if let Err(dag_validation_error) = validate_dag(dag) {
+            errors.push(dag_validation_error);
+        }
+    }
+
+    if !errors.is_empty() {
         for dag in dags {
             remove_dag(dag.id);
         }
-        return Err(error_list);
+        return Err(errors);
     }
 
     for dag in dags {
