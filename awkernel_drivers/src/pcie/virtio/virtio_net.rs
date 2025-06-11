@@ -368,6 +368,19 @@ impl VirtioNetInner {
         self.common_cfg.virtio_get_queue_size()
     }
 
+    fn _virtio_pci_set_msix_config_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
+        self.common_cfg.virtio_set_config_msix_vector(vector)
+    }
+
+    fn _virtio_pci_set_msix_queue_vector(
+        &mut self,
+        idx: u16,
+        vector: u16,
+    ) -> Result<(), VirtioDriverErr> {
+        self.common_cfg.virtio_set_queue_select(idx)?;
+        self.common_cfg.virtio_set_queue_msix_vector(vector)
+    }
+
     fn _virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
         let offset = self.common_cfg.virtio_get_queue_notify_off()? as usize
             * self.notify_cap.virtio_get_notify_off_multiplier()? as usize;
