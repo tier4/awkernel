@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use super::error::IoError;
-use super::io::{IoBase, Read, Seek, SeekFrom as ExternalFatFsSeekFrom, Write};
+use super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Debug};
 
@@ -54,11 +54,11 @@ impl Write for InMemoryDisk {
 }
 
 impl Seek for InMemoryDisk {
-    fn seek(&mut self, pos: ExternalFatFsSeekFrom) -> Result<u64, Self::Error> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let new_position = match pos {
-            ExternalFatFsSeekFrom::Start(offset) => offset as i64,
-            ExternalFatFsSeekFrom::Current(offset) => self.position as i64 + offset,
-            ExternalFatFsSeekFrom::End(offset) => self.data.len() as i64 + offset,
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::Current(offset) => self.position as i64 + offset,
+            SeekFrom::End(offset) => self.data.len() as i64 + offset,
         };
 
         if new_position < 0 || new_position > self.data.len() as i64 {
@@ -75,8 +75,8 @@ pub enum InMemoryDiskError {
     OutOfBounds,
     WriteZero,
     UnexpectedEof,
-    _Interrupted,
-    _Other(String),
+    Interrupted,
+    Other(String),
 }
 
 impl fmt::Display for InMemoryDiskError {
@@ -85,15 +85,15 @@ impl fmt::Display for InMemoryDiskError {
             InMemoryDiskError::OutOfBounds => write!(f, "Out of bounds access"),
             InMemoryDiskError::WriteZero => write!(f, "Failed to write whole buffer"),
             InMemoryDiskError::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
-            InMemoryDiskError::_Interrupted => write!(f, "Operation interrupted"),
-            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {msg}"),
+            InMemoryDiskError::Interrupted => write!(f, "Operation interrupted"),
+            InMemoryDiskError::Other(msg) => write!(f, "An error occurred: {msg}"),
         }
     }
 }
 
 impl IoError for InMemoryDiskError {
     fn is_interrupted(&self) -> bool {
-        matches!(self, InMemoryDiskError::_Interrupted)
+        matches!(self, InMemoryDiskError::Interrupted)
     }
 
     fn new_unexpected_eof_error() -> Self {

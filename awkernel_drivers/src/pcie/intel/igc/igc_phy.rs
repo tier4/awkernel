@@ -1,6 +1,9 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 
-use crate::pcie::{intel::igc::IgcFcMode, PCIeInfo};
+use crate::pcie::{
+    intel::igc::{igc_mac::igc_config_fc_after_link_up_generic, IgcFcMode, IgcOperations},
+    PCIeInfo,
+};
 
 use super::{
     igc_defines::*,
@@ -19,10 +22,10 @@ const IGP01IGC_PHY_PAGE_SELECT: u32 = 0x1F; // Page Select
 const BM_PHY_PAGE_SELECT: u32 = 22; // Page Select for BM
 const IGP_PAGE_SHIFT: u32 = 5;
 const PHY_REG_MASK: u32 = 0x1F;
-const IGC_I225_PHPM: usize = 0x0E14; // I225 PHY Power Management
+pub(super) const IGC_I225_PHPM: usize = 0x0E14; // I225 PHY Power Management
 const IGC_I225_PHPM_DIS_1000_D3: u32 = 0x0008; // Disable 1G in D3
 const IGC_I225_PHPM_LINK_ENERGY: u32 = 0x0010; // Link Energy Detect
-const IGC_I225_PHPM_GO_LINKD: u32 = 0x0020; // Go Link Disconnect
+pub(super) const IGC_I225_PHPM_GO_LINKD: u32 = 0x0020; // Go Link Disconnect
 const IGC_I225_PHPM_DIS_1000: u32 = 0x0040; // Disable 1G globally
 const IGC_I225_PHPM_SPD_B2B_EN: u32 = 0x0080; // Smart Power Down Back2Back
 const IGC_I225_PHPM_RST_COMPL: u32 = 0x0100; // PHY Reset Completed
@@ -516,4 +519,93 @@ fn igc_phy_setup_autoneg(
     }
 
     Ok(())
+}
+
+/// Performs initial bounds checking on autoneg advertisement parameter, then
+/// configure to advertise the full capability.  Setup the PHY to autoneg
+/// and restart the negotiation process between the link partner.  If
+/// autoneg_wait_to_complete, then wait for autoneg to complete before exiting.
+fn igc_copper_link_autoneg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // Perform some bounds checking on the autoneg advertisement parameter.
+    hw.phy.autoneg_advertised &= hw.phy.autoneg_mask;
+
+    // If autoneg_advertised is zero, we assume it was not defaulted
+    // by the calling code so we set to advertise full capability.
+    if hw.phy.autoneg_advertised == 0 {
+        hw.phy.autoneg_advertised = hw.phy.autoneg_mask;
+    }
+
+    igc_phy_setup_autoneg(ops, info, hw)?;
+
+    // Restart auto-negotiation by setting the Auto Neg Enable bit and
+    // the Auto Neg Restart bit in the PHY control register.
+    let mut phy_ctrl = ops.read_reg(info, hw, PHY_CONTROL)?;
+    phy_ctrl |= MII_CR_AUTO_NEG_EN | MII_CR_RESTART_AUTO_NEG;
+    ops.write_reg(info, hw, PHY_CONTROL, phy_ctrl)?;
+
+    // Does the user want to wait for Auto-Neg to complete here, or
+    // check at a later time (for example, callback routine).
+    if hw.phy.autoneg_wait_to_complete {
+        igc_wait_autoneg(ops, info, hw)?;
+    }
+
+    hw.mac.get_link_status = true;
+
+    Ok(())
+}
+
+/// Waits for auto-negotiation to complete or for the auto-negotiation time
+/// limit to expire, which ever happens first.
+fn igc_wait_autoneg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // Break after autoneg completes or PHY_AUTO_NEG_LIMIT expires.
+    for _ in 0..PHY_AUTO_NEG_LIMIT {
+        ops.read_reg(info, hw, PHY_STATUS)?;
+        let phy_status = ops.read_reg(info, hw, PHY_STATUS)?;
+
+        if phy_status & MII_SR_AUTONEG_COMPLETE != 0 {
+            return Ok(());
+        }
+
+        wait_millisec(100);
+    }
+    // PHY_AUTO_NEG_TIME expiration doesn't guarantee auto-negotiation
+    // has completed.
+    Ok(())
+}
+
+/// Calls the appropriate function to configure the link for auto-neg or forced
+/// speed and duplex.  Then we check for link, once link is established calls
+/// to configure collision distance and flow control are called.  If link is
+/// not established, we return -IGC_ERR_PHY (-2).
+fn igc_setup_copper_link_generic(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    if hw.mac.autoneg {
+        // Setup autoneg and flow control advertisement and perform
+        // autonegotiation.
+        igc_copper_link_autoneg(ops, info, hw)?;
+    } else {
+        // PHY will be set to 10H, 10F, 100H or 100F depending on user settings.
+        ops.force_speed_duplex(info, hw)?;
+    }
+
+    // Check link status. Wait up to 100 microseconds for link to become valid.
+    let link = igc_phy_has_link_generic(ops, info, hw, COPPER_LINK_UP_LIMIT, 10)?;
+
+    if link {
+        ops.config_collision_dist(info, hw)?;
+        igc_config_fc_after_link_up_generic(ops, info, hw)
+    } else {
+        Err(IgcDriverErr::Phy)
+    }
 }

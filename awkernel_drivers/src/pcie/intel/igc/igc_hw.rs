@@ -311,9 +311,7 @@ pub(super) trait IgcMacOperations {
         &self,
         _info: &mut PCIeInfo,
         _hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    ) -> Result<(), IgcDriverErr>;
 
     /// Writes value at the given offset in the register array which stores
     /// the VLAN filter table.
@@ -444,7 +442,7 @@ pub(super) trait IgcPhyOperations {
         _info: &mut PCIeInfo,
         _hw: &mut IgcHw,
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
 
     fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
