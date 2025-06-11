@@ -33,9 +33,11 @@ const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT: usize = 0x00;
 const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE: usize = 0x04;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT: usize = 0x08;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE: usize = 0x0c;
+const VIRTIO_PCI_COMMON_CFG_CONFIG_MSIX_VECTOR: usize = 0x10;
 const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_SELECT: usize = 0x16;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_SIZE: usize = 0x18;
+const VIRTIO_PCI_COMMON_CFG_QUEUE_MSIX_VECTOR: usize = 0x1a;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_ENABLE: usize = 0x1c;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_NOTIFY_OFF: usize = 0x1e;
 const VIRTIO_PCI_COMMON_CFG_QUEUE_DESC: usize = 0x20;
@@ -122,6 +124,15 @@ impl VirtioCommonConfig {
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, high);
     }
 
+    pub fn virtio_set_config_msix_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
+        self.bar.write16(
+            self.offset + VIRTIO_PCI_COMMON_CFG_CONFIG_MSIX_VECTOR,
+            vector,
+        );
+
+        Ok(())
+    }
+
     pub fn virtio_get_device_status(&self) -> Result<u8, VirtioDriverErr> {
         let status = self
             .bar
@@ -156,6 +167,15 @@ impl VirtioCommonConfig {
             .ok_or(VirtioDriverErr::ReadFailure)?;
 
         Ok(size)
+    }
+
+    pub fn virtio_set_queue_msix_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
+        self.bar.write16(
+            self.offset + VIRTIO_PCI_COMMON_CFG_QUEUE_MSIX_VECTOR,
+            vector,
+        );
+
+        Ok(())
     }
 
     pub fn virtio_set_queue_enable(&mut self, enable: u16) -> Result<(), VirtioDriverErr> {
