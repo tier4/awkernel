@@ -61,38 +61,26 @@ pub enum FileSystemError {
     UnknownError,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileDescriptorError {
-    InvalidFilePath,
-    OpenError,
-    CreateError,
-    ReadError,
-    WriteError,
-    SeekError,
-    CloseError,
-    FileSystemIsNotReady,
-}
-
 pub struct FileSystemManager {
     filesystems: BTreeMap<u64, Arc<bounded::Sender<FileSystemReq>>>,
     filesystem_id: u64,
-    fd: i64,
+    current_fd: i64,
 }
 
 impl FileSystemManager {
     fn get_new_fd(&mut self) -> Option<i64> {
-        if self.fd == i64::MAX {
+        if self.current_fd == i64::MAX {
             return None;
         }
-        self.fd += 1;
-        Some(self.fd)
+        self.current_fd += 1;
+        Some(self.current_fd)
     }
 }
 
 pub static FILESYSTEM_MANAGER: RwLock<FileSystemManager> = RwLock::new(FileSystemManager {
     filesystems: BTreeMap::new(),
     filesystem_id: 0,
-    fd: 0,
+    current_fd: 0,
 });
 
 pub fn add_filesystem(tx: bounded::Sender<FileSystemReq>) {
