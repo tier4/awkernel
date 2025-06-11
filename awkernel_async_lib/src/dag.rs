@@ -476,22 +476,27 @@ fn remove_dag(id: u32) {
     source_pending_tasks.remove(&id);
 }
 
-fn iter_errors_from_map(
-    dag_id: u32,
-    mismatch_map: &Mutex<BTreeMap<u32, Vec<usize>>>,
-) -> impl Iterator<Item = DagError> {
+fn iter_errors_from_map(dag_id: u32, direction: Direction) -> impl Iterator<Item = DagError> {
+    let (mismatch_map, mismatch_error) = match direction {
+        Direction::Incoming => (
+            &MISMATCH_SUBSCRIBE_NODES,
+            DagError::SubscribeArityMismatch as fn(u32, usize) -> DagError,
+        ),
+        Direction::Outgoing => (
+            &MISMATCH_PUBLISH_NODES,
+            DagError::PublishArityMismatch as fn(u32, usize) -> DagError,
+        ),
+    };
+
     let node_ids = {
         let mut node = MCSNode::new();
-        let locked_mismatch_map = mismatch_map.lock(&mut node);
-        locked_mismatch_map
-            .get(&dag_id)
-            .cloned()
-            .unwrap_or_default()
+        let mut locked_mismatch_map = mismatch_map.lock(&mut node);
+        locked_mismatch_map.remove(&dag_id).unwrap_or_default()
     };
 
     node_ids
         .into_iter()
-        .map(move |node_id| DagError::SubscribeArityMismatch(dag_id, node_id))
+        .map(move |node_id| mismatch_error(dag_id, node_id))
 }
 
 // NOTE: On the architecture for this arity validation.
@@ -506,8 +511,8 @@ fn iter_errors_from_map(
 // Therefore, we adopted the current architecture: errors are first recorded
 // to a `static` variable, and then collected and reported in a batch by this function.
 fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
-    let subscribe_errors = iter_errors_from_map(dag_id, &MISMATCH_SUBSCRIBE_NODES);
-    let publish_errors = iter_errors_from_map(dag_id, &MISMATCH_PUBLISH_NODES);
+    let subscribe_errors = iter_errors_from_map(dag_id, Direction::Incoming);
+    let publish_errors = iter_errors_from_map(dag_id, Direction::Outgoing);
     let error_list: Vec<_> = subscribe_errors.chain(publish_errors).collect();
 
     if error_list.is_empty() {
