@@ -1,6 +1,7 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 
 use crate::pcie::{
+    capability::pcie_cap,
     intel::igc::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
@@ -540,11 +541,22 @@ fn igc_init_phy_params_i225(
     phy.autoneg_mask = AUTONEG_ADVERTISE_SPEED_DEFAULT_2500;
     phy.reset_delay_us = 100;
 
+    log::debug!("info: {info:?}");
+
+    for i in (0..0x3c).step_by(4) {
+        let val = info.config_space.read_u32(i);
+        log::debug!("config space at {i:#x}: {val:#x}");
+    }
+
+    log::debug!("I225 PHY resetting...");
+
     // Make sure the PHY is in a good state. Several people have reported
     // firmware leaving the PHY's page select register set to something
     // other than the default of zero, which causes the PHY ID read to
     // access something other than the intended register.
     ops.reset(info, hw)?;
+
+    log::debug!("I225 PHY reset done");
 
     igc_get_phy_id(ops, info, hw)?;
     hw.phy.phy_type = IgcPhyType::I225;

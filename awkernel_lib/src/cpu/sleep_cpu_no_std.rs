@@ -154,6 +154,7 @@ pub(super) unsafe fn init() {
             crate::timer::reset(core::time::Duration::from_micros(100));
         });
 
+        log::debug!("register_handler({irq})");
         if crate::interrupt::register_handler(irq, "local timer".into(), timer_callback).is_ok() {
             log::info!("A local timer has been initialized.");
         }

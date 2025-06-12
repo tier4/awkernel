@@ -250,7 +250,7 @@ fn acquire_phy<F, R>(
     f: F,
 ) -> Result<R, IgcDriverErr>
 where
-    F: Fn(&dyn IgcPhyOperations, &mut PCIeInfo, &IgcHw) -> Result<R, IgcDriverErr>,
+    F: Fn(&dyn IgcPhyOperations, &mut PCIeInfo, &mut IgcHw) -> Result<R, IgcDriverErr>,
 {
     IgcPhyOperations::acquire(ops, info, hw)?;
     let result = f(ops, info, hw);
@@ -269,6 +269,7 @@ pub(super) fn igc_phy_hw_reset_generic(
 ) -> Result<(), IgcDriverErr> {
     match ops.check_reset_block(info) {
         Err(IgcDriverErr::BlkPhyReset) => {
+            log::debug!("PHY reset blocked by another entity, skipping reset");
             return Ok(());
         }
         Err(e) => {
@@ -301,7 +302,7 @@ pub(super) fn igc_phy_hw_reset_generic(
 
         log::debug!("Timeout expired after a phy reset");
 
-        Ok(())
+        Err(IgcDriverErr::Phy)
     })
 }
 

@@ -64,7 +64,7 @@ pub mod registers {
     }
 
     pub const _DEVICE_CAPABILITIES: usize = 0x04;
-    pub const _DEVICE_STATUS_CONTROL: usize = 0x08;
+    pub const DEVICE_STATUS_CONTROL: usize = 0x08;
     pub const _LINK_CAPABILITIES: usize = 0x0c;
     pub const LINK_STATUS_CONTROL: usize = 0x10;
     pub const _SLOT_CAPABILITIES: usize = 0x14;
@@ -74,7 +74,7 @@ pub mod registers {
 
     // Gen2 and later devices only
     pub const _DEVICE_CAPABILITIES_2: usize = 0x24;
-    pub const _DEVICE_STATUS_CONTROL_2: usize = 0x28;
+    pub const DEVICE_STATUS_CONTROL_2: usize = 0x28;
     pub const _LINK_CAPABILITIES_2: usize = 0x2c;
     pub const _LINK_STATUS_CONTROL_2: usize = 0x30;
     pub const _SLOT_CAPABILITIES_2: usize = 0x34;
@@ -110,13 +110,26 @@ impl PCIeCap {
     pub fn get_device_status_control2(&self) -> registers::DeviceStatusControl2 {
         let reg = self
             .config_space
-            .read_u32(self.cap_ptr + registers::_DEVICE_STATUS_CONTROL_2);
+            .read_u32(self.cap_ptr + registers::DEVICE_STATUS_CONTROL_2);
         registers::DeviceStatusControl2::from_bits_truncate(reg)
     }
+
+    pub fn set_device_status_control2(&self, val: registers::DeviceStatusControl2) {
+        self.config_space.write_u32(
+            val.bits(),
+            self.cap_ptr + registers::DEVICE_STATUS_CONTROL_2,
+        );
+    }
+
     pub fn get_device_status_control(&self) -> registers::DeviceStatusControl {
         let reg = self
             .config_space
-            .read_u32(self.cap_ptr + registers::_DEVICE_STATUS_CONTROL);
+            .read_u32(self.cap_ptr + registers::DEVICE_STATUS_CONTROL);
         registers::DeviceStatusControl::from_bits_truncate(reg)
+    }
+
+    pub fn set_device_status_control(&self, val: registers::DeviceStatusControl) {
+        self.config_space
+            .write_u32(val.bits(), self.cap_ptr + registers::DEVICE_STATUS_CONTROL);
     }
 }

@@ -153,6 +153,12 @@ impl Igc {
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
 
+        log::debug!(
+            "igc: device_id = {:#x}, vendor_id = {:#x}",
+            hw.device_id,
+            info.vendor
+        );
+
         let (irqs_queues, irq_events) = igc_allocate_pci_resources(&mut info)?;
 
         let (que, irqs_to_queues) = igc_allocate_queues(&info, &irqs_queues)?;

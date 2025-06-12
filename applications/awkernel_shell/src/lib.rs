@@ -23,6 +23,7 @@ pub fn init() {
     let task_id = task::spawn(SERVICE_NAME.into(), console_handler(), SchedulerType::FIFO);
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
+        log::debug!("register_handler({irq})");
         if awkernel_lib::interrupt::register_handler(
             irq,
             "serial port (awkernel_shell)".into(),

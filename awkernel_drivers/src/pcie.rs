@@ -302,21 +302,26 @@ pub enum ChildDevice {
 
 impl ChildDevice {
     fn attach(&mut self) {
+        log::debug!("ChildDevice::attach start");
+
         let attaching = ChildDevice::Attaching;
 
         if let ChildDevice::Bus(bus) = self {
             bus.attach();
+            log::debug!("ChildDevice::attach end 0");
             return;
         };
 
         // Return if the device has already been attached.
         let ChildDevice::Unattached(info) = core::mem::replace(self, attaching) else {
+            log::debug!("ChildDevice::attach end 1");
             return;
         };
 
         if let Ok(device) = info.attach() {
             *self = ChildDevice::Attached(device);
         }
+        log::debug!("ChildDevice::attach end 2");
     }
 
     fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
@@ -394,9 +399,11 @@ impl PCIeBus {
     }
 
     fn attach(&mut self) {
+        log::debug!("PCIeBus::attach start");
         for device in self.devices.iter_mut() {
             device.attach();
         }
+        log::debug!("PCIeBus::attach end");
     }
 
     fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
@@ -990,6 +997,10 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        let bar0 = self.get_bar(0).unwrap();
+        log::debug!("PCIeInfo::attach: segment_group = {:04x}, bus_number = {:02x}, device_number = {:02x}, function_number = {:01x}, BAR0 = {:?}",
+            self.segment_group, self.bus_number, self.device_number, self.function_number, bar0);
+
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 return intel::attach(self);
