@@ -270,7 +270,7 @@ where
     let mut controller = INTERRUPT_CONTROLLER.write();
 
     let (min, max) = if let Some(ctrl) = controller.as_ref() {
-        ctrl.irq_range()
+        ctrl.irq_range_for_pnp()
     } else {
         log::warn!("Interrupt controller is not yet enabled.");
         return Err("Interrupt controller is not yet enabled.");
@@ -567,7 +567,7 @@ pub fn get_flag() -> usize {
     ArchImpl::get_flag()
 }
 
-/// Set interrupt flag state  
+/// Set interrupt flag state
 pub fn set_flag(flag: usize) {
     ArchImpl::set_flag(flag)
 }
