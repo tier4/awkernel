@@ -509,7 +509,6 @@ fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
     };
 
     if errors.is_empty() {
-        log::debug!("OK");
         Ok(())
     } else {
         Err(errors)
