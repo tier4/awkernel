@@ -31,10 +31,13 @@ mod visit;
 mod performance;
 
 use crate::{
-    dag::graph::{
-        algo::{connected_components, is_cyclic_directed},
-        direction::Direction,
-        NodeIndex,
+    dag::{
+        graph::{
+            algo::{connected_components, is_cyclic_directed},
+            direction::Direction,
+            NodeIndex,
+        },
+        visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
@@ -42,7 +45,7 @@ use crate::{
 use alloc::{
     borrow::Cow,
     boxed::Box,
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
     sync::Arc,
     vec::Vec,
 };
@@ -58,6 +61,8 @@ static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTre
 
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+
+static DAG_TOPICS: Mutex<BTreeMap<u32, BTreeSet<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -81,17 +86,19 @@ impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),       // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),      // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    NoPublisherFound(u32, usize),                    // (dag_id, node_id)
+    NoSubscriberFound(u32, usize),                   // (dag_id, node_id)
+    SubscribeArityMismatch(u32, usize),              // (dag_id, node_id)
+    PublishArityMismatch(u32, usize),                // (dag_id, node_id)
+    TopicHasMultipleSources(u32, Cow<'static, str>), // (dag_id, topic_name)
+    InterDagTopicConflict(u32, u32, Cow<'static, str>), //(dag_id, dag_id, topic_name)
 }
 
 #[rustfmt::skip]
@@ -114,6 +121,12 @@ impl core::fmt::Display for DagError {
             }
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
+            }
+            DagError::TopicHasMultipleSources(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' is used on multiple edges")
+            }
+            DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
+                write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
             }
         }
     }
@@ -143,9 +156,13 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
+struct EdgeInfo {
+    topic_name: Cow<'static, str>,
+}
+
 pub struct Dag {
     id: u32,
-    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>, //TODO: Change to edge attribute
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -198,28 +215,56 @@ impl Dag {
             relative_deadline: None,
         };
 
+        let new_node_sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let new_node_pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        for node_idx in graph.node_indices() {
-            if let Some(node_info) = graph.node_weight(node_idx) {
-                let subscribe_match = subscribe_topic_names
-                    .iter()
-                    .any(|sub| node_info.publish_topics.contains(sub));
+        struct EdgeToAdd {
+            from: NodeIndex,
+            to: NodeIndex,
+            topic_name: Cow<'static, str>,
+        }
+        let mut edges_to_add: Vec<EdgeToAdd> = Vec::new();
+        for node_ref in graph.node_references() {
+            let node_idx = node_ref.id();
+            let node_info = node_ref.weight();
+            let pub_topics = node_info.publish_topics.clone();
+            let sub_topics = node_info.subscribe_topics.clone();
 
-                let publish_match = publish_topic_names
-                    .iter()
-                    .any(|pub_| node_info.subscribe_topics.contains(pub_));
+            pub_topics
+                .iter()
+                .filter(|topic| new_node_sub_topics.contains(topic))
+                .for_each(|topic| {
+                    edges_to_add.push(EdgeToAdd {
+                        from: node_idx,
+                        to: add_node_idx,
+                        topic_name: topic.clone(),
+                    });
+                });
 
-                if subscribe_match {
-                    graph.add_edge(node_idx, add_node_idx, 0);
-                }
+            sub_topics
+                .iter()
+                .filter(|topic| new_node_pub_topics.contains(topic))
+                .for_each(|topic| {
+                    edges_to_add.push(EdgeToAdd {
+                        from: add_node_idx,
+                        to: node_idx,
+                        topic_name: topic.clone(),
+                    });
+                });
+        }
 
-                if publish_match {
-                    graph.add_edge(add_node_idx, node_idx, 0);
-                }
-            }
+        for edge_info in edges_to_add {
+            graph.add_edge(
+                edge_info.from,
+                edge_info.to,
+                EdgeInfo {
+                    topic_name: edge_info.topic_name,
+                },
+            );
         }
 
         add_node_idx
@@ -547,6 +592,39 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+fn validate_publisher_uniqueness_for_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
+    let mut topic_publishers: BTreeMap<Cow<'static, str>, NodeIndex> = BTreeMap::new();
+    let mut errors: Vec<DagError> = Vec::new();
+    let dag_id = dag.id;
+    let mut topics: BTreeSet<Cow<'static, str>> = BTreeSet::new();
+
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    for edge_ref in graph.edge_references() {
+        let topic = &edge_ref.weight().topic_name;
+        topics.insert(topic.clone());
+        let publisher_id = edge_ref.source();
+        if let Some(existing_publisher_id) = topic_publishers.get(topic) {
+            if *existing_publisher_id != publisher_id {
+                errors.push(DagError::TopicHasMultipleSources(dag_id, topic.clone()));
+            }
+        } else {
+            topic_publishers.insert(topic.clone(), publisher_id);
+        }
+    }
+
+    let mut topics_node = MCSNode::new();
+    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
+    dag_topics.insert(dag_id, topics);
+
+    if !errors.is_empty() {
+        errors.sort();
+        errors.dedup();
+        return Err(errors);
+    }
+    Ok(())
+}
+
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     let dag_id = dag.id;
     assert!(
@@ -581,6 +659,35 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+fn validate_dags() -> Result<(), Vec<DagError>> {
+    let mut errors: Vec<DagError> = Vec::new();
+    let mut topic_to_dag_map: BTreeMap<Cow<'static, str>, u32> = BTreeMap::new();
+
+    let mut node = MCSNode::new();
+    let dag_topics_registry = DAG_TOPICS.lock(&mut node);
+    for (current_dag_id, topics_in_dag) in dag_topics_registry.iter() {
+        for topic in topics_in_dag {
+            if let Some(first_dag_id) = topic_to_dag_map.get(topic) {
+                errors.push(DagError::InterDagTopicConflict(
+                    *first_dag_id,
+                    *current_dag_id,
+                    topic.clone(),
+                ));
+            } else {
+                topic_to_dag_map.insert(topic.clone(), *current_dag_id);
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        errors.sort();
+        errors.dedup();
+        return Err(errors);
+    }
+
+    Ok(())
+}
+
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut errors: Vec<DagError> = Vec::new();
 
@@ -590,7 +697,13 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
+        } else if let Err(duplicate_error) = validate_publisher_uniqueness_for_topic(dag) {
+            errors.extend(duplicate_error.into_iter());
         }
+    }
+
+    if let Err(inter_dag_errors) = validate_dags() {
+        errors.extend(inter_dag_errors);
     }
 
     if !errors.is_empty() {

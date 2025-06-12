@@ -614,6 +614,26 @@ where
     }
 }
 
+/// Iterator yielding immutable access to all edge weights.
+pub struct EdgeWeights<'a, E: 'a, Ix: IndexType = DefaultIx> {
+    edges: ::core::slice::Iter<'a, Edge<E, Ix>>,
+}
+
+impl<'a, E, Ix> Iterator for EdgeWeights<'a, E, Ix>
+where
+    Ix: IndexType,
+{
+    type Item = &'a E;
+
+    fn next(&mut self) -> Option<&'a E> {
+        self.edges.next().map(|edge| &edge.weight)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.edges.size_hint()
+    }
+}
+
 /// An iterator over either the nodes without edges to them or from them.
 #[derive(Debug, Clone)]
 pub struct Externals<'a, N: 'a, Ix: IndexType = DefaultIx> {
@@ -812,6 +832,55 @@ where
         Graph::neighbors(self, n)
     }
 }
+
+impl<'a, N, E, Ix> visit::IntoNodeReferences for &'a Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type NodeRef = (NodeIndex<Ix>, &'a N);
+    type NodeReferences = NodeReferences<'a, N, Ix>;
+    fn node_references(self) -> Self::NodeReferences {
+        NodeReferences {
+            iter: self.nodes.iter().enumerate(),
+        }
+    }
+}
+
+/// Iterator over all nodes of a graph.
+#[derive(Debug, Clone)]
+pub struct NodeReferences<'a, N: 'a, Ix: IndexType = DefaultIx> {
+    iter: iter::Enumerate<slice::Iter<'a, Node<N, Ix>>>,
+}
+
+impl<'a, N, Ix> Iterator for NodeReferences<'a, N, Ix>
+where
+    Ix: IndexType,
+{
+    type Item = (NodeIndex<Ix>, &'a N);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|(i, node)| (node_index(i), &node.weight))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<N, Ix> DoubleEndedIterator for NodeReferences<'_, N, Ix>
+where
+    Ix: IndexType,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next_back()
+            .map(|(i, node)| (node_index(i), &node.weight))
+    }
+}
+
+impl<N, Ix> ExactSizeIterator for NodeReferences<'_, N, Ix> where Ix: IndexType {}
 
 /// Reference to a `Graph` edge.
 #[derive(Debug)]
