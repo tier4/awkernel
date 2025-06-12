@@ -476,29 +476,6 @@ fn remove_dag(id: u32) {
     source_pending_tasks.remove(&id);
 }
 
-fn iter_errors_from_map(dag_id: u32, direction: Direction) -> impl Iterator<Item = DagError> {
-    let (mismatch_map, mismatch_error) = match direction {
-        Direction::Incoming => (
-            &MISMATCH_SUBSCRIBE_NODES,
-            DagError::SubscribeArityMismatch as fn(u32, usize) -> DagError,
-        ),
-        Direction::Outgoing => (
-            &MISMATCH_PUBLISH_NODES,
-            DagError::PublishArityMismatch as fn(u32, usize) -> DagError,
-        ),
-    };
-
-    let node_ids = {
-        let mut node = MCSNode::new();
-        let mut locked_mismatch_map = mismatch_map.lock(&mut node);
-        locked_mismatch_map.remove(&dag_id).unwrap_or_default()
-    };
-
-    node_ids
-        .into_iter()
-        .map(move |node_id| mismatch_error(dag_id, node_id))
-}
-
 // NOTE: On the architecture for this arity validation.
 //
 // Ideally, this validation would be performed at an earlier stage, such as inside
@@ -511,14 +488,31 @@ fn iter_errors_from_map(dag_id: u32, direction: Direction) -> impl Iterator<Item
 // Therefore, we adopted the current architecture: errors are first recorded
 // to a `static` variable, and then collected and reported in a batch by this function.
 fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
-    let subscribe_errors = iter_errors_from_map(dag_id, Direction::Incoming);
-    let publish_errors = iter_errors_from_map(dag_id, Direction::Outgoing);
-    let error_list: Vec<_> = subscribe_errors.chain(publish_errors).collect();
+    let mut node = MCSNode::new();
 
-    if error_list.is_empty() {
+    let errors: Vec<_> = {
+        let subscribe_errors = MISMATCH_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::SubscribeArityMismatch(dag_id, node_id));
+
+        let publish_errors = MISMATCH_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::PublishArityMismatch(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        log::debug!("OK");
         Ok(())
     } else {
-        Err(error_list)
+        Err(errors)
     }
 }
 
