@@ -32,7 +32,7 @@ type FileDescriptorMap<'a> = BTreeMap<i64, (FatFile<'a>, ResponseSender)>;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
-// TODO: Later implement TimeProvider. NullTimeProvider is a dummy provider that slways returns DOS minimal date-time (1980-01-01 00:00:00).
+// TODO: Later implement TimeProvider. NullTimeProvider is a dummy provider that always returns DOS minimal date-time (1980-01-01 00:00:00).
 struct MemoryFileSystemServer<'a> {
     root_dir: FatDir<'a>,
     fd_to_file: FileDescriptorMap<'a>,

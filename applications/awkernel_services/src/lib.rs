@@ -11,7 +11,7 @@ use core::time::Duration;
 const NETWORK_SERVICE_NAME: &str = "[Awkernel] network service";
 const BUFFERED_LOGGER_NAME: &str = "[Awkernel] buffered logger service";
 const DISPLAY_SERVICE_NAME: &str = "[Awkernel] display service";
-const MEMORY_FATFS_SERVICE_NAME: &str = "[Awkernel] filesystem service";
+const MEMORY_FATFS_SERVICE_NAME: &str = "[Awkernel] memory fatfs service";
 
 pub async fn run() {
     awkernel_async_lib::spawn(
