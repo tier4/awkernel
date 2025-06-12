@@ -18,6 +18,7 @@ inline lock(tid, mutex) {
     if
         :: atomic {
             mutex.is_locked ->
+            assert(!mutex.request ? [tid]);  // Deadlock
             mutex.flag[tid] = false;
             mutex.request ! tid;
             need_wait = true;
