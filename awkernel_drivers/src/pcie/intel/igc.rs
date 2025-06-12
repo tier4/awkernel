@@ -2,6 +2,7 @@
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -9,7 +10,7 @@ use awkernel_lib::{
         net_device::{self, LinkStatus, NetDevice},
     },
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
@@ -17,7 +18,12 @@ use igc_defines::*;
 use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
-    intel::igc::igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+    intel::igc::{
+        igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+        igc_regs::{
+            IGC_RDBAH, IGC_RDBAL, IGC_RDH, IGC_RDLEN, IGC_RDT, IGC_TDBAH, IGC_TDBAL, IGC_TDLEN,
+        },
+    },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
@@ -149,6 +155,7 @@ impl Igc {
         use PCIeDeviceErr::InitFailure;
 
         let mut hw = IgcHw::default();
+        hw.is_flr = false;
         hw.device_id = info.id;
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
@@ -179,12 +186,41 @@ impl Igc {
 
         // TODO: Allocate multicast array memory.
 
+        log::debug!("here -1");
+
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
         }
 
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
+
+        log::debug!("here 0");
+
+        for q in que.iter() {
+            {
+                let mut node = MCSNode::new();
+                let rxq = q.rx.lock(&mut node);
+
+                let phy_addr = rxq.rx_desc_ring.get_phy_addr().as_usize() as u64;
+                write_reg(&info, IGC_RDBAH(q.me), (phy_addr >> 32) as u32).or(Err(InitFailure))?;
+                write_reg(&info, IGC_RDBAL(q.me), phy_addr as u32).or(Err(InitFailure))?;
+
+                write_reg(&info, IGC_RDH(q.me), 0).or(Err(InitFailure))?;
+                write_reg(&info, IGC_RDT(q.me), 0).or(Err(InitFailure))?;
+                write_reg(&info, IGC_RDLEN(q.me), IGC_DEFAULT_RXD as u32).or(Err(InitFailure))?;
+            }
+
+            {
+                let mut node = MCSNode::new();
+                let txq = q.tx.lock(&mut node);
+
+                let phy_addr = txq.tx_desc_ring.get_phy_addr().as_usize() as u64;
+                write_reg(&info, IGC_TDBAH(q.me), (phy_addr >> 32) as u32).or(Err(InitFailure))?;
+                write_reg(&info, IGC_TDBAL(q.me), phy_addr as u32).or(Err(InitFailure))?;
+                write_reg(&info, IGC_TDLEN(q.me), IGC_DEFAULT_TXD as u32).or(Err(InitFailure))?;
+            }
+        }
 
         let link_info = match igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw) {
             Ok(link_info) => link_info,
@@ -498,15 +534,23 @@ fn igc_reset(
 
     hw.fc.send_xon = true;
 
+    log::debug!("here 3.1");
+
     // Issue a global reset
     ops.reset_hw(info, hw)?;
     write_reg(info, IGC_WUC, 0)?;
 
+    log::debug!("here 3.2");
+
     // and a re-init
     ops.init_hw(info, hw)?;
 
+    log::debug!("here 3.3");
+
     // Setup DMA Coalescing
     igc_init_dmac(info, hw, pba, sc_dmac)?;
+
+    log::debug!("here 3.4");
 
     write_reg(info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
     ops.get_info(info, hw)?;
@@ -577,6 +621,8 @@ fn igc_attach_and_hw_control(
 ) -> Result<LinkInfo, PCIeDeviceErr> {
     use PCIeDeviceErr::InitFailure;
 
+    log::debug!("here 1");
+
     ops.reset_hw(info, hw).or(Err(InitFailure))?;
 
     // Make sure we have a good EEPROM before we read from it.
@@ -586,6 +632,8 @@ fn igc_attach_and_hw_control(
         // if it fails a second time its a real issue.
         ops.validate(info, hw).or(Err(InitFailure))?;
     }
+
+    log::debug!("here 2");
 
     ops.read_mac_addr(info, hw).or(Err(InitFailure))?;
 
@@ -597,7 +645,11 @@ fn igc_attach_and_hw_control(
     let sc_fc = IgcFcMode::None; // No flow control request.
     let sc_dmac = 0; // DMA Coalescing is disabled by default.
 
+    log::debug!("here 3: MAC = {:02x?}", hw.mac.addr);
+
     igc_reset(ops, info, hw, sc_fc, sc_dmac).or(Err(InitFailure))?;
+
+    log::debug!("here 4");
 
     hw.mac.get_link_status = true;
     let mut link_info = LinkInfo {
@@ -608,8 +660,12 @@ fn igc_attach_and_hw_control(
     };
     igc_update_link_status(ops, info, hw, &mut link_info).or(Err(InitFailure))?;
 
+    log::debug!("here 5");
+
     // The driver can now take control from firmware
     igc_get_hw_control(info).or(Err(InitFailure))?;
+
+    log::debug!("here 6");
 
     Ok(link_info)
 }

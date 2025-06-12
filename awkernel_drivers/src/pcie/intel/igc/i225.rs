@@ -1,7 +1,7 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 
 use crate::pcie::{
-    capability::pcie_cap,
+    capability::pcie_cap::registers::DeviceStatusControl,
     intel::igc::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
@@ -9,6 +9,7 @@ use crate::pcie::{
             IGC_I225_PHPM_GO_LINKD,
         },
     },
+    registers::StatusCommand,
     PCIeInfo,
 };
 
@@ -351,6 +352,10 @@ fn igc_reset_hw_i225(
 
 /// Acquire the HW semaphore to access the PHY or NVM
 fn igc_get_hw_semaphore_i225(info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+    if hw.is_flr {
+        return Ok(());
+    }
+
     let mut swsm;
     let timeout = hw.nvm.word_size + 1;
     let mut i = 0;
@@ -435,14 +440,20 @@ fn igc_acquire_swfw_sync_i225(
         if swfw_sync & (fwmask | swmask) == 0 {
             swfw_sync |= swmask;
             let result = write_reg(info, IGC_SW_FW_SYNC, swfw_sync);
-            igc_put_hw_semaphore_generic(info)?;
+
+            if !hw.is_flr {
+                igc_put_hw_semaphore_generic(info)?;
+            }
+
             return result;
         }
 
         // Firmware currently using resource (fwmask)
         // or other software thread using resource (swmask)
-        igc_put_hw_semaphore_generic(info)?;
-        wait_millisec(5);
+        if !hw.is_flr {
+            igc_put_hw_semaphore_generic(info)?;
+            wait_millisec(5);
+        }
     }
 
     // timeout
@@ -554,12 +565,62 @@ fn igc_init_phy_params_i225(
     // firmware leaving the PHY's page select register set to something
     // other than the default of zero, which causes the PHY ID read to
     // access something other than the intended register.
-    ops.reset(info, hw)?;
+    if ops.reset(info, hw).is_err() {
+        // fallback
+
+        let mut bar = [0; 6];
+
+        // Store the BAR addresses
+        for i in 0..6 {
+            bar[i] = info.config_space.read_u32(i * 4 + 0x10);
+        }
+
+        if let Some(caps) = info.pcie_cap.as_mut() {
+            // Initiate a Function Level Reset (FLR)
+            let ctrl = caps.get_device_status_control();
+            caps.set_device_status_control(ctrl | DeviceStatusControl::INITIATE_FLR);
+            wait_millisec(100);
+
+            // Reinitialize the BAR addresses after FLR
+            for i in 0..6 {
+                info.config_space.write_u32(bar[i], i * 4 + 0x10);
+            }
+
+            let cmd = info.read_status_command();
+            info.write_status_command(cmd | StatusCommand::MEMORY_SPACE);
+
+            for i in (0..0x3c).step_by(4) {
+                let val = info.config_space.read_u32(i);
+                log::debug!("config space at {i:#x}: {val:#x}");
+            }
+
+            for _ in 0..10000 {
+                let val = read_reg(info, IGC_SW_FW_SYNC)?;
+                if val & (1 << 1) == 0 {
+                    break;
+                }
+                wait_microsec(100);
+            }
+
+            let val = read_reg(info, IGC_SW_FW_SYNC)?;
+            if val & (1 << 1) != 0 {
+                log::debug!("I225 PHY reset failed, SW/FW sync bit is still set.");
+                return Err(IgcDriverErr::SwfwSync);
+            }
+
+            // hw.is_flr = true;
+
+            let result = ops.reset(info, hw);
+            log::debug!("I225 PHY reset result: {result:?}");
+        }
+    }
 
     log::debug!("I225 PHY reset done");
 
     igc_get_phy_id(ops, info, hw)?;
     hw.phy.phy_type = IgcPhyType::I225;
+
+    log::debug!("phy type: {:?}", hw.phy.phy_type);
 
     Ok(())
 }
@@ -870,6 +931,8 @@ fn igc_setup_copper_link_i225(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
+    log::debug!("igc_setup_copper_link_i225()");
+
     let mut ctrl = read_reg(info, IGC_CTRL)?;
     ctrl |= IGC_CTRL_SLU; // Set the link up bit
     ctrl &= !(IGC_CTRL_FRCSPD | IGC_CTRL_FRCDPX); // Clear forced speed and duplex bits

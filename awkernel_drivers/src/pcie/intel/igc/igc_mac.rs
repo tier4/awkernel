@@ -118,6 +118,9 @@ pub(super) fn igc_setup_link_generic(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
+    log::debug!("igc_setup_link_generic()");
+    log::debug!("here 3.2.4.1");
+
     // In the case of the phy reset being blocked, we already have a link.
     // We do not need to set it up again.
     match ops.check_reset_block(info) {
@@ -125,6 +128,8 @@ pub(super) fn igc_setup_link_generic(
         Err(IgcDriverErr::BlkPhyReset) => return Ok(()),
         Err(e) => return Err(e),
     }
+
+    log::debug!("here 3.2.4.2");
 
     // If requested flow control is set to default, set flow control
     // for both 'rx' and 'tx' pause frames.
@@ -139,6 +144,8 @@ pub(super) fn igc_setup_link_generic(
     // Call the necessary media_type subroutine to configure the link.
     ops.setup_physical_interface(info, hw)?;
 
+    log::debug!("here 3.2.4.3");
+
     // Initialize the flow control address, type, and PAUSE timer
     // registers to their default values.  This is done even if flow
     // control is disabled, because it does not hurt anything to
@@ -148,6 +155,8 @@ pub(super) fn igc_setup_link_generic(
     write_reg(info, IGC_FCAL, FLOW_CONTROL_ADDRESS_LOW)?;
 
     write_reg(info, IGC_FCTTV, hw.fc.pause_time as u32)?;
+
+    log::debug!("here 3.2.4.4");
 
     igc_set_fc_watermarks_generic(info, hw)
 }
