@@ -162,8 +162,7 @@ struct EdgeInfo {
 
 pub struct Dag {
     id: u32,
-    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>, //TODO: Change to edge attribute
-
+    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
 }
@@ -222,50 +221,36 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        struct EdgeToAdd {
-            from: NodeIndex,
-            to: NodeIndex,
-            topic_name: Cow<'static, str>,
-        }
-        let mut edges_to_add: Vec<EdgeToAdd> = Vec::new();
-        for node_ref in graph.node_references() {
-            let node_idx = node_ref.id();
-            let node_info = node_ref.weight();
-            let pub_topics = node_info.publish_topics.clone();
-            let sub_topics = node_info.subscribe_topics.clone();
+        let mut topics: BTreeSet<Cow<'static, str>> = BTreeSet::new();
+        let edges_to_add: Vec<_> = graph
+            .node_references()
+            .flat_map(|node_ref| {
+                let node_info = node_ref.weight();
 
-            pub_topics
-                .iter()
-                .filter(|topic| new_node_sub_topics.contains(topic))
-                .for_each(|topic| {
-                    edges_to_add.push(EdgeToAdd {
-                        from: node_idx,
-                        to: add_node_idx,
-                        topic_name: topic.clone(),
-                    });
-                });
+                let edges_from_new = node_info
+                    .subscribe_topics
+                    .iter()
+                    .filter(|topic| new_node_pub_topics.contains(*topic))
+                    .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
-            sub_topics
-                .iter()
-                .filter(|topic| new_node_pub_topics.contains(topic))
-                .for_each(|topic| {
-                    edges_to_add.push(EdgeToAdd {
-                        from: add_node_idx,
-                        to: node_idx,
-                        topic_name: topic.clone(),
-                    });
-                });
+                let edges_to_new = node_info
+                    .publish_topics
+                    .iter()
+                    .filter(|topic| new_node_sub_topics.contains(*topic))
+                    .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
+
+                edges_to_new.chain(edges_from_new).collect::<Vec<_>>()
+            })
+            .collect();
+
+        for (from, to, topic_name) in edges_to_add {
+            topics.insert(topic_name.clone());
+            graph.add_edge(from, to, EdgeInfo { topic_name });
         }
 
-        for edge_info in edges_to_add {
-            graph.add_edge(
-                edge_info.from,
-                edge_info.to,
-                EdgeInfo {
-                    topic_name: edge_info.topic_name,
-                },
-            );
-        }
+        let mut topics_node = MCSNode::new();
+        let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
+        dag_topics.insert(self.id, topics);
 
         add_node_idx
     }
@@ -593,36 +578,28 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
 }
 
 fn validate_publisher_uniqueness_for_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
-    let mut topic_publishers: BTreeMap<Cow<'static, str>, NodeIndex> = BTreeMap::new();
-    let mut errors: Vec<DagError> = Vec::new();
-    let dag_id = dag.id;
-    let mut topics: BTreeSet<Cow<'static, str>> = BTreeSet::new();
-
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
-    for edge_ref in graph.edge_references() {
-        let topic = &edge_ref.weight().topic_name;
-        topics.insert(topic.clone());
-        let publisher_id = edge_ref.source();
-        if let Some(existing_publisher_id) = topic_publishers.get(topic) {
-            if *existing_publisher_id != publisher_id {
-                errors.push(DagError::TopicHasMultipleSources(dag_id, topic.clone()));
-            }
-        } else {
-            topic_publishers.insert(topic.clone(), publisher_id);
-        }
+
+    let mut topic_to_publishers: BTreeMap<Cow<'static, str>, BTreeSet<NodeIndex>> = BTreeMap::new();
+    for edge in graph.edge_references() {
+        topic_to_publishers
+            .entry(edge.weight().topic_name.clone())
+            .or_default()
+            .insert(edge.source());
     }
 
-    let mut topics_node = MCSNode::new();
-    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
-    dag_topics.insert(dag_id, topics);
+    let errors: Vec<_> = topic_to_publishers
+        .into_iter()
+        .filter(|(_, publishers)| publishers.len() > 1)
+        .map(|(topic, _)| DagError::TopicHasMultipleSources(dag.id, topic))
+        .collect();
 
-    if !errors.is_empty() {
-        errors.sort();
-        errors.dedup();
-        return Err(errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
-    Ok(())
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
@@ -660,28 +637,31 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 }
 
 fn validate_dags() -> Result<(), Vec<DagError>> {
-    let mut errors: Vec<DagError> = Vec::new();
-    let mut topic_to_dag_map: BTreeMap<Cow<'static, str>, u32> = BTreeMap::new();
-
     let mut node = MCSNode::new();
-    let dag_topics_registry = DAG_TOPICS.lock(&mut node);
-    for (current_dag_id, topics_in_dag) in dag_topics_registry.iter() {
-        for topic in topics_in_dag {
-            if let Some(first_dag_id) = topic_to_dag_map.get(topic) {
-                errors.push(DagError::InterDagTopicConflict(
-                    *first_dag_id,
-                    *current_dag_id,
-                    topic.clone(),
-                ));
-            } else {
-                topic_to_dag_map.insert(topic.clone(), *current_dag_id);
-            }
+    let dag_topics = DAG_TOPICS.lock(&mut node);
+
+    let mut topic_to_dags: BTreeMap<Cow<'static, str>, Vec<u32>> = BTreeMap::new();
+    for (dag_id, topics) in dag_topics.iter() {
+        for topic in topics {
+            topic_to_dags
+                .entry(topic.clone())
+                .or_default()
+                .push(*dag_id);
         }
     }
 
+    let errors: Vec<_> = topic_to_dags
+        .into_iter()
+        .filter(|(_, dag_ids)| dag_ids.len() > 1)
+        .flat_map(|(topic, dag_ids)| {
+            let first_dag_id = dag_ids[0];
+            dag_ids.into_iter().skip(1).map(move |current_dag_id| {
+                DagError::InterDagTopicConflict(first_dag_id, current_dag_id, topic.clone())
+            })
+        })
+        .collect();
+
     if !errors.is_empty() {
-        errors.sort();
-        errors.dedup();
         return Err(errors);
     }
 
