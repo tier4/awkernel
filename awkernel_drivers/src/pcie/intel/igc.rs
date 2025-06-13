@@ -184,6 +184,7 @@ impl Igc {
             Ok(link_info) => link_info,
             Err(e) => {
                 log::error!("Failed to attach and get hardware control: {e:?}");
+                let _ = igc_release_hw_control(&mut info);
                 return Err(InitFailure);
             }
         };
