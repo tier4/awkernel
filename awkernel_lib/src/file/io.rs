@@ -1,4 +1,6 @@
+use super::error::Error;
 use super::error::IoError;
+use alloc::{string::String, vec::Vec};
 
 /// Provides IO error as an associated type.
 ///
@@ -69,6 +71,56 @@ pub trait Read: IoBase {
             Ok(())
         } else {
             Err(Self::Error::new_unexpected_eof_error())
+        }
+    }
+
+    fn read_to_string(&mut self, buf: &mut String) -> Result<(), Self::Error> {
+        let mut bytes = Vec::new();
+        self.read_to_end(&mut bytes)?;
+
+        let s = String::from_utf8(bytes).map_err(|e| Self::Error::other_error())?;
+        buf.push_str(&s);
+
+        Ok(())
+    }
+
+    /// Reads all bytes until EOF in this source and appends them to the specified buffer.
+    /// This is a helper for read_to_string. You might need to implement this one too,
+    /// similar to read_exact.
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Self::Error> {
+        let mut sum_read = 0;
+        loop {
+            // 十分なスペースを確保
+            if buf.len() == buf.capacity() {
+                buf.reserve(32);
+            }
+            let prev_len = buf.len();
+            unsafe {
+                buf.set_len(buf.capacity());
+            }
+            match self.read(&mut buf[prev_len..]) {
+                Ok(0) => {
+                    unsafe {
+                        buf.set_len(prev_len);
+                    }
+                    return Ok(sum_read);
+                }
+                Ok(n) => {
+                    sum_read += n;
+                    unsafe {
+                        buf.set_len(prev_len + n);
+                    }
+                }
+                Err(ref e) if e.is_interrupted() => unsafe {
+                    buf.set_len(prev_len);
+                },
+                Err(e) => {
+                    unsafe {
+                        buf.set_len(prev_len);
+                    }
+                    return Err(e);
+                }
+            }
         }
     }
 }

@@ -103,4 +103,7 @@ impl IoError for InMemoryDiskError {
     fn new_write_zero_error() -> Self {
         InMemoryDiskError::WriteZero
     }
+    fn other_error() -> Self {
+        todo!();
+    }
 }

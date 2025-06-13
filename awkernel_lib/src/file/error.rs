@@ -26,6 +26,7 @@ pub enum Error<T> {
     InvalidFileNameLength,
     /// The provided file name contains an invalid character.
     UnsupportedFileNameCharacter,
+    Others,
 }
 
 impl<T: IoError> From<T> for Error<T> {
@@ -68,6 +69,7 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
             Error::NotFound => write!(f, "No such file or directory"),
             Error::AlreadyExists => write!(f, "File or directory already exists"),
             Error::CorruptedFileSystem => write!(f, "Corrupted file system"),
+            Error::Others => write!(f, "Other errors"),
         }
     }
 }
@@ -90,6 +92,7 @@ pub trait IoError: core::fmt::Debug {
     fn is_interrupted(&self) -> bool;
     fn new_unexpected_eof_error() -> Self;
     fn new_write_zero_error() -> Self;
+    fn other_error() -> Self;
 }
 
 impl<T: core::fmt::Debug + IoError> IoError for Error<T> {
@@ -107,6 +110,9 @@ impl<T: core::fmt::Debug + IoError> IoError for Error<T> {
     fn new_write_zero_error() -> Self {
         Error::<T>::WriteZero
     }
+    fn other_error() -> Self {
+        Error::<T>::Others
+    }
 }
 
 impl IoError for () {
@@ -119,6 +125,9 @@ impl IoError for () {
     }
 
     fn new_write_zero_error() -> Self {
+        // empty
+    }
+    fn other_error() -> Self {
         // empty
     }
 }
