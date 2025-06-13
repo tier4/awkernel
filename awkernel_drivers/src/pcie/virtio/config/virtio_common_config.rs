@@ -70,6 +70,9 @@ impl VirtioCommonConfig {
 
         self.offset = cap.get_offset() as usize;
 
+        log::info!("virtio-common: bar: {:?}", self.bar);
+        log::info!("virtio-common: offset: {:?}", self.offset);
+
         Ok(())
     }
 
