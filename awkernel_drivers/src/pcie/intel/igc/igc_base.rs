@@ -162,33 +162,21 @@ pub(super) fn igc_init_hw_base(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
-    log::debug!("here 3.2.1");
-
     // Setup the receive address
     igc_init_rx_addrs_generic(ops, info, hw, hw.mac.rar_entry_count)?;
-
-    log::debug!(
-        "here 3.2.2: mta_reg_count: {}, uta_reg_count: {}",
-        hw.mac.mta_reg_count,
-        hw.mac.uta_reg_count
-    );
 
     // Zero out the Multicast HASH table
     for i in 0..hw.mac.mta_reg_count {
         write_reg_array(info, IGC_MTA, i as usize, 0)?;
     }
-    log::debug!("here 3.2.3");
 
     // Zero out the Unicast HASH table
     for i in 0..hw.mac.uta_reg_count {
         write_reg_array(info, IGC_UTA, i as usize, 0)?;
     }
 
-    log::debug!("here 3.2.4");
-
     // Setup link and flow control
     ops.setup_link(info, hw)?;
-    log::debug!("here 3.2.5");
 
     // Clear all of the statistics registers (clear on read).  It is
     // important that we do this after we have tried to establish link
