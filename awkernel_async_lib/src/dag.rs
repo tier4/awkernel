@@ -210,8 +210,8 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        let node_sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
-        let node_pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+        let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
 
         let edges_to_add: Vec<_> = graph
             .node_references()
@@ -221,13 +221,13 @@ impl Dag {
                 let edges_from = node_info
                     .subscribe_topics
                     .iter()
-                    .filter(|topic| node_pub_topics.contains(*topic))
+                    .filter(|topic| pub_topics.contains(*topic))
                     .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
                 let edges_to = node_info
                     .publish_topics
                     .iter()
-                    .filter(|topic| node_sub_topics.contains(*topic))
+                    .filter(|topic| sub_topics.contains(*topic))
                     .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
                 edges_to.chain(edges_from).collect::<Vec<_>>()
