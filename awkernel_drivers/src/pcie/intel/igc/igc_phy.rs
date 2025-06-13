@@ -604,8 +604,8 @@ pub(super) fn igc_setup_copper_link_generic(
 
     if link {
         ops.config_collision_dist(info, hw)?;
-        igc_config_fc_after_link_up_generic(ops, info, hw)
-    } else {
-        Err(IgcDriverErr::Phy)
+        igc_config_fc_after_link_up_generic(ops, info, hw)?;
     }
+
+    Ok(())
 }
