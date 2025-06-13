@@ -4,8 +4,8 @@ use crate::pcie::{
     intel::igc::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
-            igc_check_downshift_generic, igc_phy_has_link_generic, IGC_I225_PHPM,
-            IGC_I225_PHPM_GO_LINKD,
+            igc_check_downshift_generic, igc_phy_has_link_generic, igc_setup_copper_link_generic,
+            IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD,
         },
     },
     PCIeInfo,
@@ -867,5 +867,5 @@ fn igc_setup_copper_link_i225(
     phpm_reg &= !IGC_I225_PHPM_GO_LINKD; // Clear the go link down bit
     write_reg(info, IGC_I225_PHPM, phpm_reg)?;
 
-    igc_setup_link_generic(ops, info, hw)
+    igc_setup_copper_link_generic(ops, info, hw)
 }
