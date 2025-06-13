@@ -745,7 +745,7 @@ fn igc_set_queues(
         QueueType::Tx => {
             if entry & 1 != 0 {
                 ivar &= 0x00FFFFFF;
-                ivar |= ((vector | igc_defines::IGC_IVAR_VALID) << 24) as u32;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 24;
             } else {
                 // Rx even
                 ivar &= 0xFFFF00FF;
