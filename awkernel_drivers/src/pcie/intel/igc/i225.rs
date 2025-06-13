@@ -1,7 +1,6 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 
 use crate::pcie::{
-    capability::pcie_cap::registers::DeviceStatusControl,
     intel::igc::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
@@ -9,7 +8,6 @@ use crate::pcie::{
             IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD,
         },
     },
-    registers::StatusCommand,
     PCIeInfo,
 };
 

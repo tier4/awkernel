@@ -2,7 +2,6 @@
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
-    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -10,7 +9,7 @@ use awkernel_lib::{
         net_device::{self, LinkStatus, NetDevice},
     },
     paging::PAGESIZE,
-    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
+    sync::{mutex::Mutex, rwlock::RwLock},
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
@@ -18,12 +17,7 @@ use igc_defines::*;
 use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
-    intel::igc::{
-        igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
-        igc_regs::{
-            IGC_RDBAH, IGC_RDBAL, IGC_RDH, IGC_RDLEN, IGC_RDT, IGC_TDBAH, IGC_TDBAL, IGC_TDLEN,
-        },
-    },
+    intel::igc::igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
