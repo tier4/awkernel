@@ -155,7 +155,6 @@ impl Igc {
         use PCIeDeviceErr::InitFailure;
 
         let mut hw = IgcHw::default();
-        hw.is_flr = false;
         hw.device_id = info.id;
 
         igc_set_mac_type(&mut hw).or(Err(InitFailure))?;

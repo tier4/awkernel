@@ -261,8 +261,6 @@ pub(super) struct IgcHw {
     vendor_id: u16,
 
     revision_id: u8,
-
-    pub(super) is_flr: bool, // Did function-level reset?
 }
 
 pub(super) trait IgcMacOperations {

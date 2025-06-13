@@ -352,10 +352,6 @@ fn igc_reset_hw_i225(
 
 /// Acquire the HW semaphore to access the PHY or NVM
 fn igc_get_hw_semaphore_i225(info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-    if hw.is_flr {
-        return Ok(());
-    }
-
     let mut swsm;
     let timeout = hw.nvm.word_size + 1;
     let mut i = 0;
@@ -440,20 +436,14 @@ fn igc_acquire_swfw_sync_i225(
         if swfw_sync & (fwmask | swmask) == 0 {
             swfw_sync |= swmask;
             let result = write_reg(info, IGC_SW_FW_SYNC, swfw_sync);
-
-            if !hw.is_flr {
-                igc_put_hw_semaphore_generic(info)?;
-            }
-
+            igc_put_hw_semaphore_generic(info)?;
             return result;
         }
 
         // Firmware currently using resource (fwmask)
         // or other software thread using resource (swmask)
-        if !hw.is_flr {
-            igc_put_hw_semaphore_generic(info)?;
-            wait_millisec(5);
-        }
+        igc_put_hw_semaphore_generic(info)?;
+        wait_millisec(5);
     }
 
     // timeout
@@ -552,15 +542,11 @@ fn igc_init_phy_params_i225(
     phy.autoneg_mask = AUTONEG_ADVERTISE_SPEED_DEFAULT_2500;
     phy.reset_delay_us = 100;
 
-    for i in (0..0x3c).step_by(4) {
-        let val = info.config_space.read_u32(i);
-    }
-
     // Make sure the PHY is in a good state. Several people have reported
     // firmware leaving the PHY's page select register set to something
     // other than the default of zero, which causes the PHY ID read to
     // access something other than the intended register.
-    let _ = ops.reset(info, hw);
+    ops.reset(info, hw)?;
 
     igc_get_phy_id(ops, info, hw)?;
     hw.phy.phy_type = IgcPhyType::I225;

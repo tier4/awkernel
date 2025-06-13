@@ -114,22 +114,10 @@ impl PCIeCap {
         registers::DeviceStatusControl2::from_bits_truncate(reg)
     }
 
-    pub fn set_device_status_control2(&self, val: registers::DeviceStatusControl2) {
-        self.config_space.write_u32(
-            val.bits(),
-            self.cap_ptr + registers::DEVICE_STATUS_CONTROL_2,
-        );
-    }
-
     pub fn get_device_status_control(&self) -> registers::DeviceStatusControl {
         let reg = self
             .config_space
             .read_u32(self.cap_ptr + registers::DEVICE_STATUS_CONTROL);
         registers::DeviceStatusControl::from_bits_truncate(reg)
-    }
-
-    pub fn set_device_status_control(&self, val: registers::DeviceStatusControl) {
-        self.config_space
-            .write_u32(val.bits(), self.cap_ptr + registers::DEVICE_STATUS_CONTROL);
     }
 }
