@@ -86,18 +86,18 @@ impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone)]
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),                    // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),                   // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize),              // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),                // (dag_id, node_id)
-    TopicHasMultipleSources(u32, Cow<'static, str>), // (dag_id, topic_name)
+    NoPublisherFound(u32, usize),       // (dag_id, node_id)
+    NoSubscriberFound(u32, usize),      // (dag_id, node_id)
+    SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
+    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    TopicHasMultiplePublishers(u32, Cow<'static, str>), // (dag_id, topic_name)
     InterDagTopicConflict(u32, u32, Cow<'static, str>), //(dag_id, dag_id, topic_name)
 }
 
@@ -122,8 +122,8 @@ impl core::fmt::Display for DagError {
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
-            DagError::TopicHasMultipleSources(dag_id, topic_name) => {
-                write!(f, "DAG#{dag_id}: Topic '{topic_name}' is used on multiple edges")
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
             DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
                 write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
@@ -250,7 +250,7 @@ impl Dag {
 
         let mut topics_node = MCSNode::new();
         let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
-        dag_topics.insert(self.id, topics);
+        dag_topics.entry(self.id).or_default().extend(topics);
 
         add_node_idx
     }
@@ -592,7 +592,7 @@ fn validate_publisher_uniqueness_for_topic(dag: &Dag) -> Result<(), Vec<DagError
     let errors: Vec<_> = topic_to_publishers
         .into_iter()
         .filter(|(_, publishers)| publishers.len() > 1)
-        .map(|(topic, _)| DagError::TopicHasMultipleSources(dag.id, topic))
+        .map(|(topic, _)| DagError::TopicHasMultiplePublishers(dag.id, topic))
         .collect();
 
     if errors.is_empty() {
