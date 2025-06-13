@@ -586,7 +586,7 @@ fn igc_wait_autoneg(
 /// speed and duplex.  Then we check for link, once link is established calls
 /// to configure collision distance and flow control are called.  If link is
 /// not established, we return -IGC_ERR_PHY (-2).
-fn igc_setup_copper_link_generic(
+pub(super) fn igc_setup_copper_link_generic(
     ops: &dyn IgcOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
