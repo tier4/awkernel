@@ -747,7 +747,6 @@ fn igc_set_queues(
                 ivar &= 0x00FFFFFF;
                 ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 24;
             } else {
-                // Rx even
                 ivar &= 0xFFFF00FF;
                 ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 8;
             }
