@@ -725,3 +725,44 @@ fn igc_allocate_queues(
 
     Ok((que, irq_to_queue))
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum QueueType {
+    Rx,
+    Tx,
+}
+
+fn igc_set_queues(
+    info: &mut PCIeInfo,
+    entry: u32,
+    vector: u32,
+    qtype: QueueType,
+) -> Result<(), IgcDriverErr> {
+    let index = (entry >> 1) as usize;
+    let mut ivar = read_reg_array(info, igc_regs::IGC_IVAR0, index)?;
+
+    match qtype {
+        QueueType::Tx => {
+            if entry & 1 != 0 {
+                ivar &= 0x00FFFFFF;
+                ivar |= ((vector | igc_defines::IGC_IVAR_VALID) << 24) as u32;
+            } else {
+                // Rx even
+                ivar &= 0xFFFF00FF;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 8;
+            }
+        }
+        QueueType::Rx => {
+            if entry & 1 != 0 {
+                ivar &= 0xFF00FFFF;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 16;
+            } else {
+                ivar &= 0xFFFFFF00;
+                ivar |= vector | igc_defines::IGC_IVAR_VALID;
+            }
+        }
+    }
+    write_reg_array(info, igc_regs::IGC_IVAR0, index, ivar)?;
+
+    Ok(())
+}
