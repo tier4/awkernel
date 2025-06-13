@@ -187,31 +187,6 @@ impl Igc {
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
 
-        for q in que.iter() {
-            {
-                let mut node = MCSNode::new();
-                let rxq = q.rx.lock(&mut node);
-
-                let phy_addr = rxq.rx_desc_ring.get_phy_addr().as_usize() as u64;
-                write_reg(&info, IGC_RDBAH(q.me), (phy_addr >> 32) as u32).or(Err(InitFailure))?;
-                write_reg(&info, IGC_RDBAL(q.me), phy_addr as u32).or(Err(InitFailure))?;
-
-                write_reg(&info, IGC_RDH(q.me), 0).or(Err(InitFailure))?;
-                write_reg(&info, IGC_RDT(q.me), 0).or(Err(InitFailure))?;
-                write_reg(&info, IGC_RDLEN(q.me), IGC_DEFAULT_RXD as u32).or(Err(InitFailure))?;
-            }
-
-            {
-                let mut node = MCSNode::new();
-                let txq = q.tx.lock(&mut node);
-
-                let phy_addr = txq.tx_desc_ring.get_phy_addr().as_usize() as u64;
-                write_reg(&info, IGC_TDBAH(q.me), (phy_addr >> 32) as u32).or(Err(InitFailure))?;
-                write_reg(&info, IGC_TDBAL(q.me), phy_addr as u32).or(Err(InitFailure))?;
-                write_reg(&info, IGC_TDLEN(q.me), IGC_DEFAULT_TXD as u32).or(Err(InitFailure))?;
-            }
-        }
-
         let link_info = match igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw) {
             Ok(link_info) => link_info,
             Err(e) => {
