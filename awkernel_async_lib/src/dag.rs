@@ -227,19 +227,19 @@ impl Dag {
             .flat_map(|node_ref| {
                 let node_info = node_ref.weight();
 
-                let edges_from_new = node_info
+                let edges_from = node_info
                     .subscribe_topics
                     .iter()
                     .filter(|topic| new_node_pub_topics.contains(*topic))
                     .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
-                let edges_to_new = node_info
+                let edges_to = node_info
                     .publish_topics
                     .iter()
                     .filter(|topic| new_node_sub_topics.contains(*topic))
                     .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
-                edges_to_new.chain(edges_from_new).collect::<Vec<_>>()
+                edges_to.chain(edges_from).collect::<Vec<_>>()
             })
             .collect();
 
