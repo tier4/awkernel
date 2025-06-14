@@ -31,10 +31,13 @@ mod visit;
 mod performance;
 
 use crate::{
-    dag::graph::{
-        algo::{connected_components, is_cyclic_directed},
-        direction::Direction,
-        NodeIndex,
+    dag::{
+        graph::{
+            algo::{connected_components, is_cyclic_directed},
+            direction::Direction,
+            NodeIndex,
+        },
+        visit::{IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
@@ -42,7 +45,7 @@ use crate::{
 use alloc::{
     borrow::Cow,
     boxed::Box,
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
     sync::Arc,
     vec::Vec,
 };
@@ -143,9 +146,14 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
+#[allow(dead_code)] // TODO: remove this later
+struct EdgeInfo {
+    topic_name: Cow<'static, str>,
+}
+
 pub struct Dag {
     id: u32,
-    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -202,24 +210,32 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        for node_idx in graph.node_indices() {
-            if let Some(node_info) = graph.node_weight(node_idx) {
-                let subscribe_match = subscribe_topic_names
+        let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+
+        let edges_to_add: Vec<_> = graph
+            .node_references()
+            .flat_map(|node_ref| {
+                let node_info = node_ref.weight();
+
+                let edges_from = node_info
+                    .subscribe_topics
                     .iter()
-                    .any(|sub| node_info.publish_topics.contains(sub));
+                    .filter(|topic| pub_topics.contains(*topic))
+                    .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
-                let publish_match = publish_topic_names
+                let edges_to = node_info
+                    .publish_topics
                     .iter()
-                    .any(|pub_| node_info.subscribe_topics.contains(pub_));
+                    .filter(|topic| sub_topics.contains(*topic))
+                    .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
-                if subscribe_match {
-                    graph.add_edge(node_idx, add_node_idx, 0);
-                }
+                edges_to.chain(edges_from).collect::<Vec<_>>()
+            })
+            .collect();
 
-                if publish_match {
-                    graph.add_edge(add_node_idx, node_idx, 0);
-                }
-            }
+        for (from, to, topic_name) in edges_to_add {
+            graph.add_edge(from, to, EdgeInfo { topic_name });
         }
 
         add_node_idx
