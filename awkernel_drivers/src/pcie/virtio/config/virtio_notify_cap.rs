@@ -32,9 +32,6 @@ impl VirtioNotifyCap {
 
         self.offset = cap.get_offset() as usize;
 
-        log::info!("virtio-notify: bar: {:?}", self.bar);
-        log::info!("virtio-notify: offset: {:?}", self.offset);
-
         Ok(())
     }
 

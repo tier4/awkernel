@@ -44,9 +44,6 @@ impl VirtioNetConfig {
 
         self.offset = cap.get_offset() as usize;
 
-        log::info!("virtio-net: bar: {:?}", self.bar);
-        log::info!("virtio-net: offset: {:?}", self.offset);
-
         Ok(())
     }
 
