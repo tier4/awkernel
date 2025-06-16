@@ -28,39 +28,31 @@ const VIRTIO_PCI_CAP_NOTIFY_OFF_MULTIPLIER: usize = 0x10;
 pub struct VirtioCap {
     config_space: ConfigSpace,
     cap_ptr: usize,
-    cfg_type: u8,
-    bar: u8,
-    offset: u32,
 }
 
 impl VirtioCap {
     pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Self {
-        let cfg_type = info.config_space.read_u8(cap_ptr + VIRTIO_PCI_CAP_CFG_TYPE);
-        let bar = info.config_space.read_u8(cap_ptr + VIRTIO_PCI_CAP_BAR);
-        let offset = info.config_space.read_u32(cap_ptr + VIRTIO_PCI_CAP_OFFSET);
-
         Self {
             config_space: info.config_space.clone(),
             cap_ptr,
-            cfg_type,
-            bar,
-            offset,
         }
     }
 
     #[inline(always)]
     pub fn get_cfg_type(&self) -> u8 {
-        self.cfg_type
+        self.config_space
+            .read_u8(self.cap_ptr + VIRTIO_PCI_CAP_CFG_TYPE)
     }
 
     #[inline(always)]
     pub fn get_bar(&self) -> u8 {
-        self.bar
+        self.config_space.read_u8(self.cap_ptr + VIRTIO_PCI_CAP_BAR)
     }
 
     #[inline(always)]
     pub fn get_offset(&self) -> u32 {
-        self.offset
+        self.config_space
+            .read_u32(self.cap_ptr + VIRTIO_PCI_CAP_OFFSET)
     }
 
     #[inline(always)]

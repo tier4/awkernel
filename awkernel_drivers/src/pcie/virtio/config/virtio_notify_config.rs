@@ -6,18 +6,18 @@ use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAd
 //     notify_off_multiplier: u32,
 // }
 
-pub struct VirtioNotifyCap {
+pub struct VirtioNotifyConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
-impl Default for VirtioNotifyCap {
+impl Default for VirtioNotifyConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VirtioNotifyCap {
+impl VirtioNotifyConfig {
     pub fn new() -> Self {
         Self {
             bar: BaseAddress::None,

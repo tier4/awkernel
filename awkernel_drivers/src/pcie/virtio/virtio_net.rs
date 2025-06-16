@@ -3,7 +3,7 @@ use crate::pcie::{
     pcie_id,
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
-        virtio_notify_cap::VirtioNotifyCap,
+        virtio_notify_config::VirtioNotifyConfig,
     },
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
@@ -324,8 +324,8 @@ struct VirtioNetInner {
     info: PCIeInfo,
     mac_addr: [u8; 6],
     common_cfg: VirtioCommonConfig,
-    notify_cap: VirtioNotifyCap,
     net_cfg: VirtioNetConfig,
+    notify_cfg: VirtioNotifyConfig,
     notify_off_multiplier: u32,
     driver_features: u64,
     active_features: u64,
@@ -343,8 +343,8 @@ impl VirtioNetInner {
             info,
             mac_addr: [0; 6],
             common_cfg: VirtioCommonConfig::default(),
-            notify_cap: VirtioNotifyCap::default(),
             net_cfg: VirtioNetConfig::default(),
+            notify_cfg: VirtioNotifyConfig::default(),
             notify_off_multiplier: 0,
             driver_features: 0,
             active_features: 0,
@@ -375,7 +375,7 @@ impl VirtioNetInner {
 
         self.common_cfg.init(&self.info, common_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
-        self.notify_cap.init(&self.info, notify_cap)?;
+        self.notify_cfg.init(&self.info, notify_cap)?;
 
         Ok(())
     }
@@ -551,7 +551,7 @@ impl VirtioNetInner {
         let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()?;
         let notify_off_multiplier = self.notify_off_multiplier;
         let offset = queue_notify_off as usize * notify_off_multiplier as usize;
-        self.notify_cap.virtio_set_notify(offset, idx)
+        self.notify_cfg.virtio_set_notify(offset, idx)
     }
 
     fn virtio_pci_msix_establish(
