@@ -260,8 +260,10 @@ impl NetDevice for Igc {
     }
 
     fn down(&self) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+        let mut inner = self.inner.write();
+        inner
+            .igc_stop()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn flags(&self) -> net_device::NetFlags {
@@ -616,6 +618,33 @@ impl IgcInner {
 
         Ok(())
     }
+
+    /// This routine disables all traffic on the adapter by issuing a
+    /// global reset on the MAC.
+    fn igc_stop(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        // Tell the stack that the interface is no longer active.
+        self.if_flags.remove(NetFlags::RUNNING);
+
+        // Disable interrupts.
+        igc_disable_intr(&mut self.info)?;
+
+        self.ops.reset_hw(&mut self.info, &mut self.hw)?;
+        write_reg(&self.info, IGC_WUC, 0)?;
+
+        // TODO: Free transmit and receive structures.
+
+        // Update link status.
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )?;
+
+        Ok(())
+    }
 }
 
 fn igc_attach_and_hw_control(
@@ -841,6 +870,17 @@ fn igc_set_queues(
         }
     }
     write_reg_array(info, igc_regs::IGC_IVAR0, index, ivar)?;
+
+    Ok(())
+}
+
+fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    write_reg(info, IGC_EIMC, 0xffffffff)?;
+    write_reg(info, IGC_EIAC, 0)?;
+    write_reg(info, IGC_IMC, 0xffffffff)?;
+    write_flush(info)?;
 
     Ok(())
 }
