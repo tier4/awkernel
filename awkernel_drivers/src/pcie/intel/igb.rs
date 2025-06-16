@@ -1802,8 +1802,6 @@ fn allocate_msix(
         return Err(IgbDriverErr::InitializeInterrupt);
     }
 
-    log::info!("Allocating MSIX for {} queues", que.len());
-
     for q in que.iter() {
         let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q.me);
         let mut irq_rxtx = msix
