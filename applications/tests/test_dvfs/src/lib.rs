@@ -14,13 +14,13 @@ extern crate alloc;
 const APP_NAME: &str = "test DVFS";
 const NUM_CPU: usize = 14;
 const NUM_TRIALS: usize = 100;
-const NUM_BUSY_LOOP: usize = 1000000000;
+const NUM_BUSY_LOOP: usize = 10000000000;
 
-static LATENCY: [[[AtomicU64; NUM_TRIALS]; 10]; NUM_CPU] =
-    array![_ => array![_ => array![_ => AtomicU64::new(0); NUM_TRIALS]; 10]; NUM_CPU];
+static LATENCY: [[[AtomicU64; NUM_TRIALS]; 11]; NUM_CPU] =
+    array![_ => array![_ => array![_ => AtomicU64::new(0); NUM_TRIALS]; 11]; NUM_CPU];
 
-static COUNT: [[AtomicUsize; 10]; NUM_CPU] =
-    array![_ => array![_ => AtomicUsize::new(0); 10]; NUM_CPU];
+static COUNT: [[AtomicUsize; 11]; NUM_CPU] =
+    array![_ => array![_ => AtomicUsize::new(0); 11]; NUM_CPU];
 static TOTAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub async fn run() {
@@ -35,16 +35,18 @@ pub async fn run() {
 }
 
 async fn test_dvfs() {
-    let end_count = (awkernel_lib::cpu::num_cpu() - 1) * NUM_TRIALS * 10;
+    let end_count = (awkernel_lib::cpu::num_cpu() - 1) * NUM_TRIALS * 11;
 
     while TOTAL_COUNT.load(Ordering::Relaxed) + 1 < end_count {
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
-        for i in 0..10 {
+        for i in 0..=10 {
             awkernel_lib::dvfs::set_min_performance(10 * i);
             awkernel_lib::dvfs::set_max_performance(10 * i);
             awkernel_lib::dvfs::set_energy_efficiency(100);
             awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Auto);
+
+            warm_up();
 
             let elapsed = empty_loop();
 
@@ -70,6 +72,12 @@ async fn test_dvfs() {
     }
 }
 
+fn warm_up() {
+    for _ in 0..(NUM_BUSY_LOOP / 10) {
+        core::hint::black_box(());
+    }
+}
+
 fn empty_loop() -> Duration {
     let t = awkernel_async_lib::time::Time::now();
     for _ in 0..NUM_BUSY_LOOP {
@@ -79,8 +87,8 @@ fn empty_loop() -> Duration {
 }
 
 fn print_latency() {
-    let mut result: [[Vec<u64>; 10]; NUM_CPU] =
-        array![_ => array![_ => Vec::with_capacity(NUM_TRIALS); 10]; NUM_CPU];
+    let mut result: [[Vec<u64>; 11]; NUM_CPU] =
+        array![_ => array![_ => Vec::with_capacity(NUM_TRIALS); 11]; NUM_CPU];
 
     for (j, latency_cpu) in LATENCY.iter().enumerate() {
         for (k, latency) in latency_cpu.iter().enumerate() {
