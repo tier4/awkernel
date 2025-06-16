@@ -5,8 +5,9 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::ETHER_TYPE_VLAN,
-        net_device::{self, LinkStatus, NetDevice},
+        ether::{ETHER_ADDR_LEN, ETHER_TYPE_VLAN},
+        multicast::MulticastAddrs,
+        net_device::{self, LinkStatus, NetDevice, NetFlags},
     },
     paging::PAGESIZE,
     sync::{mutex::Mutex, rwlock::RwLock},
@@ -39,6 +40,8 @@ const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
     | ADVERTISE_2500_FULL;
 
 const AUTO_ALL_MODES: u8 = 0;
+
+const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
 const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 
@@ -134,6 +137,9 @@ pub struct IgcInner {
     info: PCIeInfo,
     hw: IgcHw,
     link_info: LinkInfo,
+    mta: Box<[[u8; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]>, // Multicast address table
+    multicast_addrs: MulticastAddrs,
+    if_flags: NetFlags,
 }
 
 pub struct Igc {
@@ -170,8 +176,6 @@ impl Igc {
 
         // Set the max frame size.
         hw.mac.max_frame_size = 9234;
-
-        // TODO: Allocate multicast array memory.
 
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
@@ -223,12 +227,22 @@ impl PCIeDevice for Igc {
 }
 
 impl NetDevice for Igc {
-    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
-        todo!("add_multicast_addr")
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
+
+        inner
+            .igc_iff()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
-    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
-        todo!("remove_multicast_addr");
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
+
+        inner
+            .igc_iff()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn can_send(&self) -> bool {
@@ -561,7 +575,46 @@ impl IgcInner {
             info,
             hw,
             link_info,
+            mta: Box::new([[0; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]),
+            multicast_addrs: MulticastAddrs::new(),
+            if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
         }
+    }
+
+    fn igc_iff(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        for addr in self.mta.iter_mut() {
+            *addr = [0; ETHER_ADDR_LEN];
+        }
+
+        let mut reg_rctl = read_reg(&self.info, IGC_RCTL)?;
+        reg_rctl &= !(IGC_RCTL_UPE | IGC_RCTL_MPE);
+        self.if_flags.remove(NetFlags::ALLMULTI);
+
+        if self.if_flags.contains(NetFlags::PROMISC)
+            || self.multicast_addrs.len() > MAX_NUM_MULTICAST_ADDRESSES
+        {
+            self.if_flags.insert(NetFlags::ALLMULTI);
+            reg_rctl |= IGC_RCTL_MPE;
+            if self.if_flags.contains(NetFlags::PROMISC) {
+                reg_rctl |= IGC_RCTL_UPE;
+            }
+        } else {
+            for (addr, mta) in self.multicast_addrs.iter().zip(self.mta.iter_mut()) {
+                *mta = *addr;
+            }
+
+            self.ops.update_mc_addr_list(
+                &mut self.info,
+                &mut self.hw,
+                &self.mta[0..self.multicast_addrs.len()],
+            )?;
+        }
+
+        write_reg(&self.info, IGC_RCTL, reg_rctl)?;
+
+        Ok(())
     }
 }
 
