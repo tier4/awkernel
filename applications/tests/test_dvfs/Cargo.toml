@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 log = "0.4"
+array-macro = "2.1"
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [dependencies.awkernel_async_lib]
 path = "../../../awkernel_async_lib"
