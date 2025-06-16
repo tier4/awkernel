@@ -1,27 +1,26 @@
-use super::SystemTime;
+use super::{SignedDuration, SystemTime};
 use core::{fmt::Display, ops::Sub, time::Duration};
 
 pub const NTP_TIMESTAMP_DELTA: u64 = 2_208_988_800; // seconds between 1900 and 1970
 
 static UNIX_EPOCH: SystemTime = SystemTime::epoch();
-
 /// NTP timestamp in 64-bit fixed-point format. The first 32 bits represent the number of seconds since 1900, and the last 32 bits represent the fraction of a second.
 #[derive(Debug, Copy, Clone)]
 pub struct NtpTimestamp(pub u64);
 
 impl NtpTimestamp {
     /// Calculate the difference `self - other`. The first value is the difference in time, and the second value is true if `self` is greater than `other`.
-    pub fn diff(&self, other: &Self) -> (Duration, bool) {
+    pub fn diff(&self, other: &Self) -> SignedDuration {
         if self.0 > other.0 {
             let diff = self.0 - other.0;
             let secs = diff >> 32;
             let nsecs = ((diff & 0xffffffff) * 1_000_000_000) >> 32;
-            (Duration::new(secs as u64, nsecs as u32), true)
+            SignedDuration(Duration::new(secs as u64, nsecs as u32), true)
         } else {
             let diff = other.0 - self.0;
             let secs = diff >> 32;
             let nsecs = ((diff & 0xffffffff) * 1_000_000_000) >> 32;
-            (Duration::new(secs as u64, nsecs as u32), false)
+            SignedDuration(Duration::new(secs as u64, nsecs as u32), false)
         }
     }
 
@@ -58,7 +57,7 @@ impl From<SystemTime> for NtpTimestamp {
 }
 
 impl Sub for NtpTimestamp {
-    type Output = (Duration, bool);
+    type Output = SignedDuration;
 
     fn sub(self, rhs: Self) -> Self::Output {
         self.diff(&rhs)

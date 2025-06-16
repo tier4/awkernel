@@ -4,10 +4,10 @@ use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 use crate::{
     delay,
-    ntp::{Ntp, SystemTime},
+    ntp::{Ntp, SignedDuration, SystemTime},
 };
 
-/// The time offset from the Unix epoch (2001-11-01) in nanoseconds.
+/// The time offset from the Unix epoch in nanoseconds.
 static TIME_BASE: Mutex<u128> = Mutex::new(1004572800_000_000_000); // 2001-11-01
 
 impl Ntp for super::X86 {
@@ -26,5 +26,15 @@ impl Ntp for super::X86 {
         *guard = new - up;
     }
 
-    fn sync_time() {}
+    fn adjust_time(offset: SignedDuration) {
+        let mut node = MCSNode::new();
+        let mut guard = TIME_BASE.lock(&mut node);
+
+        let offset = offset.as_nanos();
+        if offset > 0 {
+            *guard = guard.wrapping_add(offset as u128);
+        } else {
+            *guard = guard.wrapping_sub(-offset as u128);
+        }
+    }
 }

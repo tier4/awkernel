@@ -44,7 +44,7 @@ async fn udp_server(port: u16) {
     };
 
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, &config).unwrap();
 
     const MAX_DATAGRAM_SIZE: usize = 65_507;
     let mut buf = [0u8; MAX_DATAGRAM_SIZE];

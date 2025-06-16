@@ -1,8 +1,9 @@
 use core::time::Duration;
 
-use crate::ntp::{timestamp::NTP_TIMESTAMP_DELTA, SystemTime};
-
-use super::timestamp::NtpTimestamp;
+use crate::ntp::{
+    timestamp::{NtpTimestamp, NTP_TIMESTAMP_DELTA},
+    SignedDuration, SystemTime,
+};
 
 #[derive(Debug)]
 pub struct NtpPacket {
@@ -83,19 +84,8 @@ impl NtpPacket {
         &self,
         originate_ts: NtpTimestamp,
         destination_ts: NtpTimestamp,
-    ) -> ((Duration, bool), (Duration, bool)) {
-        log::debug!(
-            "diff: {:?}",
-            self.origin_timestamp.diff(&originate_ts.into())
-        );
-        // us vs ns
-        log::debug!("given: {} {:?}", originate_ts, originate_ts);
-        log::debug!(
-            "self: {} {:?}",
-            self.origin_timestamp,
-            self.origin_timestamp
-        );
-        // Ideally originate_ts should be equal to self.origin_timestamp but here we allow 10ns difference
+    ) -> (SignedDuration, SignedDuration) {
+        // Ideally originate_ts should be equal to self.origin_timestamp but in most cases we have the difference up to 10ns probably the errors in calculation.
         assert!(
             self.origin_timestamp.diff(&originate_ts.into()).0 < Duration::from_nanos(10),
             "origin timestamp mismatch"
@@ -105,45 +95,36 @@ impl NtpPacket {
         let rt = self.recv_timestamp.0 as i64;
         let tt = self.transmit_timestamp.0 as i64;
 
-        // dump ot, rt, tt in bits, spaced by 8 bits
-        log::debug!("ot: {:x}", ot);
-        log::debug!("rt: {:x}", rt);
-        log::debug!("tt: {:x}", tt);
-
         let ntp_time = self.transmit_timestamp.0 >> 32;
-        let unix_time = ntp_time - NTP_TIMESTAMP_DELTA;
+        log::debug!("Seconds since epoch: {}", ntp_time - NTP_TIMESTAMP_DELTA);
 
-        log::debug!("Current NTP time: {}", unix_time);
-
-        let dt = NtpTimestamp::from(destination_ts).0 as i64;
+        let dts = NtpTimestamp::from(destination_ts);
+        let dt = dts.0 as i64;
         let d = (dt - ot) - (tt - rt);
-        log::debug!("rt - ot: {:?} = {} sec", rt - ot, (rt - ot) >> 32);
-        log::debug!("dt - ot: {:?} = {} sec", dt - ot, (dt - ot) >> 32);
         let t = (((rt as i128) - (ot as i128)) + ((tt as i128) - (dt as i128))) / 2;
 
-        let delay = to_duration(d);
+        let delay = diff_to_signed_duration(d);
+        let offset = diff_to_signed_duration(t as i64);
+
         log::debug!("Delay: {:?}", delay);
-
-        let offset = to_duration(t as i64);
         log::debug!("Offset: {:?}", offset);
-
-        log::debug!("Origin time: {:?}", originate_ts);
+        log::debug!("Origin time: {:?}", SystemTime::from(self.origin_timestamp));
         log::debug!("Receive time: {:?}", SystemTime::from(self.recv_timestamp));
         log::debug!(
             "Transmit time: {:?}",
             SystemTime::from(self.transmit_timestamp)
         );
-        log::debug!("Destination time: {:?}", destination_ts);
+        log::debug!("Destination time: {:?}", SystemTime::from(dts));
 
         (delay, offset)
     }
 }
 
-/// Convert (diff of) NTP timestamp into Duration. Returns (Duration, is_positive) where is_positive is true if the duration is positive since Duration cannot be negative.
-fn to_duration(n: i64) -> (Duration, bool) {
+/// Convert the diff of NTP timestamp into SignedDuration.
+fn diff_to_signed_duration(n: i64) -> SignedDuration {
     let n_ = n.abs();
     let secs = n_ >> 32;
     let nsecs = ((n_ & 0xffffffff) * 1_000_000_000) >> 32;
     let dur = Duration::new(secs as u64, nsecs as u32);
-    (dur, n >= 0)
+    SignedDuration(dur, n >= 0)
 }

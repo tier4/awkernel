@@ -19,14 +19,17 @@ pub struct SystemTime {
     nsecs: u128,
 }
 impl SystemTime {
+    /// Create a new SystemTime instance with the given nanoseconds since UNIX epoch.
     pub fn new(nsecs: u128) -> Self {
         Self { nsecs }
     }
 
+    /// Represents the UNIX epoch (1970-01-01 00:00:00 UTC).
     pub const fn epoch() -> Self {
         Self { nsecs: 0 }
     }
 
+    /// Calculate the duration since other.
     pub fn duration_since(&self, other: Self) -> Result<Duration, ()> {
         Ok(Duration::from_nanos((self.nsecs - other.nsecs) as u64))
     }
@@ -132,6 +135,22 @@ impl Sub<Duration> for SystemTime {
         }
     }
 }
+
+/// Represents a signed duration with a boolean indicating if it's positive or negative.
+#[derive(Debug, Clone)]
+pub struct SignedDuration(pub Duration, pub bool);
+
+impl SignedDuration {
+    /// Get the duration in nanoseconds.
+    pub fn as_nanos(&self) -> i128 {
+        if self.1 {
+            self.0.as_nanos() as i128
+        } else {
+            -(self.0.as_nanos() as i128)
+        }
+    }
+}
+
 /// Module for NTP and system clock.
 ///
 /// This module provides the interface for NTP daemons and managing the system clock.
@@ -150,6 +169,10 @@ impl SystemClock {
     pub fn set(new: u128) {
         ArchImpl::set_time(new);
     }
+
+    pub fn adjust(offset: SignedDuration) {
+        ArchImpl::adjust_time(offset);
+    }
 }
 
 pub trait Ntp {
@@ -158,5 +181,7 @@ pub trait Ntp {
 
     /// Set the current time in nanoseconds.
     fn set_time(new: u128);
-    fn sync_time();
+
+    /// Adjust the current time by the offset calculated from the NTP response.
+    fn adjust_time(offset: SignedDuration);
 }
