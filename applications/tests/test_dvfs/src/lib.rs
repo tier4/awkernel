@@ -5,7 +5,7 @@ use core::{
     time::Duration,
 };
 
-use alloc::format;
+use alloc::{format, vec::Vec};
 use array_macro::array;
 use awkernel_lib::dvfs::DesiredPerformance;
 
@@ -79,14 +79,15 @@ fn empty_loop() -> Duration {
 }
 
 fn print_latency() {
-    let mut result: [[[u64; NUM_TRIALS]; 10]; NUM_CPU] = [[[0; NUM_TRIALS]; 10]; NUM_CPU];
+    let mut result: [[Vec<u64>; 10]; NUM_CPU] =
+        array![_ => array![_ => Vec::with_capacity(NUM_TRIALS); 10]; NUM_CPU];
 
     for (j, latency_cpu) in LATENCY.iter().enumerate() {
         for (k, latency) in latency_cpu.iter().enumerate() {
             let mut sum = 0;
             let mut min = u64::MAX;
             let mut max = 0;
-            for (l, usec) in latency.iter().enumerate() {
+            for usec in latency.iter() {
                 let val = usec.load(core::sync::atomic::Ordering::Relaxed);
                 if min > val {
                     min = val;
@@ -96,7 +97,7 @@ fn print_latency() {
                 }
                 sum += val;
 
-                result[j][k][l] = val;
+                result[j][k].push(val);
             }
             let avg = sum / NUM_TRIALS as u64;
 
