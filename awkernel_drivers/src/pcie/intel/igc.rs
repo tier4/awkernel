@@ -628,10 +628,10 @@ impl IgcInner {
         self.if_flags.remove(NetFlags::RUNNING);
 
         // Disable interrupts.
-        igc_disable_intr(&mut self.info, &mut self.hw)?;
+        igc_disable_intr(&mut self.info)?;
 
         self.ops.reset_hw(&mut self.info, &mut self.hw)?;
-        write_reg(&mut self.info, IGC_WUC, 0)?;
+        write_reg(&self.info, IGC_WUC, 0)?;
 
         // TODO: Free transmit and receive structures.
 
@@ -874,7 +874,7 @@ fn igc_set_queues(
     Ok(())
 }
 
-fn igc_disable_intr(info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     use igc_regs::*;
 
     write_reg(info, IGC_EIMC, 0xffffffff)?;
