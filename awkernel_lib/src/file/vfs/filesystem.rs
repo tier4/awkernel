@@ -30,16 +30,19 @@ pub trait FileSystem: Debug + Sync + Send + 'static {
     /// Note that the parent directory must already exist.
     fn create_dir(&self, path: &str) -> VfsResult<(), Self::Error>;
     /// Opens the file at this path for reading
+    #[allow(clippy::type_complexity)]
     fn open_file(
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn SeekAndRead<Error = VfsError<Self::Error>> + Send>, Self::Error>;
     /// Creates a file at this path for writing
+    #[allow(clippy::type_complexity)]
     fn create_file(
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn SeekAndWrite<Error = VfsError<Self::Error>> + Send>, Self::Error>;
     /// Opens the file at this path for appending
+    #[allow(clippy::type_complexity)]
     fn append_file(
         &self,
         path: &str,

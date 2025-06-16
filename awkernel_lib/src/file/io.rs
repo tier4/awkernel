@@ -1,4 +1,3 @@
-use super::error::Error;
 use super::error::IoError;
 use alloc::{string::String, vec::Vec};
 
@@ -78,7 +77,7 @@ pub trait Read: IoBase {
         let mut bytes = Vec::new();
         self.read_to_end(&mut bytes)?;
 
-        let s = String::from_utf8(bytes).map_err(|e| Self::Error::other_error())?;
+        let s = String::from_utf8(bytes).map_err(|_e| Self::Error::other_error())?;
         buf.push_str(&s);
 
         Ok(())

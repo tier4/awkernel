@@ -1,7 +1,6 @@
 //! Error and Result definitions
 
 use super::super::error::IoError;
-use super::super::io;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -51,7 +50,7 @@ impl<E: IoError> From<E> for VfsError<E> {
 
 impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
-    pub(crate) fn with_path(mut self, path: impl Into<String>) -> Self {
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
         self.path = path.into();
         self
     }
@@ -93,9 +92,8 @@ pub enum VfsErrorKind<E> {
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
     IoError(E),
 
-    #[cfg(feature = "async-vfs")]
     /// A generic async I/O error
-    AsyncIoError(io::Error),
+    AsyncIoError(E),
 
     /// The file or directory at the given path could not be found
     FileNotFound,
@@ -120,11 +118,10 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
-                write!(f, "IO error: {}", cause)
+                write!(f, "IO error: {cause}")
             }
-            #[cfg(feature = "async-vfs")]
             VfsErrorKind::AsyncIoError(cause) => {
-                write!(f, "Async IO error: {}", cause)
+                write!(f, "Async IO error: {cause}")
             }
             VfsErrorKind::FileNotFound => {
                 write!(f, "The file or directory could not be found")
@@ -133,7 +130,7 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
                 write!(f, "The path is invalid")
             }
             VfsErrorKind::Other(message) => {
-                write!(f, "FileSystem error: {}", message)
+                write!(f, "FileSystem error: {message}")
             }
             VfsErrorKind::NotSupported => {
                 write!(f, "Functionality not supported by this filesystem")

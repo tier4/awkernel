@@ -1,7 +1,7 @@
 /// Error enum with all errors that can be returned by functions from this crate
 ///
 /// Generic parameter `T` is a type of external error returned by the user provided storage
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Error<T> {
     /// A user provided storage instance returned an error during an input/output operation.
@@ -51,6 +51,7 @@ impl From<Error<std::io::Error>> for std::io::Error {
             Error::NotFound => Self::new(std::io::ErrorKind::NotFound, error),
             Error::AlreadyExists => Self::new(std::io::ErrorKind::AlreadyExists, error),
             Error::CorruptedFileSystem => Self::new(std::io::ErrorKind::InvalidData, error),
+            Error::Others => Self::other(error),
         }
     }
 }
@@ -150,5 +151,8 @@ impl IoError for std::io::Error {
             std::io::ErrorKind::WriteZero,
             "failed to write whole buffer",
         )
+    }
+    fn other_error() -> Self {
+        todo!()
     }
 }

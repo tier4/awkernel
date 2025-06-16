@@ -29,7 +29,7 @@ impl<T> SeekAndRead for T where T: Seek + Read {}
 impl<T> SeekAndWrite for T where T: Seek + Write {}
 
 /// A trait for common non-async behaviour of both sync and async paths
-pub(crate) trait PathLike: Clone {
+pub trait PathLike: Clone {
     type Error: IoError;
     fn get_path(&self) -> String;
     fn filename_internal(&self) -> String {
@@ -126,7 +126,7 @@ pub struct VfsMetadata {
 }
 
 #[derive(Debug)]
-struct VFS<E: IoError> {
+struct Vfs<E: IoError> {
     fs: Box<dyn FileSystem<Error = E>>,
 }
 
@@ -134,7 +134,7 @@ struct VFS<E: IoError> {
 #[derive(Clone, Debug)]
 pub struct VfsPath<E: IoError> {
     path: Arc<str>,
-    fs: Arc<VFS<E>>,
+    fs: Arc<Vfs<E>>,
 }
 
 impl<E: IoError + Clone> PathLike for VfsPath<E> {
@@ -162,7 +162,7 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
     pub fn new<T: FileSystem<Error = E>>(filesystem: T) -> Self {
         VfsPath {
             path: "".into(),
-            fs: Arc::new(VFS {
+            fs: Arc::new(Vfs {
                 fs: Box::new(filesystem),
             }),
         }
@@ -296,9 +296,9 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
                 match error.kind() {
                     VfsErrorKind::DirectoryExists => {}
                     _ => {
-                        return Err(error.with_path(directory).with_context(|| {
-                            format!("Could not create directories at '{}'", path)
-                        }))
+                        return Err(error
+                            .with_path(directory)
+                            .with_context(|| format!("Could not create directories at '{path}'")))
                     }
                 }
             }
@@ -336,7 +336,7 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
                         .with_context(|| "Could not read directory")
                 })?
                 .map(move |path| VfsPath {
-                    path: format!("{}/{}", parent, path).into(),
+                    path: format!("{parent}/{path}").into(),
                     fs: fs.clone(),
                 }),
         ))
@@ -392,16 +392,14 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
         let parent = self.parent();
         if !parent.exists()? {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
-                "Could not {}, parent directory does not exist",
-                action
+                "Could not {action}, parent directory does not exist"
             )))
             .with_path(&*self.path));
         }
         let metadata = parent.metadata()?;
         if metadata.file_type != VfsFileType::Directory {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
-                "Could not {}, parent path is not a directory",
-                action
+                "Could not {action}, parent path is not a directory"
             )))
             .with_path(&*self.path));
         }
@@ -788,7 +786,7 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
         self.open_file()?
             .read_to_string(&mut result)
             .map_err(|source| {
-                VfsError::from(source)
+                source
                     .with_path(&*self.path)
                     .with_context(|| "Could not read path")
             })?;
@@ -834,10 +832,10 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
             let mut src = self.open_file()?;
             let mut dest = destination.create_file()?;
             simple_copy(&mut *src, &mut *dest).map_err(|copy_err| match copy_err {
-                CopyError::ReadError(source_err) => VfsError::from(source_err)
+                CopyError::ReadError(source_err) => source_err
                     .with_path(&*self.path)
                     .with_context(|| "Could not read path while copying"),
-                CopyError::WriteError(dest_err) => VfsError::from(dest_err)
+                CopyError::WriteError(dest_err) => dest_err
                     .with_path(&*destination.path)
                     .with_context(|| "Could not write to destination while copying"),
             })?;
@@ -898,10 +896,10 @@ impl<E: IoError + Clone + 'static> VfsPath<E> {
             let mut dest = destination.create_file()?;
 
             simple_copy(&mut *src, &mut *dest).map_err(|copy_err| match copy_err {
-                CopyError::ReadError(source_err) => VfsError::from(source_err)
+                CopyError::ReadError(source_err) => source_err
                     .with_path(&*self.path)
                     .with_context(|| "Could not read path while copying"),
-                CopyError::WriteError(dest_err) => VfsError::from(dest_err)
+                CopyError::WriteError(dest_err) => dest_err
                     .with_path(&*destination.path)
                     .with_context(|| "Could not write to destination while copying"),
             })?;

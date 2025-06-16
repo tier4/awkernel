@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-#[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
+#[cfg(all(not(feature = "std"), feature = "lfn"))]
 use alloc::vec::Vec;
 use core::num;
 use core::str;
@@ -132,7 +132,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Dir<IO, TP, OCC> {
 }
 
 impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter> Dir<IO, TP, OCC> {
-    fn find_entry(
+    pub fn find_entry(
         &self,
         name: &str,
         is_dir: Option<bool>,
@@ -781,7 +781,7 @@ fn lfn_checksum(short_name: &[u8; SFN_SIZE]) -> u8 {
     chksum.0
 }
 
-#[cfg(all(feature = "lfn", feature = "alloc"))]
+#[cfg(feature = "lfn")]
 #[derive(Clone)]
 pub(crate) struct LfnBuffer {
     ucs2_units: Vec<u16>,
@@ -792,17 +792,17 @@ const MAX_LONG_NAME_LEN: usize = 255;
 #[cfg(feature = "lfn")]
 const MAX_LONG_DIR_ENTRIES: usize = (MAX_LONG_NAME_LEN + LFN_PART_LEN - 1) / LFN_PART_LEN;
 
-#[cfg(all(feature = "lfn", not(feature = "alloc")))]
+#[cfg(feature = "lfn")]
 const LONG_NAME_BUFFER_LEN: usize = MAX_LONG_DIR_ENTRIES * LFN_PART_LEN;
 
-#[cfg(all(feature = "lfn", not(feature = "alloc")))]
+#[cfg(feature = "lfn")]
 #[derive(Clone)]
 pub(crate) struct LfnBuffer {
     ucs2_units: [u16; LONG_NAME_BUFFER_LEN],
     len: usize,
 }
 
-#[cfg(all(feature = "lfn", feature = "alloc"))]
+#[cfg(feature = "lfn")]
 impl LfnBuffer {
     fn new() -> Self {
         Self {
@@ -833,7 +833,7 @@ impl LfnBuffer {
     }
 }
 
-#[cfg(all(feature = "lfn", not(feature = "alloc")))]
+#[cfg(feature = "lfn")]
 impl LfnBuffer {
     fn new() -> Self {
         Self {
@@ -1097,7 +1097,7 @@ impl Iterator for LfnEntriesGenerator {
 impl ExactSizeIterator for LfnEntriesGenerator {}
 
 #[derive(Default, Debug, Clone)]
-struct ShortNameGenerator {
+pub struct ShortNameGenerator {
     chksum: u16,
     long_prefix_bitmap: u16,
     prefix_chksum_bitmap: u16,

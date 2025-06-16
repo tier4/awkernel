@@ -1,6 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 use alloc::sync::Arc;
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{string::String, sync::Arc};
 use bitflags::bitflags;
 use core::char;
 use core::convert::TryInto;
@@ -108,7 +108,6 @@ impl ShortName {
         &self.name[..usize::from(self.len)]
     }
 
-    #[cfg(feature = "alloc")]
     fn to_string<OCC: OemCpConverter>(&self, oem_cp_converter: &OCC) -> String {
         // Strip non-ascii characters from short name
         self.as_bytes()
@@ -164,7 +163,6 @@ impl DirFileEntryData {
         &self.name
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_name(&self) -> ShortName {
         let mut name_copy: [u8; SFN_SIZE] = self.name;
         if self.lowercase_basename() {
@@ -218,12 +216,10 @@ impl DirFileEntryData {
         !self.is_dir()
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_basename(&self) -> bool {
         self.reserved_0 & (1 << 3) != 0
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_ext(&self) -> bool {
         self.reserved_0 & (1 << 4) != 0
     }
@@ -568,7 +564,6 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<IO, TP, 
     /// Returns short file name.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn short_file_name(&self) -> String {
         self.short_name.to_string(&self.fs.options.oem_cp_converter)
@@ -596,7 +591,6 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<IO, TP, 
     }
 
     /// Returns long file name or if it doesn't exist fallbacks to short file name.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn file_name(&self) -> String {
         #[cfg(feature = "lfn")]
@@ -752,7 +746,6 @@ mod tests {
     use super::super::fs::LossyOemCpConverter;
     use super::*;
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_with_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -772,7 +765,6 @@ mod tests {
             .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_without_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -805,7 +797,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn lowercase_short_name() {
         let oem_cp_conv = LossyOemCpConverter::new();
