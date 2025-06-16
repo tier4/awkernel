@@ -1,7 +1,9 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
-use awkernel_lib::net::NetManagerError;
+use awkernel_lib::net::{
+    tcp_listener::SockTcpListener, tcp_stream::SockTcpStream, NetManagerError,
+};
 use futures::Future;
 use pin_project::pin_project;
 
@@ -63,13 +65,26 @@ pub enum TcpRecvError {
 impl TcpListener {
     /// Create a new listener.
     /// The listener is bound to the specified address and port.
+    ///
+    /// On std environments `interface_id`, `config.rx_buffer_size`, and `config.tx_buffer_size` are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::{TcpListener}};
+    /// use core::str::FromStr;
+    /// async fn listen_example() {
+    ///     let mut listener = TcpListener::bind_on_interface(0, &Default::default()).unwrap();
+    ///     let stream = listener.accept().await.unwrap();
+    /// }
+    /// ```
     pub fn bind_on_interface(
         interface_id: u64,
-        config: TcpConfig,
+        config: &TcpConfig,
     ) -> Result<TcpListener, NetManagerError> {
         let listener = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
             interface_id,
-            config.addr,
+            &config.addr,
             config.port,
             config.rx_buffer_size,
             config.tx_buffer_size,
@@ -116,6 +131,20 @@ impl TcpStream {
     /// Send data to the stream.
     ///
     /// This function returns the number of bytes sent.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
+    /// async fn recv_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let mut stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    ///
+    ///     stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
+    /// }
+    /// ```
     #[inline(always)]
     pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
         TcpSender { stream: self, buf }.await
@@ -124,6 +153,21 @@ impl TcpStream {
     /// Receive data from the stream.
     ///
     /// This function returns the number of bytes received.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
+    /// async fn recv_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let mut stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    ///
+    ///     let mut buf = [0; 1024];
+    ///     stream.recv(&mut buf).await.unwrap();
+    /// }
+    /// ```
     #[inline(always)]
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
         TcpReceiver { stream: self, buf }.await
@@ -134,33 +178,87 @@ impl TcpStream {
         self.stream.remote_addr().ok()
     }
 
-    pub fn split(self) -> (TcpStreamTx, TcpStreamRx) {
-        let stream = self.stream.split();
-
-        (
-            TcpStreamTx { stream: stream.0 },
-            TcpStreamRx { stream: stream.1 },
-        )
-    }
-
-    pub fn connect(
+    /// Connect to the remote host whose IP address and port number are `addr` and `port` on
+    /// `interface_id` interface.
+    /// `config.addr`, `config.port`, and `config.backlogs` are ignored.
+    ///
+    /// On std environments `interface_id` and `config` are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
+    /// async fn connect_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    /// }
+    /// ```
+    #[inline(always)]
+    pub async fn connect(
         interface_id: u64,
         addr: IpAddr,
         port: u16,
-        config: TcpConfig,
+        config: &TcpConfig,
     ) -> Result<TcpStream, TcpSocketError> {
-        match awkernel_lib::net::tcp_stream::TcpStream::connect(
+        TcpConnecter {
             interface_id,
-            addr,
-            port,
-            config.port,
-            config.rx_buffer_size,
-            config.tx_buffer_size,
-        ) {
-            Ok(stream) => Ok(TcpStream { stream }),
-            Err(NetManagerError::CannotFindInterface) => Err(TcpSocketError::InvalidInterfaceID),
-            Err(NetManagerError::PortInUse) => Err(TcpSocketError::PortInUse),
-            Err(_) => Err(TcpSocketError::SocketCreationError),
+            remote_addr: addr,
+            remote_port: port,
+            rx_buffer_size: config.rx_buffer_size,
+            tx_buffer_size: config.tx_buffer_size,
+            stream: None,
+        }
+        .await
+    }
+}
+
+#[pin_project]
+struct TcpConnecter {
+    interface_id: u64,
+    remote_addr: IpAddr,
+    remote_port: u16,
+    rx_buffer_size: usize,
+    tx_buffer_size: usize,
+
+    stream: Option<awkernel_lib::net::tcp_stream::TcpStream>,
+}
+
+impl Future for TcpConnecter {
+    type Output = Result<TcpStream, TcpSocketError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+
+        if let Some(stream) = this.stream.take() {
+            return core::task::Poll::Ready(Ok(TcpStream { stream }));
+        }
+
+        let result = awkernel_lib::net::tcp_stream::TcpStream::connect(
+            *this.interface_id,
+            this.remote_addr,
+            *this.remote_port,
+            *this.rx_buffer_size,
+            *this.tx_buffer_size,
+            cx.waker(),
+        );
+
+        match result {
+            Ok(stream) => {
+                *this.stream = Some(stream);
+                core::task::Poll::Pending
+            }
+            Err(NetManagerError::CannotFindInterface) => {
+                core::task::Poll::Ready(Err(TcpSocketError::InvalidInterfaceID))
+            }
+            Err(NetManagerError::PortInUse) => {
+                core::task::Poll::Ready(Err(TcpSocketError::PortInUse))
+            }
+            Err(_) => core::task::Poll::Ready(Err(TcpSocketError::SocketCreationError)),
         }
     }
 }
@@ -205,20 +303,6 @@ impl Future for TcpReceiver<'_> {
     }
 }
 
-pub struct TcpStreamTx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamTx,
-}
-
-impl TcpStreamTx {
-    /// Send data to the stream.
-    ///
-    /// This function returns the number of bytes sent.
-    #[inline(always)]
-    pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
-        TcpStreamTxSender { stream: self, buf }.await
-    }
-}
-
 #[inline(always)]
 fn send_result(
     result: awkernel_lib::net::tcp_stream::TcpResult,
@@ -239,40 +323,6 @@ fn send_result(
     }
 }
 
-#[pin_project]
-struct TcpStreamTxSender<'a> {
-    stream: &'a mut TcpStreamTx,
-    buf: &'a [u8],
-}
-
-impl Future for TcpStreamTxSender<'_> {
-    type Output = Result<usize, TcpSendError>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-        let stream = this.stream;
-        let result = stream.stream.send(this.buf, cx.waker());
-        send_result(result)
-    }
-}
-
-pub struct TcpStreamRx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamRx,
-}
-
-impl TcpStreamRx {
-    /// Receive data from the stream.
-    ///
-    /// This function returns the number of bytes received.
-    #[inline(always)]
-    pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
-        TcpStreamRxReceiver { stream: self, buf }.await
-    }
-}
-
 #[inline(always)]
 fn recv_result(
     result: awkernel_lib::net::tcp_stream::TcpResult,
@@ -290,25 +340,5 @@ fn recv_result(
             core::task::Poll::Ready(Err(TcpRecvError::Unreachable))
         }
         _ => unreachable!(),
-    }
-}
-
-#[pin_project]
-struct TcpStreamRxReceiver<'a> {
-    stream: &'a mut TcpStreamRx,
-    buf: &'a mut [u8],
-}
-
-impl Future for TcpStreamRxReceiver<'_> {
-    type Output = Result<usize, TcpRecvError>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-        let stream = this.stream;
-        let result = stream.stream.recv(this.buf, cx.waker());
-        recv_result(result)
     }
 }

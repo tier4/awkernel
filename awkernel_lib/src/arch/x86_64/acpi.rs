@@ -42,7 +42,7 @@ pub fn create_acpi(boot_info: &BootInfo, phy_offset: u64) -> Option<AcpiTables<A
         } {
             Ok(acpi) => Some(acpi),
             Err(err) => {
-                log::error!("Failed to create AcpiTables: err = {:?}", err);
+                log::error!("Failed to create AcpiTables: err = {err:?}");
                 None
             }
         }

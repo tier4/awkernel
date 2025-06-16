@@ -48,7 +48,7 @@ fn main() {
             let ovmf_path = std::fs::canonicalize(Path::new("target/ovmf/x64"))
                 .expect("failed to find OVMF binary");
 
-            let dot_ovmfpath = home::home_dir().unwrap().join(".ovfmpath");
+            let dot_ovmfpath = home::home_dir().unwrap().join(".ovmfpath");
             let mut file = File::create(dot_ovmfpath).unwrap();
             file.write_fmt(format_args!("{}", ovmf_path.display()))
                 .unwrap();

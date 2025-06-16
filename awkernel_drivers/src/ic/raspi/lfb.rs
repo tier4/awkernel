@@ -70,8 +70,10 @@ impl FramebufferInfo {
     #[inline(always)]
     fn init_sub_buffer(&mut self) {
         unsafe {
-            if !(*self.sub_buffer).is_empty() || self.framebuffer_size == 0 {
-                return;
+            if let Some(buf) = self.sub_buffer.as_ref() {
+                if !buf.is_empty() || self.framebuffer_size == 0 {
+                    return;
+                }
             }
         }
 

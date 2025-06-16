@@ -65,8 +65,6 @@
 //! SOFTWARE.
 //! ```
 
-use Direction::{Incoming, Outgoing};
-
 /// Index into the NodeIndex and EdgeIndex arrays
 /// Edge direction.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -79,15 +77,6 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// Return the opposite `Direction`.
-    #[inline]
-    pub fn opposite(self) -> Direction {
-        match self {
-            Outgoing => Incoming,
-            Incoming => Outgoing,
-        }
-    }
-
     /// Return `0` for `Outgoing` and `1` for `Incoming`.
     #[inline]
     pub fn index(self) -> usize {

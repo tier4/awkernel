@@ -27,6 +27,7 @@ static mut TSC_FREQ: u128 = 0;
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
 impl Delay for super::X86 {
+    #[inline(always)]
     fn wait_interrupt() {
         unsafe { core::arch::asm!("hlt") };
     }
@@ -113,7 +114,7 @@ fn init_hpet(
     let phy_base = PhyAddr::new(base);
     let virt_base = VirtAddr::new(base);
 
-    log::info!("HPET base addres: 0x{:x}", base);
+    log::info!("HPET base addres: 0x{base:x}");
 
     let flags = Flags {
         write: true,
@@ -154,7 +155,7 @@ fn init_hpet(
     let t1 = read_tsc();
 
     let hz = (t1 - t0) as u128 * 10;
-    log::info!("TSC Frequency (HPET) = {} Hz", hz);
+    log::info!("TSC Frequency (HPET) = {hz} Hz");
 
     unsafe { TSC_FREQ = hz };
 

@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 RUN apt-get -y update && \
     apt-get -y upgrade && \
@@ -16,14 +16,14 @@ RUN . /usr/local/cargo/env && \
     cargo install mdbook-mermaid
 
 RUN . /usr/local/cargo/env && \
-    rustup toolchain install nightly-2025-02-27 && \
-    rustup default nightly-2025-02-27 && \
+    rustup toolchain install nightly-2025-04-29 && \
+    rustup default nightly-2025-04-29 && \
     rustup component add rust-src llvm-tools-preview && \
     rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 
 RUN chmod -R a+rw /usr/local/cargo
 
-COPY zshenv /root/.zshenv
-COPY zshrc /root/.zshrc
+#COPY zshenv /root/.zshenv
+#COPY zshrc /root/.zshrc
 
-ENTRYPOINT ["zsh"]
+CMD ["/bin/bash"]

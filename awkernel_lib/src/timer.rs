@@ -1,4 +1,4 @@
-use core::sync::atomic::AtomicBool;
+use core::{sync::atomic::AtomicBool, time::Duration};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -10,7 +10,7 @@ static IS_TIMER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub trait Timer {
     /// Reset the timer interrupt.
-    fn reset(&self);
+    fn reset(&self, dur: Duration);
 
     /// Get IRQ#.
     fn irq_id(&self) -> u16;
@@ -28,11 +28,11 @@ pub fn register_timer(timer: Box<dyn Timer + Send + Sync>) {
 
 /// Re-enable timer.
 #[inline(always)]
-pub fn reset() {
+pub fn reset(dur: Duration) {
     let mut node = MCSNode::new();
     let guard = TIMER.lock(&mut node);
     if let Some(timer) = guard.as_ref() {
-        timer.reset()
+        timer.reset(dur)
     }
 }
 

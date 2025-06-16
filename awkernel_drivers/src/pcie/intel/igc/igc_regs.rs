@@ -69,6 +69,15 @@ pub(super) const IGC_RDFPC: usize = 0x02430; // Rx Data FIFO Packet Count - RW
 pub(super) const IGC_PBRTH: usize = 0x02458; // PB Rx Arbitration Threshold - RW
 pub(super) const IGC_FCRTV: usize = 0x02460; // Flow Control Refresh Timer Value - RW
 
+// Split and Replication Rx Control - RW
+pub(super) const IGC_RXPBS: usize = 0x02404; // Rx Packet Buffer Size - RW
+
+// Shadow Ram Write Register - RW
+pub(super) const IGC_SRWR: usize = 0x12018;
+
+pub(super) const IGC_MMDAC: u32 = 13; // MMD Access Control
+pub(super) const IGC_MMDAAD: u32 = 14; // MMD Access Address/Data
+
 // Convenience macros
 //
 // Example usage:
@@ -276,6 +285,9 @@ pub(super) const IGC_WUC: usize = 0x05800; // Wakeup Control - RW
 pub(super) const IGC_WUFC: usize = 0x05808; // Wakeup Filter Control - RW
 pub(super) const IGC_WUS: usize = 0x05810; // Wakeup Status - RO
 
+// Management registers
+pub(super) const IGC_MANC: usize = 0x05820; // Management Control - RW
+
 // Semaphore registers
 pub(super) const IGC_SW_FW_SYNC: usize = 0x05B5C; // SW-FW Synchronization - RW
 
@@ -283,3 +295,34 @@ pub(super) const IGC_SW_FW_SYNC: usize = 0x05B5C; // SW-FW Synchronization - RW
 pub(super) const IGC_FACTPS: usize = 0x05B30;
 pub(super) const IGC_SWSM: usize = 0x05B50; // SW Semaphore
 pub(super) const IGC_FWSM: usize = 0x05B54; // FW Semaphore
+
+// RSS registers
+pub(super) const IGC_MRQC: usize = 0x05818; // Multiple Receive Control - RW
+
+// Redirection Table - RW Array
+pub(super) const IGC_RETA: fn(usize) -> usize = |i| 0x05C00 + (i * 4);
+
+// RSS Random Key - RW Array
+pub(super) const IGC_RSSRK: fn(usize) -> usize = |i| 0x05C80 + (i * 4);
+pub(super) const IGC_UTA: usize = 0x0A000; // Unicast Table Array - RW
+
+// DMA Coalescing registers
+pub(super) const IGC_DMACR: usize = 0x02508; // Control Register
+pub(super) const IGC_DMCTXTH: usize = 0x03550; // Transmit Threshold
+pub(super) const IGC_DMCTLX: usize = 0x02514; // Time to Lx Request
+pub(super) const IGC_DMCRTRH: usize = 0x05DD0; // Receive Packet Rate Threshold
+pub(super) const IGC_DMCCNT: usize = 0x05DD4; // Current Rx Count
+pub(super) const IGC_FCRTC: usize = 0x02170; // Flow Control Rx high watermark
+pub(super) const IGC_PCIEMISC: usize = 0x05BB8; // PCIE misc config register
+
+// Energy Efficient Ethernet "EEE" registers
+pub(super) const IGC_IPCNFG: usize = 0x0E38; // Internal PHY Configuration
+pub(super) const IGC_LTRC: usize = 0x01A0; // Latency Tolerance Reporting Control
+pub(super) const IGC_EEER: usize = 0x0E30; // Energy Efficient Ethernet "EEE"
+pub(super) const IGC_EEE_SU: usize = 0x0E34; // EEE Setup
+pub(super) const IGC_EEE_SU_2P5: usize = 0x0E3C; // EEE 2.5G Setup
+pub(super) const IGC_TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
+pub(super) const IGC_RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
+
+pub(super) const IGC_LTRMINV: usize = 0x5BB0; // LTR Minimum Value
+pub(super) const IGC_LTRMAXV: usize = 0x5BB4; // LTR Maximum Value

@@ -39,6 +39,7 @@ pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -284,7 +285,7 @@ impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
             if !bus.devices.is_empty() {
-                write!(f, "{}", bus)?;
+                write!(f, "{bus}")?;
             }
         }
 
@@ -451,7 +452,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
                     );
 
                     let indent_str = " ".repeat((indent as usize + 1) * 4);
-                    write!(f, "{}{}\r\n", indent_str, name)?;
+                    write!(f, "{indent_str}{name}\r\n")?;
                 }
                 ChildDevice::Bus(bus) => {
                     print_pcie_devices(bus.as_ref(), f, indent + 1)?;
@@ -648,7 +649,7 @@ fn init<F>(
 
     bus_tree.attach();
 
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{bus_tree}");
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
@@ -674,6 +675,7 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
+    virtio_caps: Vec<capability::virtio::VirtioCap>,
 
     // The bridge having this device.
     bridge_bus_number: Option<u8>,
@@ -775,6 +777,7 @@ impl PCIeInfo {
             msi: None,
             msix: None,
             pcie_cap: None,
+            virtio_caps: Vec::new(),
             bridge_bus_number: None,
             bridge_device_number: None,
             bridge_function_number: None,
@@ -1003,6 +1006,9 @@ impl PCIeInfo {
                 if broadcom::bcm2712::match_device(self.vendor, self.id) {
                     return broadcom::bcm2712::attach(self);
                 }
+            }
+            pcie_id::VIRTIO_VENDOR_ID => {
+                return virtio::attach(self);
             }
             _ => (),
         }

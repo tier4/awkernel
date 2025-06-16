@@ -13,6 +13,11 @@ impl Interrupt for super::AArch64 {
         unsafe { core::arch::asm!("msr daifclr, #0b0010",) };
     }
 
+    fn are_enabled() -> bool {
+        let daif = awkernel_aarch64::daif::get();
+        (daif & (1 << 7)) == 0
+    }
+
     fn set_flag(flag: usize) {
         unsafe { awkernel_aarch64::daif::set(flag as u64) };
     }

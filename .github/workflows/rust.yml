@@ -2,31 +2,30 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   schedule:
-    - cron: '0 13 * * 1'
+    - cron: "0 13 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly-2025-02-27
+        run: rustup toolchain install nightly-2025-05-22
       - name: Use Rust nightly
-        run: rustup default nightly-2025-02-27
+        run: rustup default nightly-2025-05-22
       - name: Add Rust components
         run: rustup component add rust-src llvm-tools-preview clippy rustfmt
       - name: Add Rust targets
-        run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
+        run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf riscv64gc-unknown-none-elf
       - name: Install libssl1.1
         run: wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1-1ubuntu2.1~18.04.23_amd64.deb && sudo dpkg -i libssl1.1_1.1.1-1ubuntu2.1~18.04.23_amd64.deb
       - name: Install cargo-binstall
@@ -49,6 +48,8 @@ jobs:
         run: make check_aarch64 BSP=raspi3
       - name: Build x86_64
         run: make check_x86_64
+      - name: Build RISCV32
+        run: make check_riscv32
       - name: Build RISCV64
         run: make check_riscv64
       - name: Build std
@@ -62,13 +63,17 @@ jobs:
         run: cargo clippy_raspi5 -- --deny warnings
       - name: Clippy x86_64
         run: cargo clippy_x86 -- --deny warnings
+      - name: Clippy RISCV32
+        run: cargo clippy_rv32 -- --deny warnings
       - name: Clippy RISCV64
         run: cargo clippy_rv64 -- --deny warnings
       - name: Clippy std
         run: cargo clippy_std -- --deny warnings
+      - name: Clippy rd_gen_to_dags
+        run: cargo clippy_rd_gen_to_dags -- --deny warnings
 
       - name: udeps
         run: make udeps
 
       - name: test
-        run: make test
+        run: RUSTFLAGS="-D warnings" make test

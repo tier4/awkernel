@@ -155,7 +155,7 @@ impl GEDFScheduler {
         if let Some((task, max_absolute_deadline)) = task_with_max_deadline {
             if max_absolute_deadline > absolute_deadline {
                 let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                set_need_preemption(task.task_id);
+                set_need_preemption(task.task_id, task.cpu_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, task.cpu_id as u32);
             }
         }

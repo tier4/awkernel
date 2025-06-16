@@ -142,7 +142,6 @@ fn kernel_main2(
     backup_next_frame: Option<PhysFrame>,
 ) {
     // 5. Enable logger.
-    unsafe { awkernel_lib::logger::init() };
     super::console::register_console();
 
     log::info!(
@@ -158,7 +157,7 @@ fn kernel_main2(
     };
     let offset = *offset;
 
-    log::info!("Physical memory offset: 0x{:x}", offset);
+    log::info!("Physical memory offset: 0x{offset:x}");
 
     // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
@@ -199,7 +198,7 @@ fn kernel_main2(
         if let Err(e) =
             awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0)
         {
-            log::error!("Failed to initialize `awkernel_lib`. {}", e);
+            log::error!("Failed to initialize `awkernel_lib`. {e}");
             wait_forever();
         }
 
@@ -276,7 +275,7 @@ fn kernel_main2(
                     true,
                 )
             } {
-                log::error!("Failed to initialize interrupt remapping table. {}", e);
+                log::error!("Failed to initialize interrupt remapping table. {e}");
                 wait_forever();
             }
 
@@ -295,7 +294,7 @@ fn kernel_main2(
     };
 
     if let Err(e) = apic_result {
-        log::error!("Failed to initialize APIC. {}", e);
+        log::error!("Failed to initialize APIC. {e}");
         wait_forever();
     }
 
@@ -355,9 +354,9 @@ fn init_apic_timer(apic: &mut dyn Apic) {
     let mut total = 0;
     for _ in 0..10 {
         apic.write_timer_initial_count(!0);
-        awkernel_lib::delay::wait_microsec(20);
+        awkernel_lib::delay::wait_millisec(1);
 
-        let diff = !0 - apic.read_current_timer_count();
+        let diff = (!0 - apic.read_current_timer_count()) as u64;
         total += diff;
     }
 
@@ -800,7 +799,7 @@ fn init_dma(
     let mut dma_phy_region = None;
 
     let Some(mut numa_memory) = numa_memory.remove(&numa_id) else {
-        log::error!("Failed to get NUMA memory. NUMA ID = {}", numa_id);
+        log::error!("Failed to get NUMA memory. NUMA ID = {numa_id}");
         awkernel_lib::delay::wait_forever();
     };
 
@@ -820,7 +819,7 @@ fn init_dma(
     }
 
     let Some(dma_phy_region) = dma_phy_region else {
-        log::error!("Failed to allocate a DMA region. NUMA ID = {}", numa_id);
+        log::error!("Failed to allocate a DMA region. NUMA ID = {numa_id}");
         awkernel_lib::delay::wait_forever();
     };
 

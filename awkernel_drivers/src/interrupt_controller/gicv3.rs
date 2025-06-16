@@ -427,6 +427,7 @@ impl InterruptController for GICv3 {
     }
 
     fn irq_range(&self) -> (u16, u16) {
+        // IRQ #0: preemption
         (1, 1024)
     }
 
