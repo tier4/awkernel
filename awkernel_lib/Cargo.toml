@@ -12,6 +12,7 @@ bitflags = "2.3"
 array-macro = "2.1"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
 [dependencies.awkernel_sync]
 git = "https://github.com/tier4/awkernel_sync.git"
@@ -23,12 +24,12 @@ path = "../awkernel_async_lib_verified"
 version = "0.2"
 optional = true
 
-[dependencies.x86_64]
-version = "0.15"
-optional = true
-
 [dependencies.riscv]
 version = "0.11.1"
+optional = true
+
+[dependencies.x86_64]
+version = "0.15"
 optional = true
 
 [dependencies.acpi]
@@ -72,9 +73,25 @@ features = [
 
 [features]
 default = ["x86"]
-x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api", "awkernel_sync/x86"]
+x86 = [
+    "dep:x86_64",
+    "dep:acpi",
+    "dep:bootloader_api",
+    "awkernel_sync/x86",
+    "awkernel_sync/x86_mwait",
+]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_sync/aarch64"]
-rv32 = []
+rv32 = ["dep:riscv", "awkernel_sync/rv32"]
 rv64 = ["awkernel_sync/rv64"]
 std = ["dep:libc", "dep:socket2", "awkernel_sync/std"]
 spinlock = ["awkernel_sync/spinlock"]
+# LFN (Long File Name) support
+lfn = []
+# Use dynamic allocation. When used without std please enable core_io/collections
+alloc = []
+# Full Unicode support. Disabling it reduces code size by avoiding Unicode-aware character case conversion
+unicode = []
+
+[dev-dependencies]
+env_logger = "0.11.8"
+fscommon = "0.1"

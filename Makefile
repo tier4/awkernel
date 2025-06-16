@@ -55,7 +55,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2025-04-29
+RUSTV=nightly-2025-05-22
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
@@ -66,8 +66,10 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
+	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
+	cargo +$(RUSTV) clippy_rd_gen_to_dags
 
 udeps: $(X86ASM)
 	cargo +$(RUSTV) udeps_x86
@@ -202,16 +204,31 @@ gdb-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	gdb-multiarch -x scripts/x86-debug.gdb
 
+# riscv32
+
+riscv32:
+	cargo +$(RUSTV) rv32 $(OPT)
+
+check_riscv32: FORCE
+	cargo +$(RUSTV) check_rv32
+
 # riscv64
 
 riscv64:
-	cargo +$(RUSTV) rv64 $(OPT)
+ifeq ($(RELEASE), 1)
+	cargo +$(RUSTV) rv64 --release
+else
+	cargo +$(RUSTV) rv64 --release
+endif
 
-check_riscv64: $(X86ASM)
+check_riscv64: FORCE
 	cargo +$(RUSTV) check_rv64
 
-qemu-riscv64: target/riscv64gc-unknown-none-elf/$(BUILD)/awkernel
+qemu-riscv64: target/riscv64gc-unknown-none-elf/release/awkernel
 	qemu-system-riscv64 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
+
+qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
+	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
 
 # Linux / macOS
@@ -236,6 +253,7 @@ test: FORCE
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
 	cargo test_smoltcp
+	cargo test_rd_gen_to_dags
 
 # Format
 

@@ -6,7 +6,7 @@ from contextlib import closing
 def main():
     local_address   = '192.168.100.1' # IPv4 address of the interface
     multicast_group = '224.0.0.123'   # Multicast group
-    port = 20001
+    port = 30001
 
     with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
 

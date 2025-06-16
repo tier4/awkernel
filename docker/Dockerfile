@@ -23,7 +23,7 @@ RUN . /usr/local/cargo/env && \
 
 RUN chmod -R a+rw /usr/local/cargo
 
-COPY zshenv /root/.zshenv
-COPY zshrc /root/.zshrc
+#COPY zshenv /root/.zshenv
+#COPY zshrc /root/.zshrc
 
-ENTRYPOINT ["zsh"]
+CMD ["/bin/bash"]

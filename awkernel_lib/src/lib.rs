@@ -15,6 +15,7 @@ pub mod cpu;
 pub mod delay;
 pub mod device_tree;
 pub mod dvfs;
+pub mod file;
 pub mod graphics;
 pub mod interrupt;
 pub mod local_heap;

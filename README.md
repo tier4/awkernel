@@ -83,15 +83,14 @@ It can execute async/await applications in kernel space safely.
 
 ## Dependencies
 
-
 ### Compiler Tools
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
-$ rustup toolchain install nightly-2025-04-29
-$ rustup default nightly-2025-04-29
+$ rustup toolchain install nightly-2025-05-22
+$ rustup default nightly-2025-05-22
 $ rustup component add rust-src llvm-tools-preview
-$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
+$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf riscv32imac-unknown-none-elf
 ```
 
 ### Documentation Tools
@@ -334,6 +333,30 @@ $ make riscv64 RELEASE=1
 
 ```text
 $ make qemu-riscv64
+```
+
+---
+
+## RISC-V (32bit, Qemu)
+
+### Compile
+
+Debug build.
+
+```text
+$ make riscv32
+```
+
+Release build.
+
+```text
+$ make riscv32 RELEASE=1
+```
+
+### Boot
+
+```text
+$ make qemu-riscv32
 ```
 
 ---

@@ -2,7 +2,10 @@ use awkernel_lib::net::ether::ETHER_ADDR_LEN;
 use bitflags::bitflags;
 
 use crate::pcie::{
-    intel::igc::{igc_defines::*, igc_regs::*, read_reg, write_reg, write_reg_array},
+    intel::igc::{
+        igc_defines::*, igc_mac::igc_hash_mc_addr_generic, igc_regs::*, read_reg, write_reg,
+        write_reg_array,
+    },
     pcie_id::INTEL_VENDOR_ID,
     PCIeInfo,
 };
@@ -72,7 +75,7 @@ pub(super) struct IgcMacInfo {
 
     pub(super) mac_type: IgcMacType,
 
-    mc_filter_type: u32,
+    pub(super) mc_filter_type: u32,
 
     current_ifs_val: u16,
     ifs_max_val: u16,
@@ -89,7 +92,7 @@ pub(super) struct IgcMacInfo {
 
     pub(super) asf_firmware_present: bool,
     pub(super) autoneg: bool,
-    get_link_status: bool,
+    pub(super) get_link_status: bool,
     pub(super) max_frame_size: u32,
 }
 
@@ -164,7 +167,7 @@ pub(super) struct IgcPhyInfo {
     pub(super) mdix: u8,
 
     polarity_correction: bool,
-    speed_downgraded: bool,
+    pub(super) speed_downgraded: bool,
     pub(super) autoneg_wait_to_complete: bool,
 }
 
@@ -239,7 +242,7 @@ pub(super) struct IgcBusInfo {
 pub(super) struct IgcDevSpecI225 {
     pub(super) eee_disable: bool,
     pub(super) clear_semaphore_once: bool,
-    mtu: u32,
+    pub(super) mtu: u32,
 }
 
 #[derive(Debug, Default)]
@@ -263,22 +266,42 @@ pub(super) struct IgcHw {
 pub(super) trait IgcMacOperations {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
-    fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn check_for_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr>;
+
     fn update_mc_addr_list(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mc_addr_list: &[[u8; ETHER_ADDR_LEN]],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        // clear mta_shadow
+        hw.mac.mta_shadow = MtaShadow::default();
+
+        // update mta_shadow from mc_addr_list
+        for mc_addr in mc_addr_list {
+            let hash_value = igc_hash_mc_addr_generic(hw, mc_addr);
+
+            let hash_reg = (hash_value >> 5) & (hw.mac.mta_reg_count as u32 - 1);
+            let hash_bit = hash_value & 0x1f;
+
+            hw.mac.mta_shadow.0[hash_reg as usize] |= 1 << hash_bit;
+        }
+
+        // replace the entire MTA table
+        for i in (0..hw.mac.mta_reg_count).rev() {
+            write_reg_array(info, IGC_MTA, i as usize, hw.mac.mta_shadow.0[i as usize])?;
+        }
+
+        write_flush(info)
     }
-    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
@@ -288,9 +311,7 @@ pub(super) trait IgcMacOperations {
         &self,
         _info: &mut PCIeInfo,
         _hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    ) -> Result<(), IgcDriverErr>;
 
     /// Writes value at the given offset in the register array which stores
     /// the VLAN filter table.
@@ -421,11 +442,13 @@ pub(super) trait IgcPhyOperations {
         _info: &mut PCIeInfo,
         _hw: &mut IgcHw,
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn set_page(
         &self,
         _info: &mut PCIeInfo,

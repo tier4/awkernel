@@ -2,12 +2,12 @@
 
 extern crate alloc;
 
-use alloc::{borrow::Cow, format, vec};
+use alloc::format;
 use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn, spawn_periodic_reactor, spawn_reactor,
+    sleep, spawn,
     time::Time,
 };
 use core::{
@@ -114,64 +114,4 @@ pub async fn run() {
         )
         .await;
     }
-
-    spawn_periodic_reactor::<_, (i32,)>(
-        "reactor_source_node".into(),
-        || -> (i32,) {
-            let number: i32 = 1;
-            log::debug!("value={} in reactor_source_node", number);
-            (number,)
-        },
-        vec![Cow::from("topic0")],
-        SchedulerType::FIFO,
-        Duration::from_secs(1),
-    )
-    .await;
-
-    spawn_reactor::<_, (i32,), (i32, i32)>(
-        "reactor_node1".into(),
-        |(a,): (i32,)| -> (i32, i32) {
-            log::debug!("value={} in reactor_node1", a);
-            (a, a)
-        },
-        vec![Cow::from("topic0")],
-        vec![Cow::from("topic1"), Cow::from("topic2")],
-        SchedulerType::FIFO,
-    )
-    .await;
-
-    spawn_reactor::<_, (i32,), (i32,)>(
-        "reactor_node2".into(),
-        |(a,): (i32,)| -> (i32,) {
-            log::debug!("value={} in reactor_node2", a * 2);
-            (a * 2,)
-        },
-        vec![Cow::from("topic1")],
-        vec![Cow::from("topic3")],
-        SchedulerType::FIFO,
-    )
-    .await;
-
-    spawn_reactor::<_, (i32,), (i32,)>(
-        "reactor_node3".into(),
-        |(a,): (i32,)| -> (i32,) {
-            log::debug!("value={} in reactor_node3", a * 3);
-            (a * 3,)
-        },
-        vec![Cow::from("topic2")],
-        vec![Cow::from("topic4")],
-        SchedulerType::FIFO,
-    )
-    .await;
-
-    spawn_reactor::<_, (i32, i32), ()>(
-        "reactor_node4".into(),
-        |(a, b): (i32, i32)| {
-            log::debug!("value={} in reactor_node4", a + b);
-        },
-        vec![Cow::from("topic3"), Cow::from("topic4")],
-        vec![],
-        SchedulerType::FIFO,
-    )
-    .await;
 }

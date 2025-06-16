@@ -169,6 +169,56 @@ pub trait NodeCompactIndexable : NodeIndexable + NodeCount { }
 
 NodeCompactIndexable! {delegate_impl []}
 
+/// A node reference.
+pub trait NodeRef: Copy {
+    type NodeId;
+    type Weight;
+    fn id(&self) -> Self::NodeId;
+    fn weight(&self) -> &Self::Weight;
+}
+
+trait_template! {
+/// Access to the sequence of the graph’s nodes
+pub trait IntoNodeReferences : Data + IntoNodeIdentifiers {
+    @section type
+    type NodeRef: NodeRef<NodeId=Self::NodeId, Weight=Self::NodeWeight>;
+    type NodeReferences: Iterator<Item=Self::NodeRef>;
+    @section self
+    fn node_references(self) -> Self::NodeReferences;
+}
+}
+
+IntoNodeReferences! {delegate_impl []}
+
+impl<Id> NodeRef for (Id, ())
+where
+    Id: Copy,
+{
+    type NodeId = Id;
+    type Weight = ();
+    fn id(&self) -> Self::NodeId {
+        self.0
+    }
+    fn weight(&self) -> &Self::Weight {
+        static DUMMY: () = ();
+        &DUMMY
+    }
+}
+
+impl<Id, W> NodeRef for (Id, &W)
+where
+    Id: Copy,
+{
+    type NodeId = Id;
+    type Weight = W;
+    fn id(&self) -> Self::NodeId {
+        self.0
+    }
+    fn weight(&self) -> &Self::Weight {
+        self.1
+    }
+}
+
 /// A mapping for storing the visited status for NodeId `N`.
 pub trait VisitMap<N> {
     /// Mark `a` as visited.

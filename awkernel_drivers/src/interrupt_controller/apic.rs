@@ -12,7 +12,7 @@ use awkernel_lib::{
 use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile, time::Duration};
 use x86_64::registers::model_specific::Msr;
 
-const TIMER_IRQ: u8 = 254;
+const TIMER_IRQ: u8 = 253;
 
 pub mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -396,8 +396,9 @@ impl InterruptController for Xapic {
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
         // IRQ255 is used for preemption
-        // IRQ254 is used for local timer
-        (64, 254)
+        // IRQ254 is used for wakeup
+        // IRQ253 is used for local timer
+        (64, 253)
     }
 
     fn set_pcie_msi(
@@ -510,8 +511,9 @@ impl InterruptController for X2Apic {
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
         // IRQ255 is used for preemption
-        // IRQ254 is used for local timer
-        (64, 254)
+        // IRQ254 is used for wakeup
+        // IRQ253 is used for local timer
+        (64, 253)
     }
 
     fn init_non_primary(&mut self) {

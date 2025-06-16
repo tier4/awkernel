@@ -237,8 +237,8 @@ fn ifconfig_ffi() {
 #[embedded]
 fn perf_ffi() {
     console::print("Perform non-primary CPU [tsc]:\r\n");
-    console::print(" cpu |    task_time   |   kernel_time  |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
-    console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+    console::print(" cpu | Type           |   kernel_time  |    task_time   |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
+    console::print("=====|================|================|================|================|================|================|================\r\n");
 
     use awkernel_async_lib::task::perf;
 
@@ -251,13 +251,41 @@ fn perf_ffi() {
         let perf_time = perf::get_perf_time(cpu_id);
 
         let msg = format!(
-            "{cpu_id:>4} |{task_time:>15} |{kernel_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
+            "{cpu_id:>4} | Total          |{kernel_time:>15} |{task_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
         );
 
         console::print(&msg);
-    }
 
-    console::print("\r\n");
+        let ave_kernel_time = perf::get_ave_kernel_time(cpu_id).unwrap_or(0.0);
+        let ave_task_time = perf::get_ave_task_time(cpu_id).unwrap_or(0.0);
+        let ave_idle_time = perf::get_ave_idle_time(cpu_id).unwrap_or(0.0);
+        let ave_interrupt_time = perf::get_ave_interrupt_time(cpu_id).unwrap_or(0.0);
+        let ave_contxt_switch_time = perf::get_ave_context_switch_time(cpu_id).unwrap_or(0.0);
+        let ave_perf_time = perf::get_ave_perf_time(cpu_id).unwrap_or(0.0);
+
+        let msg_ave = format!(
+            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_contxt_switch_time:>15.2} |{ave_perf_time:>15.2}\r\n",
+        );
+
+        console::print(&msg_ave);
+
+        let worst_kernel_time = perf::get_kernel_wcet(cpu_id);
+        let worst_task_time = perf::get_task_wcet(cpu_id);
+        let worst_idle_time = perf::get_idle_wcet(cpu_id);
+        let worst_interrupt_time = perf::get_interrupt_wcet(cpu_id);
+        let worst_contxt_switch_time = perf::get_context_switch_wcet(cpu_id);
+        let worst_perf_time = perf::get_perf_wcet(cpu_id);
+
+        let msg_worst = format!(
+            "     | Worst          | {worst_kernel_time:>14} | {worst_task_time:>14} |{worst_idle_time:>15} |{worst_interrupt_time:>15} |{worst_contxt_switch_time:>15} |{worst_perf_time:>15}\r\n",
+        );
+
+        console::print(&msg_worst);
+
+        if cpu_id < awkernel_lib::cpu::num_cpu() - 1 {
+            console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+        }
+    }
 }
 
 fn print_tasks() {

@@ -265,10 +265,33 @@ pub unsafe fn preemption() {
         heap_guard
     };
 
+    super::PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Release);
+
     if let Err(e) = catch_unwind(|| do_preemption()) {
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
         log::error!("caught panic!: {e:?}");
     }
+}
+
+/// Voluntary preempt to the next executable task.
+///
+/// # Safety
+///
+/// Do not call this function during mutex locking.
+pub unsafe fn voluntary_preemption() {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    // If there is no task running on this CPU core, just return.
+    if super::RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
+        return;
+    }
+
+    // If preemption is not requested, just return.
+    if !super::PREEMPTION_REQUEST[cpu_id].load(Ordering::Acquire) {
+        return;
+    }
+
+    preemption();
 }
 
 pub fn get_next_task() -> Option<Arc<Task>> {

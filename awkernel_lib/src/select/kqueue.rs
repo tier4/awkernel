@@ -157,24 +157,26 @@ pub(super) fn wait(timeout: Duration) {
             let raw_fd = event.ident as RawFd;
             disable_event(raw_fd, EventType::Read);
 
-            {
+            if let Some(waker) = {
                 let mut node = MCSNode::new();
                 let mut map = super::FD_TO_WAKER.lock(&mut node);
                 map.remove(&(raw_fd, EventType::Read))
+            } {
+                waker.wake()
             }
-            .map(|waker| waker.wake());
         }
 
         if event.filter == libc::EVFILT_WRITE {
             let raw_fd = event.ident as RawFd;
             disable_event(raw_fd, EventType::Write);
 
-            {
+            if let Some(waker) = {
                 let mut node = MCSNode::new();
                 let mut map = super::FD_TO_WAKER.lock(&mut node);
                 map.remove(&(raw_fd, EventType::Write))
+            } {
+                waker.wake()
             }
-            .map(|waker| waker.wake());
         }
     }
 }

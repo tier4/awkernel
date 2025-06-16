@@ -11,6 +11,107 @@ use super::{
 
 pub(super) const IGC_RAR_ENTRIES_BASE: u16 = 16;
 
+/// Transmit Descriptor - Advanced
+pub(super) union IgcAdvTxDesc {
+    read: TxDescRead,
+    wb: TxDescWb,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(super) struct TxDescRead {
+    buffer_addr: u64, // Address of descriptor's data buf
+    cmd_type_len: u32,
+    olinfo_status: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(super) struct TxDescWb {
+    rsvd: u64, // Reserved
+    nxtseq_seed: u32,
+    status: u32,
+}
+
+/// Context descriptors
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub(super) struct IgcAdvTxContextDesc {
+    vlan_macip_lens: u32,
+    ts: TxContextTS,
+    type_tucmd_mlhl: u32,
+    mss_l4len_idx: u32,
+}
+
+#[derive(Clone, Copy)]
+pub(super) union TxContextTS {
+    launch_time: u32, // Launch time
+    seqnum_seed: u32, // Sequence number seed
+}
+
+/// Receive Descriptor - Advanced
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub(super) struct IgcAdvRxDesc {
+    read: RxRead,
+    wb: RxWb, // writeback
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(super) struct RxRead {
+    pkt_addr: u64, // Packet buffer address
+    hdr_addr: u64, // Header buffer address
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(super) struct RxHsRss {
+    pkt_info: u16, // Packet type
+    hdr_info: u16, // Split Header, header buffer len
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(super) struct RxCsumIp {
+    ip_id: u16, // IP id
+    csum: u16,  // Packet checksum
+}
+
+#[derive(Clone, Copy)]
+pub(super) union RxLoDword {
+    data: u32,
+    hs_rss: RxHsRss,
+}
+
+#[derive(Clone, Copy)]
+pub(super) union RxHiDword {
+    rss: u32, // RSS hash
+    csum_ip: RxCsumIp,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RxLower {
+    lo_dword: RxLoDword,
+    hi_dword: RxHiDword,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct RxUpper {
+    status_error: u32, // ext status/error
+    length: u16,       // Packet length
+    vlan: u16,         // VLAN tag
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct RxWb {
+    lower: RxLower,
+    upper: RxUpper,
+}
+
 /// Acquire access rights to the correct PHY.
 pub(super) fn igc_acquire_phy_base(
     ops: &dyn IgcOperations,
