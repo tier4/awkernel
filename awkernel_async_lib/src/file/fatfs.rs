@@ -26,26 +26,6 @@ use awkernel_lib::{
 use core::{fmt, task::Poll};
 use futures::stream::{self, BoxStream};
 
-pub struct AsyncFatFs<IO, TP, OCC>
-where
-    IO: ReadWriteSeek + Send + Sync,
-    TP: TimeProvider + Send + Sync,
-    OCC: OemCpConverter + Send + Sync,
-{
-    fs: Arc<FileSystem<IO, TP, OCC>>,
-}
-
-impl<IO, TP, OCC> AsyncFatFs<IO, TP, OCC>
-where
-    IO: ReadWriteSeek + Send + Sync,
-    TP: TimeProvider + Send + Sync,
-    OCC: OemCpConverter + Send + Sync,
-{
-    pub fn new(fs: FileSystem<IO, TP, OCC>) -> Self {
-        Self { fs: Arc::new(fs) }
-    }
-}
-
 struct AsyncFile<IO, TP, OCC>
 where
     IO: ReadWriteSeek + Send + Sync,
@@ -119,6 +99,26 @@ where
 
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<Error<IO::Error>>> {
         <Self as AsyncSeekAndRead<Error<IO::Error>>>::seek(self, pos).await
+    }
+}
+
+pub struct AsyncFatFs<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Sync,
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
+{
+    fs: Arc<FileSystem<IO, TP, OCC>>,
+}
+
+impl<IO, TP, OCC> AsyncFatFs<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Sync,
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
+{
+    pub fn new(fs: FileSystem<IO, TP, OCC>) -> Self {
+        Self { fs: Arc::new(fs) }
     }
 }
 
