@@ -19,10 +19,10 @@ use crate::pcie::{ConfigSpace, PCIeInfo};
 //     notify_off_multiplier: u32, // Multiplier for queue_notify_off.
 // }
 
-const VIRTIO_PCI_CAP_CFG_TYPE: usize = 3;
-const VIRTIO_PCI_CAP_BAR: usize = 4;
-const VIRTIO_PCI_CAP_OFFSET: usize = 8;
-const VIRTIO_PCI_CAP_NOTIFY_OFF_MULTIPLIER: usize = 16;
+const VIRTIO_PCI_CAP_CFG_TYPE: usize = 0x03;
+const VIRTIO_PCI_CAP_BAR: usize = 0x04;
+const VIRTIO_PCI_CAP_OFFSET: usize = 0x08;
+const VIRTIO_PCI_CAP_NOTIFY_OFF_MULTIPLIER: usize = 0x10;
 
 #[derive(Debug, Clone)]
 pub struct VirtioCap {
