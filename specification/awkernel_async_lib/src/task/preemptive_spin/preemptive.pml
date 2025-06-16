@@ -1,5 +1,6 @@
 #define TASK_NUM 4
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
+#define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
 #define CPU_NUM 2
 #define NUM_PROC WORKER_NUM
 
@@ -10,10 +11,12 @@ FairLock lock_info[TASK_NUM];
 FairLock lock_future[TASK_NUM];
 FairLock lock_queue = false;
 FairLock lock_next_task[CPU_NUM];
+FairLock lock_preempted[CPU_NUM];
 
 typedef Worker {
-	short executing_in;// cpu_id when this is executed,- 1 otherwise.
-	bool used_as_preempt_ctx;
+	short executing_in = -1;// cpu_id when this is executed,- 1 otherwise.
+	bool used_as_preempt_ctx = false;
+	bool interrupted = false;// In this model, Worker and InterruptHandler has one-to-one relationship, so tid equals ih_id.
 }
 
 Worker workers[WORKER_NUM];
@@ -22,22 +25,19 @@ mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending,Preempted };// Panic
 
 /* awkernel_async_lib::task::TaskInfo */
 typedef TaskInfo {
-	mtype state;
-	bool need_sched;
-	bool is_terminated;
+	mtype state = Ready;
+	bool need_sched = false;
+	bool is_terminated = false;
 	byte id;// This also represents the priority of the task. The lower the value,the higher the priority.
-	bool need_preemption;
-	int thread;// tid when this task is preempted,- 1 otherwise.
+	bool need_preemption = false;
+	int thread = -1;// tid when this task is preempted,- 1 otherwise.
 };
 
 TaskInfo tasks[TASK_NUM];
 
 short RUNNING[CPU_NUM] = - 1;// task_id when this CPU is executing a task,- 1 otherwise.
-short NEXT_TASK[CPU_NUM] = - 1;// Preempted task_id to be executed next,- 1 if there is no preempted task.
-
-chan ipi_requests[CPU_NUM] = [CPU_NUM] of { byte };// Message type is not accessed.
-bool interrupted[CPU_NUM] = false;// true if this CPU is interrupted by an IPI request,false otherwise.
-bool interrupt_enabled[CPU_NUM] = false;
+short NEXT_TASK[CPU_NUM] = - 1;
+short PREEMPTED_TASK[CPU_NUM] = - 1;// Preempted task_id in each CPU,- 1 if there is no preempted task.
 
 /* Queue of the PrioritizedFIFO scheduler */
 chan queue = [TASK_NUM * 2] of { byte };// task_ids in ascending order of priority.
@@ -109,7 +109,6 @@ inline get_next_task(tid,ret) {
 
 inline context_switch(cur_tid,next_tid) {
 	printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
-	assert(workers[next_tid].used_as_preempt_ctx == false);
 	atomic {
 		workers[next_tid].executing_in = cpu_id(cur_tid);
 		workers[cur_tid].executing_in = - 1;
@@ -121,6 +120,19 @@ inline set_preempt_context(task,tid) {
 	workers[tid].used_as_preempt_ctx = true;
 }
 
+inline re_schedule(tid) {
+	lock(tid,lock_preempted[cpu_id(tid)]);
+	if
+	:: PREEMPTED_TASK[cpu_id(tid)] != -1 ->
+		byte preempted = PREEMPTED_TASK[cpu_id(tid)];
+		PREEMPTED_TASK[cpu_id(tid)] = - 1;
+		unlock(tid,lock_preempted[cpu_id(tid)]);
+		wake_task(tid,preempted);
+	:: else ->
+		unlock(tid,lock_preempted[cpu_id(tid)]);
+	fi
+}
+
 inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	lock(cur_tid,lock_info[cur_task]);
 	set_preempt_context(cur_task,cur_tid);
@@ -129,10 +141,15 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 		update_running_lowest_priority();
 	}
 	unlock(cur_tid,lock_info[cur_task]);
+
+	lock(cur_tid,lock_preempted[cpu_id(cur_tid)]);
+	assert(PREEMPTED_TASK[cpu_id(cur_tid)] == - 1);
+	PREEMPTED_TASK[cpu_id(cur_tid)] = cur_task;
+	unlock(cur_tid,lock_preempted[cpu_id(cur_tid)]);
 	
 	atomic {
-		wake_task(next_tid,cur_task);// re_schedule()
 		context_switch(cur_tid,next_tid);
+		re_schedule(cur_tid);
 	}
 }
 
@@ -159,33 +176,21 @@ inline take_preempt_context(task,ret) {
 	workers[ret].used_as_preempt_ctx = false;
 }
 
-inline get_cur_tid(cpu_id,ret) {
-	assert(cpu_id != - 1);
-	ret = - 1;
-	
-	byte i;
-	for (i : 0 .. WORKER_NUM - 1) {
-		if
-		:: workers[i].executing_in == cpu_id -> 
-			ret = i;
-			break;
-		:: else
-		fi
-	}
-	
-	assert(ret != - 1);
-}
+bool interrupt_enabled[CPU_NUM] = false;// Whether the interrupt handler is enabled in each CPU.
+chan ipi_requests[CPU_NUM] = [TASK_NUM * 2] of { byte };// Message type is not accessed.
 
-/* kernel::x86_64::interrupt_handler::preemption() ~ awkernel_async_lib::task::do_preemption() */
-proctype interrupt_handler(byte cpu_id) provided (interrupt_enabled[cpu_id]) {
-	chan my_ipi_requests = ipi_requests[cpu_id];
-	xr my_ipi_requests;
+/* kernel::x86_64::interrupt_handler::preemption() ~ awkernel_async_lib::task::do_preemption()
+ * tid corresponds to id of interrupt handler.
+ */
+proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1 && workers[tid].interrupted) {
+	byte cpu_id;
 
 	do
-	:: atomic {my_ipi_requests?_ -> interrupted[cpu_id] = true; }
+	:: atomic {interrupt_enabled[cpu_id(tid)];cpu_id = cpu_id(tid);ipi_requests[cpu_id]?_ -> 
+		 	interrupt_enabled[cpu_id] = false;
+		 	workers[tid].interrupted = true;
+		}
 		printf("Received IPI request. cpu_id = %d\n",cpu_id);
-		short tid;
-		get_cur_tid(cpu_id,tid);
 		
 		short cur_task = RUNNING[cpu_id];
 		if
@@ -231,7 +236,10 @@ proctype interrupt_handler(byte cpu_id) provided (interrupt_enabled[cpu_id]) {
 		fi
 		
 		finish:
-		interrupted[cpu_id] = false;
+		atomic {
+			workers[tid].interrupted = false;
+			interrupt_enabled[cpu_id] = true;//iretq
+		}
 	od
 }
 
@@ -240,12 +248,14 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 	printf("yield_and_pool(): cur_task = %d,cur_tid = %d,next_tid = %d\n",cur_task,cur_tid,next_tid);
 	assert(!workers[cur_tid].used_as_preempt_ctx);
 	atomic {
-		wake_task(next_tid,cur_task);// HACK: re_schedule()
 		context_switch(cur_tid,next_tid);
+		re_schedule(cur_tid);
 	}
 }
 
-proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !interrupted[workers[tid].executing_in]) {
+proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted) {
+	re_schedule(tid);// thread_entry();
+
 	start:
 	if
 	:: num_terminated == TASK_NUM -> goto end;
@@ -357,22 +367,17 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !inter
 init {
 	byte i;
 	
-	for (i: 0 .. CPU_NUM - 1) {
+	for (i: 0 .. IR_HANDLER_NUM - 1) {
 		run interrupt_handler(i);
 	}
 	
 	for (i: 0 .. WORKER_NUM - 1) {
-		workers[i].executing_in = - 1;
-		workers[i].used_as_preempt_ctx = false;
 		run run_main(i);
 	}
 	
 	atomic {
 		for (i: 0 .. TASK_NUM - 1) {
 			tasks[i].id = i;
-			tasks[i].state = Ready;
-			tasks[i].thread = - 1;
-			
 			wake(0,i);
 		}
 		
