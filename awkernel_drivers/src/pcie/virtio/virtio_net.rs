@@ -3,7 +3,7 @@ use crate::pcie::{
     pcie_id,
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
-        virtio_notify_cap::VirtioNotifyCap,
+        virtio_notify_config::VirtioNotifyConfig,
     },
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
@@ -193,7 +193,8 @@ struct VirtioNetInner {
     mac_addr: [u8; 6],
     common_cfg: VirtioCommonConfig,
     net_cfg: VirtioNetConfig,
-    notify_cap: VirtioNotifyCap,
+    notify_cfg: VirtioNotifyConfig,
+    notify_off_multiplier: u32,
     driver_features: u64,
     active_features: u64,
     flags: NetFlags,
@@ -207,7 +208,8 @@ impl VirtioNetInner {
             mac_addr: [0; 6],
             common_cfg: VirtioCommonConfig::default(),
             net_cfg: VirtioNetConfig::default(),
-            notify_cap: VirtioNotifyCap::default(),
+            notify_cfg: VirtioNotifyConfig::default(),
+            notify_off_multiplier: 0,
             driver_features: 0,
             active_features: 0,
             flags: NetFlags::empty(),
@@ -229,9 +231,11 @@ impl VirtioNetInner {
         let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
         let notify_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
 
+        self.notify_off_multiplier = notify_cap.get_notify_off_multiplier();
+
         self.common_cfg.init(&self.info, common_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
-        self.notify_cap.init(&self.info, notify_cap)?;
+        self.notify_cfg.init(&self.info, notify_cap)?;
 
         Ok(())
     }
@@ -382,10 +386,10 @@ impl VirtioNetInner {
     }
 
     fn _virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
-        let offset = self.common_cfg.virtio_get_queue_notify_off()? as usize
-            * self.notify_cap.virtio_get_notify_off_multiplier()? as usize;
-
-        self.notify_cap.virtio_set_notify(offset, idx)
+        let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()? as usize;
+        let notify_off_multiplier = self.notify_off_multiplier as usize;
+        let offset = queue_notify_off * notify_off_multiplier;
+        self.notify_cfg.virtio_set_notify(offset, idx)
     }
 
     fn virtio_has_feature(&self, feature: u64) -> bool {
