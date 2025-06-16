@@ -1046,14 +1046,10 @@ impl NetDevice for VirtioNet {
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
         let inner = self.inner.read();
-        for key in inner.irq_to_type.keys() {
-            if *key == irq {
-                if let IRQType::Queue(idx) = inner.irq_to_type[key] {
-                    if idx % 2 == 0 {
-                        return Some(idx);
-                    }
-                }
-            }
+
+        if let Some(IRQType::Queue(idx)) = inner.irq_to_type.get(&irq) {
+            assert!(*idx == 0); // TODO: support multiple queues
+            return Some(*idx);
         }
 
         None
