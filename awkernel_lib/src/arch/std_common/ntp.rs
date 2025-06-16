@@ -17,5 +17,5 @@ impl Ntp for super::StdCommon {
 
     fn set_time(new: u64) {}
 
-    fn sync_time() {}
+    fn adjust_time(_offset: SignedDuration) {}
 }
