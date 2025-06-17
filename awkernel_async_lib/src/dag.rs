@@ -156,6 +156,7 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
+#[allow(dead_code)] // TODO: remove this later
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
 }
@@ -163,6 +164,7 @@ struct EdgeInfo {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
+
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
 }
@@ -214,14 +216,13 @@ impl Dag {
             relative_deadline: None,
         };
 
-        let new_node_sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
-        let new_node_pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
-
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        let mut topics: BTreeSet<Cow<'static, str>> = BTreeSet::new();
+        let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+
         let edges_to_add: Vec<_> = graph
             .node_references()
             .flat_map(|node_ref| {
@@ -230,13 +231,13 @@ impl Dag {
                 let edges_from = node_info
                     .subscribe_topics
                     .iter()
-                    .filter(|topic| new_node_pub_topics.contains(*topic))
+                    .filter(|topic| pub_topics.contains(*topic))
                     .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
                 let edges_to = node_info
                     .publish_topics
                     .iter()
-                    .filter(|topic| new_node_sub_topics.contains(*topic))
+                    .filter(|topic| sub_topics.contains(*topic))
                     .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
                 edges_to.chain(edges_from).collect::<Vec<_>>()
@@ -244,13 +245,8 @@ impl Dag {
             .collect();
 
         for (from, to, topic_name) in edges_to_add {
-            topics.insert(topic_name.clone());
             graph.add_edge(from, to, EdgeInfo { topic_name });
         }
-
-        let mut topics_node = MCSNode::new();
-        let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
-        dag_topics.entry(self.id).or_default().extend(topics);
 
         add_node_idx
     }
