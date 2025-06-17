@@ -11,10 +11,12 @@ use awkernel_lib::{
         error::Error,
         fatfs::{
             file::File,
-            fs::{FileSystem, OemCpConverter, ReadWriteSeek},
-            time::{Date, DateTime, TimeProvider},
+            fs::{FileSystem, LossyOemCpConverter, OemCpConverter, ReadWriteSeek},
+            get_fs,
+            time::{Date, DateTime, NullTimeProvider, TimeProvider},
         },
         io::{Read, Seek, SeekFrom, Write},
+        memfs::InMemoryDisk,
         vfs::{
             error::{VfsError, VfsResult},
             path::{VfsFileType, VfsMetadata},
@@ -111,14 +113,9 @@ where
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl<IO, TP, OCC> AsyncFatFs<IO, TP, OCC>
-where
-    IO: ReadWriteSeek + Send + Sync,
-    TP: TimeProvider + Send + Sync,
-    OCC: OemCpConverter + Send + Sync,
-{
-    pub fn new(fs: FileSystem<IO, TP, OCC>) -> Self {
-        Self { fs: Arc::new(fs) }
+impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
+    pub fn new_in_memory() -> Self {
+        Self { fs: get_fs() }
     }
 }
 

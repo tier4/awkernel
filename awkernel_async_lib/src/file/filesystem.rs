@@ -3,8 +3,8 @@ use super::path::AsyncVfsPath;
 use crate::time::Time;
 use alloc::{boxed::Box, string::String};
 use async_trait::async_trait;
-use awkernel_lib::file::error::IoError;
 use awkernel_lib::file::{
+    error::IoError,
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,

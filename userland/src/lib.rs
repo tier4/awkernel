@@ -59,7 +59,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     test_voluntary_preemption::run().await; // test for voluntary preemption
 
     #[cfg(feature = "test_filesystem")]
-    test_voluntary_preemption::run().await; // test for filesystem
+    test_filesystem::run().await; // test for filesystem
 
     Ok(())
 }

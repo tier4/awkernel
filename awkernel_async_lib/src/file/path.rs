@@ -4,10 +4,16 @@
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
-use awkernel_lib::file::error::IoError;
-use awkernel_lib::file::vfs::error::{VfsError, VfsErrorKind, VfsResult};
-use awkernel_lib::file::vfs::path::{PathLike, VfsFileType, VfsMetadata};
-use awkernel_lib::time::Time;
+use awkernel_lib::{
+    file::{
+        error::IoError,
+        vfs::{
+            error::{VfsError, VfsErrorKind, VfsResult},
+            path::{PathLike, VfsFileType, VfsMetadata},
+        }
+    },
+    time::Time,
+};
 
 use alloc::{
     boxed::Box,

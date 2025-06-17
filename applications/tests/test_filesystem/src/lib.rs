@@ -2,22 +2,9 @@
 
 extern crate alloc;
 
-use alloc::{string::String, sync::Arc, vec::Vec};
-use awkernel_async_lib::file::fatfs;
-use awkernel_lib::{
-    allocator::System,
-    file::{
-        fatfs::fs::{FileSystem, FormatVolumeOptions, FsOptions, format_volume},
-        io::{IoBase, Read, Seek, SeekFrom, Write},
-        memfs::InMemoryDisk,
-    },
-    paging::PAGESIZE,
-};
-
-use core::{
-    alloc::{GlobalAlloc, Layout},
-    fmt,
-};
+use alloc::vec;
+use awkernel_async_lib::file::{fatfs::AsyncFatFs, filesystem::AsyncFileSystem};
+use awkernel_lib::file::fatfs::init_memory_fatfs;
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -28,54 +15,76 @@ pub async fn run() {
     .await;
 }
 
-pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
-
 async fn fatfs_test() {
-    log::info!("fatfs_test");
-    let result = {
-        let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
-            .expect("Invalid layout for memory filesystem");
-        unsafe { System.alloc(layout) }
-    };
-
-    let data =
-        unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
-    let mut disk = InMemoryDisk::new(data, 0);
-    let options = FormatVolumeOptions::new();
-
-    match format_volume(&mut disk, options) {
-        Ok(_) => log::info!("FAT filesystem formatted successfully in memory!"),
-        Err(e) => log::info!("Error formatting: {:?}", e),
+    match init_memory_fatfs() {
+        Ok(_) => log::info!("In-memory FAT filesystem initialized successfully."),
+        Err(e) => {
+            log::error!("Failed to initialize in-memory FAT filesystem: {e:?}");
+            return;
+        }
     }
 
-    let fs = match FileSystem::new(disk, FsOptions::new()) {
-        Ok(fs) => fs,
-        Err(e) => panic!("Error new file system: {:?}", e),
-    };
-    let root_dir = FileSystem::root_dir(&Arc::new(fs));
-    let mut file = match root_dir.create_file("file.txt") {
-        Ok(file) => file,
-        Err(e) => panic!("Error create file: {:?}", e),
+    let fs = AsyncFatFs::new_in_memory();
+    log::info!("AsyncFatFs instance created.");
+
+    let file_name = "test.txt";
+    let data_to_write = b"Hello from the in-memory FAT filesystem! This is a test string.";
+    let bytes_written;
+
+    log::info!("Attempting to create and write to file '{file_name}'");
+    match fs.create_file(file_name).await {
+        Ok(mut file) => match file.write(data_to_write).await {
+            Ok(len) => {
+                bytes_written = len;
+                log::info!("Successfully wrote {bytes_written} bytes to '{file_name}'.");
+            }
+            Err(e) => {
+                log::error!("Failed to write to file '{file_name}': {e:?}");
+                return;
+            }
+        },
+        Err(e) => {
+            log::error!("Failed to create file '{file_name}': {e:?}");
+            return;
+        }
     };
 
-    let data_to_write = b"Hello World!";
-    let w_bytes = match file.write(data_to_write) {
-        Ok(w_bytes) => w_bytes,
-        Err(e) => panic!("Erro write file: {:?}", e),
-    };
-
-    let _ = file.seek(SeekFrom::Start(0));
-
-    let mut buf = Vec::new();
-    buf.resize(w_bytes, 0);
-    let _ = match file.read(&mut buf) {
-        Ok(r_bytes) => r_bytes,
-        Err(e) => panic!("Erro read file: {:?}", e),
-    };
-
-    match core::str::from_utf8(&buf) {
-        Ok(s) => log::info!("Vec<u8> 内容 (UTF-8): {}", s),
-        Err(_) => log::info!("Vec<u8> 内容 (UTF-8): [不正な UTF-8 シーケンス]",),
+    log::info!("Attempting to open and read from file '{file_name}'");
+    if bytes_written == 0 {
+        log::warn!("No bytes were written, skipping file read operation.");
+        return;
     }
-    loop {}
+
+    match fs.open_file(file_name).await {
+        Ok(mut file) => {
+            let mut read_buffer = vec![0; bytes_written];
+            match file.read(&mut read_buffer).await {
+                Ok(bytes_read) => {
+                    log::info!("Successfully read {bytes_read} bytes from '{file_name}'.");
+                    if bytes_read != bytes_written {
+                        log::warn!(
+                            "Bytes read ({bytes_read}) does not match bytes written ({bytes_written})."
+                        );
+                    }
+
+                    match core::str::from_utf8(&read_buffer[..bytes_read]) {
+                        Ok(s) => log::info!("Content of '{file_name}': \"{s}\""),
+                        Err(_) => log::warn!(
+                            "Content of '{}' is not valid UTF-8. Raw bytes: {:?}",
+                            file_name,
+                            &read_buffer[..bytes_read]
+                        ),
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to read from file '{file_name}': {e:?}");
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to open file '{file_name}': {e:?}");
+        }
+    }
+
+    log::info!("FAT filesystem test completed.");
 }

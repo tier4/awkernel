@@ -13,6 +13,8 @@ array-macro = "2.1"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+#once_cell = { version = "1.21", default-features = false }
+
 
 [dependencies.awkernel_sync]
 git = "https://github.com/tier4/awkernel_sync.git"
