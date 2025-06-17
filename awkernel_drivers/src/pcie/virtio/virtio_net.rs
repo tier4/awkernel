@@ -3,20 +3,30 @@ use crate::pcie::{
     pcie_id,
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
-        virtio_notify_cap::VirtioNotifyCap,
+        virtio_notify_config::VirtioNotifyConfig,
     },
     virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
-use alloc::{borrow::Cow, collections::LinkedList, sync::Arc, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{BTreeMap, LinkedList},
+    format,
+    sync::Arc,
+    vec::Vec,
+};
 use awkernel_lib::{
     dma_pool::DMAPool,
+    interrupt::IRQ,
     net::net_device::{
         EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::PAGESIZE,
     sync::rwlock::RwLock,
 };
+
+const DEVICE_SHORT_NAME: &str = "virtio-net";
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -50,6 +60,18 @@ const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
+
+pub enum IRQType {
+    Config,
+    Control,
+    Queue(usize),
+}
+
+// TODO: support MSI and legacy interrupts
+enum PCIeInt {
+    None,
+    MsiX(Vec<(IRQ, IRQType)>),
+}
 
 // Virtio ring descriptors: 16 bytes.
 // These can chain together via "next".
@@ -193,11 +215,14 @@ struct VirtioNetInner {
     mac_addr: [u8; 6],
     common_cfg: VirtioCommonConfig,
     net_cfg: VirtioNetConfig,
-    notify_cap: VirtioNotifyCap,
+    notify_cfg: VirtioNotifyConfig,
+    notify_off_multiplier: u32,
     driver_features: u64,
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    irq_to_type: BTreeMap<u16, IRQType>,
+    pcie_int: PCIeInt,
 }
 
 impl VirtioNetInner {
@@ -207,11 +232,14 @@ impl VirtioNetInner {
             mac_addr: [0; 6],
             common_cfg: VirtioCommonConfig::default(),
             net_cfg: VirtioNetConfig::default(),
-            notify_cap: VirtioNotifyCap::default(),
+            notify_cfg: VirtioNotifyConfig::default(),
+            notify_off_multiplier: 0,
             driver_features: 0,
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            irq_to_type: BTreeMap::new(),
+            pcie_int: PCIeInt::None,
         }
     }
 
@@ -229,9 +257,11 @@ impl VirtioNetInner {
         let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
         let notify_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_NOTIFY_CFG)?;
 
+        self.notify_off_multiplier = notify_cap.get_notify_off_multiplier();
+
         self.common_cfg.init(&self.info, common_cfg_cap)?;
         self.net_cfg.init(&self.info, net_cfg_cap)?;
-        self.notify_cap.init(&self.info, notify_cap)?;
+        self.notify_cfg.init(&self.info, notify_cap)?;
 
         Ok(())
     }
@@ -282,7 +312,23 @@ impl VirtioNetInner {
         // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
         // TODO: setup virtio queues
         // TODO: setup control queue
-        // TODO: setup interrupt
+
+        {
+            let mut irqs = Vec::new();
+
+            let irq = self.virtio_pci_msix_establish(0, IRQType::Config)?;
+            irqs.push((irq, IRQType::Config));
+
+            let irq = self.virtio_pci_msix_establish(1, IRQType::Control)?;
+            irqs.push((irq, IRQType::Control));
+
+            // TODO: support multiple queues
+            let intr_vector = 2;
+            let irq = self.virtio_pci_msix_establish(intr_vector, IRQType::Queue(0))?;
+            irqs.push((irq, IRQType::Queue(0)));
+
+            self.pcie_int = PCIeInt::MsiX(irqs);
+        }
 
         self.virtio_attach_finish()?;
 
@@ -382,10 +428,43 @@ impl VirtioNetInner {
     }
 
     fn _virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
-        let offset = self.common_cfg.virtio_get_queue_notify_off()? as usize
-            * self.notify_cap.virtio_get_notify_off_multiplier()? as usize;
+        let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()? as usize;
+        let notify_off_multiplier = self.notify_off_multiplier as usize;
+        let offset = queue_notify_off * notify_off_multiplier;
+        self.notify_cfg.virtio_set_notify(offset, idx)
+    }
 
-        self.notify_cap.virtio_set_notify(offset, idx)
+    fn virtio_pci_msix_establish(
+        &mut self,
+        idx: u16,
+        irq_type: IRQType,
+    ) -> Result<IRQ, VirtioDriverErr> {
+        let segment_number = self.info.segment_group as usize;
+        let bfd = self.info.get_bfd();
+        let msix = self
+            .info
+            .get_msix_mut()
+            .ok_or(VirtioDriverErr::InitFailure)?;
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-{idx}");
+        let mut irq_new = msix
+            .register_handler(
+                irq_name.into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                idx as usize,
+            )
+            .or(Err(VirtioDriverErr::InitFailure))?;
+        irq_new.enable();
+
+        self.irq_to_type.insert(irq_new.get_irq(), irq_type);
+
+        let msix = self.info.get_msix_mut().unwrap();
+        msix.enable();
+
+        Ok(irq_new)
     }
 
     fn virtio_has_feature(&self, feature: u64) -> bool {
@@ -556,7 +635,7 @@ impl NetDevice for VirtioNet {
     }
 
     fn can_send(&self) -> bool {
-        todo!()
+        false
     }
 
     fn send(&self, _data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
@@ -584,17 +663,46 @@ impl NetDevice for VirtioNet {
         }
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
-        todo!()
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+
+        let irq_type = if let Some(irq_type) = inner.irq_to_type.get(&irq) {
+            irq_type
+        } else {
+            return Ok(());
+        };
+
+        // TODO: handle each interrupt
+        match irq_type {
+            IRQType::Config => Ok(()),
+            IRQType::Control => Ok(()),
+            IRQType::Queue(0) => Ok(()),
+            _ => unreachable!(),
+        }
     }
 
     fn irqs(&self) -> Vec<u16> {
-        // TODO: Implement this
-        Vec::new()
+        let inner = self.inner.read();
+
+        let mut result = Vec::new();
+        if let PCIeInt::MsiX(vec) = &inner.pcie_int {
+            for (irq, _) in vec {
+                result.push(irq.get_irq());
+            }
+        }
+
+        result
     }
 
-    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
-        todo!()
+    fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
+        let inner = self.inner.read();
+
+        if let Some(IRQType::Queue(idx)) = inner.irq_to_type.get(&irq) {
+            assert!(*idx == 0); // TODO: support multiple queues
+            return Some(*idx);
+        }
+
+        None
     }
 
     fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
