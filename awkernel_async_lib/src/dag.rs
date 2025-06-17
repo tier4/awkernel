@@ -91,12 +91,12 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),                    // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),                   // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize),              // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),                // (dag_id, node_id)
-    DuplicatePublish(u32, usize, Cow<'static, str>), // (dag_id, node_id, topic_name)
-    DuplicateSubscribe(u32, usize, Cow<'static, str>), // (dag_id, node_id, topic_name)
+    NoPublisherFound(u32, usize),
+    NoSubscriberFound(u32, usize),
+    SubscribeArityMismatch(u32, usize),
+    PublishArityMismatch(u32, usize),
+    DuplicatePublish(u32, usize, Cow<'static, str>),
+    DuplicateSubscribe(u32, usize, Cow<'static, str>),
 }
 
 #[rustfmt::skip]
