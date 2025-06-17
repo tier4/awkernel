@@ -1,5 +1,5 @@
 use alloc::string::String;
-use awkernel_async_lib::channel::bounded::{self, Attribute};
+use awkernel_async_lib::channel::bounded;
 use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
 
 static BUFFERED_LOGGER: Mutex<Option<BufferedLogger>> = Mutex::new(None);
