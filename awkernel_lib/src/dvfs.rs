@@ -66,6 +66,15 @@ pub trait Dvfs {
         None
     }
 
+    /// Select the Minimum and Maximum Performance.
+    /// (range from 0, lowest performance, through 100, highest performance)
+    ///
+    /// If current driver does not support this operation,
+    /// it will return `false`.
+    fn set_min_max_performance(min: u8) -> bool {
+        false
+    }
+
     /// Set the Energy Efficiency Preference.
     /// (range from 0, highest performance, through 100, highest energy efficient)
     ///
@@ -137,4 +146,13 @@ pub fn set_energy_efficiency(val: u8) -> bool {
 #[inline(always)]
 pub fn set_desired_performance(val: DesiredPerformance) -> bool {
     crate::arch::ArchImpl::set_desired_performance(val)
+}
+
+/// Set Minimum and Maximum Performance.
+/// (range from 0, lowest performance, through 100, highest performance)
+///
+/// If the driver does not support `set_min_max_performance()`, `false` will be returned.
+#[inline(always)]
+pub fn set_min_max_performance(percent: u8) -> bool {
+    crate::arch::ArchImpl::set_min_max_performance(percent)
 }

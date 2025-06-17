@@ -262,6 +262,19 @@ impl HwPstateIntel {
         self.request()
     }
 
+    /// Select Minimum and Maximum Performance.
+    /// (range from 0, lowest performance, through 100, highest performance)
+    fn min_max_peformance_select(&mut self, val: u8) -> bool {
+        let val = self.percent_to_raw_performance(val) as u64;
+
+        self.req = (self.req & !IA32_HWP_MINIMUM_PERFORMANCE) | val;
+
+        self.req = (self.req & !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) | (val << 8);
+        self.req &= !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE;
+
+        self.request()
+    }
+
     #[inline]
     fn request(&self) -> bool {
         if self.hwp_pkg_ctrl_en {
@@ -401,6 +414,19 @@ impl Dvfs for HwPstateIntelImpl {
                 DesiredPerformance::Desired(val) => hwps.desired_select(val),
                 DesiredPerformance::Auto => hwps.desired_select(0),
             }
+        } else {
+            false
+        }
+    }
+
+    fn set_min_max_performance(val: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.min_max_peformance_select(val)
         } else {
             false
         }

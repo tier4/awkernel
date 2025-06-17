@@ -41,8 +41,7 @@ async fn test_dvfs() {
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
         for i in 0..=10 {
-            awkernel_lib::dvfs::set_min_performance(10 * i);
-            awkernel_lib::dvfs::set_max_performance(10 * i);
+            awkernel_lib::dvfs::set_min_max_performance(10 * i);
             awkernel_lib::dvfs::set_energy_efficiency(100);
             awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Auto);
 
