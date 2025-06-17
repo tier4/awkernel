@@ -44,7 +44,7 @@ async fn test_dvfs() {
 
         for i in 0..=10 {
             awkernel_lib::dvfs::set_min_max_performance(10 * i);
-            awkernel_lib::dvfs::set_energy_efficiency(100);
+            awkernel_lib::dvfs::set_energy_efficiency(0);
             awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Auto);
 
             warm_up();

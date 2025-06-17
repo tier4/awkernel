@@ -54,7 +54,7 @@ fn nbody_step(bodies: &mut [Body], g: f64, dt: f64, eps: f64) {
 }
 
 pub fn simulate() {
-    const N: usize = 2000;
+    const N: usize = 5000;
     const STEPS: usize = 2;
     const G: f64 = 6.67430e-11;
     const DT: f64 = 0.1;

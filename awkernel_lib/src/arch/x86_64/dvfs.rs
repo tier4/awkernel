@@ -96,6 +96,10 @@ impl Dvfs for X86 {
     fn set_desired_performance(val: crate::dvfs::DesiredPerformance) -> bool {
         hwpstate_intel::HwPstateIntelImpl::set_desired_performance(val)
     }
+
+    fn set_min_max_performance(min: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_min_max_performance(min)
+    }
 }
 
 /// Initialize DVFS.
