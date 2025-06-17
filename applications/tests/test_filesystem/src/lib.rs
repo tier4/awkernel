@@ -3,7 +3,9 @@
 extern crate alloc;
 
 use alloc::vec;
-use awkernel_async_lib::file::{fatfs::AsyncFatFs, filesystem::AsyncFileSystem};
+use awkernel_async_lib::file::{
+    fatfs::AsyncFatFs, filesystem::AsyncFileSystem, path::AsyncVfsPath,
+};
 use awkernel_lib::file::fatfs::init_memory_fatfs;
 
 pub async fn run() {
@@ -24,7 +26,7 @@ async fn fatfs_test() {
         }
     }
 
-    let fs = AsyncFatFs::new_in_memory();
+    let fs = AsyncVfsPath::new_in_memory_fatfs();
     log::info!("AsyncFatFs instance created.");
 
     let file_name = "test.txt";

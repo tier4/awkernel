@@ -11,13 +11,10 @@ use awkernel_lib::file::{
 };
 use futures::stream::BoxStream;
 
-/// Trait for readable and seekable async files. This is dyn-compatible and Send.
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
-    /// Works like `embedded_io_async::Read::read`
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>>;
 
-    /// Works like `embedded_io_async::Seek::seek`
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>>;
 
     async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), VfsError<E>> {
@@ -39,23 +36,17 @@ pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
     }
 }
 
-/// Trait for writable and seekable async files. This is dyn-compatible and Send.
 #[async_trait]
 pub trait AsyncSeekAndWrite<E: IoError>: Send + Unpin {
-    /// Works like `embedded_io_async::Write::write`
     async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<E>>;
 
-    /// Works like `embedded_io_async::Write::write_all`
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<E>>;
 
-    /// Works like `embedded_io_async::Write::flush`
     async fn flush(&mut self) -> Result<(), VfsError<E>>;
 
-    /// Works like `embedded_io_async::Seek::seek`
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>>;
 }
 
-// Implement the trait for Box<dyn Trait> to satisfy the compiler.
 #[async_trait]
 impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>> {

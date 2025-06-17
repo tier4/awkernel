@@ -12,7 +12,7 @@ use awkernel_lib::{
         fatfs::{
             file::File,
             fs::{FileSystem, LossyOemCpConverter, OemCpConverter, ReadWriteSeek},
-            get_fs,
+            get_memory_fatfs,
             time::{Date, DateTime, NullTimeProvider, TimeProvider},
         },
         io::{Read, Seek, SeekFrom, Write},
@@ -115,7 +115,9 @@ where
 
 impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
     pub fn new_in_memory() -> Self {
-        Self { fs: get_fs() }
+        Self {
+            fs: get_memory_fatfs(),
+        }
     }
 }
 

@@ -3,14 +3,17 @@
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
+use crate::file::fatfs::AsyncFatFs;
+
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
     file::{
-        error::IoError,
+        error::{IoError, Error},
         vfs::{
             error::{VfsError, VfsErrorKind, VfsResult},
             path::{PathLike, VfsFileType, VfsMetadata},
-        }
+        },
+        memfs::InMemoryDiskError,
     },
     time::Time,
 };
@@ -55,6 +58,13 @@ impl<E: IoError> PartialEq for AsyncVfsPath<E> {
 }
 
 impl<E: IoError> Eq for AsyncVfsPath<E> {}
+
+impl AsyncVfsPath<Error<InMemoryDiskError>> {
+    pub fn new_in_memory_fatfs() -> Self{
+        let fs = AsyncFatFs::new_in_memory();
+        AsyncVfsPath::new(fs)
+    }
+}
 
 impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem

@@ -74,7 +74,7 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn get_fs() -> Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>> {
+pub fn get_memory_fatfs() -> Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>> {
     let fs_guard = FAT_FS_INSTANCE.read();
 
     (*fs_guard)
