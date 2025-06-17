@@ -9,6 +9,7 @@ bool wake_other[TASK_NUM / 2];
 //
 // A task will become "Terminated", after returning "Ready".
 inline future(tid,task,ret) {
+	printf("future(): tid = %d,task = %d\n",tid,task);
 	if
 	:: task >= TASK_NUM / 2 -> 
 		wake(tid,task - TASK_NUM / 2);
@@ -17,7 +18,6 @@ inline future(tid,task,ret) {
 		if
 		:: wake_other[task] -> 
 			ret = Ready;
-			printf("future(): tid = %d,task = %d\n",tid,task);
 		:: else -> 
 			wake(tid,task + TASK_NUM / 2);
 			wake_other[task] = true;

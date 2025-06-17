@@ -458,6 +458,11 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 
 init {
 	byte i;
+
+	for (i: 0 .. TASK_NUM - 1) {
+		tasks[i].id = i;
+		wake(0,i);
+	}
 	
 	for (i: 0 .. IR_HANDLER_NUM - 1) {
 		run interrupt_handler(i);
@@ -467,16 +472,8 @@ init {
 		run run_main(i);
 	}
 	
-	atomic {
-		for (i: 0 .. CPU_NUM - 1) {
-			interrupt_enabled[i] = true;
-			workers[i].executing_in = i;
-		}
-		
-		for (i: 0 .. TASK_NUM - 1) {
-			tasks[i].id = i;
-			wake(0,i);
-		}
+	for (i: 0 .. CPU_NUM - 1) {
+		workers[i].executing_in = i;
 	}
 }
 
