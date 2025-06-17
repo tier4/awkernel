@@ -17,6 +17,8 @@ use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAd
 
 const VIRTIO_NET_CONFIG_MAC: usize = 0x00;
 const VIRTIO_NET_CONFIG_STATUS: usize = 0x06;
+const VIRTIO_NET_CONFIG_SPEED: usize = 0x0C;
+const VIRTIO_NET_CONFIG_DUPLEX: usize = 0x10;
 
 pub struct VirtioNetConfig {
     bar: BaseAddress,
@@ -66,5 +68,23 @@ impl VirtioNetConfig {
             .ok_or(VirtioDriverErr::ReadFailure)?;
 
         Ok(status)
+    }
+
+    pub fn virtio_get_speed(&self) -> Result<u32, VirtioDriverErr> {
+        let speed = self
+            .bar
+            .read32(self.offset + VIRTIO_NET_CONFIG_SPEED)
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(speed)
+    }
+
+    pub fn virtio_get_duplex(&self) -> Result<u8, VirtioDriverErr> {
+        let duplex = self
+            .bar
+            .read8(self.offset + VIRTIO_NET_CONFIG_DUPLEX)
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(duplex)
     }
 }
