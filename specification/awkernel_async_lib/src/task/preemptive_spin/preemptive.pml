@@ -21,6 +21,8 @@ typedef Worker {
 
 Worker workers[WORKER_NUM];
 
+#define cpu_id(tid) (workers[tid].executing_in)
+
 mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending,Preempted };// Panic is not considered.
 
 /* awkernel_async_lib::task::TaskInfo */
@@ -136,9 +138,7 @@ inline wake(tid,task) {
 	fi
 }
 
-#define cpu_id(tid) (workers[tid].executing_in)
-
-/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next_task() */
+/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next() */
 inline scheduler_get_next(tid,ret) {
 	lock(tid,lock_queue);
 	
@@ -273,11 +273,12 @@ chan ipi_requests[CPU_NUM] = [TASK_NUM * 2] of { byte };// Message type is not a
 /* kernel::x86_64::interrupt_handler::preemption() ~ awkernel_async_lib::task::do_preemption()
  * tid corresponds to id of interrupt handler.
  */
-proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1 && workers[tid].interrupted) {
+proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1) {
 	byte cpu_id;
 
 	do
-	:: atomic {interrupt_enabled[cpu_id(tid)];cpu_id = cpu_id(tid);ipi_requests[cpu_id]?_ -> 
+	:: atomic {interrupt_enabled[cpu_id(tid)];ipi_requests[cpu_id(tid)]?_ -> 
+			cpu_id = cpu_id(tid);
 		 	interrupt_enabled[cpu_id] = false;
 		 	workers[tid].interrupted = true;
 		}
@@ -316,7 +317,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1 
 			take_preempt_context(hp_task,next_thread);
 			unlock(tid,lock_info[hp_task]);
 			yield_preempted_and_wake_task(cur_task,tid,next_thread);
-		:: else -> // Otherwise,get a thread from the thread
+		:: else -> // Otherwise, get a thread from the thread pool or create a new thread.
 			unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
 			lock(tid,lock_next_task[cpu_id]);
@@ -328,8 +329,8 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1 
 		
 		finish:
 		atomic {
-			workers[tid].interrupted = false;
 			interrupt_enabled[cpu_id] = true;//iretq
+			workers[tid].interrupted = false;
 		}
 	od
 }
@@ -476,7 +477,6 @@ init {
 			tasks[i].id = i;
 			wake(0,i);
 		}
-		
 	}
 }
 
