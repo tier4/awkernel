@@ -37,7 +37,7 @@ use crate::{
             direction::Direction,
             NodeIndex,
         },
-        visit::{IntoNodeReferences, NodeRef},
+        visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
@@ -95,6 +95,7 @@ pub enum DagError {
     NoSubscriberFound(u32, usize),      // (dag_id, node_id)
     SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
     PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    TopicHasMultiplePublishers(u32, Cow<'static, str>), // (dag_id, topic_name)
 }
 
 #[rustfmt::skip]
@@ -117,6 +118,9 @@ impl core::fmt::Display for DagError {
             }
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
+            }
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
         }
     }
@@ -563,6 +567,32 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+///
+fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+
+    let publisher_counts_by_topic = graph.edge_references().fold(
+        BTreeMap::<Cow<'static, str>, usize>::new(),
+        |mut acc, edge| {
+            *acc.entry(edge.weight().topic_name.clone()).or_insert(0) += 1;
+            acc
+        },
+    );
+
+    let errors: Vec<_> = publisher_counts_by_topic
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(topic, _)| DagError::TopicHasMultiplePublishers(dag.id, topic))
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     let dag_id = dag.id;
     assert!(
@@ -606,6 +636,8 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
+        } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
+            errors.extend(duplicate_error.into_iter());
         }
     }
 
