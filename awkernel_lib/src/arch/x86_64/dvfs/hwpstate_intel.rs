@@ -267,10 +267,10 @@ impl HwPstateIntel {
     fn min_max_peformance_select(&mut self, val: u8) -> bool {
         let val = self.percent_to_raw_performance(val) as u64;
 
-        self.req = (self.req & !IA32_HWP_MINIMUM_PERFORMANCE) | val;
-
-        self.req = (self.req & !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) | (val << 8);
-        self.req &= !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE;
+        self.req = (self.req
+            & !(IA32_HWP_MINIMUM_PERFORMANCE | IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE))
+            | (val << 8)
+            | val;
 
         self.request()
     }
