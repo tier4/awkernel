@@ -122,10 +122,10 @@ impl core::fmt::Display for DagError {
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
-            DagError::DuplicateSubscribe(dag_id, node_id  ) => {
+            DagError::DuplicateSubscribe(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
             }
-            DagError::DuplicatePublish(dag_id, node_id  ) => {
+            DagError::DuplicatePublish(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
             }
         }
