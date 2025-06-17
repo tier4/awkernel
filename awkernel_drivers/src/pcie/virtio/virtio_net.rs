@@ -402,7 +402,6 @@ impl VirtioNetInner {
         self.driver_features |= VIRTIO_NET_F_MAC;
         self.driver_features |= VIRTIO_NET_F_STATUS;
         self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
-        // TODO: setup more features
 
         self.virtio_pci_negotiate_features()?;
 
