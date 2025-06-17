@@ -861,35 +861,6 @@ impl VirtioNetInner {
         self.tx_vq.as_mut().unwrap().virtio_stop_vq_intr();
         self.virtio_reinit_end()
     }
-
-    fn intr(&mut self, irq: u16) -> Result<(), VirtioDriverErr> {
-        let irq_type = if let Some(irq_type) = self.irq_to_type.get(&irq) {
-            irq_type
-        } else {
-            return Ok(());
-        };
-
-        match irq_type {
-            IRQType::Config => Ok(()),
-            IRQType::Control => Ok(()),
-            IRQType::Queue(0) => {
-                let rx = self.rx_vq.as_mut().unwrap();
-                if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
-                    self.vio_rx_intr()?;
-                }
-
-                let tx = self.tx_vq.as_mut().unwrap();
-                if tx.vq_used_idx != tx.vq_dma.as_ref().used.idx {
-                    self.vio_tx_intr()?;
-                }
-
-                Ok(())
-            }
-            _ => {
-                unreachable!()
-            }
-        }
-    }
 }
 
 pub struct VirtioNet {
@@ -1030,7 +1001,7 @@ impl NetDevice for VirtioNet {
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        let inner = self.inner.read();
+        let mut inner = self.inner.write();
 
         let irq_type = if let Some(irq_type) = inner.irq_to_type.get(&irq) {
             irq_type
@@ -1042,7 +1013,19 @@ impl NetDevice for VirtioNet {
         match irq_type {
             IRQType::Config => Ok(()),
             IRQType::Control => Ok(()),
-            IRQType::Queue(0) => Ok(()),
+            IRQType::Queue(0) => {
+                let rx = inner.rx_vq.as_mut().unwrap();
+                if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
+                    inner.vio_rx_intr().or(Err(NetDevError::DeviceError))?;
+                }
+
+                let tx = inner.tx_vq.as_mut().unwrap();
+                if tx.vq_used_idx != tx.vq_dma.as_ref().used.idx {
+                    inner.vio_tx_intr().or(Err(NetDevError::DeviceError))?;
+                }
+
+                Ok(())
+            }
             _ => unreachable!(),
         }
     }
