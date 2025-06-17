@@ -91,10 +91,12 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),       // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),      // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    NoPublisherFound(u32, usize),                    // (dag_id, node_id)
+    NoSubscriberFound(u32, usize),                   // (dag_id, node_id)
+    SubscribeArityMismatch(u32, usize),              // (dag_id, node_id)
+    PublishArityMismatch(u32, usize),                // (dag_id, node_id)
+    DuplicatePublish(u32, usize, Cow<'static, str>), // (dag_id, node_id, topic_name)
+    DuplicateSubscribe(u32, usize, Cow<'static, str>), // (dag_id, node_id, topic_name)
 }
 
 #[rustfmt::skip]
@@ -117,6 +119,12 @@ impl core::fmt::Display for DagError {
             }
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
+            }
+            DagError::DuplicateSubscribe(dag_id, node_id ,topic_name ) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription to topic '{topic_name}")
+            }
+            DagError::DuplicatePublish(dag_id, node_id ,topic_name ) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication to topic '{topic_name}'")
             }
         }
     }
@@ -563,6 +571,35 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+fn validate_repeated_topic_registrations(dag: &Dag) -> Result<(), Vec<DagError>> {
+    let mut errors: Vec<DagError> = Vec::new();
+    let mut graph_node = MCSNode::new();
+    let graph = dag.graph.lock(&mut graph_node);
+
+    for node_idx in graph.node_indices() {
+        let node_info = graph.node_weight(node_idx).unwrap();
+
+        let mut check_and_push_duplicates =
+            |topics: &[Cow<'static, str>],
+             constructor: fn(u32, usize, Cow<'static, str>) -> DagError| {
+                let mut seen = BTreeSet::new();
+                for topic in topics {
+                    if !seen.insert(topic) {
+                        errors.push(constructor(dag.id, node_idx.index(), topic.clone()));
+                    }
+                }
+            };
+        check_and_push_duplicates(&node_info.subscribe_topics, DagError::DuplicateSubscribe);
+        check_and_push_duplicates(&node_info.publish_topics, DagError::DuplicatePublish);
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     let dag_id = dag.id;
     assert!(
@@ -606,6 +643,8 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
+        } else if let Err(topic_register_error) = validate_repeated_topic_registrations(dag) {
+            errors.extend(topic_register_error);
         }
     }
 
