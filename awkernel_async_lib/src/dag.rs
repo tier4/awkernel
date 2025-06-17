@@ -558,6 +558,15 @@ fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
     }
 }
 
+/// Ideally, this validation would be performed at an earlier stage, such as inside
+/// the `add_node_with_topic_edges()`.
+///
+/// However, that approach would force the caller to handle a Result on every
+/// single node addition, making the API cumbersome, and implementing
+/// a full cleanup of all related DAG data and other reactors would be overly complex.
+///
+/// Therefore, we adopted the current architecture: errors are first recorded
+/// to a `static` variable, and then collected and reported in a batch by this function.
 fn chec_for_pubsub_duplicate(dag_id: u32) -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
 
