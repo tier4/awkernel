@@ -73,6 +73,7 @@ pub enum IRQType {
     Queue(usize),
 }
 
+// TODO: support MSI and legacy interrupts
 enum PCIeInt {
     None,
     MsiX(Vec<(IRQ, IRQType)>),
@@ -435,12 +436,14 @@ impl VirtioNetInner {
 
         {
             let mut irqs = Vec::new();
+
             let irq = self.virtio_pci_msix_establish(0, IRQType::Config)?;
             irqs.push((irq, IRQType::Config));
 
             let irq = self.virtio_pci_msix_establish(1, IRQType::Control)?;
             irqs.push((irq, IRQType::Control));
 
+            // TODO: support multiple queues
             let intr_vector = 2;
             self.rx_vq.as_mut().unwrap().vq_intr_vec = intr_vector;
             self.tx_vq.as_mut().unwrap().vq_intr_vec = intr_vector;
@@ -1027,8 +1030,21 @@ impl NetDevice for VirtioNet {
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-        inner.intr(irq).or(Err(NetDevError::DeviceError))
+        let inner = self.inner.read();
+
+        let irq_type = if let Some(irq_type) = inner.irq_to_type.get(&irq) {
+            irq_type
+        } else {
+            return Ok(());
+        };
+
+        // TODO: handle each interrupt
+        match irq_type {
+            IRQType::Config => Ok(()),
+            IRQType::Control => Ok(()),
+            IRQType::Queue(0) => Ok(()),
+            _ => unreachable!(),
+        }
     }
 
     fn irqs(&self) -> Vec<u16> {
