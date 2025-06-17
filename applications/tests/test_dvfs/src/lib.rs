@@ -11,6 +11,8 @@ use awkernel_lib::dvfs::DesiredPerformance;
 
 extern crate alloc;
 
+mod nbody;
+
 const APP_NAME: &str = "test DVFS";
 const NUM_CPU: usize = 14;
 const NUM_TRIALS: usize = 100;
@@ -47,7 +49,13 @@ async fn test_dvfs() {
 
             warm_up();
 
-            let elapsed = empty_loop();
+            let elapsed = workload();
+
+            log::debug!(
+                "CPU {cpu_id}: Performance {}: Elapsed: {} [us]",
+                i * 10,
+                elapsed.as_micros()
+            );
 
             let count =
                 COUNT[cpu_id][i as usize].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -77,11 +85,9 @@ fn warm_up() {
     }
 }
 
-fn empty_loop() -> Duration {
+fn workload() -> Duration {
     let t = awkernel_async_lib::time::Time::now();
-    for _ in 0..NUM_BUSY_LOOP {
-        core::hint::black_box(());
-    }
+    nbody::simulate();
     t.elapsed()
 }
 
