@@ -214,34 +214,48 @@ where
 
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error> {
         let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        core::future::poll_fn(move |_cx| {
-            let entry = FileSystem::root_dir(&fs_clone).find_entry(&path, None, None)?;
-            let metadata = VfsMetadata {
-                file_type: if entry.is_dir() {
-                    VfsFileType::Directory
-                } else {
-                    VfsFileType::File
-                },
-                len: entry.len(),
-                created: to_vfs_datetime(entry.created()),
-                modified: to_vfs_datetime(entry.modified()),
-                accessed: to_vfs_date(entry.accessed()),
-            };
-            Poll::Ready(Ok(metadata))
-        })
-        .await
+        if path.is_empty() {
+            Ok(VfsMetadata {
+                file_type: VfsFileType::Directory,
+                len: 0,
+                created: None,
+                modified: None,
+                accessed: None,
+            })
+        } else {
+            let fs_clone = self.fs.clone();
+            core::future::poll_fn(move |_cx| {
+                let entry = FileSystem::root_dir(&fs_clone).find_entry(&path, None, None)?;
+                let metadata = VfsMetadata {
+                    file_type: if entry.is_dir() {
+                        VfsFileType::Directory
+                    } else {
+                        VfsFileType::File
+                    },
+                    len: entry.len(),
+                    created: to_vfs_datetime(entry.created()),
+                    modified: to_vfs_datetime(entry.modified()),
+                    accessed: to_vfs_date(entry.accessed()),
+                };
+                Poll::Ready(Ok(metadata))
+            })
+            .await
+        }
     }
 
     async fn exists(&self, path: &str) -> VfsResult<bool, Self::Error> {
         let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        core::future::poll_fn(move |_cx| {
-            Poll::Ready(Ok(FileSystem::root_dir(&fs_clone)
-                .find_entry(&path, None, None)
-                .is_ok()))
-        })
-        .await
+        if path.is_empty() {
+            Ok(true)
+        } else {
+            let fs_clone = self.fs.clone();
+            core::future::poll_fn(move |_cx| {
+                Poll::Ready(Ok(FileSystem::root_dir(&fs_clone)
+                    .find_entry(&path, None, None)
+                    .is_ok()))
+            })
+            .await
+        }
     }
 
     async fn remove_file(&self, path: &str) -> VfsResult<(), Self::Error> {

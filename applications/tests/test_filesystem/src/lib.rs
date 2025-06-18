@@ -3,9 +3,7 @@
 extern crate alloc;
 
 use alloc::vec;
-use awkernel_async_lib::file::{
-    fatfs::AsyncFatFs, filesystem::AsyncFileSystem, path::AsyncVfsPath,
-};
+use awkernel_async_lib::file::path::AsyncVfsPath;
 use awkernel_lib::file::fatfs::init_memory_fatfs;
 
 pub async fn run() {
@@ -26,15 +24,17 @@ async fn fatfs_test() {
         }
     }
 
-    let fs = AsyncVfsPath::new_in_memory_fatfs();
+    let root_path = AsyncVfsPath::new_in_memory_fatfs();
     log::info!("AsyncFatFs instance created.");
 
     let file_name = "test.txt";
     let data_to_write = b"Hello from the in-memory FAT filesystem! This is a test string.";
     let bytes_written;
 
+    let file_path = root_path.join("file.txt").unwrap();
     log::info!("Attempting to create and write to file '{file_name}'");
-    match fs.create_file(file_name).await {
+
+    match file_path.create_file().await {
         Ok(mut file) => match file.write(data_to_write).await {
             Ok(len) => {
                 bytes_written = len;
@@ -57,7 +57,7 @@ async fn fatfs_test() {
         return;
     }
 
-    match fs.open_file(file_name).await {
+    match file_path.open_file().await {
         Ok(mut file) => {
             let mut read_buffer = vec![0; bytes_written];
             match file.read(&mut read_buffer).await {
