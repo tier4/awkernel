@@ -670,7 +670,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
-        } else if let Err(pubsub_duplicate_errors) = chec_for_pubsub_duplicate(dag.id) {
+        } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
             errors.extend(pubsub_duplicate_errors);
         }
     }
