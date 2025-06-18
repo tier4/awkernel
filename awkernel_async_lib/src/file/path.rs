@@ -8,12 +8,12 @@ use crate::file::fatfs::AsyncFatFs;
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
     file::{
-        error::{IoError, Error},
+        error::{Error, IoError},
+        memfs::InMemoryDiskError,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsResult},
             path::{PathLike, VfsFileType, VfsMetadata},
         },
-        memfs::InMemoryDiskError,
     },
     time::Time,
 };
@@ -60,7 +60,7 @@ impl<E: IoError> PartialEq for AsyncVfsPath<E> {
 impl<E: IoError> Eq for AsyncVfsPath<E> {}
 
 impl AsyncVfsPath<Error<InMemoryDiskError>> {
-    pub fn new_in_memory_fatfs() -> Self{
+    pub fn new_in_memory_fatfs() -> Self {
         let fs = AsyncFatFs::new_in_memory();
         AsyncVfsPath::new(fs)
     }
@@ -71,7 +71,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub fn new<T: AsyncFileSystem<Error = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
             path: "".into(),
-            fs: Arc::new(AsyncVfs{
+            fs: Arc::new(AsyncVfs {
                 fs: Box::new(filesystem),
             }),
         }
@@ -132,9 +132,9 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                 match error.kind() {
                     VfsErrorKind::DirectoryExists => {}
                     _ => {
-                        return Err(error.with_path(directory).with_context(|| {
-                            format!("Could not create directories at '{path}'")
-                        }))
+                        return Err(error
+                            .with_path(directory)
+                            .with_context(|| format!("Could not create directories at '{path}'")))
                     }
                 }
             }
@@ -167,7 +167,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Creates a file at this path for writing, overwriting any existing file
-    pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E>+Send>, E> {
+    pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
         self.get_parent("create file").await?;
         self.fs.fs.create_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
@@ -176,7 +176,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Opens the file at this path for reading
-    pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E>+Send>, E> {
+    pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send>, E> {
         self.fs.fs.open_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
                 .with_context(|| "Could not open file")
@@ -203,7 +203,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Opens the file at this path for appending
-    pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E>+Send>, E> {
+    pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
                 .with_context(|| "Could not open file for appending")
@@ -356,8 +356,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .read_exact(&mut buffer)
             .await
             .map_err(|err| {
-                err
-                    .with_path(&*self.path)
+                err.with_path(&*self.path)
                     .with_context(|| "Could not read path")
             })?;
 
@@ -491,7 +490,6 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             }
             destination.create_dir().await?;
             let prefix = &self.path;
-            
             let prefix_len = prefix.len();
             let mut path_stream = self.walk_dir().await?;
             while let Some(result) = path_stream.next().await {
@@ -546,15 +544,10 @@ impl<E: IoError + Clone + Send + Sync + 'static> Stream for WalkDirIterator<E> {
                     match this.todo.pop() {
                         None => return Poll::Ready(None), // All done
                         Some(dir_path) => {
-                            let mut fut = this
-                                .pending_read
-                                .take()
-                                .unwrap_or_else(|| {
-                                    let fut = async move {
-                                        dir_path.read_dir().await
-                                    };
-                                    Box::pin(fut)
-                                });
+                            let mut fut = this.pending_read.take().unwrap_or_else(|| {
+                                let fut = async move { dir_path.read_dir().await };
+                                Box::pin(fut)
+                            });
                             match fut.poll_unpin(cx) {
                                 Poll::Ready(Ok(stream)) => {
                                     this.inner = stream;
@@ -600,7 +593,10 @@ where
             Err(e) => return Err(CopyError::ReadError(e)),
         };
 
-        writer.write_all(&buf[..bytes_read]).await.map_err(CopyError::WriteError)?;
+        writer
+            .write_all(&buf[..bytes_read])
+            .await
+            .map_err(CopyError::WriteError)?;
         total_bytes_copied += bytes_read as u64;
     }
 }
