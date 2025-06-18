@@ -102,7 +102,7 @@ pub enum DagError {
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>),
-    InterDagTopicConflict(u32, u32, Cow<'static, str>), //(dag_id, dag_id, topic_name)
+    InterDagTopicConflict(u32, u32, Cow<'static, str>),
 }
 
 #[rustfmt::skip]
@@ -126,12 +126,6 @@ impl core::fmt::Display for DagError {
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
-            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
-                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
-            }
-            DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
-                write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
-            }
             DagError::DuplicateSubscribe(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
             }
@@ -140,6 +134,9 @@ impl core::fmt::Display for DagError {
             }
             DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
+            DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
+                write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
             }
         }
     }
