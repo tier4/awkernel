@@ -99,7 +99,7 @@ pub enum DagError {
     PublishArityMismatch(u32, usize),
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
-    TopicHasMultiplePublishers(u32, Cow<'static, str>), // (dag_id, topic_name)
+    TopicHasMultiplePublishers(u32, Cow<'static, str>),
 }
 
 #[rustfmt::skip]
@@ -123,14 +123,14 @@ impl core::fmt::Display for DagError {
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
-            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
-                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
-            }
             DagError::DuplicateSubscribe(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
             }
             DagError::DuplicatePublish(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
+            }
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
         }
     }
@@ -631,7 +631,12 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+/// To simplify the current system design and management,
+/// we have adopted a rule that only one publisher is allowed per topic.
 ///
+/// Note:
+/// This restriction may need to be relaxed in the future to support use cases
+/// where multiple publishers need to publish to a single, common topic.
 fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
