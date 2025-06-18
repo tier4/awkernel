@@ -55,6 +55,8 @@ const DEVICE_SHORT_NAME: &str = "igc";
 const IGC_DEFAULT_RXD: usize = 1024;
 const IGC_DEFAULT_TXD: usize = 1024;
 
+const MAX_INTS_PER_SEC: u32 = 8000;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
     NoBar0,
@@ -881,6 +883,35 @@ fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     write_reg(info, IGC_EIAC, 0)?;
     write_reg(info, IGC_IMC, 0xffffffff)?;
     write_flush(info)?;
+
+    Ok(())
+}
+
+fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // First turn on RSS capability
+    write_reg(
+        info,
+        IGC_GPIE,
+        IGC_GPIE_MSIX_MODE | IGC_GPIE_EIAME | IGC_GPIE_PBA | IGC_GPIE_NSICR,
+    )?;
+
+    // Set the starting interrupt rate
+    let newitr = (4000000 / MAX_INTS_PER_SEC) & 0x7FFC | IGC_EITR_CNT_IGNR;
+
+    // Turn on MSI-X
+    for q in queues.iter() {
+        // RX entries
+        igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Rx)?;
+        // TX entries
+        igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Tx)?;
+        write_reg(info, IGC_EITR(q.me), newitr)?;
+    }
+
+    // And for the link interrupt
+    let ivar = (queues.len() as u32 | IGC_IVAR_VALID) << 8;
+    write_reg(info, IGC_IVAR_MISC, ivar)?;
 
     Ok(())
 }

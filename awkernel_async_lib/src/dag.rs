@@ -61,6 +61,8 @@ static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTre
 
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DUPLICATE_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -91,10 +93,12 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),       // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),      // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    NoPublisherFound(u32, usize),
+    NoSubscriberFound(u32, usize),
+    SubscribeArityMismatch(u32, usize),
+    PublishArityMismatch(u32, usize),
+    DuplicateSubscribe(u32, usize),
+    DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>), // (dag_id, topic_name)
 }
 
@@ -121,6 +125,12 @@ impl core::fmt::Display for DagError {
             }
             DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
+            DagError::DuplicateSubscribe(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
+            }
+            DagError::DuplicatePublish(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
             }
         }
     }
@@ -216,6 +226,23 @@ impl Dag {
 
         let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
         let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+
+        if subscribe_topic_names.len() != sub_topics.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_subscribe_nodes = DUPLICATE_SUBSCRIBE_NODES.lock(&mut node);
+            duplicate_subscribe_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
+        if publish_topic_names.len() != pub_topics.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_publish_nodes = DUPLICATE_PUBLISH_NODES.lock(&mut node);
+            duplicate_publish_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
 
         let edges_to_add: Vec<_> = graph
             .node_references()
@@ -535,6 +562,43 @@ fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
     }
 }
 
+/// Ideally, this validation would be performed at an earlier stage, such as inside
+/// the `add_node_with_topic_edges()`.
+///
+/// However, that approach would force the caller to handle a Result on every
+/// single node addition, making the API cumbersome, and implementing
+/// a full cleanup of all related DAG data and other reactors would be overly complex.
+///
+/// Therefore, we adopted the current architecture: errors are first recorded
+/// to a `static` variable, and then collected and reported in a batch by this function.
+fn check_for_pubsub_duplicate(dag_id: u32) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+
+    let errors: Vec<_> = {
+        let subscribe_errors = DUPLICATE_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicateSubscribe(dag_id, node_id));
+
+        let publish_errors = DUPLICATE_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicatePublish(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// This validation prevents issues caused by the following misconfigurations:
 /// - Message Loss: A published topic is not subscribed to by any reactor.
 /// - Indefinite Wait: A subscribed topic has no corresponding publisher.
@@ -636,6 +700,8 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
+        } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
+            errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
             errors.extend(duplicate_error.into_iter());
         }

@@ -33,6 +33,7 @@ const VIRTIO_NET_ID: u16 = 0x1041;
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
+const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
 const VIRTIO_F_NOTIFY_ON_EMPTY: u64 = 1 << 24;
@@ -285,7 +286,7 @@ impl VirtioNetInner {
         self.driver_features = 0;
         self.driver_features |= VIRTIO_NET_F_MAC;
         self.driver_features |= VIRTIO_NET_F_STATUS;
-        // TODO: setup more features
+        self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
         self.virtio_pci_negotiate_features()?;
 
@@ -617,12 +618,36 @@ impl NetDevice for VirtioNet {
             }
         }
 
-        LinkStatus::UpFullDuplex
+        let duplex = inner.net_cfg.virtio_get_duplex();
+        match duplex {
+            Ok(0x00) => LinkStatus::UpHalfDuplex,
+            Ok(0x01) => LinkStatus::UpFullDuplex,
+            Ok(0xff) => {
+                log::warn!("virtio-net: duplex is unknown");
+                LinkStatus::Unknown
+            }
+            _ => {
+                log::warn!("virtio-net: cannot get duplex");
+                LinkStatus::Down
+            }
+        }
     }
 
     fn link_speed(&self) -> u64 {
-        // TODO: Implement this
-        10
+        let inner = self.inner.read();
+        let speed = inner.net_cfg.virtio_get_speed();
+
+        match speed {
+            Ok(0xffffffff) => {
+                log::warn!("virtio-net: speed is unknown");
+                0
+            }
+            Ok(speed) => speed as u64,
+            _ => {
+                log::warn!("virtio-net: cannot get speed");
+                0
+            }
+        }
     }
 
     fn mac_address(&self) -> [u8; 6] {
