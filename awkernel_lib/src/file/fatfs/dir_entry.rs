@@ -1,6 +1,6 @@
-use alloc::sync::Arc;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{string::String, sync::Arc};
+use alloc::string::String;
+use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
 use core::convert::TryInto;
