@@ -58,8 +58,8 @@ use performance::ResponseInfo;
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
-static DAG_TOPICS: Mutex<BTreeMap<u32, BTreeSet<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
+static DAG_TOPICS: Mutex<BTreeMap<u32, BTreeSet<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
