@@ -4,7 +4,7 @@ typedef FairLock {
 	bool is_locked;
 	bool flag[NUM_PROC];
 	chan request = [NUM_PROC - 1] of { int };
-	bool interrupt_flag[NUM_PROC];
+	bool interrupt_flag[NUM_PROC];// This stores the interrupt enabled state of each CPU when the lock is acquired.
 };
 
 inline lock(tid,mutex) {
