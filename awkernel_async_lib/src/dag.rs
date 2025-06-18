@@ -704,7 +704,7 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-fn validate_dags() -> Result<(), Vec<DagError>> {
+fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
     let dag_topics = DAG_TOPICS.lock(&mut node);
 
@@ -724,11 +724,11 @@ fn validate_dags() -> Result<(), Vec<DagError>> {
         .map(|(topic, dag_ids)| DagError::InterDagTopicConflict(topic, dag_ids))
         .collect();
 
-    if !errors.is_empty() {
-        return Err(errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
-
-    Ok(())
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
@@ -747,7 +747,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
         }
     }
 
-    if let Err(inter_dag_errors) = validate_dags() {
+    if let Err(inter_dag_errors) = validate_dag_topic_conflicts() {
         errors.extend(inter_dag_errors);
     }
 
