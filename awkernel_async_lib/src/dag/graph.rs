@@ -614,26 +614,6 @@ where
     }
 }
 
-/// Iterator yielding immutable access to all edge weights.
-pub struct EdgeWeights<'a, E: 'a, Ix: IndexType = DefaultIx> {
-    edges: ::core::slice::Iter<'a, Edge<E, Ix>>,
-}
-
-impl<'a, E, Ix> Iterator for EdgeWeights<'a, E, Ix>
-where
-    Ix: IndexType,
-{
-    type Item = &'a E;
-
-    fn next(&mut self) -> Option<&'a E> {
-        self.edges.next().map(|edge| &edge.weight)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.edges.size_hint()
-    }
-}
-
 /// An iterator over either the nodes without edges to them or from them.
 #[derive(Debug, Clone)]
 pub struct Externals<'a, N: 'a, Ix: IndexType = DefaultIx> {
