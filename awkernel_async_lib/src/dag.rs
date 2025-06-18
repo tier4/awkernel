@@ -101,7 +101,7 @@ pub enum DagError {
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>),
-    InterDagTopicConflict(u32, u32, Cow<'static, str>),
+    InterDagTopicConflict(Cow<'static, str>, Vec<u32>),
 }
 
 #[rustfmt::skip]
@@ -134,8 +134,8 @@ impl core::fmt::Display for DagError {
             DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
-            DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
-                write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
+            DagError::InterDagTopicConflict(topic_name, dag_ids) => {
+                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Found in: {:?}", dag_ids)
             }
         }
     }
@@ -721,12 +721,7 @@ fn validate_dags() -> Result<(), Vec<DagError>> {
     let errors: Vec<_> = topic_to_dags
         .into_iter()
         .filter(|(_, dag_ids)| dag_ids.len() > 1)
-        .flat_map(|(topic, dag_ids)| {
-            let first_dag_id = dag_ids[0];
-            dag_ids.into_iter().skip(1).map(move |current_dag_id| {
-                DagError::InterDagTopicConflict(first_dag_id, current_dag_id, topic.clone())
-            })
-        })
+        .map(|(topic, dag_ids)| DagError::InterDagTopicConflict(topic, dag_ids))
         .collect();
 
     if !errors.is_empty() {
