@@ -277,6 +277,8 @@ struct IgbInner {
     msix_mask: u32,
 
     is_poll_mode: bool,
+
+    que: Vec<Queue>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -289,7 +291,6 @@ pub struct Igb {
     // 4. `IgbInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    que: Vec<Queue>,
     inner: RwLock<IgbInner>,
 }
 
@@ -403,7 +404,7 @@ impl fmt::Display for IgbDriverErr {
 }
 
 impl IgbInner {
-    fn new(mut info: PCIeInfo) -> Result<(Self, Vec<Queue>), PCIeDeviceErr> {
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
         let mut irq_to_rx_tx_link = BTreeMap::new();
@@ -521,11 +522,12 @@ impl IgbInner {
             irq_to_rx_tx_link,
             msix_mask: 0,
             is_poll_mode,
+            que,
         };
 
         let result = igb.new2()?;
 
-        Ok((result, que))
+        Ok(result)
     }
 
     fn new2(mut self) -> Result<Self, PCIeDeviceErr> {
@@ -574,10 +576,10 @@ impl IgbInner {
         Ok(())
     }
 
-    fn init(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn init(&mut self) -> Result<(), IgbDriverErr> {
         use igb_hw::MacType::*;
 
-        self.stop(false, que)?;
+        self.stop(false)?;
 
         // Packet Buffer Allocation (PBA)
         // Writing PBA sets the receive portion of the buffer
@@ -626,15 +628,15 @@ impl IgbInner {
         }
 
         // Prepare transmit descriptors and buffers
-        self.setup_transmit_structures(que)?;
-        self.initialize_transmit_unit(que)?;
+        self.setup_transmit_structures()?;
+        self.initialize_transmit_unit()?;
 
         // Prepare receive descriptors and buffers
-        self.setup_receive_structures(que)?;
-        self.initialize_receive_unit(que)?;
+        self.setup_receive_structures()?;
+        self.initialize_receive_unit()?;
 
         if matches!(self.pcie_int, PCIeInt::MsiX(_)) {
-            self.msix_mask = setup_queues_msix(&self.hw, &self.info, que)?;
+            self.msix_mask = setup_queues_msix(&self.hw, &self.info, &self.que)?;
         }
 
         self.iff()?;
@@ -683,10 +685,10 @@ impl IgbInner {
         Ok(())
     }
 
-    fn initialize_transmit_unit(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn initialize_transmit_unit(&mut self) -> Result<(), IgbDriverErr> {
         use igb_hw::MacType::*;
 
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
 
@@ -787,7 +789,7 @@ impl IgbInner {
         Ok(())
     }
 
-    fn initialize_receive_unit(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn initialize_receive_unit(&mut self) -> Result<(), IgbDriverErr> {
         use igb_hw::MacType::*;
 
         // Make sure receives are disabled while setting up the descriptor ring
@@ -835,8 +837,8 @@ impl IgbInner {
             igb_hw::write_reg(&self.info, RDTR, 0x20)?;
         }
 
-        let que_len = que.len();
-        for que in que.iter() {
+        let que_len = self.que.len();
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
 
@@ -880,7 +882,7 @@ impl IgbInner {
         igb_hw::write_reg(&self.info, RCTL, reg_rctl)?;
 
         // Setup the HW Rx Head and Tail Descriptor Pointers
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
 
@@ -901,8 +903,8 @@ impl IgbInner {
         Ok(())
     }
 
-    fn setup_transmit_structures(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
-        for que in que.iter() {
+    fn setup_transmit_structures(&mut self) -> Result<(), IgbDriverErr> {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
             tx.tx_desc_tail = 0;
@@ -931,8 +933,8 @@ impl IgbInner {
         Ok(())
     }
 
-    fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
-        for que in que.iter() {
+    fn setup_receive_structures(&mut self) -> Result<(), IgbDriverErr> {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
@@ -962,7 +964,7 @@ impl IgbInner {
         Ok(())
     }
 
-    fn stop(&mut self, softonly: bool, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn stop(&mut self, softonly: bool) -> Result<(), IgbDriverErr> {
         self.flags.remove(NetFlags::RUNNING);
 
         if !softonly {
@@ -970,14 +972,14 @@ impl IgbInner {
         }
 
         if self.hw.get_mac_type() as u32 >= MacType::EmPchSpt as u32 {
-            self.flush_desc_rings(que)?;
+            self.flush_desc_rings()?;
         }
 
         if !softonly {
             self.hw.reset_hw(&self.info)?;
         }
 
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
             tx.write_buf = None;
@@ -997,29 +999,39 @@ impl IgbInner {
     ///
     /// Failure to do this will cause the HW to enter a unit hang state which can
     /// only be released by PCI reset on the device.
-    fn flush_desc_rings(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn flush_desc_rings(&mut self) -> Result<(), IgbDriverErr> {
         const PCICFG_DESC_RING_STATUS: usize = 0xe4;
         const FLUSH_DESC_REQUIRED: u16 = 0x100;
 
-        for q in que.iter() {
+        let mut q_me = [None; 32];
+
+        for (dst, src) in q_me.iter_mut().zip(self.que.iter()) {
+            *dst = Some(src.me);
+        }
+
+        for me in q_me.iter() {
+            let Some(me) = me else {
+                break;
+            };
+
             // First, disable MULR fix in FEXTNVM11
             let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
             fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
             igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
 
             // do nothing if we're not in faulty state, or if the queue is empty
-            let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(q.me))?;
+            let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(*me))?;
             let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
                 return Ok(());
             }
 
-            self.flush_tx_ring(q.me, que)?;
+            self.flush_tx_ring(*me)?;
 
             // recheck, maybe the fault is caused by the rx ring
             let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED != 0 {
-                self.flush_rx_ring(q.me, que)?;
+                self.flush_rx_ring(*me)?;
             }
         }
 
@@ -1030,11 +1042,11 @@ impl IgbInner {
     /// zeroing happens when the HW reads the regs. We assign the ring itself as
     /// the data of the next descriptor. We don't care about the data we are about
     /// to reset the HW.
-    fn flush_tx_ring(&mut self, que_id: usize, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn flush_tx_ring(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let tctl = igb_hw::read_reg(&self.info, TCTL)?;
         igb_hw::write_reg(&self.info, TCTL, tctl | TCTL_EN)?;
 
-        let que = &que[que_id];
+        let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
         let mut tx = que.tx.lock(&mut node);
@@ -1062,13 +1074,13 @@ impl IgbInner {
         Ok(())
     }
 
-    fn flush_rx_ring(&mut self, que_id: usize, que: &[Queue]) -> Result<(), IgbDriverErr> {
+    fn flush_rx_ring(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let rctl = igb_hw::read_reg(&self.info, RCTL)?;
         igb_hw::write_reg(&self.info, RCTL, rctl & !RCTL_EN)?;
         igb_hw::write_flush(&self.info)?;
         awkernel_lib::delay::wait_microsec(150);
 
-        let que = &que[que_id];
+        let que = &self.que[que_id];
 
         let mut rxdctl = igb_hw::read_reg(&self.info, rxdctl_offset(que.me))?;
         // zero the lower 14 bits (prefetch and host thresholds)
@@ -1125,37 +1137,8 @@ impl IgbInner {
         self.hw.check_for_link(&self.info)?;
         Ok(())
     }
-}
-
-impl Igb {
-    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let (inner, que) = IgbInner::new(info)?;
-
-        let igb = Self {
-            inner: RwLock::new(inner),
-            que,
-        };
-
-        let mac_addr = igb.mac_address();
-
-        log::info!(
-            "{}:{}: MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            igb.device_short_name(),
-            igb.device_name(),
-            mac_addr[0],
-            mac_addr[1],
-            mac_addr[2],
-            mac_addr[3],
-            mac_addr[4],
-            mac_addr[5]
-        );
-
-        Ok(igb)
-    }
 
     fn rx_fill(&self, que_id: usize) -> Result<(), IgbDriverErr> {
-        let inner = self.inner.read();
-
         let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
@@ -1184,19 +1167,17 @@ impl Igb {
         }
 
         rx.rx_desc_head = prev as u32;
-        igb_hw::write_reg(&inner.info, rdt_offset(que.me), rx.rx_desc_head)?;
+        igb_hw::write_reg(&self.info, rdt_offset(que.me), rx.rx_desc_head)?;
 
         Ok(())
     }
 
     fn rx_recv(&self, que_id: usize) -> Result<(), IgbDriverErr> {
-        let mac_type = self.inner.read().hw.get_mac_type();
+        let mac_type = self.hw.get_mac_type();
 
         let que = &self.que[que_id];
 
         {
-            let inner = self.inner.read();
-
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
@@ -1228,7 +1209,6 @@ impl Igb {
 
                 if status & RXD_STAT_EOP == 0 {
                     drop(rx);
-                    drop(inner);
                     return self.recv_jumbo(que_id);
                 }
 
@@ -1245,7 +1225,7 @@ impl Igb {
                 };
 
                 let is_accept = if errors & RXD_ERR_FRAME_ERR_MASK != 0 {
-                    if inner.hw.tbi_accept(
+                    if self.hw.tbi_accept(
                         status,
                         errors,
                         len as u16,
@@ -1502,79 +1482,23 @@ impl Igb {
         Ok((1, cmd_type_len, olinfo_status, 0, None))
     }
 
-    fn link_intr_msix(&self) -> Result<(), IgbDriverErr> {
-        let mut inner = self.inner.write();
-        let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+    fn link_intr_msix(&mut self) -> Result<(), IgbDriverErr> {
+        let reg_icr = igb_hw::read_reg(&self.info, ICR)?;
 
         if reg_icr & ICR_LSC != 0 {
-            inner.hw.set_get_link_status(true);
-            inner.check_for_link()?;
-            inner.update_link_status()?;
+            self.hw.set_get_link_status(true);
+            self.check_for_link()?;
+            self.update_link_status()?;
         }
 
-        igb_hw::write_reg(&inner.info, IMS, ICR_LSC)?;
-        igb_hw::write_reg(&inner.info, EIMS, 1 << self.que.len())?;
-
-        Ok(())
-    }
-
-    fn intr(&self, irq: u16) -> Result<(), IgbDriverErr> {
-        let inner = self.inner.read();
-
-        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
-            *reason
-        } else {
-            return Ok(());
-        };
-
-        match reason {
-            IRQRxTxLink::Legacy(que_id) => {
-                let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
-                if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
-                    && reg_icr & ICR_INT_ASSERTED == 0
-                {
-                    return Ok(());
-                }
-
-                if inner.flags.contains(NetFlags::RUNNING) {
-                    drop(inner);
-                    self.rx_recv(que_id)?;
-                    self.txeof(que_id)?;
-                } else {
-                    drop(inner);
-                }
-
-                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-                    let mut inner = self.inner.write();
-                    inner.hw.set_get_link_status(true);
-                    inner.check_for_link()?;
-                    inner.update_link_status()?;
-                }
-            }
-            IRQRxTxLink::RxTx(que_id) => {
-                if inner.flags.contains(NetFlags::RUNNING) {
-                    drop(inner);
-                    self.rx_recv(que_id)?;
-                    self.txeof(que_id)?;
-                }
-
-                let inner = self.inner.read();
-                igb_hw::write_reg(&inner.info, EIMS, 1 << que_id)?;
-            }
-            IRQRxTxLink::Link => {
-                drop(inner);
-                self.link_intr_msix()?;
-            }
-        }
+        igb_hw::write_reg(&self.info, IMS, ICR_LSC)?;
+        igb_hw::write_reg(&self.info, EIMS, 1 << self.que.len())?;
 
         Ok(())
     }
 
     fn txeof(&self, que_id: usize) -> Result<(), IgbDriverErr> {
-        let reg_tdh = {
-            let inner = self.inner.read();
-            igb_hw::read_reg(&inner.info, tdh_offset(que_id))? as usize
-        };
+        let reg_tdh = { igb_hw::read_reg(&self.info, tdh_offset(que_id))? as usize };
 
         let que = &self.que[que_id];
 
@@ -1665,9 +1589,7 @@ impl Igb {
     }
 
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
-        let inner = self.inner.read();
-
-        if !inner.link_active {
+        if !self.link_active {
             return Ok(());
         };
 
@@ -1691,18 +1613,91 @@ impl Igb {
                 break;
             }
 
-            let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+            let used = self.encap(self.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
 
             free -= used;
 
             post = true;
         }
 
-        if inner.hw.get_mac_type() != MacType::Em82547 && post {
-            igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
+        if self.hw.get_mac_type() != MacType::Em82547 && post {
+            igb_hw::write_reg(&self.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
         }
 
-        drop(inner);
+        Ok(())
+    }
+}
+
+impl Igb {
+    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        let inner = IgbInner::new(info)?;
+
+        let igb = Self {
+            inner: RwLock::new(inner),
+        };
+
+        let mac_addr = igb.mac_address();
+
+        log::info!(
+            "{}:{}: MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            igb.device_short_name(),
+            igb.device_name(),
+            mac_addr[0],
+            mac_addr[1],
+            mac_addr[2],
+            mac_addr[3],
+            mac_addr[4],
+            mac_addr[5]
+        );
+
+        Ok(igb)
+    }
+
+    fn intr(&self, irq: u16) -> Result<(), IgbDriverErr> {
+        let inner = self.inner.read();
+        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
+            *reason
+        } else {
+            return Ok(());
+        };
+
+        match reason {
+            IRQRxTxLink::Legacy(que_id) => {
+                let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+                if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
+                    && reg_icr & ICR_INT_ASSERTED == 0
+                {
+                    return Ok(());
+                }
+
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    inner.rx_recv(que_id)?;
+                    inner.txeof(que_id)?;
+                }
+
+                drop(inner);
+
+                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+                    let mut inner = self.inner.write();
+                    inner.hw.set_get_link_status(true);
+                    inner.check_for_link()?;
+                    inner.update_link_status()?;
+                }
+            }
+            IRQRxTxLink::RxTx(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    inner.rx_recv(que_id)?;
+                    inner.txeof(que_id)?;
+                }
+
+                igb_hw::write_reg(&inner.info, EIMS, 1 << que_id)?;
+            }
+            IRQRxTxLink::Link => {
+                drop(inner);
+                let mut inner = self.inner.write();
+                inner.link_intr_msix()?;
+            }
+        }
 
         Ok(())
     }
@@ -2015,7 +2010,8 @@ impl PCIeDevice for Igb {
 
 impl NetDevice for Igb {
     fn num_queues(&self) -> usize {
-        self.que.len()
+        let inner = self.inner.read();
+        inner.que.len()
     }
 
     fn flags(&self) -> NetFlags {
@@ -2065,9 +2061,11 @@ impl NetDevice for Igb {
     }
 
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+        let inner = self.inner.read();
+
         {
             let mut node = MCSNode::new();
-            let mut rx = self.que[que_id].rx.lock(&mut node);
+            let mut rx = inner.que[que_id].rx.lock(&mut node);
 
             let data = rx.read_queue.pop();
             if data.is_some() {
@@ -2075,10 +2073,10 @@ impl NetDevice for Igb {
             }
         }
 
-        self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
+        inner.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
 
         let mut node = MCSNode::new();
-        let mut rx = self.que[que_id].rx.lock(&mut node);
+        let mut rx = inner.que[que_id].rx.lock(&mut node);
         if let Some(data) = rx.read_queue.pop() {
             Ok(Some(data))
         } else {
@@ -2101,15 +2099,18 @@ impl NetDevice for Igb {
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        let inner = self.inner.read();
+        inner
+            .send(que_id, &frames)
+            .or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if !inner.flags.contains(NetFlags::UP) {
-            if let Err(err_init) = inner.init(&self.que) {
-                if let Err(err_stop) = inner.stop(true, &self.que) {
+            if let Err(err_init) = inner.init() {
+                if let Err(err_stop) = inner.stop(true) {
                     log::error!("igb: stop failed: {err_stop:?}");
                 }
 
@@ -2128,7 +2129,7 @@ impl NetDevice for Igb {
         let mut inner = self.inner.write();
 
         if inner.flags.contains(NetFlags::UP) {
-            if let Err(e) = inner.stop(true, &self.que) {
+            if let Err(e) = inner.stop(true) {
                 log::error!("igb: stop failed: {e:?}");
                 Err(NetDevError::DeviceError)
             } else {
