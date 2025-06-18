@@ -1,4 +1,4 @@
-bool wake_other[TASK_NUM / 2];
+bool wake_other[TASK_NUM / 2] = false;
 
 // If there is 2 tasks, and their task ID's are 0 and 1.
 // This future will execute as follows.
@@ -9,7 +9,7 @@ bool wake_other[TASK_NUM / 2];
 //
 // A task will become "Terminated", after returning "Ready".
 inline future(tid,task,ret) {
-	printf("future(): tid = %d,task = %d\n",tid,task);
+	// printf("future(): tid = %d,task = %d\n",tid,task);
 	if
 	:: task >= TASK_NUM / 2 -> 
 		wake(tid,task - TASK_NUM / 2);
