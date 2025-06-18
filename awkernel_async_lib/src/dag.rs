@@ -567,7 +567,7 @@ fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
 ///
 /// Therefore, we adopted the current architecture: errors are first recorded
 /// to a `static` variable, and then collected and reported in a batch by this function.
-fn chec_for_pubsub_duplicate(dag_id: u32) -> Result<(), Vec<DagError>> {
+fn check_for_pubsub_duplicate(dag_id: u32) -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
 
     let errors: Vec<_> = {
