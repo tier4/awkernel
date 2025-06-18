@@ -31,10 +31,13 @@ mod visit;
 mod performance;
 
 use crate::{
-    dag::graph::{
-        algo::{connected_components, is_cyclic_directed},
-        direction::Direction,
-        NodeIndex,
+    dag::{
+        graph::{
+            algo::{connected_components, is_cyclic_directed},
+            direction::Direction,
+            NodeIndex,
+        },
+        visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
@@ -42,7 +45,7 @@ use crate::{
 use alloc::{
     borrow::Cow,
     boxed::Box,
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
     sync::Arc,
     vec::Vec,
 };
@@ -56,18 +59,50 @@ static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
+static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DUPLICATE_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
+pub trait TupleSize {
+    const SIZE: usize;
+}
+
+macro_rules! impl_tuple_size {
+    (@count) => { 0 };
+    (@count $_head:ident $($tail:ident)*) => { 1 + impl_tuple_size!(@count $($tail)*) };
+
+    ($($T:ident),*) => {
+        impl<$($T),*> TupleSize for ($($T,)*) {
+            const SIZE: usize = impl_tuple_size!(@count $($T)*);
+        }
+    };
+}
+
+impl_tuple_size!();
+impl_tuple_size!(T1);
+impl_tuple_size!(T1, T2);
+impl_tuple_size!(T1, T2, T3);
+
+#[derive(Clone)]
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),  //dag_id, node_id
-    NoSubscriberFound(u32, usize), //dag_id, node_id,
+    NoPublisherFound(u32, usize),
+    NoSubscriberFound(u32, usize),
+    SubscribeArityMismatch(u32, usize),
+    PublishArityMismatch(u32, usize),
+    DuplicateSubscribe(u32, usize),
+    DuplicatePublish(u32, usize),
+    TopicHasMultiplePublishers(u32, Cow<'static, str>),
 }
 
+#[rustfmt::skip]
 impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -81,6 +116,21 @@ impl core::fmt::Display for DagError {
             }
             DagError::NoSubscriberFound(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: One or more published topics have no corresponding subscriber")
+            }
+            DagError::SubscribeArityMismatch(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in subscribed topics and arguments")
+            }
+            DagError::PublishArityMismatch(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
+            }
+            DagError::DuplicateSubscribe(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
+            }
+            DagError::DuplicatePublish(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
+            }
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
         }
     }
@@ -110,9 +160,13 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
+struct EdgeInfo {
+    topic_name: Cow<'static, str>,
+}
+
 pub struct Dag {
     id: u32,
-    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -169,24 +223,49 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        for node_idx in graph.node_indices() {
-            if let Some(node_info) = graph.node_weight(node_idx) {
-                let subscribe_match = subscribe_topic_names
+        let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+
+        if subscribe_topic_names.len() != sub_topics.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_subscribe_nodes = DUPLICATE_SUBSCRIBE_NODES.lock(&mut node);
+            duplicate_subscribe_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
+        if publish_topic_names.len() != pub_topics.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_publish_nodes = DUPLICATE_PUBLISH_NODES.lock(&mut node);
+            duplicate_publish_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
+
+        let edges_to_add: Vec<_> = graph
+            .node_references()
+            .flat_map(|node_ref| {
+                let node_info = node_ref.weight();
+
+                let edges_from = node_info
+                    .subscribe_topics
                     .iter()
-                    .any(|sub| node_info.publish_topics.contains(sub));
+                    .filter(|topic| pub_topics.contains(*topic))
+                    .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
-                let publish_match = publish_topic_names
+                let edges_to = node_info
+                    .publish_topics
                     .iter()
-                    .any(|pub_| node_info.subscribe_topics.contains(pub_));
+                    .filter(|topic| sub_topics.contains(*topic))
+                    .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
-                if subscribe_match {
-                    graph.add_edge(node_idx, add_node_idx, 0);
-                }
+                edges_to.chain(edges_from).collect::<Vec<_>>()
+            })
+            .collect();
 
-                if publish_match {
-                    graph.add_edge(add_node_idx, node_idx, 0);
-                }
-            }
+        for (from, to, topic_name) in edges_to_add {
+            graph.add_edge(from, to, EdgeInfo { topic_name });
         }
 
         add_node_idx
@@ -209,8 +288,12 @@ impl Dag {
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
         Args::Subscribers: Send,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &publish_topic_names);
+        self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
+        self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -242,8 +325,10 @@ impl Dag {
         F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
+        self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
         let measure_f: Option<MeasureF> = {
             #[cfg(feature = "perf")]
@@ -287,9 +372,11 @@ impl Dag {
         F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
         Args: VectorToSubscribers,
         Args::Subscribers: Send,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
         self.set_relative_deadline(node_idx, relative_deadline);
+        self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
 
         let measure_f = {
             #[cfg(feature = "perf")]
@@ -324,6 +411,42 @@ impl Dag {
                     .await
                 })
             }));
+    }
+
+    fn check_subscribe_mismatch<Args>(
+        &self,
+        subscribe_topic_names: &[Cow<'static, str>],
+        node_idx: NodeIndex,
+    ) where
+        Args: VectorToSubscribers,
+        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
+    {
+        if <Args::Subscribers as MultipleReceiver>::Item::SIZE != subscribe_topic_names.len() {
+            let mut node = MCSNode::new();
+            let mut mismatch_subscribe_nodes = MISMATCH_SUBSCRIBE_NODES.lock(&mut node);
+            mismatch_subscribe_nodes
+                .entry(self.id)
+                .or_default()
+                .push(node_idx.index());
+        }
+    }
+
+    fn check_publish_mismatch<Ret>(
+        &self,
+        publish_topic_names: &[Cow<'static, str>],
+        node_idx: NodeIndex,
+    ) where
+        Ret: VectorToPublishers,
+        <Ret::Publishers as MultipleSender>::Item: TupleSize,
+    {
+        if <Ret::Publishers as MultipleSender>::Item::SIZE != publish_topic_names.len() {
+            let mut node = MCSNode::new();
+            let mut mismatch_publish_nodes = MISMATCH_PUBLISH_NODES.lock(&mut node);
+            mismatch_publish_nodes
+                .entry(self.id)
+                .or_default()
+                .push(node_idx.index());
+        }
     }
 }
 
@@ -399,6 +522,82 @@ fn remove_dag(id: u32) {
     source_pending_tasks.remove(&id);
 }
 
+// NOTE: On the architecture for this arity validation.
+//
+// Ideally, this validation would be performed at an earlier stage, such as inside
+// the `impl_tuple_to_pub_sub` macro in `pubsub.rs`.
+//
+// However, that approach would perform the check after the reactor is already spawned.
+// This would limit error handling to just stopping the affected reactor, and implementing
+// a full cleanup of all related DAG data and other reactors would be overly complex.
+//
+// Therefore, we adopted the current architecture: errors are first recorded
+// to a `static` variable, and then collected and reported in a batch by this function.
+fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+
+    let errors: Vec<_> = {
+        let subscribe_errors = MISMATCH_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::SubscribeArityMismatch(dag_id, node_id));
+
+        let publish_errors = MISMATCH_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::PublishArityMismatch(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Ideally, this validation would be performed at an earlier stage, such as inside
+/// the `add_node_with_topic_edges()`.
+///
+/// However, that approach would force the caller to handle a Result on every
+/// single node addition, making the API cumbersome, and implementing
+/// a full cleanup of all related DAG data and other reactors would be overly complex.
+///
+/// Therefore, we adopted the current architecture: errors are first recorded
+/// to a `static` variable, and then collected and reported in a batch by this function.
+fn check_for_pubsub_duplicate(dag_id: u32) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+
+    let errors: Vec<_> = {
+        let subscribe_errors = DUPLICATE_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicateSubscribe(dag_id, node_id));
+
+        let publish_errors = DUPLICATE_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicatePublish(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// This validation prevents issues caused by the following misconfigurations:
 /// - Message Loss: A published topic is not subscribed to by any reactor.
 /// - Indefinite Wait: A subscribed topic has no corresponding publisher.
@@ -429,6 +628,37 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     }
 
     Ok(())
+}
+
+/// To simplify the current system design and management,
+/// we have adopted a rule that only one publisher is allowed per topic.
+///
+/// Note:
+/// This restriction may need to be relaxed in the future to support use cases
+/// where multiple publishers need to publish to a single, common topic.
+fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+
+    let publisher_counts_by_topic = graph.edge_references().fold(
+        BTreeMap::<Cow<'static, str>, usize>::new(),
+        |mut acc, edge| {
+            *acc.entry(edge.weight().topic_name.clone()).or_insert(0) += 1;
+            acc
+        },
+    );
+
+    let errors: Vec<_> = publisher_counts_by_topic
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(topic, _)| DagError::TopicHasMultiplePublishers(dag.id, topic))
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
@@ -466,16 +696,26 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
-    let error_list = dags
-        .iter()
-        .filter_map(|dag| validate_dag(dag).err())
-        .collect::<Vec<_>>();
+    let mut errors: Vec<DagError> = Vec::new();
 
-    if !error_list.is_empty() {
+    for dag in dags {
+        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
+        if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
+            errors.extend(arg_errors.into_iter());
+        } else if let Err(dag_validation_error) = validate_dag(dag) {
+            errors.push(dag_validation_error);
+        } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
+            errors.extend(pubsub_duplicate_errors);
+        } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
+            errors.extend(duplicate_error.into_iter());
+        }
+    }
+
+    if !errors.is_empty() {
         for dag in dags {
             remove_dag(dag.id);
         }
-        return Err(error_list);
+        return Err(errors);
     }
 
     for dag in dags {
