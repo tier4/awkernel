@@ -1,6 +1,6 @@
 //! Error and Result definitions
 
-use super::super::error::IoError;
+use super::super::error::{Error, IoError};
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -36,9 +36,9 @@ impl<E> From<VfsErrorKind<E>> for VfsError<E> {
     }
 }
 
-impl<E: IoError> From<E> for VfsError<E> {
-    fn from(err: E) -> Self {
-        let kind = VfsErrorKind::IoError(err);
+impl<E: IoError> From<Error<E>> for VfsError<E> {
+    fn from(err: Error<E>) -> Self {
+        let kind = err.into();
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
             kind,
@@ -47,6 +47,21 @@ impl<E: IoError> From<E> for VfsError<E> {
         }
     }
 }
+
+impl<E> From<Error<E>> for VfsErrorKind<E> {
+    fn from(err: Error<E>) -> Self {
+        match err {
+            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
+        }
+    }
+}
+
+//impl<E: IoError> From<E> for VfsErrorKind<E> {
+//fn from(err: E) -> Self {
+//VfsErrorKind::IoError(err)
+//}
+//}
 
 impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
@@ -147,6 +162,29 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
 
 /// The result type of this crate
 pub type VfsResult<T, E> = core::result::Result<T, VfsError<E>>;
+
+#[cfg(test)]
+mod tests {
+    use crate::error::VfsErrorKind;
+    use crate::{VfsError, VfsResult};
+
+    fn produce_vfs_result() -> VfsResult<()> {
+        Err(VfsError::from(VfsErrorKind::Other("Not a file".into())).with_path("foo"))
+    }
+
+    fn produce_anyhow_result() -> anyhow::Result<()> {
+        Ok(produce_vfs_result()?)
+    }
+
+    #[test]
+    fn anyhow_compatibility() {
+        let result = produce_anyhow_result().unwrap_err();
+        assert_eq!(
+            result.to_string(),
+            "An error occured for 'foo': FileSystem error: Not a file"
+        )
+    }
+}
 
 impl<E: IoError> IoError for VfsError<E> {
     fn is_interrupted(&self) -> bool {

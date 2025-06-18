@@ -38,13 +38,13 @@ where
 }
 
 #[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndRead<Error<IO::Error>> for AsyncFile<IO, TP, OCC>
+impl<IO, TP, OCC> AsyncSeekAndRead<IO::Error> for AsyncFile<IO, TP, OCC>
 where
     IO: ReadWriteSeek + Send + Sync + 'static,
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<Error<IO::Error>>> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<IO::Error>> {
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
@@ -54,7 +54,7 @@ where
         .await
     }
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<Error<IO::Error>>> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<IO::Error>> {
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
@@ -66,13 +66,13 @@ where
 }
 
 #[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndWrite<Error<IO::Error>> for AsyncFile<IO, TP, OCC>
+impl<IO, TP, OCC> AsyncSeekAndWrite<IO::Error> for AsyncFile<IO, TP, OCC>
 where
     IO: ReadWriteSeek + Send + Sync + 'static,
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<Error<IO::Error>>> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<IO::Error>> {
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
@@ -81,7 +81,7 @@ where
         .await
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<Error<IO::Error>>> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<IO::Error>> {
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
@@ -90,7 +90,7 @@ where
         .await
     }
 
-    async fn flush(&mut self) -> Result<(), VfsError<Error<IO::Error>>> {
+    async fn flush(&mut self) -> Result<(), VfsError<IO::Error>> {
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
@@ -99,8 +99,8 @@ where
         .await
     }
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<Error<IO::Error>>> {
-        <Self as AsyncSeekAndRead<Error<IO::Error>>>::seek(self, pos).await
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<IO::Error>> {
+        <Self as AsyncSeekAndRead<IO::Error>>::seek(self, pos).await
     }
 }
 
@@ -129,7 +129,7 @@ where
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
 {
-    type Error = Error<IO::Error>;
+    type Error = IO::Error;
 
     async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error> {
         let path = path.to_string();
@@ -214,48 +214,34 @@ where
 
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error> {
         let path = path.to_string();
-        if path.is_empty() {
-            Ok(VfsMetadata {
-                file_type: VfsFileType::Directory,
-                len: 0,
-                created: None,
-                modified: None,
-                accessed: None,
-            })
-        } else {
-            let fs_clone = self.fs.clone();
-            core::future::poll_fn(move |_cx| {
-                let entry = FileSystem::root_dir(&fs_clone).find_entry(&path, None, None)?;
-                let metadata = VfsMetadata {
-                    file_type: if entry.is_dir() {
-                        VfsFileType::Directory
-                    } else {
-                        VfsFileType::File
-                    },
-                    len: entry.len(),
-                    created: to_vfs_datetime(entry.created()),
-                    modified: to_vfs_datetime(entry.modified()),
-                    accessed: to_vfs_date(entry.accessed()),
-                };
-                Poll::Ready(Ok(metadata))
-            })
-            .await
-        }
+        let fs_clone = self.fs.clone();
+        core::future::poll_fn(move |_cx| {
+            let entry = FileSystem::root_dir(&fs_clone).find_entry(&path, None, None)?;
+            let metadata = VfsMetadata {
+                file_type: if entry.is_dir() {
+                    VfsFileType::Directory
+                } else {
+                    VfsFileType::File
+                },
+                len: entry.len(),
+                created: to_vfs_datetime(entry.created()),
+                modified: to_vfs_datetime(entry.modified()),
+                accessed: to_vfs_date(entry.accessed()),
+            };
+            Poll::Ready(Ok(metadata))
+        })
+        .await
     }
 
     async fn exists(&self, path: &str) -> VfsResult<bool, Self::Error> {
         let path = path.to_string();
-        if path.is_empty() {
-            Ok(true)
-        } else {
-            let fs_clone = self.fs.clone();
-            core::future::poll_fn(move |_cx| {
-                Poll::Ready(Ok(FileSystem::root_dir(&fs_clone)
-                    .find_entry(&path, None, None)
-                    .is_ok()))
-            })
-            .await
-        }
+        let fs_clone = self.fs.clone();
+        core::future::poll_fn(move |_cx| {
+            Poll::Ready(Ok(FileSystem::root_dir(&fs_clone)
+                .find_entry(&path, None, None)
+                .is_ok()))
+        })
+        .await
     }
 
     async fn remove_file(&self, path: &str) -> VfsResult<(), Self::Error> {

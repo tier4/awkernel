@@ -8,7 +8,7 @@ use crate::file::fatfs::AsyncFatFs;
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
     file::{
-        error::{Error, IoError},
+        error::IoError,
         memfs::InMemoryDiskError,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsResult},
@@ -59,7 +59,7 @@ impl<E: IoError> PartialEq for AsyncVfsPath<E> {
 
 impl<E: IoError> Eq for AsyncVfsPath<E> {}
 
-impl AsyncVfsPath<Error<InMemoryDiskError>> {
+impl AsyncVfsPath<InMemoryDiskError> {
     pub fn new_in_memory_fatfs() -> Self {
         let fs = AsyncFatFs::new_in_memory();
         AsyncVfsPath::new(fs)

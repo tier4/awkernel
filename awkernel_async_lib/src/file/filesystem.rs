@@ -4,7 +4,7 @@ use crate::time::Time;
 use alloc::{boxed::Box, string::String};
 use async_trait::async_trait;
 use awkernel_lib::file::{
-    error::IoError,
+    error::{Error, IoError},
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
@@ -28,8 +28,10 @@ pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
             }
         }
         if !buf.is_empty() {
-            Err(VfsError::from(E::new_unexpected_eof_error())
-                .with_context(|| "failed to fill whole buffer"))
+            Err(VfsError::from(VfsErrorKind::from(Error::from(
+                E::new_unexpected_eof_error(),
+            )))
+            .with_context(|| "failed to fill whole buffer"))
         } else {
             Ok(())
         }
