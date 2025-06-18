@@ -22,10 +22,8 @@ TaskInfo tasks[TASK_NUM];
 short RUNNING[CPU_NUM] = - 1;// task_id when this CPU is executing a task,- 1 otherwise.
 bool interrupt_enabled[CPU_NUM] = false;// Whether the interrupt handler is enabled in each CPU.
 chan ipi_requests[CPU_NUM] = [TASK_NUM] of { byte };// Message type is not accessed.
-
-// Although these are vectors in Awkernel, this model addresses these like atomic variables.
-short NEXT_TASK[CPU_NUM] = - 1;
-short PREEMPTED_TASK[CPU_NUM] = - 1;// Preempted task_id in each CPU,- 1 if there is no preempted task.
+short NEXT_TASK[CPU_NUM] = - 1; // Although this is a vector in Awkernel, this model addresses these like atomic variables.
+chan PREEMPTED_TASK[CPU_NUM] = [TASK_NUM] of { byte };// Preempted task_id in each CPU.
 
 /* Queue of the PrioritizedFIFO scheduler */
 chan queue = [TASK_NUM] of { byte };// task_ids in ascending order of priority.

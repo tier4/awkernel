@@ -162,10 +162,7 @@ inline re_schedule(tid) {
 	byte preempted;
 
 	if
-	:: atomic { 
-		PREEMPTED_TASK[cpu_id(tid)] != -1 ->
-		preempted = PREEMPTED_TASK[cpu_id(tid)];
-		PREEMPTED_TASK[cpu_id(tid)] = - 1; }
+	:: atomic { PREEMPTED_TASK[cpu_id(tid)] ? [preempted] -> PREEMPTED_TASK[cpu_id(tid)] ? preempted;}
 		wake_task(tid,preempted);
 	:: else
 	fi
@@ -179,11 +176,7 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 		update_running_lowest_priority();
 	}
 	unlock(cur_tid,lock_info[cur_task]);
-
-	atomic {
-		assert(PREEMPTED_TASK[cpu_id(cur_tid)] == - 1);
-		PREEMPTED_TASK[cpu_id(cur_tid)] = cur_task;
-	}
+	PREEMPTED_TASK[cpu_id(cur_tid)] ! cur_task;
 	
 	context_switch(cur_tid,next_tid);
 	re_schedule(cur_tid);
