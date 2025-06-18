@@ -1,13 +1,14 @@
 #![no_std]
 
 use core::{
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence},
     time::Duration,
 };
 
 use alloc::{format, vec::Vec};
 use array_macro::array;
 use awkernel_lib::dvfs::DesiredPerformance;
+use num_traits::abs;
 
 extern crate alloc;
 
@@ -16,7 +17,7 @@ mod nbody;
 const APP_NAME: &str = "test DVFS";
 const NUM_CPU: usize = 14;
 const NUM_TRIALS: usize = 100;
-const NUM_BUSY_LOOP: usize = 10000000000;
+const NUM_BUSY_LOOP: usize = 1000000000;
 
 static LATENCY: [[[AtomicU64; NUM_TRIALS]; 11]; NUM_CPU] =
     array![_ => array![_ => array![_ => AtomicU64::new(0); NUM_TRIALS]; 11]; NUM_CPU];
@@ -29,7 +30,7 @@ pub async fn run() {
     for _ in 0..(awkernel_lib::cpu::num_cpu() - 2) {
         awkernel_async_lib::spawn(
             APP_NAME.into(),
-            test_dvfs(),
+            test_freq_latency(),
             awkernel_async_lib::scheduler::SchedulerType::FIFO,
         )
         .await;
@@ -80,7 +81,7 @@ async fn test_dvfs() {
 }
 
 fn warm_up() {
-    for _ in 0..(NUM_BUSY_LOOP / 10) {
+    for _ in 0..(NUM_BUSY_LOOP) {
         core::hint::black_box(());
     }
 }
@@ -125,4 +126,43 @@ fn print_latency() {
     let result_json = serde_json::to_string(&result).unwrap();
     let result_str = format!("{result_json}\r\n");
     awkernel_lib::console::print(&result_str);
+}
+
+async fn test_freq_latency() {
+    loop {
+        awkernel_lib::dvfs::set_min_max_performance(25);
+        awkernel_lib::dvfs::set_energy_efficiency(0);
+        awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Auto);
+
+        warm_up();
+
+        let mut diff = Vec::with_capacity(100000);
+
+        awkernel_lib::dvfs::set_min_max_performance(100);
+        awkernel_lib::dvfs::set_energy_efficiency(0);
+        awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Auto);
+
+        let t = awkernel_async_lib::time::Time::now();
+        for _ in 0..100000 {
+            let start = unsafe { core::arch::x86_64::_rdtsc() };
+            fence(Ordering::AcqRel);
+            for _ in 0..1000 {
+                core::hint::black_box(());
+            }
+            fence(Ordering::AcqRel);
+            let end = unsafe { core::arch::x86_64::_rdtsc() };
+            diff.push((t.elapsed(), (end - start) as i64));
+        }
+
+        // let mut result = Vec::new();
+
+        for i in 0..100 {
+            // result.push((diff[i].0, diff[i + 1].1 - diff[i].1));
+            if abs(diff[i + 1].1 - diff[i].1) > 100 {
+                log::debug!("{i}: {:?}", diff[i + 1].1 - diff[i].1);
+            }
+        }
+
+        // log::debug!("{result:?}");
+    }
 }
