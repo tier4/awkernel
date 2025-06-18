@@ -59,7 +59,7 @@ static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
-static DAG_TOPICS: Mutex<BTreeMap<u32, BTreeSet<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DAG_TOPICS: Mutex<BTreeMap<u32, Vec<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
@@ -135,7 +135,7 @@ impl core::fmt::Display for DagError {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
             DagError::InterDagTopicConflict(topic_name, dag_ids) => {
-                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Found in: {:?}", dag_ids)
+                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {:?}", dag_ids)
             }
         }
     }
@@ -731,37 +731,63 @@ fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
     }
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
-    let mut errors: Vec<DagError> = Vec::new();
+fn record_dag_topics(dag: &Dag) {
+    let mut topics_node = MCSNode::new();
+    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
+
+    let mut graph_node = MCSNode::new();
+    let graph = dag.graph.lock(&mut graph_node);
+
+    let topics_for_dag = dag_topics.entry(dag.id).or_default();
+    for edge_ref in graph.edge_references() {
+        topics_for_dag.push(edge_ref.weight().topic_name.clone());
+    }
+}
+
+fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    let mut individual_errors: Vec<DagError> = Vec::new();
 
     for dag in dags {
-        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
         if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
-            errors.extend(arg_errors.into_iter());
+            individual_errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
-            errors.push(dag_validation_error);
+            individual_errors.push(dag_validation_error);
         } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
-            errors.extend(pubsub_duplicate_errors);
+            individual_errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
-            errors.extend(duplicate_error.into_iter());
+            individual_errors.extend(duplicate_error.into_iter());
+        } else {
+            record_dag_topics(dag);
         }
     }
 
-    if let Err(inter_dag_errors) = validate_dag_topic_conflicts() {
-        errors.extend(inter_dag_errors);
+    if !individual_errors.is_empty() {
+        return Err(individual_errors);
     }
 
-    if !errors.is_empty() {
-        for dag in dags {
-            remove_dag(dag.id);
-        }
-        return Err(errors);
+    // `validate_dag_topic_conflicts` が `dags` を引数に取ると仮定して修正
+    if let Err(conflict_errors) = validate_dag_topic_conflicts() {
+        return Err(conflict_errors);
     }
 
-    for dag in dags {
-        spawn_dag(dag).await;
-    }
     Ok(())
+}
+
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    match validate_all_rules(dags) {
+        Ok(()) => {
+            for dag in dags {
+                spawn_dag(dag).await;
+            }
+            Ok(())
+        }
+        Err(errors) => {
+            for dag in dags {
+                remove_dag(dag.id);
+            }
+            Err(errors)
+        }
+    }
 }
 
 async fn spawn_dag(dag: &Arc<Dag>) {
