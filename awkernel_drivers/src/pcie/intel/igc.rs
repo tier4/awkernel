@@ -888,6 +888,8 @@ fn igc_enable_intr(
     write_reg(info, IGC_EIAM, mask)?;
     write_reg(info, IGC_EIMS, mask)?;
     write_reg(info, IGC_IMS, IGC_IMS_LSC)?;
+    write_flush(info)?;
+
     Ok(())
 }
 
