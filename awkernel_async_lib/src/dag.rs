@@ -704,6 +704,19 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+fn record_dag_topics(dag: &Dag) {
+    let mut topics_node = MCSNode::new();
+    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
+
+    let mut graph_node = MCSNode::new();
+    let graph = dag.graph.lock(&mut graph_node);
+
+    let topics_for_dag = dag_topics.entry(dag.id).or_default();
+    for edge_ref in graph.edge_references() {
+        topics_for_dag.push(edge_ref.weight().topic_name.clone());
+    }
+}
+
 fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
     let dag_topics = DAG_TOPICS.lock(&mut node);
@@ -731,19 +744,6 @@ fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
     }
 }
 
-fn record_dag_topics(dag: &Dag) {
-    let mut topics_node = MCSNode::new();
-    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
-
-    let mut graph_node = MCSNode::new();
-    let graph = dag.graph.lock(&mut graph_node);
-
-    let topics_for_dag = dag_topics.entry(dag.id).or_default();
-    for edge_ref in graph.edge_references() {
-        topics_for_dag.push(edge_ref.weight().topic_name.clone());
-    }
-}
-
 fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut individual_errors: Vec<DagError> = Vec::new();
 
@@ -765,7 +765,6 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
         return Err(individual_errors);
     }
 
-    // `validate_dag_topic_conflicts` が `dags` を引数に取ると仮定して修正
     if let Err(conflict_errors) = validate_dag_topic_conflicts() {
         return Err(conflict_errors);
     }
