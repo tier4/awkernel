@@ -101,7 +101,7 @@ pub enum DagError {
     PublishArityMismatch(u32, usize),
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
-    TopicHasMultiplePublishers(u32, Cow<'static, str>), // (dag_id, topic_name)
+    TopicHasMultiplePublishers(u32, Cow<'static, str>),
     InterDagTopicConflict(u32, u32, Cow<'static, str>), //(dag_id, dag_id, topic_name)
 }
 
@@ -138,6 +138,9 @@ impl core::fmt::Display for DagError {
             DagError::DuplicatePublish(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
             }
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
         }
     }
 }
@@ -166,7 +169,6 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
-#[allow(dead_code)] // TODO: remove this later
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
 }
@@ -637,21 +639,27 @@ fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-fn validate_publisher_uniqueness_for_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
+/// To simplify the current system design and management,
+/// we have adopted a rule that only one publisher is allowed per topic.
+///
+/// Note:
+/// This restriction may need to be relaxed in the future to support use cases
+/// where multiple publishers need to publish to a single, common topic.
+fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
 
-    let mut topic_to_publishers: BTreeMap<Cow<'static, str>, BTreeSet<NodeIndex>> = BTreeMap::new();
-    for edge in graph.edge_references() {
-        topic_to_publishers
-            .entry(edge.weight().topic_name.clone())
-            .or_default()
-            .insert(edge.source());
-    }
+    let publisher_counts_by_topic = graph.edge_references().fold(
+        BTreeMap::<Cow<'static, str>, usize>::new(),
+        |mut acc, edge| {
+            *acc.entry(edge.weight().topic_name.clone()).or_insert(0) += 1;
+            acc
+        },
+    );
 
-    let errors: Vec<_> = topic_to_publishers
+    let errors: Vec<_> = publisher_counts_by_topic
         .into_iter()
-        .filter(|(_, publishers)| publishers.len() > 1)
+        .filter(|(_, count)| *count > 1)
         .map(|(topic, _)| DagError::TopicHasMultiplePublishers(dag.id, topic))
         .collect();
 
@@ -737,10 +745,10 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
             errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
-        } else if let Err(duplicate_error) = validate_publisher_uniqueness_for_topic(dag) {
-            errors.extend(duplicate_error.into_iter());
         } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
             errors.extend(pubsub_duplicate_errors);
+        } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
+            errors.extend(duplicate_error.into_iter());
         }
     }
 
