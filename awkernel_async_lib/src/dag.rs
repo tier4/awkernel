@@ -160,7 +160,6 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
-#[allow(dead_code)] // TODO: remove this later
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
 }
