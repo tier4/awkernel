@@ -704,7 +704,7 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-fn record_dag_topics(dag: &Dag) {
+fn register_dag_topics(dag: &Dag) {
     let mut topics_node = MCSNode::new();
     let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
 
@@ -757,7 +757,7 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
             individual_errors.extend(duplicate_error.into_iter());
         } else {
-            record_dag_topics(dag);
+            register_dag_topics(dag);
         }
     }
 
