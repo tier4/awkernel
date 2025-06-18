@@ -58,6 +58,7 @@ use performance::ResponseInfo;
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
+static DAG_TOPICS: Mutex<BTreeMap<u32, BTreeSet<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
@@ -100,6 +101,7 @@ pub enum DagError {
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>),
+    InterDagTopicConflict(u32, u32, Cow<'static, str>),
 }
 
 #[rustfmt::skip]
@@ -131,6 +133,9 @@ impl core::fmt::Display for DagError {
             }
             DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
+            DagError::InterDagTopicConflict(dag_id1, dag_id2,topic_name ) => {
+                write!(f, "DAGs #{dag_id1} and #{dag_id2} are connected by topic: '{topic_name}'")
             }
         }
     }
@@ -520,6 +525,10 @@ fn remove_dag(id: u32) {
     let mut source_pending_node = MCSNode::new();
     let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut source_pending_node);
     source_pending_tasks.remove(&id);
+
+    let mut topic_node = MCSNode::new();
+    let mut dag_topics = DAG_TOPICS.lock(&mut topic_node);
+    dag_topics.remove(&id);
 }
 
 // NOTE: On the architecture for this arity validation.
@@ -695,6 +704,38 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
+fn validate_dags() -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+    let dag_topics = DAG_TOPICS.lock(&mut node);
+
+    let mut topic_to_dags: BTreeMap<Cow<'static, str>, Vec<u32>> = BTreeMap::new();
+    for (dag_id, topics) in dag_topics.iter() {
+        for topic in topics {
+            topic_to_dags
+                .entry(topic.clone())
+                .or_default()
+                .push(*dag_id);
+        }
+    }
+
+    let errors: Vec<_> = topic_to_dags
+        .into_iter()
+        .filter(|(_, dag_ids)| dag_ids.len() > 1)
+        .flat_map(|(topic, dag_ids)| {
+            let first_dag_id = dag_ids[0];
+            dag_ids.into_iter().skip(1).map(move |current_dag_id| {
+                DagError::InterDagTopicConflict(first_dag_id, current_dag_id, topic.clone())
+            })
+        })
+        .collect();
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    Ok(())
+}
+
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut errors: Vec<DagError> = Vec::new();
 
@@ -709,6 +750,10 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
             errors.extend(duplicate_error.into_iter());
         }
+    }
+
+    if let Err(inter_dag_errors) = validate_dags() {
+        errors.extend(inter_dag_errors);
     }
 
     if !errors.is_empty() {
