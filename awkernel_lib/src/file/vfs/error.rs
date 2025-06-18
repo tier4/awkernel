@@ -148,29 +148,6 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
 /// The result type of this crate
 pub type VfsResult<T, E> = core::result::Result<T, VfsError<E>>;
 
-#[cfg(test)]
-mod tests {
-    use crate::error::VfsErrorKind;
-    use crate::{VfsError, VfsResult};
-
-    fn produce_vfs_result() -> VfsResult<()> {
-        Err(VfsError::from(VfsErrorKind::Other("Not a file".into())).with_path("foo"))
-    }
-
-    fn produce_anyhow_result() -> anyhow::Result<()> {
-        Ok(produce_vfs_result()?)
-    }
-
-    #[test]
-    fn anyhow_compatibility() {
-        let result = produce_anyhow_result().unwrap_err();
-        assert_eq!(
-            result.to_string(),
-            "An error occured for 'foo': FileSystem error: Not a file"
-        )
-    }
-}
-
 impl<E: IoError> IoError for VfsError<E> {
     fn is_interrupted(&self) -> bool {
         todo!();
