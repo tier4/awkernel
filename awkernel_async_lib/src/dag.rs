@@ -135,7 +135,7 @@ impl core::fmt::Display for DagError {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
             }
             DagError::InterDagTopicConflict(topic_name, dag_ids) => {
-                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {:?}", dag_ids)
+                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {dag_ids:?}")
             }
         }
     }
@@ -765,9 +765,7 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
         return Err(individual_errors);
     }
 
-    if let Err(conflict_errors) = validate_dag_topic_conflicts() {
-        return Err(conflict_errors);
-    }
+    validate_dag_topic_conflicts()?;
 
     Ok(())
 }
