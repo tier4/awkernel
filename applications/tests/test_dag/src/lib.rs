@@ -102,4 +102,7 @@ pub async fn run() {
             }
         }
     }
+
+    assert_eq!(dag.node_count(), 5);
+    assert_eq!(dag.edge_count(), 5);
 }
