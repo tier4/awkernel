@@ -876,6 +876,21 @@ fn igc_set_queues(
     Ok(())
 }
 
+fn igc_enable_intr(
+    info: &mut PCIeInfo,
+    msix_queuesmask: u32,
+    msix_linkmask: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    let mask = msix_queuesmask | msix_linkmask;
+    write_reg(info, IGC_EIAC, mask)?;
+    write_reg(info, IGC_EIAM, mask)?;
+    write_reg(info, IGC_EIMS, mask)?;
+    write_reg(info, IGC_IMS, IGC_IMS_LSC)?;
+    Ok(())
+}
+
 fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     use igc_regs::*;
 
