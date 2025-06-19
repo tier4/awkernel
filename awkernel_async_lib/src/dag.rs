@@ -740,23 +740,23 @@ fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
 }
 
 fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
-    let mut individual_errors: Vec<DagError> = Vec::new();
+    let mut errors: Vec<DagError> = Vec::new();
 
     for dag in dags {
         // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
         if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
-            individual_errors.extend(arg_errors.into_iter());
+            errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
-            individual_errors.push(dag_validation_error);
+            errors.push(dag_validation_error);
         } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicate(dag.id) {
-            individual_errors.extend(pubsub_duplicate_errors);
+            errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
-            individual_errors.extend(duplicate_error.into_iter());
+            errors.extend(duplicate_error.into_iter());
         }
     }
 
-    if !individual_errors.is_empty() {
-        return Err(individual_errors);
+    if !errors.is_empty() {
+        return Err(errors);
     }
 
     validate_dag_topic_conflicts()?;
