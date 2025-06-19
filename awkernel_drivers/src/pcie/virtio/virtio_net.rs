@@ -118,48 +118,45 @@ struct VirtqDMA {
     _pad2: [u8; 2042],               // 4096 - 2054 = 2042 bytes
 } // 4096 * 3 = 12288 bytes in total
 
-struct Virtq {
-    _dma: DMAPool<VirtqDMA>,
-    vq_freelist: LinkedList<VirtqEntry>,
-    // TODO: add more fields
-}
-
 #[allow(dead_code)]
-struct VirtqEntry {
-    qe_index: u16, // index in vq_desc array
-    // The following are used only in the `head' entry
-    qe_next: i16,            // next enq slot
-    qe_indirect: i16,        // 1 if using indirect
-    qe_vr_index: i16,        // index in sc_reqs array
-    qe_desc_base: VirtqDesc, // pointer to vd array
+struct Virtq {
+    vq_dma: DMAPool<VirtqDMA>,
+    vq_freelist: LinkedList<usize>,
+    vq_num: usize,
+    vq_mask: usize,
+    vq_avail_idx: u16,
+    vq_used_idx: u16,
+    vq_index: u16,
+    vq_intr_vec: u16,
 }
 
 impl Virtq {
-    pub fn new(dma: DMAPool<VirtqDMA>) -> Self {
-        Self {
-            _dma: dma,
-            vq_freelist: LinkedList::new(),
+    fn init(&mut self) {
+        assert!(self.vq_num > 0);
+
+        self.vq_freelist = LinkedList::new();
+        for i in (0..self.vq_num).rev() {
+            self.vq_freelist.push_front(i);
         }
+
+        self.vq_avail_idx = 0;
+        self.vq_used_idx = 0;
     }
 
     #[allow(dead_code)]
-    fn vq_alloc_entry(&mut self) -> Option<VirtqEntry> {
+    fn vq_alloc_entry(&mut self) -> Option<usize> {
         self.vq_freelist.pop_front()
     }
 
     #[allow(dead_code)]
-    fn vq_free_entry(&mut self, entry: VirtqEntry) {
-        self.vq_freelist.push_front(entry);
+    fn vq_free_entry(&mut self, slot: usize) {
+        self.vq_freelist.push_front(slot);
     }
 
     /// enqueue_prep: allocate a slot number
     #[allow(dead_code)]
-    fn virtio_enqueue_prep(&mut self) -> Option<u16> {
-        let mut qe = self.vq_alloc_entry()?;
-
-        // next slot is not allocated yet
-        qe.qe_next = -1;
-        Some(qe.qe_index)
+    fn virtio_enqueue_prep(&mut self) -> Option<usize> {
+        self.vq_alloc_entry()
     }
 }
 
@@ -520,10 +517,8 @@ impl VirtioNetInner {
     }
 
     /// Allocate a vq.
-    /// maxnsegs denotes how much space should be allocated for indirect descriptors.
-    /// maxnsegs == 1 can be used to disable use indirect descriptors for this queue.
     #[allow(dead_code)]
-    fn virtio_alloc_vq(&mut self, index: u16, _maxnsegs: u16) -> Result<Virtq, VirtioDriverErr> {
+    fn virtio_alloc_vq(&mut self, index: u16) -> Result<Virtq, VirtioDriverErr> {
         let vq_size = self.virtio_pci_read_queue_size(index)? as usize;
         if vq_size == 0 {
             return Err(VirtioDriverErr::NoVirtqueue);
@@ -536,13 +531,21 @@ impl VirtioNetInner {
         }
 
         // alloc and map the memory
-        let allocsize = core::mem::size_of::<Virtq>();
-        let dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let allocsize = core::mem::size_of::<VirtqDMA>();
+        let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        // remember addresses and offsets for later use
-        let vq = Virtq::new(dma);
+        let mut vq = Virtq {
+            vq_dma,
+            vq_freelist: LinkedList::new(),
+            vq_num: vq_size,
+            vq_mask: vq_size - 1,
+            vq_avail_idx: 0,
+            vq_used_idx: 0,
+            vq_index: index,
+            vq_intr_vec: 0,
+        };
 
-        // TODO: continue Virtq initialization
+        vq.init();
 
         Ok(vq)
     }
