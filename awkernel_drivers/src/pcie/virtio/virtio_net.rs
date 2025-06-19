@@ -131,7 +131,6 @@ struct VirtqDMA {
 
 struct Virtq {
     vq_dma: DMAPool<VirtqDMA>,
-    vq_entries: Vec<VirtqEntry>,
     vq_freelist: LinkedList<usize>,
     vq_num: usize,
     vq_mask: usize,
@@ -142,16 +141,6 @@ struct Virtq {
 
     data_buf: DMAPool<RxTxBuffer>,
     rx_buffer: RingQ<EtherFrameBuf>,
-    // TODO: add more fields
-}
-
-#[derive(Copy, Clone)]
-struct VirtqEntry {
-    qe_index: usize, // index in vq_desc array
-    // The following are used only in the `head' entry
-    qe_next: i16, // next enq slot
-                  // qe_indirect: i16,        // 1 if using indirect
-                  // qe_vr_index: i16,        // index in sc_reqs array
 }
 
 impl Virtq {
@@ -177,23 +166,13 @@ impl Virtq {
     }
 
     /// enqueue_prep: allocate a slot number
-    fn virtio_enqueue_prep(&mut self) -> Result<usize, VirtioDriverErr> {
-        let slot = self.vq_alloc_entry().ok_or(VirtioDriverErr::NoSlot)?;
-
-        // next slot is not allocated yet
-        self.vq_entries[slot].qe_next = -1;
-        Ok(slot)
+    fn virtio_enqueue_prep(&mut self) -> Option<usize> {
+        self.vq_alloc_entry()
     }
 
     /// enqueue_reserve: allocate remaining slots and build the descriptor chain.
-    /// Calls virtio_enqueue_abort() on failure.
-    fn virtio_enqueue_reserve(&mut self, slot: usize) -> Result<(), VirtioDriverErr> {
-        assert!(self.vq_entries[slot].qe_next == -1);
-
-        self.vq_entries[slot].qe_next = self.vq_entries[slot].qe_index as i16;
+    fn virtio_enqueue_reserve(&mut self, slot: usize) {
         self.vq_dma.as_mut().desc[slot].flags = 0;
-
-        Ok(())
     }
 
     /// enqueue: enqueue a single dmamap.
@@ -203,19 +182,13 @@ impl Virtq {
         len: usize,
         write: bool,
     ) -> Result<(), VirtioDriverErr> {
-        let s = self.vq_entries[slot].qe_next;
-        assert!(s >= 0);
-
-        let s = s as usize;
-
-        let addr = (self.data_buf.get_phy_addr().as_usize() + s * MCLBYTES as usize) as u64;
-        self.vq_dma.as_mut().desc[s].addr = u64::to_le(addr);
-        self.vq_dma.as_mut().desc[s].len = u32::to_le(len as u32);
+        let addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        self.vq_dma.as_mut().desc[slot].addr = u64::to_le(addr);
+        self.vq_dma.as_mut().desc[slot].len = u32::to_le(len as u32);
         if !write {
-            self.vq_dma.as_mut().desc[s].flags |= u16::to_le(VIRTQ_DESC_F_WRITE);
+            self.vq_dma.as_mut().desc[slot].flags |= u16::to_le(VIRTQ_DESC_F_WRITE);
         }
-        self.vq_dma.as_mut().desc[s].next = 0;
-        self.vq_entries[s].qe_next = self.vq_dma.as_ref().desc[s].next as i16;
+        self.vq_dma.as_mut().desc[slot].next = 0;
 
         Ok(())
     }
@@ -275,13 +248,13 @@ impl Virtq {
     /// add mbufs for all the empty receive slots
     fn vio_populate_rx_mbufs(&mut self) -> Result<(), VirtioDriverErr> {
         for _ in 0..self.vq_num {
-            let slot = if let Ok(slot) = self.virtio_enqueue_prep() {
+            let slot = if let Some(slot) = self.virtio_enqueue_prep() {
                 slot
             } else {
                 break;
             };
 
-            self.virtio_enqueue_reserve(slot)?;
+            self.virtio_enqueue_reserve(slot);
             self.virtio_enqueue(slot, MCLBYTES as usize, false)?;
             self.virtio_enqueue_commit(slot)?;
         }
@@ -352,9 +325,13 @@ impl Virtq {
         self.vio_tx_dequeue()?;
 
         for frame in frames {
-            let slot = self.virtio_enqueue_prep()?;
+            let slot = match self.virtio_enqueue_prep() {
+                Some(slot) => slot,
+                None => break,
+            };
+
             let len = self.vio_encap(slot, frame)?;
-            self.virtio_enqueue_reserve(slot)?;
+            self.virtio_enqueue_reserve(slot);
             self.virtio_enqueue(slot, len, true)?;
             self.virtio_enqueue_commit(slot)?;
         }
@@ -813,20 +790,11 @@ impl VirtioNetInner {
         let allocsize = core::mem::size_of::<VirtqDMA>();
         let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        let mut vq_entries = Vec::with_capacity(vq_size);
-        for i in 0..vq_size {
-            vq_entries.push(VirtqEntry {
-                qe_index: i,
-                qe_next: -1,
-            });
-        }
-
         let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
         let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
         let mut vq = Virtq {
             vq_dma,
-            vq_entries,
             vq_freelist: LinkedList::new(),
             vq_num: vq_size,
             vq_mask: vq_size - 1,
