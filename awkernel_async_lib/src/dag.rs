@@ -100,6 +100,7 @@ pub enum DagError {
     DuplicateSubscribe(u32, usize),
     DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>),
+    InterDagTopicConflict(Cow<'static, str>, Vec<u32>),
 }
 
 #[rustfmt::skip]
@@ -131,6 +132,9 @@ impl core::fmt::Display for DagError {
             }
             DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
                 write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
+            DagError::InterDagTopicConflict(topic_name, dag_ids) => {
+                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {dag_ids:?}")
             }
         }
     }
@@ -695,7 +699,47 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
+    let mut topic_to_dags: BTreeMap<Cow<'static, str>, Vec<u32>> = BTreeMap::new();
+
+    {
+        let mut node = MCSNode::new();
+        let dags = DAGS.lock(&mut node);
+
+        for dag in dags.id_to_dag.values() {
+            let mut node = MCSNode::new();
+            let graph = dag.graph.lock(&mut node);
+            for edge_ref in graph.edge_references() {
+                topic_to_dags
+                    .entry(edge_ref.weight().topic_name.clone())
+                    .or_default()
+                    .push(dag.id);
+            }
+        }
+    }
+
+    let errors: Vec<_> = topic_to_dags
+        .into_iter()
+        .filter_map(|(topic, mut dag_ids)| {
+            dag_ids.sort_unstable();
+            dag_ids.dedup();
+
+            if dag_ids.len() > 1 {
+                Some(DagError::InterDagTopicConflict(topic, dag_ids))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut errors: Vec<DagError> = Vec::new();
 
     for dag in dags {
@@ -712,16 +756,29 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
     }
 
     if !errors.is_empty() {
-        for dag in dags {
-            remove_dag(dag.id);
-        }
         return Err(errors);
     }
 
-    for dag in dags {
-        spawn_dag(dag).await;
-    }
+    validate_dag_topic_conflicts()?;
+
     Ok(())
+}
+
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    match validate_all_rules(dags) {
+        Ok(()) => {
+            for dag in dags {
+                spawn_dag(dag).await;
+            }
+            Ok(())
+        }
+        Err(errors) => {
+            for dag in dags {
+                remove_dag(dag.id);
+            }
+            Err(errors)
+        }
+    }
 }
 
 async fn spawn_dag(dag: &Arc<Dag>) {
