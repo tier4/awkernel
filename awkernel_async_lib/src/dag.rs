@@ -743,6 +743,7 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     let mut individual_errors: Vec<DagError> = Vec::new();
 
     for dag in dags {
+        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
         if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
             individual_errors.extend(arg_errors.into_iter());
         } else if let Err(dag_validation_error) = validate_dag(dag) {
