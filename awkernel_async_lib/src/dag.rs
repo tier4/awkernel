@@ -59,7 +59,6 @@ static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
-static DAG_TOPICS: Mutex<BTreeMap<u32, Vec<Cow<'static, str>>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
@@ -525,10 +524,6 @@ fn remove_dag(id: u32) {
     let mut source_pending_node = MCSNode::new();
     let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut source_pending_node);
     source_pending_tasks.remove(&id);
-
-    let mut topic_node = MCSNode::new();
-    let mut dag_topics = DAG_TOPICS.lock(&mut topic_node);
-    dag_topics.remove(&id);
 }
 
 // NOTE: On the architecture for this arity validation.
@@ -704,37 +699,37 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-fn register_dag_topics(dag: &Dag) {
-    let mut topics_node = MCSNode::new();
-    let mut dag_topics = DAG_TOPICS.lock(&mut topics_node);
-
-    let mut graph_node = MCSNode::new();
-    let graph = dag.graph.lock(&mut graph_node);
-
-    let topics_for_dag = dag_topics.entry(dag.id).or_default();
-    for edge_ref in graph.edge_references() {
-        topics_for_dag.push(edge_ref.weight().topic_name.clone());
-    }
-}
-
 fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
-    let mut node = MCSNode::new();
-    let dag_topics = DAG_TOPICS.lock(&mut node);
-
     let mut topic_to_dags: BTreeMap<Cow<'static, str>, Vec<u32>> = BTreeMap::new();
-    for (dag_id, topics) in dag_topics.iter() {
-        for topic in topics {
-            topic_to_dags
-                .entry(topic.clone())
-                .or_default()
-                .push(*dag_id);
+
+    {
+        let mut node = MCSNode::new();
+        let dags = DAGS.lock(&mut node);
+
+        for dag in dags.id_to_dag.values() {
+            let mut node = MCSNode::new();
+            let graph = dag.graph.lock(&mut node);
+            for edge_ref in graph.edge_references() {
+                topic_to_dags
+                    .entry(edge_ref.weight().topic_name.clone())
+                    .or_default()
+                    .push(dag.id);
+            }
         }
     }
 
     let errors: Vec<_> = topic_to_dags
         .into_iter()
-        .filter(|(_, dag_ids)| dag_ids.len() > 1)
-        .map(|(topic, dag_ids)| DagError::InterDagTopicConflict(topic, dag_ids))
+        .filter_map(|(topic, mut dag_ids)| {
+            dag_ids.sort_unstable();
+            dag_ids.dedup();
+
+            if dag_ids.len() > 1 {
+                Some(DagError::InterDagTopicConflict(topic, dag_ids))
+            } else {
+                None
+            }
+        })
         .collect();
 
     if errors.is_empty() {
@@ -756,8 +751,6 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
             individual_errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
             individual_errors.extend(duplicate_error.into_iter());
-        } else {
-            register_dag_topics(dag);
         }
     }
 
