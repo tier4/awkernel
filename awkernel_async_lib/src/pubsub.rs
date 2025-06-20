@@ -135,6 +135,8 @@ impl<T> InnerSubscriber<T> {
             while let Some(head) = self.queue.head() {
                 if head.timestamp.elapsed().as_micros() > span {
                     self.queue.pop();
+                } else {
+                    break;
                 }
             }
         }
