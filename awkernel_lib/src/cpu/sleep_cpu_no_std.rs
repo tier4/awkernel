@@ -1,6 +1,9 @@
 use super::{SleepCpu, NUM_MAX_CPU};
 use array_macro::array;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::{
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    time::Duration,
+};
 
 /// CPU sleep/wakeup states
 #[repr(u32)]
@@ -18,11 +21,28 @@ static READY: AtomicBool = AtomicBool::new(false);
 static CPU_SLEEP_TAG: [AtomicU32; NUM_MAX_CPU] =
     array![_ => AtomicU32::new(SleepTag::Active as u32); NUM_MAX_CPU];
 
+struct ResetTimer;
+
+impl Drop for ResetTimer {
+    fn drop(&mut self) {
+        crate::timer::disable();
+    }
+}
+
 /// SleepCpu implementation using state-machine and edge-triggered IPI
 pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
-    fn sleep(&self) {
+    fn sleep(&self, timeout: Option<Duration>) {
+        let start = crate::time::Time::now();
+
+        let _timer = if let Some(timeout) = timeout.as_ref() {
+            crate::timer::reset(*timeout);
+            Some(ResetTimer)
+        } else {
+            None
+        };
+
         // wait until init
         if !READY.load(Ordering::Relaxed) {
             crate::delay::wait_microsec(10);
@@ -54,6 +74,26 @@ impl SleepCpu for SleepCpuNoStd {
                     return;
                 }
                 _ => unreachable!(),
+            }
+
+            // Because x86 APIC timers are edge trigger interrupts,
+            // timer interrupts fired during interrupt handlers, which disable interrupts,
+            // will be discarded.
+            // So, the timer enabled before is enabled again, here.
+            if let Some(timeout) = timeout.as_ref() {
+                let elapsed = start.elapsed();
+                if *timeout > elapsed {
+                    let dur = *timeout - elapsed;
+                    if dur.as_micros() < 1000 {
+                        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
+                        return;
+                    } else {
+                        crate::timer::reset(dur);
+                    }
+                } else {
+                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
+                    return;
+                }
             }
 
             // In case that there are any tasks to run,
@@ -171,23 +211,9 @@ pub(super) fn wait_init() {
 
 #[inline(always)]
 pub fn reset_wakeup_timer() {
-    #[cfg(not(feature = "x86"))]
-    {
-        let cpu_id = crate::cpu::cpu_id();
+    let cpu_id = crate::cpu::cpu_id();
 
-        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
-            crate::timer::reset(core::time::Duration::from_micros(100));
-        }
-    }
-
-    #[cfg(feature = "x86")]
-    {
-        let cpu_id = crate::cpu::cpu_id();
-
-        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
-            crate::timer::reset(core::time::Duration::from_micros(100));
-        } else {
-            crate::timer::reset(core::time::Duration::from_micros(1000));
-        }
+    if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
+        crate::timer::reset(core::time::Duration::from_micros(100));
     }
 }

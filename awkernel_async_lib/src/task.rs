@@ -787,7 +787,7 @@ pub fn run_main() {
             #[cfg(feature = "perf")]
             perf::start_idle();
 
-            awkernel_lib::cpu::sleep_cpu();
+            awkernel_lib::cpu::sleep_cpu(None);
             awkernel_lib::timer::disable();
         }
     }
