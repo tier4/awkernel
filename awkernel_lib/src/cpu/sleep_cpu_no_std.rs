@@ -171,9 +171,23 @@ pub(super) fn wait_init() {
 
 #[inline(always)]
 pub fn reset_wakeup_timer() {
-    let cpu_id = crate::cpu::cpu_id();
+    #[cfg(not(feature = "x86"))]
+    {
+        let cpu_id = crate::cpu::cpu_id();
 
-    if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
-        crate::timer::reset(core::time::Duration::from_micros(100));
+        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
+            crate::timer::reset(core::time::Duration::from_micros(100));
+        }
+    }
+
+    #[cfg(feature = "x86")]
+    {
+        let cpu_id = crate::cpu::cpu_id();
+
+        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
+            crate::timer::reset(core::time::Duration::from_micros(100));
+        } else {
+            crate::timer::reset(core::time::Duration::from_micros(1000));
+        }
     }
 }
