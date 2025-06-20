@@ -14,9 +14,8 @@ pub(super) struct SleepCpuStd;
 
 impl SleepCpu for SleepCpuStd {
     fn sleep(&self, timeout: Option<Duration>) {
-        if timeout.is_some() {
-            assert!("SleepCpuStd::sleep() does not support timeout.");
-        }
+        // SleepCpuStd::sleep() does not support timeout.
+        assert!(timeout.is_none());
 
         let cpu_id = super::cpu_id();
 
