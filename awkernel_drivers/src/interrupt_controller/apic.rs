@@ -628,7 +628,7 @@ impl awkernel_lib::timer::Timer for TimerX2apic {
         };
 
         if initial_count == 0 {
-            log::warn!("TimerXapic::reset(): initial_count is 0");
+            log::warn!("TimerX2apic::reset(): initial_count is 0");
         }
 
         unsafe {
