@@ -175,30 +175,24 @@ impl Virtq {
     }
 
     /// enqueue: enqueue a single dmamap.
-    fn virtio_enqueue(
-        &mut self,
-        slot: usize,
-        len: usize,
-        write: bool,
-    ) -> Result<(), VirtioDriverErr> {
-        let addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
-        self.vq_dma.as_mut().desc[slot].addr = u64::to_le(addr);
-        self.vq_dma.as_mut().desc[slot].len = u32::to_le(len as u32);
-        if !write {
-            self.vq_dma.as_mut().desc[slot].flags |= u16::to_le(VIRTQ_DESC_F_WRITE);
-        }
-        self.vq_dma.as_mut().desc[slot].next = 0;
+    fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
+        let desc = &mut self.vq_dma.as_mut().desc[slot];
 
-        Ok(())
+        desc.addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        desc.len = len as u32;
+        if !write {
+            desc.flags |= VIRTQ_DESC_F_WRITE;
+        }
+        desc.next = 0;
     }
 
     /// enqueue_commit: add it to the available ring.
-    fn virtio_enqueue_commit(&mut self, slot: usize) -> Result<(), VirtioDriverErr> {
-        self.vq_avail_idx += 1;
-        self.vq_dma.as_mut().avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
-        self.vq_dma.as_mut().avail.idx = self.vq_avail_idx;
+    fn virtio_enqueue_commit(&mut self, slot: usize) {
+        let avail = &mut self.vq_dma.as_mut().avail;
 
-        Ok(())
+        avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
+        self.vq_avail_idx += 1;
+        avail.idx = self.vq_avail_idx;
     }
 
     /// dequeue: dequeue a request from uring;
@@ -254,8 +248,8 @@ impl Virtq {
             };
 
             self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, MCLBYTES as usize, false)?;
-            self.virtio_enqueue_commit(slot)?;
+            self.virtio_enqueue(slot, MCLBYTES as usize, false);
+            self.virtio_enqueue_commit(slot);
         }
 
         Ok(())
@@ -331,8 +325,8 @@ impl Virtq {
 
             let len = self.vio_encap(slot, frame)?;
             self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, len, true)?;
-            self.virtio_enqueue_commit(slot)?;
+            self.virtio_enqueue(slot, len, true);
+            self.virtio_enqueue_commit(slot);
         }
 
         if self.virtio_start_vq_intr() {
