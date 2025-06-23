@@ -283,14 +283,6 @@ struct IgbInner {
 
 /// Intel Gigabit Ethernet Controller driver
 pub struct Igb {
-    // The order of lock acquisition must be as follows:
-    //
-    // 1. `IgbInner`'s lock
-    // 2. `Queue`'s lock
-    // 3. `Queue`'s unlock
-    // 4. `IgbInner`'s unlock
-    //
-    // Otherwise, a deadlock will occur.
     inner: RwLock<IgbInner>,
 }
 
