@@ -89,7 +89,6 @@ pub trait Read: IoBase {
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Self::Error> {
         let mut sum_read = 0;
         loop {
-            // 十分なスペースを確保
             if buf.len() == buf.capacity() {
                 buf.reserve(32);
             }
