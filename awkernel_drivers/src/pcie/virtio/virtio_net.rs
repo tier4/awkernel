@@ -343,10 +343,6 @@ struct VirtioNetHdr {
     num_buffers: u16, // only present if VIRTIO_NET_F_MRG_RXBUF is negotiated
 }
 
-const MCLSHIFT: u32 = 11;
-const MCLBYTES: u32 = 1 << MCLSHIFT;
-type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
-
 const _VIRTIO_NET_HDR_F_NEEDS_CSUM: u8 = 1;
 const _VIRTIO_NET_HDR_F_DATA_VALID: u8 = 2;
 const _VIRTIO_NET_HDR_GSO_NONE: u8 = 0;
