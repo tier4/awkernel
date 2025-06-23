@@ -230,7 +230,7 @@ impl Virtq {
     }
 
     /// add mbufs for all the empty receive slots
-    fn vio_populate_rx_mbufs(&mut self) -> Result<(), VirtioDriverErr> {
+    fn vio_populate_rx_mbufs(&mut self) {
         for _ in 0..self.vq_num {
             let slot = if let Some(slot) = self.virtio_enqueue_prep() {
                 slot
@@ -242,8 +242,6 @@ impl Virtq {
             self.virtio_enqueue(slot, MCLBYTES as usize, false);
             self.virtio_enqueue_commit(slot);
         }
-
-        Ok(())
     }
 
     /// dequeue received packets
@@ -267,7 +265,7 @@ impl Virtq {
     fn vio_rx_intr(&mut self) -> Result<(), VirtioDriverErr> {
         let freed = self.vio_rxeof()?;
         if freed > 0 {
-            self.vio_populate_rx_mbufs()?;
+            self.vio_populate_rx_mbufs();
         }
 
         Ok(())
@@ -805,7 +803,7 @@ impl VirtioNetInner {
         for queue in self.virtqueues.iter_mut() {
             let mut node = MCSNode::new();
             let mut rx = queue.rx.lock(&mut node);
-            rx.vio_populate_rx_mbufs()?;
+            rx.vio_populate_rx_mbufs();
         }
 
         self.vio_iff()?;
