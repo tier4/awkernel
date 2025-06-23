@@ -177,21 +177,24 @@ impl Virtq {
     /// enqueue: enqueue a single dmamap.
     #[allow(dead_code)]
     fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
-        let addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
-        self.vq_dma.as_mut().desc[slot].addr = u64::to_le(addr);
-        self.vq_dma.as_mut().desc[slot].len = u32::to_le(len as u32);
+        let desc = &mut self.vq_dma.as_mut().desc[slot];
+
+        desc.addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        desc.len = len as u32;
         if !write {
-            self.vq_dma.as_mut().desc[slot].flags |= u16::to_le(VIRTQ_DESC_F_WRITE);
+            desc.flags |= VIRTQ_DESC_F_WRITE;
         }
-        self.vq_dma.as_mut().desc[slot].next = 0;
+        desc.next = 0;
     }
 
     /// enqueue_commit: add it to the available ring.
     #[allow(dead_code)]
     fn virtio_enqueue_commit(&mut self, slot: usize) {
+        let avail = &mut self.vq_dma.as_mut().avail;
+
+        avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
         self.vq_avail_idx += 1;
-        self.vq_dma.as_mut().avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
-        self.vq_dma.as_mut().avail.idx = self.vq_avail_idx;
+        avail.idx = self.vq_avail_idx;
     }
 }
 
