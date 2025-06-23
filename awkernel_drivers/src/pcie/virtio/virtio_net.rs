@@ -147,7 +147,6 @@ impl Virtq {
     fn init(&mut self) {
         assert!(self.vq_num > 0);
 
-        // virtio_enqueue_trim needs monotonely raising entries, therefore initialize in reverse order
         self.vq_freelist = LinkedList::new();
         for i in (0..self.vq_num).rev() {
             self.vq_freelist.push_front(i);
@@ -341,6 +340,10 @@ impl Virtq {
         }
 
         Ok(())
+    }
+
+    fn virtio_enqueue_prep(&mut self) -> Option<usize> {
+        self.vq_alloc_entry()
     }
 }
 

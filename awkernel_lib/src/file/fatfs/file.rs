@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use core::convert::TryFrom;
 
 use super::super::error::Error;
@@ -13,7 +14,7 @@ const MAX_FILE_SIZE: u32 = u32::MAX;
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
-pub struct File<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
+pub struct File<IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     // Note first_cluster is None if file is empty
     first_cluster: Option<u32>,
     // Note: if offset points between clusters current_cluster is the previous cluster
@@ -23,7 +24,7 @@ pub struct File<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     // file dir entry editor - None for root dir
     entry: Option<DirEntryEditor>,
     // file-system reference
-    fs: &'a FileSystem<IO, TP, OCC>,
+    fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
 /// An extent containing a file's data on disk.
@@ -37,11 +38,11 @@ pub struct Extent {
     pub size: u32,
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> File<IO, TP, OCC> {
     pub(crate) fn new(
         first_cluster: Option<u32>,
         entry: Option<DirEntryEditor>,
-        fs: &'a FileSystem<IO, TP, OCC>,
+        fs: Arc<FileSystem<IO, TP, OCC>>,
     ) -> Self {
         File {
             first_cluster,
@@ -75,11 +76,11 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
         if let Some(current_cluster) = self.current_cluster {
             // current cluster is none only if offset is 0
             debug_assert!(self.offset > 0);
-            self.fs.truncate_cluster_chain(current_cluster)
+            FileSystem::truncate_cluster_chain(&self.fs, current_cluster)
         } else {
             debug_assert!(self.offset == 0);
             if let Some(n) = self.first_cluster {
-                self.fs.free_cluster_chain(n)?;
+                FileSystem::free_cluster_chain(&self.fs, n)?;
                 self.first_cluster = None;
             }
             Ok(())
@@ -90,8 +91,8 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
     ///
     /// This returns an iterator over the byte ranges on-disk occupied by
     /// this file.
-    pub fn extents(&mut self) -> impl Iterator<Item = Result<Extent, Error<IO::Error>>> + 'a {
-        let fs = self.fs;
+    pub fn extents(&mut self) -> impl Iterator<Item = Result<Extent, Error<IO::Error>>> + '_ {
+        let fs = &self.fs;
         let cluster_size = fs.cluster_size();
         let Some(mut bytes_left) = self.size() else {
             return None.into_iter().flatten();
@@ -102,7 +103,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
 
         Some(
             core::iter::once(Ok(first))
-                .chain(fs.cluster_iter(first))
+                .chain(FileSystem::cluster_iter(fs, first))
                 .map(move |cluster_err| match cluster_err {
                     Ok(cluster) => {
                         let size = cluster_size.min(bytes_left);
@@ -142,7 +143,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
 
     fn flush_dir_entry(&mut self) -> Result<(), Error<IO::Error>> {
         if let Some(ref mut e) = self.entry {
-            e.flush(self.fs)?;
+            e.flush(&self.fs)?;
         }
         Ok(())
     }
@@ -220,7 +221,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> File<'a, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<IO, TP, OCC> {
     fn update_dir_entry_after_write(&mut self) {
         let offset = self.offset;
         if let Some(ref mut e) = self.entry {
@@ -233,7 +234,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<'_, IO, TP, OC
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.flush() {
             log::error!("flush failed {err:?}");
@@ -242,23 +243,23 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<'_, IO, TP, OCC> {
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for File<IO, TP, OCC> {
     fn clone(&self) -> Self {
         File {
             first_cluster: self.first_cluster,
             current_cluster: self.current_cluster,
             offset: self.offset,
             entry: self.entry.clone(),
-            fs: self.fs,
+            fs: Arc::clone(&self.fs),
         }
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for File<IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         log::trace!("File::read");
         let cluster_size = self.fs.cluster_size();
@@ -267,7 +268,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, I
             match self.current_cluster {
                 None => self.first_cluster,
                 Some(n) => {
-                    let r = self.fs.cluster_iter(n).next();
+                    let r = FileSystem::cluster_iter(&self.fs, n).next();
                     match r {
                         Some(Err(err)) => return Err(err),
                         Some(Ok(n)) => Some(n),
@@ -314,7 +315,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<'_, I
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Read for File<'_, IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Read for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -323,7 +324,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         log::trace!("File::write");
         let cluster_size = self.fs.cluster_size();
@@ -346,7 +347,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
             let next_cluster = match self.current_cluster {
                 None => self.first_cluster,
                 Some(n) => {
-                    let r = self.fs.cluster_iter(n).next();
+                    let r = FileSystem::cluster_iter(&self.fs, n).next();
                     match r {
                         Some(Err(err)) => return Err(err),
                         Some(Ok(n)) => Some(n),
@@ -358,7 +359,8 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
                 n
             } else {
                 // end of chain reached - allocate new cluster
-                let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir())?;
+                let new_cluster =
+                    FileSystem::alloc_cluster(&self.fs, self.current_cluster, self.is_dir())?;
                 log::trace!("allocated cluster {new_cluster}");
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
@@ -397,8 +399,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<'_, 
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write
-    for File<'_, IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -415,7 +416,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         log::trace!("File::seek");
         let size_opt = self.size();
@@ -461,7 +462,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
             debug_assert!(new_offset_in_clusters > 0);
             let clusters_to_skip = new_offset_in_clusters - 1;
             let mut cluster = first_cluster;
-            let mut iter = self.fs.cluster_iter(first_cluster);
+            let mut iter = FileSystem::cluster_iter(&self.fs, first_cluster);
             for i in 0..clusters_to_skip {
                 cluster = if let Some(r) = iter.next() {
                     r?
@@ -484,7 +485,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<'_, IO, TP, OCC> {
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Seek for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {

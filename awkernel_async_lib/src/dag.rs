@@ -37,7 +37,7 @@ use crate::{
             direction::Direction,
             NodeIndex,
         },
-        visit::{IntoNodeReferences, NodeRef},
+        visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
     sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
@@ -56,11 +56,14 @@ use core::{future::Future, pin::Pin, time::Duration};
 use performance::ResponseInfo;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
-static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
-static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
-static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
-static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+// The following BTreeMaps use dag_id (u32) as the key.
+static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new());
+static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, PendingTask>> = Mutex::new(BTreeMap::new());
+static MISMATCH_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new());
+static MISMATCH_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new());
+static DUPLICATE_SUBSCRIBE_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new());
+static DUPLICATE_PUBLISH_NODES: Mutex<BTreeMap<u32, Vec<usize>>> = Mutex::new(BTreeMap::new());
 
 type MeasureF = Arc<dyn Fn() + Send + Sync + 'static>;
 
@@ -91,21 +94,25 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
-    NoPublisherFound(u32, usize),       // (dag_id, node_id)
-    NoSubscriberFound(u32, usize),      // (dag_id, node_id)
-    SubscribeArityMismatch(u32, usize), // (dag_id, node_id)
-    PublishArityMismatch(u32, usize),   // (dag_id, node_id)
+    NoPublisherFound(u32, usize),
+    NoSubscriberFound(u32, usize),
+    SubscribeArityMismatch(u32, usize),
+    PublishArityMismatch(u32, usize),
+    DuplicateSubscribe(u32, usize),
+    DuplicatePublish(u32, usize),
+    TopicHasMultiplePublishers(u32, Cow<'static, str>),
+    InterDagTopicConflict(Cow<'static, str>, Vec<u32>),
 }
 
 #[rustfmt::skip]
 impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
-            DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
-            DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
-            DagError::MultipleSourceNodes(id) => write!(f, "DAG#{id} has multiple source nodes"),
-            DagError::MultipleSinkNodes(id) => write!(f, "DAG#{id} has multiple sink nodes"),
+            DagError::NotWeaklyConnected(dag_id) => write!(f, "DAG#{dag_id} is not weakly connected"),
+            DagError::ContainsCycle(dag_id) => write!(f, "DAG#{dag_id} contains a cycle"),
+            DagError::MissingPendingTasks(dag_id) => write!(f, "DAG#{dag_id} has missing pending tasks"),
+            DagError::MultipleSourceNodes(dag_id) => write!(f, "DAG#{dag_id} has multiple source nodes"),
+            DagError::MultipleSinkNodes(dag_id) => write!(f, "DAG#{dag_id} has multiple sink nodes"),
             DagError::NoPublisherFound(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: One or more subscribed topics have no corresponding publisher")
             }
@@ -118,37 +125,20 @@ impl core::fmt::Display for DagError {
             DagError::PublishArityMismatch(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: Mismatch in published topics and return values")
             }
+            DagError::DuplicateSubscribe(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate subscription,")
+            }
+            DagError::DuplicatePublish(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: found duplicate publication.")
+            }
+            DagError::TopicHasMultiplePublishers(dag_id, topic_name) => {
+                write!(f, "DAG#{dag_id}: Topic '{topic_name}' has multiple publishers")
+            }
+            DagError::InterDagTopicConflict(topic_name, dag_ids) => {
+                write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {dag_ids:?}")
+            }
         }
     }
-}
-
-struct PendingTask {
-    node_idx: NodeIndex,
-    spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
-}
-
-impl PendingTask {
-    fn new<F>(node_idx: NodeIndex, spawn_fn: F) -> Self
-    where
-        F: FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send + 'static,
-    {
-        Self {
-            node_idx,
-            spawn: Box::new(spawn_fn),
-        }
-    }
-}
-
-struct NodeInfo {
-    task_id: u32,
-    subscribe_topics: Vec<Cow<'static, str>>,
-    publish_topics: Vec<Cow<'static, str>>,
-    relative_deadline: Option<Duration>,
-}
-
-#[allow(dead_code)] // TODO: remove this later
-struct EdgeInfo {
-    topic_name: Cow<'static, str>,
 }
 
 pub struct Dag {
@@ -162,18 +152,6 @@ pub struct Dag {
 impl Dag {
     pub fn get_id(&self) -> u32 {
         self.id
-    }
-
-    pub fn node_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_count()
-    }
-
-    pub fn edge_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_count()
     }
 
     fn get_source_nodes(&self) -> Vec<NodeIndex> {
@@ -201,8 +179,8 @@ impl Dag {
     ) -> NodeIndex {
         let add_node_info = NodeInfo {
             task_id: 0, // Temporary task_id
-            subscribe_topics: subscribe_topic_names.to_vec(),
-            publish_topics: publish_topic_names.to_vec(),
+            subscribe_topic_names: subscribe_topic_names.to_vec(),
+            publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
         };
 
@@ -210,8 +188,25 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = graph.add_node(add_node_info);
 
-        let sub_topics: BTreeSet<_> = subscribe_topic_names.iter().collect();
-        let pub_topics: BTreeSet<_> = publish_topic_names.iter().collect();
+        let subscribe_topic_set: BTreeSet<_> = subscribe_topic_names.iter().collect();
+        let publish_topic_set: BTreeSet<_> = publish_topic_names.iter().collect();
+
+        if subscribe_topic_names.len() != subscribe_topic_set.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_subscribe_nodes = DUPLICATE_SUBSCRIBE_NODES.lock(&mut node);
+            duplicate_subscribe_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
+        if publish_topic_names.len() != publish_topic_set.len() {
+            let mut node = MCSNode::new();
+            let mut duplicate_publish_nodes = DUPLICATE_PUBLISH_NODES.lock(&mut node);
+            duplicate_publish_nodes
+                .entry(self.id)
+                .or_default()
+                .push(add_node_idx.index());
+        }
 
         let edges_to_add: Vec<_> = graph
             .node_references()
@@ -219,15 +214,15 @@ impl Dag {
                 let node_info = node_ref.weight();
 
                 let edges_from = node_info
-                    .subscribe_topics
+                    .subscribe_topic_names
                     .iter()
-                    .filter(|topic| pub_topics.contains(*topic))
+                    .filter(|topic| publish_topic_set.contains(*topic))
                     .map(move |topic| (add_node_idx, node_ref.id(), topic.clone()));
 
                 let edges_to = node_info
-                    .publish_topics
+                    .publish_topic_names
                     .iter()
-                    .filter(|topic| sub_topics.contains(*topic))
+                    .filter(|topic| subscribe_topic_set.contains(*topic))
                     .map(move |topic| (node_ref.id(), add_node_idx, topic.clone()));
 
                 edges_to.chain(edges_from).collect::<Vec<_>>()
@@ -420,6 +415,34 @@ impl Dag {
     }
 }
 
+struct PendingTask {
+    node_idx: NodeIndex,
+    spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
+}
+
+impl PendingTask {
+    fn new<F>(node_idx: NodeIndex, spawn_fn: F) -> Self
+    where
+        F: FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send + 'static,
+    {
+        Self {
+            node_idx,
+            spawn: Box::new(spawn_fn),
+        }
+    }
+}
+
+struct NodeInfo {
+    task_id: u32,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    relative_deadline: Option<Duration>,
+}
+
+struct EdgeInfo {
+    topic_name: Cow<'static, str>,
+}
+
 /// DAGs.
 struct Dags {
     candidate_id: u32, // Next candidate of Dag ID.
@@ -478,9 +501,26 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    match validate_all_rules(dags) {
+        Ok(()) => {
+            for dag in dags {
+                spawn_dag(dag).await;
+            }
+            Ok(())
+        }
+        Err(errors) => {
+            for dag in dags {
+                remove_dag(dag.id);
+            }
+            Err(errors)
+        }
+    }
+}
+
 fn remove_dag(id: u32) {
-    let mut node = MCSNode::new();
-    let mut dags = DAGS.lock(&mut node);
+    let mut dags_node = MCSNode::new();
+    let mut dags = DAGS.lock(&mut dags_node);
     dags.remove(id);
 
     let mut pending_node = MCSNode::new();
@@ -492,75 +532,69 @@ fn remove_dag(id: u32) {
     source_pending_tasks.remove(&id);
 }
 
-// NOTE: On the architecture for this arity validation.
-//
-// Ideally, this validation would be performed at an earlier stage, such as inside
-// the `impl_tuple_to_pub_sub` macro in `pubsub.rs`.
-//
-// However, that approach would perform the check after the reactor is already spawned.
-// This would limit error handling to just stopping the affected reactor, and implementing
-// a full cleanup of all related DAG data and other reactors would be overly complex.
-//
-// Therefore, we adopted the current architecture: errors are first recorded
-// to a `static` variable, and then collected and reported in a batch by this function.
-fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
-    let mut node = MCSNode::new();
+fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
+    let mut errors: Vec<DagError> = Vec::new();
 
-    let errors: Vec<_> = {
-        let subscribe_errors = MISMATCH_SUBSCRIBE_NODES
-            .lock(&mut node)
-            .remove(&dag_id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|node_id| DagError::SubscribeArityMismatch(dag_id, node_id));
+    for dag in dags {
+        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
+        if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
+            errors.extend(arg_errors.into_iter());
+        } else if let Err(dag_validation_error) = validate_dag(dag) {
+            errors.push(dag_validation_error);
+        } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicates(dag.id) {
+            errors.extend(pubsub_duplicate_errors);
+        } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
+            errors.extend(duplicate_error.into_iter());
+        }
+    }
 
-        let publish_errors = MISMATCH_PUBLISH_NODES
-            .lock(&mut node)
-            .remove(&dag_id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|node_id| DagError::PublishArityMismatch(dag_id, node_id));
+    if !errors.is_empty() {
+        return Err(errors);
+    }
 
-        subscribe_errors.chain(publish_errors).collect()
-    };
+    validate_dag_topic_conflicts()?;
+
+    Ok(())
+}
+
+fn validate_dag_topic_conflicts() -> Result<(), Vec<DagError>> {
+    let mut topic_to_dags: BTreeMap<Cow<'static, str>, Vec<u32>> = BTreeMap::new();
+
+    {
+        let mut node = MCSNode::new();
+        let dags = DAGS.lock(&mut node);
+
+        for dag in dags.id_to_dag.values() {
+            let mut node = MCSNode::new();
+            let graph = dag.graph.lock(&mut node);
+            for edge_ref in graph.edge_references() {
+                topic_to_dags
+                    .entry(edge_ref.weight().topic_name.clone())
+                    .or_default()
+                    .push(dag.id);
+            }
+        }
+    }
+
+    let errors: Vec<_> = topic_to_dags
+        .into_iter()
+        .filter_map(|(topic, mut dag_ids)| {
+            dag_ids.sort_unstable();
+            dag_ids.dedup();
+
+            if dag_ids.len() > 1 {
+                Some(DagError::InterDagTopicConflict(topic, dag_ids))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     if errors.is_empty() {
         Ok(())
     } else {
         Err(errors)
     }
-}
-
-/// This validation prevents issues caused by the following misconfigurations:
-/// - Message Loss: A published topic is not subscribed to by any reactor.
-/// - Indefinite Wait: A subscribed topic has no corresponding publisher.
-fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
-    type DagErrorFn = fn(u32, usize) -> DagError;
-
-    let mut node = MCSNode::new();
-    let graph = dag.graph.lock(&mut node);
-    for node_id in graph.node_indices() {
-        let node_info = graph.node_weight(node_id).unwrap();
-        for direction in [Direction::Incoming, Direction::Outgoing] {
-            let (expect_num, few_error) = match direction {
-                Direction::Incoming => (
-                    node_info.subscribe_topics.len(),
-                    DagError::NoPublisherFound as DagErrorFn,
-                ),
-                Direction::Outgoing => (
-                    node_info.publish_topics.len(),
-                    DagError::NoSubscriberFound as DagErrorFn,
-                ),
-            };
-
-            let actual_num = graph.neighbors_directed(node_id, direction).count();
-            if actual_num < expect_num {
-                return Err(few_error(dag.id, node_id.index()));
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
@@ -597,43 +631,157 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
-    let mut errors: Vec<DagError> = Vec::new();
+/// NOTE: On the architecture for this arity validation.
+///
+/// Ideally, this validation would be performed at an earlier stage, such as inside
+/// the `impl_tuple_to_pub_sub` macro in `pubsub.rs`.
+///
+/// However, that approach would perform the check after the reactor is already spawned.
+/// This would limit error handling to just stopping the affected reactor, and implementing
+/// a full cleanup of all related DAG data and other reactors would be overly complex.
+///
+/// Therefore, we adopted the current architecture: errors are first recorded
+/// to a `static` variable, and then collected and reported in a batch by this function.
+fn check_for_arity_mismatches(dag_id: u32) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
 
-    for dag in dags {
-        // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
-        if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
-            errors.extend(arg_errors.into_iter());
-        } else if let Err(dag_validation_error) = validate_dag(dag) {
-            errors.push(dag_validation_error);
+    let errors: Vec<_> = {
+        let subscribe_errors = MISMATCH_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::SubscribeArityMismatch(dag_id, node_id));
+
+        let publish_errors = MISMATCH_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::PublishArityMismatch(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Ideally, this validation would be performed at an earlier stage, such as inside
+/// the `add_node_with_topic_edges()`.
+///
+/// However, that approach would force the caller to handle a Result on every
+/// single node addition, making the API cumbersome, and implementing
+/// a full cleanup of all related DAG data and other reactors would be overly complex.
+///
+/// Therefore, we adopted the current architecture: errors are first recorded
+/// to a `static` variable, and then collected and reported in a batch by this function.
+fn check_for_pubsub_duplicates(dag_id: u32) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+
+    let errors: Vec<_> = {
+        let subscribe_errors = DUPLICATE_SUBSCRIBE_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicateSubscribe(dag_id, node_id));
+
+        let publish_errors = DUPLICATE_PUBLISH_NODES
+            .lock(&mut node)
+            .remove(&dag_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|node_id| DagError::DuplicatePublish(dag_id, node_id));
+
+        subscribe_errors.chain(publish_errors).collect()
+    };
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// This validation prevents issues caused by the following misconfigurations:
+/// - Message Loss: A published topic is not subscribed to by any reactor.
+/// - Indefinite Wait: A subscribed topic has no corresponding publisher.
+fn validate_edge_connect(dag: &Dag) -> Result<(), DagError> {
+    type DagErrorFn = fn(u32, usize) -> DagError;
+
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    for node_idx in graph.node_indices() {
+        let node_info = graph.node_weight(node_idx).unwrap();
+        for direction in [Direction::Incoming, Direction::Outgoing] {
+            let (expect_count, error) = match direction {
+                Direction::Incoming => (
+                    node_info.subscribe_topic_names.len(),
+                    DagError::NoPublisherFound as DagErrorFn,
+                ),
+                Direction::Outgoing => (
+                    node_info.publish_topic_names.len(),
+                    DagError::NoSubscriberFound as DagErrorFn,
+                ),
+            };
+
+            let actual_count = graph.neighbors_directed(node_idx, direction).count();
+            if actual_count < expect_count {
+                return Err(error(dag.id, node_idx.index()));
+            }
         }
     }
 
-    if !errors.is_empty() {
-        for dag in dags {
-            remove_dag(dag.id);
-        }
-        return Err(errors);
-    }
-
-    for dag in dags {
-        spawn_dag(dag).await;
-    }
     Ok(())
+}
+
+/// To simplify the current system design and management,
+/// we have adopted a rule that only one publisher is allowed per topic.
+///
+/// Note:
+/// This restriction may need to be relaxed in the future to support use cases
+/// where multiple publishers need to publish to a single, common topic.
+fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+
+    let publisher_counts_by_topic = graph.edge_references().fold(
+        BTreeMap::<Cow<'static, str>, usize>::new(),
+        |mut acc, edge| {
+            *acc.entry(edge.weight().topic_name.clone()).or_insert(0) += 1;
+            acc
+        },
+    );
+
+    let errors: Vec<_> = publisher_counts_by_topic
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(topic, _)| DagError::TopicHasMultiplePublishers(dag.id, topic))
+        .collect();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 async fn spawn_dag(dag: &Arc<Dag>) {
     let dag_id = dag.id;
     let pending_tasks = {
         let mut node = MCSNode::new();
-        let mut lock = PENDING_TASKS.lock(&mut node);
-        lock.remove(&dag_id).unwrap()
+        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
+        pending_tasks.remove(&dag_id).unwrap()
     };
 
     for task in pending_tasks {
         let task_id = (task.spawn)().await;
-        let mut graph_node = MCSNode::new();
-        let mut graph = dag.graph.lock(&mut graph_node);
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
         }
@@ -643,13 +791,13 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     // If the source reactor is not spawned last, it may publish a message before subsequent reactors are ready to receive it.
     let source_pending_task = {
         let mut node = MCSNode::new();
-        let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
-        lock.remove(&dag_id).unwrap()
+        let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
+        source_pending_tasks.remove(&dag_id).unwrap()
     };
 
     let task_id = (source_pending_task.spawn)().await;
-    let mut graph_node = MCSNode::new();
-    let mut graph = dag.graph.lock(&mut graph_node);
+    let mut node = MCSNode::new();
+    let mut graph = dag.graph.lock(&mut node);
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
     }
