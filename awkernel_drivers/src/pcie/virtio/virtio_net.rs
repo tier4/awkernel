@@ -102,17 +102,17 @@ struct VirtqAvail {
 // u32 is used here for ids for padding reasons.
 #[repr(C, packed)]
 struct VirtqUsedElem {
-    _id: u32, // Index of start of used descriptor chain.
-    _len: u32, // The number of bytes written into the device writable portion of
-              // the buffer described by the descriptor chain.
+    id: u32, // Index of start of used descriptor chain.
+    len: u32, // The number of bytes written into the device writable portion of
+             // the buffer described by the descriptor chain.
 }
 
 #[repr(C, packed)]
 struct VirtqUsed {
-    _flags: u16,
-    _idx: u16,
-    _ring: [VirtqUsedElem; MAX_VQ_SIZE],
-    _avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
+    flags: u16,
+    idx: u16,
+    ring: [VirtqUsedElem; MAX_VQ_SIZE],
+    avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
 // This is the memory layout on DMA
@@ -195,6 +195,27 @@ impl Virtq {
         avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
         self.vq_avail_idx += 1;
         avail.idx = self.vq_avail_idx;
+    }
+
+    /// dequeue: dequeue a request from uring.
+    #[allow(dead_code)]
+    fn virtio_dequeue(&mut self) -> Option<(usize, u32)> {
+        if self.vq_used_idx == self.vq_dma.as_ref().used.idx {
+            return None;
+        }
+
+        let used_idx = self.vq_used_idx & self.vq_mask as u16;
+        self.vq_used_idx += 1;
+
+        let used_ring = &self.vq_dma.as_ref().used.ring[used_idx as usize];
+        Some((used_ring.id as usize, used_ring.len))
+    }
+
+    /// dequeue_commit: complete dequeue; the slot is recycled for future use.
+    /// if you forget to call this the slot will be leaked.
+    #[allow(dead_code)]
+    fn virtio_dequeue_commit(&mut self, slot: usize) {
+        self.vq_free_entry(slot);
     }
 }
 
