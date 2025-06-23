@@ -195,35 +195,23 @@ impl Virtq {
         avail.idx = self.vq_avail_idx;
     }
 
-    /// dequeue: dequeue a request from uring;
-    /// bus_dmamap_sync for uring must already have been done,
-    /// usually by virtio_check_vq() in the interrupt handler.
-    /// This means that polling virtio_dequeue() repeatedly until it returns 0 does not work.
-    fn virtio_dequeue(&mut self) -> Result<(usize, u32), VirtioDriverErr> {
+    /// dequeue: dequeue a request from uring.
+    fn virtio_dequeue(&mut self) -> Option<(usize, u32)> {
         if self.vq_used_idx == self.vq_dma.as_ref().used.idx {
-            return Err(VirtioDriverErr::NoData);
+            return None;
         }
 
         let used_idx = self.vq_used_idx & self.vq_mask as u16;
         self.vq_used_idx += 1;
 
         let used_ring = &self.vq_dma.as_ref().used.ring[used_idx as usize];
-        Ok((used_ring.id as usize, used_ring.len))
+        Some((used_ring.id as usize, used_ring.len))
     }
 
     /// dequeue_commit: complete dequeue; the slot is recycled for future use.
     /// if you forget to call this the slot will be leaked.
-    /// Don't call this if you use statically allocated slots and virtio_enqueue_trim().
-    /// returns the number of freed slots.
-    fn virtio_dequeue_commit(&mut self, slot: usize) -> Result<u16, VirtioDriverErr> {
-        let mut freed_num = 0;
-
-        // TODO: chain for descriptors
-
+    fn virtio_dequeue_commit(&mut self, slot: usize) {
         self.vq_free_entry(slot);
-        freed_num += 1;
-
-        Ok(freed_num)
     }
 
     fn virtio_stop_vq_intr(&mut self) {
@@ -258,7 +246,7 @@ impl Virtq {
     /// dequeue received packets
     fn vio_rxeof(&mut self) -> Result<u16, VirtioDriverErr> {
         let mut freed = 0;
-        while let Ok((slot, len)) = self.virtio_dequeue() {
+        while let Some((slot, len)) = self.virtio_dequeue() {
             let buf = self.data_buf.as_mut();
             let data = buf[slot];
             let data = data[0..len as usize][12..].to_vec();
@@ -266,7 +254,8 @@ impl Virtq {
                 .push(EtherFrameBuf { data, vlan: None })
                 .unwrap();
 
-            freed += self.virtio_dequeue_commit(slot)?;
+            self.virtio_dequeue_commit(slot);
+            freed += 1;
         }
 
         Ok(freed)
@@ -283,8 +272,9 @@ impl Virtq {
 
     fn vio_tx_dequeue(&mut self) -> Result<u16, VirtioDriverErr> {
         let mut freed = 0;
-        while let Ok((slot, _len)) = self.virtio_dequeue() {
-            freed += self.virtio_dequeue_commit(slot)?;
+        while let Some((slot, _len)) = self.virtio_dequeue() {
+            self.virtio_dequeue_commit(slot);
+            freed += 1;
         }
 
         Ok(freed)
