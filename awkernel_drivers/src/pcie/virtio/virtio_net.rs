@@ -71,6 +71,10 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+const MCLSHIFT: u32 = 11;
+const MCLBYTES: u32 = 1 << MCLSHIFT;
+type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
+
 pub enum IRQType {
     Config,
     Control,
