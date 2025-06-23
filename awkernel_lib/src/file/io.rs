@@ -83,9 +83,6 @@ pub trait Read: IoBase {
         Ok(())
     }
 
-    /// Reads all bytes until EOF in this source and appends them to the specified buffer.
-    /// This is a helper for read_to_string. You might need to implement this one too,
-    /// similar to read_exact.
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Self::Error> {
         let mut sum_read = 0;
         loop {
