@@ -44,7 +44,10 @@ impl log::Log for Logger {
 }
 
 pub async fn run() {
-    let (tx, rx) = bounded::new(Default::default());
+    let (tx, rx) = bounded::new(bounded::Attribute {
+        queue_size: 4096,
+        ..Default::default()
+    });
     let buffered_logger = BufferedLogger { tx, discarded: 0 };
 
     {
@@ -57,8 +60,13 @@ pub async fn run() {
     awkernel_lib::logger::set_buf_console(&LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
 
+    let mut n: u8 = 0;
     while let Ok(msg) = rx.recv().await {
         awkernel_lib::console::print(&msg);
-        awkernel_async_lib::r#yield().await;
+        n += 1;
+
+        if n & 0x0f == 0 {
+            awkernel_async_lib::r#yield().await;
+        }
     }
 }

@@ -1,4 +1,4 @@
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
@@ -700,7 +700,6 @@ impl<IO: ReadWriteSeek + Send, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> 
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
     /// Note: This function returns label stored in the BPB block. Use `read_volume_label_from_root_dir` to read label
     /// from the root directory.
-    #[cfg(feature = "alloc")]
     pub fn volume_label(&self) -> String {
         // Decode volume label from OEM codepage
         let volume_label_iter = self.volume_label_as_bytes().iter().copied();
@@ -718,7 +717,6 @@ impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC: OemCpConverter> FileSystem
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    #[cfg(feature = "alloc")]
     pub fn read_volume_label_from_root_dir(
         fs: &Arc<Self>,
     ) -> Result<Option<String>, Error<IO::Error>> {

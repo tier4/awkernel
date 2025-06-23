@@ -5,8 +5,9 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::ETHER_TYPE_VLAN,
-        net_device::{self, LinkStatus, NetDevice},
+        ether::{ETHER_ADDR_LEN, ETHER_TYPE_VLAN},
+        multicast::MulticastAddrs,
+        net_device::{self, LinkStatus, NetDevice, NetFlags},
     },
     paging::PAGESIZE,
     sync::{mutex::Mutex, rwlock::RwLock},
@@ -40,6 +41,8 @@ const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
 
 const AUTO_ALL_MODES: u8 = 0;
 
+const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
+
 const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 
 const IGC_TXPBSIZE: u32 = 20408;
@@ -51,6 +54,8 @@ const DEVICE_SHORT_NAME: &str = "igc";
 
 const IGC_DEFAULT_RXD: usize = 1024;
 const IGC_DEFAULT_TXD: usize = 1024;
+
+const MAX_INTS_PER_SEC: u32 = 8000;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -121,14 +126,22 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-pub struct IgcInner {
-    ops: Box<dyn IgcOperations + Sync + Send>,
-    info: PCIeInfo,
-    hw: IgcHw,
+#[derive(Debug)]
+struct LinkInfo {
     link_active: bool,
     link_speed: Option<IgcSpeed>,
     link_duplex: Option<IgcDuplex>,
     link_status: LinkStatus,
+}
+
+pub struct IgcInner {
+    ops: Box<dyn IgcOperations + Sync + Send>,
+    info: PCIeInfo,
+    hw: IgcHw,
+    link_info: LinkInfo,
+    mta: Box<[[u8; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]>, // Multicast address table
+    multicast_addrs: MulticastAddrs,
+    if_flags: NetFlags,
 }
 
 pub struct Igc {
@@ -166,8 +179,6 @@ impl Igc {
         // Set the max frame size.
         hw.mac.max_frame_size = 9234;
 
-        // TODO: Allocate multicast array memory.
-
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
         }
@@ -175,12 +186,16 @@ impl Igc {
         // Disable Energy Efficient Ethernet (EEE).
         hw.dev_spec.eee_disable = true;
 
-        if igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw).is_err() {
-            let _ = igc_release_hw_control(&mut info);
-            return Err(InitFailure);
-        }
+        let link_info = match igc_attach_and_hw_control(ops.as_ref(), &mut info, &mut hw) {
+            Ok(link_info) => link_info,
+            Err(e) => {
+                log::error!("igc: Failed to attach and get hardware control: {e:?}");
+                let _ = igc_release_hw_control(&mut info);
+                return Err(InitFailure);
+            }
+        };
 
-        let inner = RwLock::new(IgcInner::new(ops, info, hw));
+        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info));
 
         let igc = Self {
             inner,
@@ -214,12 +229,22 @@ impl PCIeDevice for Igc {
 }
 
 impl NetDevice for Igc {
-    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
-        todo!("add_multicast_addr")
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
+
+        inner
+            .igc_iff()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
-    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
-        todo!("remove_multicast_addr");
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
+
+        inner
+            .igc_iff()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn can_send(&self) -> bool {
@@ -237,8 +262,10 @@ impl NetDevice for Igc {
     }
 
     fn down(&self) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+        let mut inner = self.inner.write();
+        inner
+            .igc_stop()
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn flags(&self) -> net_device::NetFlags {
@@ -264,12 +291,12 @@ impl NetDevice for Igc {
 
     fn link_speed(&self) -> u64 {
         let inner = self.inner.read();
-        inner.link_speed.map_or(0, |s| s as u64)
+        inner.link_info.link_speed.map_or(0, |s| s as u64)
     }
 
     fn link_status(&self) -> net_device::LinkStatus {
         let inner = self.inner.read();
-        inner.link_status
+        inner.link_info.link_status
     }
 
     fn mac_address(&self) -> [u8; 6] {
@@ -541,49 +568,82 @@ where
 }
 
 impl IgcInner {
-    fn new(ops: Box<dyn IgcOperations + Sync + Send>, info: PCIeInfo, hw: IgcHw) -> Self {
+    fn new(
+        ops: Box<dyn IgcOperations + Sync + Send>,
+        info: PCIeInfo,
+        hw: IgcHw,
+        link_info: LinkInfo,
+    ) -> Self {
         Self {
             ops,
             info,
             hw,
-            link_active: false,
-            link_speed: None,
-            link_duplex: None,
-            link_status: LinkStatus::Down,
+            link_info,
+            mta: Box::new([[0; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]),
+            multicast_addrs: MulticastAddrs::new(),
+            if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
         }
     }
 
-    fn igc_update_link_status(
-        &mut self,
-        ops: &dyn IgcOperations,
-        info: &mut PCIeInfo,
-        hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr> {
-        if hw.mac.get_link_status {
-            ops.check_for_link(info, hw)?;
+    fn igc_iff(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        for addr in self.mta.iter_mut() {
+            *addr = [0; ETHER_ADDR_LEN];
         }
 
-        self.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
-            if !self.link_active {
-                let (speed, duplex) = ops.get_link_up_info(info, hw)?;
-                self.link_speed = Some(speed);
-                self.link_duplex = Some(duplex);
-                self.link_active = true;
-            }
+        let mut reg_rctl = read_reg(&self.info, IGC_RCTL)?;
+        reg_rctl &= !(IGC_RCTL_UPE | IGC_RCTL_MPE);
+        self.if_flags.remove(NetFlags::ALLMULTI);
 
-            if self.link_duplex == Some(IgcDuplex::Full) {
-                LinkStatus::UpFullDuplex
-            } else {
-                LinkStatus::UpHalfDuplex
+        if self.if_flags.contains(NetFlags::PROMISC)
+            || self.multicast_addrs.len() > MAX_NUM_MULTICAST_ADDRESSES
+        {
+            self.if_flags.insert(NetFlags::ALLMULTI);
+            reg_rctl |= IGC_RCTL_MPE;
+            if self.if_flags.contains(NetFlags::PROMISC) {
+                reg_rctl |= IGC_RCTL_UPE;
             }
         } else {
-            if self.link_active {
-                self.link_speed = None;
-                self.link_duplex = None;
-                self.link_active = false;
+            for (addr, mta) in self.multicast_addrs.iter().zip(self.mta.iter_mut()) {
+                *mta = *addr;
             }
-            LinkStatus::Down
-        };
+
+            self.ops.update_mc_addr_list(
+                &mut self.info,
+                &mut self.hw,
+                &self.mta[0..self.multicast_addrs.len()],
+            )?;
+        }
+
+        write_reg(&self.info, IGC_RCTL, reg_rctl)?;
+
+        Ok(())
+    }
+
+    /// This routine disables all traffic on the adapter by issuing a
+    /// global reset on the MAC.
+    fn igc_stop(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        // Tell the stack that the interface is no longer active.
+        self.if_flags.remove(NetFlags::RUNNING);
+
+        // Disable interrupts.
+        igc_disable_intr(&mut self.info)?;
+
+        self.ops.reset_hw(&mut self.info, &mut self.hw)?;
+        write_reg(&self.info, IGC_WUC, 0)?;
+
+        // TODO: Free transmit and receive structures.
+
+        // Update link status.
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )?;
 
         Ok(())
     }
@@ -593,7 +653,7 @@ fn igc_attach_and_hw_control(
     ops: &dyn IgcOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
-) -> Result<(), PCIeDeviceErr> {
+) -> Result<LinkInfo, PCIeDeviceErr> {
     use PCIeDeviceErr::InitFailure;
 
     ops.reset_hw(info, hw).or(Err(InitFailure))?;
@@ -613,9 +673,24 @@ fn igc_attach_and_hw_control(
         return Err(PCIeDeviceErr::InitFailure);
     }
 
-    // TODO: continue initialization
+    let sc_fc = IgcFcMode::None; // No flow control request.
+    let sc_dmac = 0; // DMA Coalescing is disabled by default.
 
-    Ok(())
+    igc_reset(ops, info, hw, sc_fc, sc_dmac).or(Err(InitFailure))?;
+
+    hw.mac.get_link_status = true;
+    let mut link_info = LinkInfo {
+        link_active: false,
+        link_speed: None,
+        link_duplex: None,
+        link_status: LinkStatus::Down,
+    };
+    igc_update_link_status(ops, info, hw, &mut link_info).or(Err(InitFailure))?;
+
+    // The driver can now take control from firmware
+    igc_get_hw_control(info).or(Err(InitFailure))?;
+
+    Ok(link_info)
 }
 
 fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
@@ -724,4 +799,136 @@ fn igc_allocate_queues(
     }
 
     Ok((que, irq_to_queue))
+}
+
+fn igc_update_link_status(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    link_info: &mut LinkInfo,
+) -> Result<(), IgcDriverErr> {
+    if hw.mac.get_link_status {
+        ops.check_for_link(info, hw)?;
+    }
+
+    link_info.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
+        if !link_info.link_active {
+            let (speed, duplex) = ops.get_link_up_info(info, hw)?;
+            link_info.link_speed = Some(speed);
+            link_info.link_duplex = Some(duplex);
+            link_info.link_active = true;
+        }
+
+        if link_info.link_duplex == Some(IgcDuplex::Full) {
+            LinkStatus::UpFullDuplex
+        } else {
+            LinkStatus::UpHalfDuplex
+        }
+    } else {
+        if link_info.link_active {
+            link_info.link_speed = None;
+            link_info.link_duplex = None;
+            link_info.link_active = false;
+        }
+        LinkStatus::Down
+    };
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum QueueType {
+    Rx,
+    Tx,
+}
+
+fn igc_set_queues(
+    info: &mut PCIeInfo,
+    entry: u32,
+    vector: u32,
+    qtype: QueueType,
+) -> Result<(), IgcDriverErr> {
+    let index = (entry >> 1) as usize;
+    let mut ivar = read_reg_array(info, igc_regs::IGC_IVAR0, index)?;
+
+    match qtype {
+        QueueType::Tx => {
+            if entry & 1 != 0 {
+                ivar &= 0x00FFFFFF;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 24;
+            } else {
+                ivar &= 0xFFFF00FF;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 8;
+            }
+        }
+        QueueType::Rx => {
+            if entry & 1 != 0 {
+                ivar &= 0xFF00FFFF;
+                ivar |= (vector | igc_defines::IGC_IVAR_VALID) << 16;
+            } else {
+                ivar &= 0xFFFFFF00;
+                ivar |= vector | igc_defines::IGC_IVAR_VALID;
+            }
+        }
+    }
+    write_reg_array(info, igc_regs::IGC_IVAR0, index, ivar)?;
+
+    Ok(())
+}
+
+fn igc_enable_intr(
+    info: &mut PCIeInfo,
+    msix_queuesmask: u32,
+    msix_linkmask: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    let mask = msix_queuesmask | msix_linkmask;
+    write_reg(info, IGC_EIAC, mask)?;
+    write_reg(info, IGC_EIAM, mask)?;
+    write_reg(info, IGC_EIMS, mask)?;
+    write_reg(info, IGC_IMS, IGC_IMS_LSC)?;
+    write_flush(info)?;
+
+    Ok(())
+}
+
+fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    write_reg(info, IGC_EIMC, 0xffffffff)?;
+    write_reg(info, IGC_EIAC, 0)?;
+    write_reg(info, IGC_IMC, 0xffffffff)?;
+    write_flush(info)?;
+
+    Ok(())
+}
+
+fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // First turn on RSS capability
+    write_reg(
+        info,
+        IGC_GPIE,
+        IGC_GPIE_MSIX_MODE | IGC_GPIE_EIAME | IGC_GPIE_PBA | IGC_GPIE_NSICR,
+    )?;
+
+    // Set the starting interrupt rate
+    let newitr = (4000000 / MAX_INTS_PER_SEC) & 0x7FFC | IGC_EITR_CNT_IGNR;
+
+    // Turn on MSI-X
+    for q in queues.iter() {
+        // RX entries
+        igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Rx)?;
+        // TX entries
+        igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Tx)?;
+        write_reg(info, IGC_EITR(q.me), newitr)?;
+    }
+
+    // And for the link interrupt
+    let ivar = (queues.len() as u32 | IGC_IVAR_VALID) << 8;
+    write_reg(info, IGC_IVAR_MISC, ivar)?;
+
+    Ok(())
 }

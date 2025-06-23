@@ -6,20 +6,18 @@ use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAd
 //     notify_off_multiplier: u32,
 // }
 
-const VIRTIO_PCI_NOTIFY_CFG_NOTIFY_OFF_MULTIPLIER: usize = 0x10;
-
-pub struct VirtioNotifyCap {
+pub struct VirtioNotifyConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
-impl Default for VirtioNotifyCap {
+impl Default for VirtioNotifyConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VirtioNotifyCap {
+impl VirtioNotifyConfig {
     pub fn new() -> Self {
         Self {
             bar: BaseAddress::None,
@@ -35,15 +33,6 @@ impl VirtioNotifyCap {
         self.offset = cap.get_offset() as usize;
 
         Ok(())
-    }
-
-    pub fn virtio_get_notify_off_multiplier(&self) -> Result<u32, VirtioDriverErr> {
-        let multiplier = self
-            .bar
-            .read32(self.offset + VIRTIO_PCI_NOTIFY_CFG_NOTIFY_OFF_MULTIPLIER)
-            .ok_or(VirtioDriverErr::ReadFailure)?;
-
-        Ok(multiplier)
     }
 
     pub fn virtio_set_notify(&mut self, offset: usize, idx: u16) -> Result<(), VirtioDriverErr> {
