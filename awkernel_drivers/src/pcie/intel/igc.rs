@@ -134,6 +134,13 @@ struct LinkInfo {
     link_status: LinkStatus,
 }
 
+struct QueueInfo {
+    que: Vec<Queue>,
+    irqs_to_queues: BTreeMap<u16, usize>,
+    irqs_queues: Vec<IRQ>,
+    irq_events: IRQ,
+}
+
 pub struct IgcInner {
     ops: Box<dyn IgcOperations + Sync + Send>,
     info: PCIeInfo,
@@ -142,14 +149,11 @@ pub struct IgcInner {
     mta: Box<[[u8; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]>, // Multicast address table
     multicast_addrs: MulticastAddrs,
     if_flags: NetFlags,
+    queue_info: QueueInfo,
 }
 
 pub struct Igc {
     inner: RwLock<IgcInner>,
-    que: Vec<Queue>,
-    irqs_to_queues: BTreeMap<u16, usize>,
-    irqs_queues: Vec<IRQ>,
-    irq_events: IRQ,
 }
 
 impl Igc {
@@ -195,15 +199,16 @@ impl Igc {
             }
         };
 
-        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info));
-
-        let igc = Self {
-            inner,
+        let queue_info = QueueInfo {
             que,
             irqs_to_queues,
             irqs_queues,
             irq_events,
         };
+
+        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info, queue_info));
+
+        let igc = Self { inner };
         let mac_addr = igc.mac_address();
 
         log::info!(
@@ -279,12 +284,14 @@ impl NetDevice for Igc {
     }
 
     fn irqs(&self) -> Vec<u16> {
-        let mut result = Vec::with_capacity(self.irqs_queues.len() + 1);
-        for irq in self.irqs_queues.iter() {
+        let inner = self.inner.read();
+
+        let mut result = Vec::with_capacity(inner.queue_info.irqs_queues.len() + 1);
+        for irq in inner.queue_info.irqs_queues.iter() {
             result.push(irq.get_irq());
         }
 
-        result.push(self.irq_events.get_irq());
+        result.push(inner.queue_info.irq_events.get_irq());
 
         result
     }
@@ -305,7 +312,8 @@ impl NetDevice for Igc {
     }
 
     fn num_queues(&self) -> usize {
-        self.que.len()
+        let inner = self.inner.read();
+        inner.queue_info.que.len()
     }
 
     fn recv(
@@ -331,7 +339,8 @@ impl NetDevice for Igc {
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
-        self.irqs_to_queues.get(&irq).copied()
+        let inner = self.inner.read();
+        inner.queue_info.irqs_to_queues.get(&irq).copied()
     }
 }
 
@@ -573,6 +582,7 @@ impl IgcInner {
         info: PCIeInfo,
         hw: IgcHw,
         link_info: LinkInfo,
+        queue_info: QueueInfo,
     ) -> Self {
         Self {
             ops,
@@ -582,6 +592,7 @@ impl IgcInner {
             mta: Box::new([[0; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]),
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
+            queue_info,
         }
     }
 
