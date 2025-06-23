@@ -65,6 +65,8 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
+
 const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
 type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
@@ -110,7 +112,7 @@ struct VirtqUsedElem {
 #[repr(C, packed)]
 struct VirtqUsed {
     _flags: u16,
-    _idx: u16,
+    idx: u16,
     _ring: [VirtqUsedElem; MAX_VQ_SIZE],
     _avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
@@ -195,6 +197,19 @@ impl Virtq {
         avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
         self.vq_avail_idx += 1;
         avail.idx = self.vq_avail_idx;
+    }
+
+    /// Stop vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_stop_vq_intr(&mut self) {
+        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+    }
+
+    /// Start vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_start_vq_intr(&mut self) -> bool {
+        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        self.vq_used_idx != self.vq_dma.as_ref().used.idx
     }
 }
 
