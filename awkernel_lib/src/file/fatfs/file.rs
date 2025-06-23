@@ -14,7 +14,7 @@ const MAX_FILE_SIZE: u32 = u32::MAX;
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
-pub struct File<IO: ReadWriteSeek + Send + Sync, TP, OCC> {
+pub struct File<IO: ReadWriteSeek + Send, TP, OCC> {
     // Note first_cluster is None if file is empty
     first_cluster: Option<u32>,
     // Note: if offset points between clusters current_cluster is the previous cluster
@@ -38,7 +38,7 @@ pub struct Extent {
     pub size: u32,
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> File<IO, TP, OCC> {
     pub(crate) fn new(
         first_cluster: Option<u32>,
         entry: Option<DirEntryEditor>,
@@ -221,7 +221,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> File<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> File<IO, TP, OCC> {
     fn update_dir_entry_after_write(&mut self) {
         let offset = self.offset;
         if let Some(ref mut e) = self.entry {
@@ -234,7 +234,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> File<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Drop for File<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.flush() {
             log::error!("flush failed {err:?}");
@@ -243,7 +243,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Drop for File<IO, TP, OCC> {
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Clone for File<IO, TP, OCC> {
     fn clone(&self) -> Self {
         File {
             first_cluster: self.first_cluster,
@@ -255,11 +255,11 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for File<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> IoBase for File<IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Read for File<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         log::trace!("File::read");
         let cluster_size = self.fs.cluster_size();
@@ -315,7 +315,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for File<IO, T
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Read for File<IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Read for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -324,7 +324,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Write for File<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         log::trace!("File::write");
         let cluster_size = self.fs.cluster_size();
@@ -399,7 +399,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for File<IO, 
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Write for File<IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Write for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
@@ -416,7 +416,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for File<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         log::trace!("File::seek");
         let size_opt = self.size();
@@ -485,7 +485,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for File<IO, TP, OCC> {
 }
 
 #[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> std::io::Seek for File<IO, TP, OCC>
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Seek for File<IO, TP, OCC>
 where
     std::io::Error: From<Error<IO::Error>>,
 {
