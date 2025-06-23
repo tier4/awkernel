@@ -71,6 +71,8 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
+
 const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
 type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
@@ -96,8 +98,6 @@ struct VirtqDesc {
     flags: u16, // The flags as indicated above.
     next: u16,  // Next field if flags & NEXT.
 }
-
-const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
 
 #[repr(C, packed)]
 struct VirtqAvail {
@@ -218,15 +218,14 @@ impl Virtq {
         self.vq_free_entry(slot);
     }
 
+    /// Stop vq interrupt.  No guarantee.
     fn virtio_stop_vq_intr(&mut self) {
-        let dma = self.vq_dma.as_mut();
-        dma.avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
     }
 
+    /// Start vq interrupt.  No guarantee.
     fn virtio_start_vq_intr(&mut self) -> bool {
-        let dma = self.vq_dma.as_mut();
-        dma.avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
-
+        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
     }
 
