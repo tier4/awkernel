@@ -341,10 +341,6 @@ impl Virtq {
 
         Ok(())
     }
-
-    fn virtio_enqueue_prep(&mut self) -> Option<usize> {
-        self.vq_alloc_entry()
-    }
 }
 
 /// Packet header structure
