@@ -17,6 +17,7 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::{
+    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::net_device::{
@@ -62,6 +63,12 @@ const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
+const VIRTQ_DESC_F_WRITE: u16 = 2;
+
+const MCLSHIFT: u32 = 11;
+const MCLBYTES: u32 = 1 << MCLSHIFT;
+type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
+
 pub enum IRQType {
     Config,
     Control,
@@ -78,18 +85,18 @@ enum PCIeInt {
 // These can chain together via "next".
 #[repr(C, packed)]
 struct VirtqDesc {
-    _addr: u64,  // Address (guest-physical).
-    _len: u32,   // Length.
-    _flags: u16, // The flags as indicated above.
-    _next: u16,  // Next field if flags & NEXT.
+    addr: u64,  // Address (guest-physical).
+    len: u32,   // Length.
+    flags: u16, // The flags as indicated above.
+    next: u16,  // Next field if flags & NEXT.
 }
 
 #[repr(C, packed)]
 struct VirtqAvail {
-    _flags: u16,
-    _idx: u16,
-    _ring: [u16; MAX_VQ_SIZE],
-    _used_event: u16, // Only if VIRTIO_F_EVENT_IDX
+    flags: u16,
+    idx: u16,
+    ring: [u16; MAX_VQ_SIZE],
+    used_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
 // u32 is used here for ids for padding reasons.
@@ -111,11 +118,11 @@ struct VirtqUsed {
 // This is the memory layout on DMA
 #[repr(C, packed)]
 struct VirtqDMA {
-    _desc: [VirtqDesc; MAX_VQ_SIZE], // 4096 bytes
-    _avail: VirtqAvail,              // 518 bytes
-    _pad: [u8; 3578],                // 4096 - 518 = 3578 bytes
-    _used: VirtqUsed,                // 2054 bytes
-    _pad2: [u8; 2042],               // 4096 - 2054 = 2042 bytes
+    desc: [VirtqDesc; MAX_VQ_SIZE], // 4096 bytes
+    avail: VirtqAvail,              // 518 bytes
+    _pad: [u8; 3578],               // 4096 - 518 = 3578 bytes
+    used: VirtqUsed,                // 2054 bytes
+    _pad2: [u8; 2042],              // 4096 - 2054 = 2042 bytes
 } // 4096 * 3 = 12288 bytes in total
 
 #[allow(dead_code)]
@@ -128,6 +135,8 @@ struct Virtq {
     vq_used_idx: u16,
     vq_index: u16,
     vq_intr_vec: u16,
+
+    data_buf: DMAPool<RxTxBuffer>,
 }
 
 impl Virtq {
@@ -157,6 +166,32 @@ impl Virtq {
     #[allow(dead_code)]
     fn virtio_enqueue_prep(&mut self) -> Option<usize> {
         self.vq_alloc_entry()
+    }
+
+    /// enqueue_reserve: allocate remaining slots and build the descriptor chain.
+    #[allow(dead_code)]
+    fn virtio_enqueue_reserve(&mut self, slot: usize) {
+        self.vq_dma.as_mut().desc[slot].flags = 0;
+    }
+
+    /// enqueue: enqueue a single dmamap.
+    #[allow(dead_code)]
+    fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
+        let addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        self.vq_dma.as_mut().desc[slot].addr = u64::to_le(addr);
+        self.vq_dma.as_mut().desc[slot].len = u32::to_le(len as u32);
+        if !write {
+            self.vq_dma.as_mut().desc[slot].flags |= u16::to_le(VIRTQ_DESC_F_WRITE);
+        }
+        self.vq_dma.as_mut().desc[slot].next = 0;
+    }
+
+    /// enqueue_commit: add it to the available ring.
+    #[allow(dead_code)]
+    fn virtio_enqueue_commit(&mut self, slot: usize) {
+        self.vq_avail_idx += 1;
+        self.vq_dma.as_mut().avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
+        self.vq_dma.as_mut().avail.idx = self.vq_avail_idx;
     }
 }
 
@@ -534,6 +569,10 @@ impl VirtioNetInner {
         let allocsize = core::mem::size_of::<VirtqDMA>();
         let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
+        //
+        let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
+        let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+
         let mut vq = Virtq {
             vq_dma,
             vq_freelist: LinkedList::new(),
@@ -543,6 +582,7 @@ impl VirtioNetInner {
             vq_used_idx: 0,
             vq_index: index,
             vq_intr_vec: 0,
+            data_buf,
         };
 
         vq.init();
