@@ -1,4 +1,4 @@
-//! Virtual filesystem path (async version)
+//! Virtual filesystem path
 //!
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
@@ -299,33 +299,6 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
 
     /// Returns `true` if the path exists and is pointing at a directory, otherwise returns `false`.
     pub async fn is_dir(&self) -> VfsResult<bool, E> {
-        if !self.exists().await? {
-            return Ok(false);
-        }
-        let metadata = self.metadata().await?;
-        Ok(metadata.file_type == VfsFileType::Directory)
-    }
-
-    /// Returns true if a file or directory exists at this path, false otherwise
-    pub async fn exists(&self) -> VfsResult<bool, E> {
-        self.fs.fs.exists(&self.path).await
-    }
-
-    /// Returns the filename portion of this path
-    pub fn filename(&self) -> String {
-        self.filename_internal()
-    }
-
-    /// Returns the extension portion of this path
-    pub fn extension(&self) -> Option<String> {
-        self.extension_internal()
-    }
-
-    /// Returns the parent path of this portion of this path
-    pub fn parent(&self) -> Self {
-        let parent_path = self.parent_internal(&self.path);
-        Self {
-            path: parent_path.into(),
             fs: self.fs.clone(),
         }
     }
@@ -598,5 +571,6 @@ where
             .await
             .map_err(CopyError::WriteError)?;
         total_bytes_copied += bytes_read as u64;
+
     }
 }
