@@ -245,12 +245,17 @@ impl Virtq {
     }
 
     /// dequeue received packets
-    fn vio_rxeof(&mut self) -> Result<u16, VirtioDriverErr> {
+    fn vio_rxeof(&mut self) -> u16 {
         let mut freed = 0;
+
         while let Some((slot, len)) = self.virtio_dequeue() {
             let buf = self.data_buf.as_mut();
             let data = buf[slot];
+
+            // TODO: handle VirtIO-net header
+            // For now, we just skip the header by [12..]
             let data = data[0..len as usize][12..].to_vec();
+
             self.rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
                 .unwrap();
@@ -259,37 +264,34 @@ impl Virtq {
             freed += 1;
         }
 
-        Ok(freed)
+        freed
     }
 
-    fn vio_rx_intr(&mut self) -> Result<(), VirtioDriverErr> {
-        let freed = self.vio_rxeof()?;
+    fn vio_rx_intr(&mut self) {
+        let freed = self.vio_rxeof();
         if freed > 0 {
             self.vio_populate_rx_mbufs();
         }
-
-        Ok(())
     }
 
-    fn vio_tx_dequeue(&mut self) -> Result<u16, VirtioDriverErr> {
+    fn vio_tx_dequeue(&mut self) -> u16 {
         let mut freed = 0;
         while let Some((slot, _len)) = self.virtio_dequeue() {
             self.virtio_dequeue_commit(slot);
             freed += 1;
         }
 
-        Ok(freed)
+        freed
     }
 
-    fn vio_txeof(&mut self) -> Result<(), VirtioDriverErr> {
-        let freed = self.vio_tx_dequeue()?;
+    fn vio_txeof(&mut self) {
+        let freed = self.vio_tx_dequeue();
         if freed > 0 {
             self.virtio_stop_vq_intr();
         }
-        Ok(())
     }
 
-    fn vio_tx_intr(&mut self) -> Result<(), VirtioDriverErr> {
+    fn vio_tx_intr(&mut self) {
         self.vio_txeof()
     }
 
@@ -306,7 +308,7 @@ impl Virtq {
     }
 
     fn vio_start(&mut self, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
-        self.vio_tx_dequeue()?;
+        self.vio_tx_dequeue();
 
         for frame in frames {
             let slot = match self.virtio_enqueue_prep() {
@@ -321,7 +323,7 @@ impl Virtq {
         }
 
         if self.virtio_start_vq_intr() {
-            self.vio_tx_dequeue()?;
+            self.vio_tx_dequeue();
         }
 
         Ok(())
@@ -819,7 +821,7 @@ impl VirtioNetInner {
         for queue in self.virtqueues.iter_mut() {
             let mut node = MCSNode::new();
             let mut rx = queue.rx.lock(&mut node);
-            rx.vio_rxeof()?;
+            rx.vio_rxeof();
         }
 
         self.virtio_reinit_start()?;
@@ -939,7 +941,7 @@ impl NetDevice for VirtioNet {
             return Ok(Some(data));
         }
 
-        rx.vio_rxeof().or(Err(NetDevError::DeviceError))?;
+        rx.vio_rxeof();
 
         if let Some(data) = rx.rx_buffer.pop() {
             Ok(Some(data))
@@ -1032,7 +1034,7 @@ impl NetDevice for VirtioNet {
                     let mut node = MCSNode::new();
                     let mut rx = inner.virtqueues[*idx].rx.lock(&mut node);
                     if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
-                        rx.vio_rx_intr().or(Err(NetDevError::DeviceError))?;
+                        rx.vio_rx_intr();
                     }
                     rx.vq_index
                 };
@@ -1040,7 +1042,7 @@ impl NetDevice for VirtioNet {
                     let mut node = MCSNode::new();
                     let mut tx = inner.virtqueues[*idx].tx.lock(&mut node);
                     if tx.vq_used_idx != tx.vq_dma.as_ref().used.idx {
-                        tx.vio_tx_intr().or(Err(NetDevError::DeviceError))?;
+                        tx.vio_tx_intr();
                     }
                 }
                 inner
