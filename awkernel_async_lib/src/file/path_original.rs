@@ -2,12 +2,14 @@
 //!
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
-use super::filesystem::AsyncFileSystem;
+
+use crate::file::fatfs::AsyncFatFs;
+
+use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
     file::{
         error::IoError,
-        fatfs::{fs::LossyOemCpConverter, time::NullTimeProvider},
-        memfs::{InMemoryDisk, InMemoryDiskError},
+        memfs::InMemoryDiskError,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsResult},
             path::{PathLike, VfsFileType, VfsMetadata},
@@ -25,74 +27,48 @@ use alloc::{
     vec::Vec,
 };
 use async_recursion::async_recursion;
-use core::fmt::Debug;
 use core::{
     pin::Pin,
     task::{Context, Poll},
 };
 use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
 
-use embedded_io_async::{Read, Seek, SeekFrom, Write};
-
-// AsyncVfs は、ラップする AsyncFileSystem の具体的な型についてジェネリックになります。
-struct AsyncVfs<FS: AsyncFileSystem> {
-    fs: Box<FS>, // Box<dyn AsyncFileSystem> ではなく Box<FS>
+struct AsyncVfs<E: IoError> {
+    fs: Box<dyn AsyncFileSystem<Error = E>>,
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
 #[derive(Clone)]
-// AsyncVfsPath も AsyncFileSystem の具体的な型についてジェネリックになります。
-pub struct AsyncVfsPath<FS: AsyncFileSystem> {
+pub struct AsyncVfsPath<E: IoError> {
     path: Arc<str>,
-    fs: Arc<AsyncVfs<FS>>,
+    fs: Arc<AsyncVfs<E>>,
 }
 
-// PathLike トレイトの実装で、Error 型を FS::Error に変更
-impl<FS: AsyncFileSystem> PathLike for AsyncVfsPath<FS> {
-    type Error = FS::Error;
+impl<E: IoError + Clone> PathLike for AsyncVfsPath<E> {
+    type Error = E;
     fn get_path(&self) -> String {
         self.path.to_string()
     }
 }
 
-// PartialEq と Eq の実装もジェネリックパラメータ FS に対応
-impl<FS: AsyncFileSystem> PartialEq for AsyncVfsPath<FS> {
+impl<E: IoError> PartialEq for AsyncVfsPath<E> {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path && Arc::ptr_eq(&self.fs, &other.fs)
     }
 }
 
-impl<FS: AsyncFileSystem> Eq for AsyncVfsPath<FS> {}
+impl<E: IoError> Eq for AsyncVfsPath<E> {}
 
-// new_in_memory_fatfs は AsyncFatFs の具体的な型に依存するため、
-// FS の型が InMemoryDiskError を Error に持つ AsyncFatFs であることを前提とします。
-// AsyncFatFs が実際にどのように定義されているか不明なため、これは仮定です。
-// 通常は、`AsyncVfsPath<impl AsyncFileSystem<Error = InMemoryDiskError>>` のようには書けないため、
-// 具体的な AsyncFatFs の型をここで使うことになります。
-// 例: `AsyncVfsPath<crate::file::fatfs::InMemoryFatFs>` のように。
-// ここでは一般的なジェネリックな `FS` を使うパターンを維持します。
-impl
-    AsyncVfsPath<
-        crate::file::fatfs::AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>,
-    >
-{
-    // Assuming AsyncFatFs is the concrete type
+impl AsyncVfsPath<InMemoryDiskError> {
     pub fn new_in_memory_fatfs() -> Self {
-        let fs = crate::file::fatfs::AsyncFatFs::new_in_memory();
-        // new 関数が FS を直接受け取るように変更されたため、それに合わせる
+        let fs = AsyncFatFs::new_in_memory();
         AsyncVfsPath::new(fs)
     }
 }
 
-// AsyncVfsPath のメソッド実装ブロックも FS: AsyncFileSystem に基づく
-impl<FS> AsyncVfsPath<FS>
-where
-    FS: AsyncFileSystem + 'static, // FS 自体も Send + Sync + 'static の要件を持つはず
-    FS::Error: Clone + Send + Sync + Debug + 'static, // エラー型にも必要なトレイト境界を追加
-{
+impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem
-    // new 関数が T: AsyncFileSystem ではなく、直接 FS を受け取るように変更
-    pub fn new(filesystem: FS) -> Self {
+    pub fn new<T: AsyncFileSystem<Error = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
             path: "".into(),
             fs: Arc::new(AsyncVfs {
@@ -107,8 +83,7 @@ where
     }
 
     /// Appends a path segment to this path, returning the result
-    pub fn join(&self, path: impl AsRef<str>) -> VfsResult<Self, FS::Error> {
-        // E を FS::Error に変更
+    pub fn join(&self, path: impl AsRef<str>) -> VfsResult<Self, E> {
         let new_path = self.join_internal(&self.path, path.as_ref())?;
         Ok(Self {
             path: Arc::from(new_path),
@@ -130,18 +105,16 @@ where
     }
 
     /// Creates the directory at this path
-    pub async fn create_dir(&self) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn create_dir(&self) -> VfsResult<(), E> {
         self.get_parent("create directory").await?;
         self.fs.fs.create_dir(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not create directory".to_string())
+                .with_context(|| "Could not create directory")
         })
     }
 
     /// Creates the directory at this path, also creating parent directories as necessary
-    pub async fn create_dir_all(&self) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn create_dir_all(&self) -> VfsResult<(), E> {
         let mut pos = 1;
         let path = &self.path;
         if path.is_empty() {
@@ -157,7 +130,7 @@ where
             let directory = &path[..end];
             if let Err(error) = self.fs.fs.create_dir(directory).await {
                 match error.kind() {
-                    embedded_io_async::ErrorKind::AlreadyExists => {} // VfsErrorKind::DirectoryExists から変更
+                    VfsErrorKind::DirectoryExists => {}
                     _ => {
                         return Err(error
                             .with_path(directory)
@@ -174,8 +147,7 @@ where
     }
 
     /// Iterates over all entries of this directory path
-    pub async fn read_dir(&self) -> VfsResult<BoxStream<'static, Self>, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn read_dir(&self) -> VfsResult<BoxStream<'static, Self>, E> {
         let parent = self.path.clone();
         let fs = self.fs.clone();
         let stream = self
@@ -185,7 +157,7 @@ where
             .await
             .map_err(|err| {
                 err.with_path(&*self.path)
-                    .with_context(|| "Could not read directory".to_string())
+                    .with_context(|| "Could not read directory")
             })?
             .map(move |path_str| Self {
                 path: format!("{parent}/{path_str}").into(),
@@ -195,73 +167,68 @@ where
     }
 
     /// Creates a file at this path for writing, overwriting any existing file
-    // 戻り値の型を FS::WriteFile に変更
-    pub async fn create_file(&self) -> VfsResult<FS::WriteFile, FS::Error> {
+    pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
         self.get_parent("create file").await?;
         self.fs.fs.create_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not create file".to_string())
+                .with_context(|| "Could not create file")
         })
     }
 
     /// Opens the file at this path for reading
-    // 戻り値の型を FS::ReadFile に変更
-    pub async fn open_file(&self) -> VfsResult<FS::ReadFile, FS::Error> {
+    pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send>, E> {
         self.fs.fs.open_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not open file".to_string())
+                .with_context(|| "Could not open file")
         })
     }
 
     /// Checks whether parent is a directory
-    async fn get_parent(&self, action: &str) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    async fn get_parent(&self, action: &str) -> VfsResult<(), E> {
         let parent = self.parent();
         if !parent.exists().await? {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| format!("Could not {action}, parent directory does not exist")));
+            return Err(VfsError::from(VfsErrorKind::Other(format!(
+                "Could not {action}, parent directory does not exist"
+            )))
+            .with_path(&*self.path));
         }
         let metadata = parent.metadata().await?;
         if metadata.file_type != VfsFileType::Directory {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| format!("Could not {action}, parent path is not a directory")));
+            return Err(VfsError::from(VfsErrorKind::Other(format!(
+                "Could not {action}, parent path is not a directory"
+            )))
+            .with_path(&*self.path));
         }
         Ok(())
     }
 
     /// Opens the file at this path for appending
-    // 戻り値の型を FS::AppendFile に変更
-    pub async fn append_file(&self) -> VfsResult<FS::AppendFile, FS::Error> {
+    pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not open file for appending".to_string())
+                .with_context(|| "Could not open file for appending")
         })
     }
 
     /// Removes the file at this path
-    pub async fn remove_file(&self) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn remove_file(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not remove file".to_string())
+                .with_context(|| "Could not remove file")
         })
     }
 
     /// Removes the directory at this path
-    pub async fn remove_dir(&self) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn remove_dir(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_dir(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not remove directory".to_string())
+                .with_context(|| "Could not remove directory")
         })
     }
 
     /// Ensures that the directory at this path is removed, recursively deleting all contents if necessary
     #[async_recursion]
-    pub async fn remove_dir_all(&self) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn remove_dir_all(&self) -> VfsResult<(), E> {
         if !self.exists().await? {
             return Ok(());
         }
@@ -278,56 +245,51 @@ where
     }
 
     /// Returns the file metadata for the file at this path
-    pub async fn metadata(&self) -> VfsResult<VfsMetadata, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn metadata(&self) -> VfsResult<VfsMetadata, E> {
         self.fs.fs.metadata(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
-                .with_context(|| "Could not get metadata".to_string())
+                .with_context(|| "Could not get metadata")
         })
     }
 
     /// Sets the files creation timestamp at this path
-    pub async fn set_creation_time(&self, time: Time) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn set_creation_time(&self, time: Time) -> VfsResult<(), E> {
         self.fs
             .fs
             .set_creation_time(&self.path, time)
             .await
             .map_err(|err| {
                 err.with_path(&*self.path)
-                    .with_context(|| "Could not set creation timestamp.".to_string())
+                    .with_context(|| "Could not set creation timestamp.")
             })
     }
 
     /// Sets the files modification timestamp at this path
-    pub async fn set_modification_time(&self, time: Time) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn set_modification_time(&self, time: Time) -> VfsResult<(), E> {
         self.fs
             .fs
             .set_modification_time(&self.path, time)
             .await
             .map_err(|err| {
                 err.with_path(&*self.path)
-                    .with_context(|| "Could not set modification timestamp.".to_string())
+                    .with_context(|| "Could not set modification timestamp.")
             })
     }
 
     /// Sets the files access timestamp at this path
-    pub async fn set_access_time(&self, time: Time) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn set_access_time(&self, time: Time) -> VfsResult<(), E> {
         self.fs
             .fs
             .set_access_time(&self.path, time)
             .await
             .map_err(|err| {
                 err.with_path(&*self.path)
-                    .with_context(|| "Could not set access timestamp.".to_string())
+                    .with_context(|| "Could not set access timestamp.")
             })
     }
 
     /// Returns `true` if the path exists and is pointing at a regular file, otherwise returns `false`.
-    pub async fn is_file(&self) -> VfsResult<bool, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn is_file(&self) -> VfsResult<bool, E> {
         if !self.exists().await? {
             return Ok(false);
         }
@@ -336,8 +298,7 @@ where
     }
 
     /// Returns `true` if the path exists and is pointing at a directory, otherwise returns `false`.
-    pub async fn is_dir(&self) -> VfsResult<bool, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn is_dir(&self) -> VfsResult<bool, E> {
         if !self.exists().await? {
             return Ok(false);
         }
@@ -346,8 +307,7 @@ where
     }
 
     /// Returns true if a file or directory exists at this path, false otherwise
-    pub async fn exists(&self) -> VfsResult<bool, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn exists(&self) -> VfsResult<bool, E> {
         self.fs.fs.exists(&self.path).await
     }
 
@@ -371,8 +331,7 @@ where
     }
 
     /// Recursively iterates over all the directories and files at this path
-    pub async fn walk_dir(&self) -> VfsResult<WalkDirIterator<FS>, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn walk_dir(&self) -> VfsResult<WalkDirIterator<E>, E> {
         Ok(WalkDirIterator {
             inner: self.read_dir().await?,
             todo: vec![],
@@ -382,13 +341,14 @@ where
     }
 
     /// Reads a complete file to a string
-    pub async fn read_to_string(&self) -> VfsResult<String, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn read_to_string(&self) -> VfsResult<String, E> {
         let metadata = self.metadata().await?;
         if metadata.file_type != VfsFileType::File {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| "Path is a directory".to_string()));
+            return Err(
+                VfsError::from(VfsErrorKind::Other("Path is a directory".into()))
+                    .with_path(&*self.path)
+                    .with_context(|| "Could not read path"),
+            );
         }
         let mut buffer = vec![0; metadata.len as usize];
         self.open_file()
@@ -397,27 +357,23 @@ where
             .await
             .map_err(|err| {
                 err.with_path(&*self.path)
-                    .with_context(|| "Could not read path".to_string())
+                    .with_context(|| "Could not read path")
             })?;
 
         String::from_utf8(buffer).map_err(|_| {
-            VfsError::from(VfsErrorKind::Other)
+            VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
                 .with_path(&*self.path)
-                .with_context(|| {
-                    "Could not read path as string (Invalid UTF-8 sequence)".to_string()
-                })
+                .with_context(|| "Could not read path as string")
         })
     }
 
     /// Copies a file to a new destination
-    pub async fn copy_file(&self, destination: &AsyncVfsPath<FS>) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn copy_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
                 return Err(
-                    VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
-                        "Destination exists already".to_string()
-                    }),
+                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
+                        .with_path(&*self.path),
                 );
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
@@ -427,8 +383,8 @@ where
                     return result;
                 }
             }
-            let mut src = self.open_file().await?; // FS::ReadFile 型
-            let mut dest = destination.create_file().await?; // FS::WriteFile 型
+            let mut src = self.open_file().await?;
+            let mut dest = destination.create_file().await?;
             simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
                 CopyError::ReadError(e) => e,
                 CopyError::WriteError(e) => e,
@@ -444,13 +400,13 @@ where
     }
 
     /// Moves or renames a file to a new destination
-    pub async fn move_file(&self, destination: &AsyncVfsPath<FS>) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn move_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
-                    "Destination exists already".to_string()
-                }));
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&*destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.move_file(&self.path, &destination.path).await;
@@ -459,8 +415,8 @@ where
                     return result;
                 }
             }
-            let mut src = self.open_file().await?; // FS::ReadFile 型
-            let mut dest = destination.create_file().await?; // FS::WriteFile 型
+            let mut src = self.open_file().await?;
+            let mut dest = destination.create_file().await?;
             simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
                 CopyError::ReadError(e) => e,
                 CopyError::WriteError(e) => e,
@@ -477,14 +433,14 @@ where
     }
 
     /// Copies a directory to a new destination, recursively
-    pub async fn copy_dir(&self, destination: &AsyncVfsPath<FS>) -> VfsResult<u64, FS::Error> {
-        // E を FS::Error に変更
+    pub async fn copy_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<u64, E> {
         let files_copied = async {
             let mut files_copied = 0u64;
             if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::AlreadyExists)
-                    .with_path(&*destination.path)
-                    .with_context(|| "Destination exists already".to_string()));
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&*destination.path));
             }
             destination.create_dir().await?;
             let prefix = &self.path;
@@ -504,8 +460,7 @@ where
             Ok(files_copied)
         }
         .await
-        .map_err(|err: VfsError<FS::Error>| {
-            // ここも FS::Error に変更
+        .map_err(|err: VfsError<E>| {
             err.with_path(&*self.path).with_context(|| {
                 format!(
                     "Could not copy directory '{}' to '{}'",
@@ -518,14 +473,12 @@ where
     }
 
     /// Moves a directory to a new destination, including subdirectories and files
-    pub async fn move_dir(&self, destination: &AsyncVfsPath<FS>) -> VfsResult<(), FS::Error> {
-        // E を FS::Error に変更
+    pub async fn move_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
                 return Err(
-                    VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
-                        "Destination exists already".to_string()
-                    }),
+                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
+                        .with_path(&*destination.path),
                 );
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
@@ -551,7 +504,7 @@ where
             Ok(())
         }
         .await
-        .map_err(|err: VfsError<FS::Error>| { // ここも FS::Error に変更
+        .map_err(|err: VfsError<E>| {
             err.with_path(&*self.path).with_context(|| {
                 format!(
                     "Could not move directory '{}' to '{}'",
@@ -564,27 +517,17 @@ where
 }
 
 /// An iterator for recursively walking a file hierarchy
-// WalkDirIterator もジェネリックパラメータを FS に変更
-pub struct WalkDirIterator<FS: AsyncFileSystem> {
-    inner: BoxStream<'static, AsyncVfsPath<FS>>, // AsyncVfsPath<E> から AsyncVfsPath<FS> へ
-    todo: Vec<AsyncVfsPath<FS>>,                 // AsyncVfsPath<E> から AsyncVfsPath<FS> へ
-    _pending_meta: Option<BoxFuture<'static, VfsResult<VfsMetadata, FS::Error>>>, // E を FS::Error に変更
-    pending_read:
-        Option<BoxFuture<'static, VfsResult<BoxStream<'static, AsyncVfsPath<FS>>, FS::Error>>>, // E を FS::Error に変更
+pub struct WalkDirIterator<E: IoError + Clone + Send + Sync + 'static> {
+    inner: BoxStream<'static, AsyncVfsPath<E>>,
+    todo: Vec<AsyncVfsPath<E>>,
+    _pending_meta: Option<BoxFuture<'static, VfsResult<VfsMetadata, E>>>,
+    pending_read: Option<BoxFuture<'static, VfsResult<BoxStream<'static, AsyncVfsPath<E>>, E>>>,
 }
 
-// Unpin 実装もジェネリックパラメータ FS に対応
-impl<FS: AsyncFileSystem + 'static> Unpin for WalkDirIterator<FS> where
-    FS::Error: Clone + Send + Sync + 'static
-{
-}
+impl<E: IoError + Clone + Send + Sync + 'static> Unpin for WalkDirIterator<E> {}
 
-// Stream 実装もジェネリックパラメータ FS に対応
-impl<FS: AsyncFileSystem + 'static> Stream for WalkDirIterator<FS>
-where
-    FS::Error: Clone + Send + Sync + Debug + 'static,
-{
-    type Item = VfsResult<AsyncVfsPath<FS>, FS::Error>; // E を FS::Error に変更
+impl<E: IoError + Clone + Send + Sync + 'static> Stream for WalkDirIterator<E> {
+    type Item = VfsResult<AsyncVfsPath<E>, E>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -625,7 +568,6 @@ where
     }
 }
 
-// CopyError もジェネリックパラメータ FS::Error に対応
 #[derive(Debug)]
 pub enum CopyError<E: IoError> {
     ReadError(VfsError<E>),
@@ -634,12 +576,13 @@ pub enum CopyError<E: IoError> {
 
 const COPY_BUF_SIZE: usize = 8 * 1024;
 
-// simple_async_copy は Read, Write, Seek トレイトを直接使用するように変更
-pub async fn simple_async_copy<E, R, W>(reader: &mut R, writer: &mut W) -> Result<u64, CopyError<E>>
+pub async fn simple_async_copy<E: IoError + Clone, R, W>(
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<u64, CopyError<E>>
 where
-    E: IoError + Clone + Send + Sync + 'static, // エラー型に必要
-    R: Read<Error = E> + Seek<Error = E> + Unpin + ?Sized, // embedded_io_async::Read/Seek を直接指定
-    W: Write<Error = E> + Seek<Error = E> + Unpin + ?Sized, // embedded_io_async::Write/Seek を直接指定
+    R: AsyncSeekAndRead<E> + Unpin + ?Sized,
+    W: AsyncSeekAndWrite<E> + Unpin + ?Sized,
 {
     let mut buf = [0; COPY_BUF_SIZE];
     let mut total_bytes_copied = 0;
@@ -647,9 +590,7 @@ where
         let bytes_read = match reader.read(&mut buf).await {
             Ok(0) => return Ok(total_bytes_copied),
             Ok(n) => n,
-            Err(e) => {
-                return Err(CopyError::ReadError(e));
-            }
+            Err(e) => return Err(CopyError::ReadError(e)),
         };
 
         writer

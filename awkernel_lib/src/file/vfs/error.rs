@@ -13,13 +13,26 @@ pub struct VfsError<E> {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
-    kind: VfsErrorKind<E>,
+    pub kind: VfsErrorKind<E>,
     /// An optional human-readable string describing the context for this error
     ///
     /// If not provided, a generic context message is used
     context: String,
     /// The underlying error
     cause: Option<Box<VfsError<E>>>,
+}
+
+impl<E> embedded_io_async::Error for VfsError<E>
+where
+    E: embedded_io_async::Error + fmt::Debug + 'static, // VfsError がラップするエラーも `embedded_io_async::Error` を実装し、Debug 可能である必要がある
+{
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        // VfsErrorKind に応じて適切な ErrorKind を返す
+        match self.kind {
+            VfsErrorKind::FileNotFound => embedded_io_async::ErrorKind::NotFound,
+            _ => embedded_io_async::ErrorKind::Unsupported,
+        }
+    }
 }
 
 /// The only way to create a VfsError is via a VfsErrorKind

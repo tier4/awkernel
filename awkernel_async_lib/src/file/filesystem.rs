@@ -9,79 +9,9 @@ use awkernel_lib::file::{
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
 };
+use core::fmt::Debug;
+use embedded_io_async::{Read, Seek, Write};
 use futures::stream::BoxStream;
-
-#[async_trait]
-pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>>;
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>>;
-
-    async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), VfsError<E>> {
-        while !buf.is_empty() {
-            match self.read(buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    buf = &mut buf[n..];
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        if !buf.is_empty() {
-            Err(VfsError::from(VfsErrorKind::from(Error::from(
-                E::new_unexpected_eof_error(),
-            )))
-            .with_context(|| "failed to fill whole buffer"))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[async_trait]
-pub trait AsyncSeekAndWrite<E: IoError>: Send + Unpin {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<E>>;
-
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<E>>;
-
-    async fn flush(&mut self) -> Result<(), VfsError<E>>;
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>>;
-}
-
-#[async_trait]
-impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>> {
-        (**self).read(buf).await
-    }
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>> {
-        (**self).seek(pos).await
-    }
-
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), VfsError<E>> {
-        (**self).read_exact(buf).await
-    }
-}
-
-#[async_trait]
-impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<E>> {
-        (**self).write(buf).await
-    }
-
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<E>> {
-        (**self).write_all(buf).await
-    }
-
-    async fn flush(&mut self) -> Result<(), VfsError<E>> {
-        (**self).flush().await
-    }
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<E>> {
-        (**self).seek(pos).await
-    }
-}
 
 /// File system implementations must implement this trait
 /// All path parameters are absolute, starting with '/', except for the root directory
@@ -91,81 +21,72 @@ impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + 
 ///
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
 #[async_trait]
-pub trait AsyncFileSystem: Sync + Send + 'static {
-    /// The error type that can be returned by this file system.
-    type Error: IoError + Clone + Send + Sync;
+pub trait AsyncFileSystem: Sync + Send + Clone + 'static {
+    /// このファイルシステムが返すエラー型。
+    type Error: IoError + Clone + Send + Sync + Debug;
 
-    /// Iterates over all direct children of this directory path
-    /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
+    /// open_file から返される読み取り可能なファイルオブジェクトの型。
+    /// この型は embedded_io_async::Read と embedded_io_async::Seek を実装し、
+    /// Send と 'static のライフタイム要件を満たす必要があります。
+    type ReadFile: Read<Error = Self::Error> + Seek<Error = Self::Error> + Send + 'static;
+
+    /// create_file から返される書き込み可能なファイルオブジェクトの型。
+    /// この型は embedded_io_async::Write と embedded_io_async::Seek を実装し、
+    /// Send と 'static のライフタイム要件を満たす必要があります。
+    type WriteFile: Write<Error = Self::Error> + Seek<Error = Self::Error> + Send + 'static;
+
+    /// このディレクトリパスの直下の子をすべてイテレートします。
+    /// NOTE: 返される String アイテムは、ローカルのファイル名（"/" を含まない）です。
     async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error>;
 
-    /// Creates the directory at this path
+    /// このパスにディレクトリを作成します。
     ///
-    /// Note that the parent directory must already exist.
+    /// 親ディレクトリはすでに存在している必要があります。
     async fn create_dir(&self, path: &str) -> VfsResult<(), Self::Error>;
 
-    /// Opens the file at this path for reading
-    async fn open_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send>, Self::Error>;
+    /// このパスのファイルを読み取り用に開きます。
+    async fn open_file(&self, path: &str) -> VfsResult<Self::ReadFile, Self::Error>;
 
-    /// Creates a file at this path for writing
-    async fn create_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    /// このパスにファイルを書き込み用に作成します。
+    async fn create_file(&self, path: &str) -> VfsResult<Self::WriteFile, Self::Error>;
 
-    /// Opens the file at this path for appending
-    async fn append_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    /// このパスのファイルを追記用に開きます。
+    async fn append_file(&self, path: &str) -> VfsResult<Self::WriteFile, Self::Error>;
 
-    /// Returns the file metadata for the file at this path
+    /// このパスのファイルのメタデータを返します。
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error>;
 
-    /// Sets the files creation timestamp, if the implementation supports it
+    /// ファイルの作成タイムスタンプを設定します（実装がサポートしている場合）。
     async fn set_creation_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
-        Err(VfsError::from(VfsErrorKind::NotSupported))
+        Err(VfsErrorKind::NotSupported.into())
     }
-    /// Sets the files modification timestamp, if the implementation supports it
+    /// ファイルの変更タイムスタンプを設定します（実装がサポートしている場合）。
     async fn set_modification_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
-        Err(VfsError::from(VfsErrorKind::NotSupported))
+        Err(VfsErrorKind::NotSupported.into())
     }
-    /// Sets the files access timestamp, if the implementation supports it
+    /// ファイルのアクセスタイムスタンプを設定します（実装がサポートしている場合）。
     async fn set_access_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
-        Err(VfsError::from(VfsErrorKind::NotSupported))
+        Err(VfsErrorKind::NotSupported.into())
     }
-    /// Returns true if a file or directory at path exists, false otherwise
+    /// パスにファイルまたはディレクトリが存在する場合は true を、それ以外の場合は false を返します。
     async fn exists(&self, path: &str) -> VfsResult<bool, Self::Error>;
 
-    /// Removes the file at this path
+    /// このパスのファイルを削除します。
     async fn remove_file(&self, path: &str) -> VfsResult<(), Self::Error>;
 
-    /// Removes the directory at this path
+    /// このパスのディレクトリを削除します。
     async fn remove_dir(&self, path: &str) -> VfsResult<(), Self::Error>;
 
-    /// Copies the src path to the destination path within the same filesystem (optional)
+    /// 同一ファイルシステム内で src パスを dest パスにコピーします（オプション）。
     async fn copy_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
         Err(VfsErrorKind::NotSupported.into())
     }
-    /// Moves the src path to the destination path within the same filesystem (optional)
+    /// 同一ファイルシステム内で src パスを dest パスに移動します（オプション）。
     async fn move_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
         Err(VfsErrorKind::NotSupported.into())
     }
-    /// Moves the src directory to the destination path within the same filesystem (optional)
+    /// 同一ファイルシステム内で src ディレクトリを dest パスに移動します（オプション）。
     async fn move_dir(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
         Err(VfsErrorKind::NotSupported.into())
-    }
-}
-
-impl<E, T> From<T> for AsyncVfsPath<E>
-where
-    E: IoError + Clone + Send + Sync + 'static,
-    T: AsyncFileSystem<Error = E>,
-{
-    fn from(filesystem: T) -> Self {
-        AsyncVfsPath::new(filesystem)
     }
 }

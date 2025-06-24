@@ -1,4 +1,4 @@
-use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
+use super::filesystem::AsyncFileSystem;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -8,7 +8,7 @@ use alloc::{
 use async_trait::async_trait;
 use awkernel_lib::{
     file::{
-        error::Error,
+        error::{Error, IoError},
         fatfs::{
             file::File,
             fs::{FileSystem, LossyOemCpConverter, OemCpConverter, ReadWriteSeek},
@@ -18,14 +18,15 @@ use awkernel_lib::{
         io::{Read, Seek, SeekFrom, Write},
         memfs::InMemoryDisk,
         vfs::{
-            error::{VfsError, VfsResult},
+            error::{VfsError, VfsErrorKind, VfsResult},
             path::{VfsFileType, VfsMetadata},
         },
     },
     sync::{mcs::MCSNode, mutex::Mutex},
     time::Time,
 };
-use core::{fmt, task::Poll};
+use core::{fmt::Debug, task::Poll};
+use embedded_io_async::{ErrorType, Read as AsyncRead, Seek as AsyncSeek, Write as AsyncWrite};
 use futures::stream::{self, BoxStream};
 
 struct AsyncFile<IO, TP, OCC>
@@ -37,73 +38,17 @@ where
     file: Mutex<File<IO, TP, OCC>>,
 }
 
-#[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndRead<IO::Error> for AsyncFile<IO, TP, OCC>
+impl<IO, TP, OCC> ErrorType for AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + 'static,
-    TP: TimeProvider + Send + Sync + 'static,
-    OCC: OemCpConverter + Send + Sync + 'static,
+    IO: ReadWriteSeek + Send + Sync,
+    IO::Error: IoError + 'static + embedded_io_async::Error + Debug, // ここに `'static` ライフタイム境界を追加
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<IO::Error>> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).read(buf).map_err(VfsError::from);
-            Poll::Ready(result)
-        })
-        .await
-    }
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<IO::Error>> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).seek(pos).map_err(VfsError::from);
-            Poll::Ready(result)
-        })
-        .await
-    }
+    type Error = VfsError<IO::Error>;
 }
 
-#[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndWrite<IO::Error> for AsyncFile<IO, TP, OCC>
-where
-    IO: ReadWriteSeek + Send + Sync + 'static,
-    TP: TimeProvider + Send + Sync + 'static,
-    OCC: OemCpConverter + Send + Sync + 'static,
-{
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<IO::Error>> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).write(buf).map_err(VfsError::from))
-        })
-        .await
-    }
-
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError<IO::Error>> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).write_all(buf).map_err(VfsError::from))
-        })
-        .await
-    }
-
-    async fn flush(&mut self) -> Result<(), VfsError<IO::Error>> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).flush().map_err(VfsError::from))
-        })
-        .await
-    }
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError<IO::Error>> {
-        <Self as AsyncSeekAndRead<IO::Error>>::seek(self, pos).await
-    }
-}
-
+#[derive(Clone)]
 pub struct AsyncFatFs<IO, TP, OCC>
 where
     IO: ReadWriteSeek + Send + Sync,
@@ -122,14 +67,56 @@ impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
 }
 
 #[async_trait]
-impl<IO, TP, OCC> AsyncFileSystem for AsyncFatFs<IO, TP, OCC>
+impl<IO, TP, OCC> AsyncRead for AsyncFile<IO, TP, OCC>
+// AsyncSeekAndRead ではなく embedded_io_async::Read を実装
 where
     IO: ReadWriteSeek + Send + Sync + 'static,
-    IO::Error: fmt::Debug + Send + Sync + Clone,
+    IO::Error: IoError + 'static + embedded_io_async::Error + Debug, // embedded_io_async::Read に必要なエラー型境界
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
 {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        core::future::poll_fn(|_cx| {
+            let mut node = MCSNode::new();
+            let mut file_guard = self.file.lock(&mut node);
+            let result = (*file_guard).read(buf).map_err(VfsError::from);
+            Poll::Ready(result)
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl<IO, TP, OCC> AsyncSeek for AsyncFile<IO, TP, OCC>
+// AsyncSeekAndRead の一部としてではなく embedded_io_async::Seek を実装
+where
+    IO: ReadWriteSeek + Send + Sync + 'static,
+    IO::Error: IoError + 'static + embedded_io_async::Error + Debug, // embedded_io_async::Read に必要なエラー型境界
+    TP: TimeProvider + Send + Sync + 'static,
+    OCC: OemCpConverter + Send + Sync + 'static,
+{
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        core::future::poll_fn(|_cx| {
+            let mut node = MCSNode::new();
+            let mut file_guard = self.file.lock(&mut node);
+            let result = (*file_guard).seek(pos).map_err(VfsError::from);
+            Poll::Ready(result)
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl<IO, TP, OCC> AsyncFileSystem for AsyncFatFs<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Sync + Clone + 'static,
+    IO::Error: Debug + Send + Sync + Clone,
+    TP: TimeProvider + Send + Sync + Clone + 'static,
+    OCC: OemCpConverter + Send + Sync + Clone + 'static,
+{
     type Error = IO::Error;
+    type ReadFile = AsyncFile<IO, TP, OCC>;
+    type WriteFile = AsyncFile<IO, TP, OCC>;
 
     async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error> {
         let path = path.to_string();
@@ -158,10 +145,7 @@ where
         Ok(())
     }
 
-    async fn open_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send>, Self::Error> {
+    async fn open_file(&self, path: &str) -> VfsResult<Self::ReadFile, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
 
@@ -170,15 +154,12 @@ where
         })
         .await?;
 
-        Ok(Box::new(AsyncFile {
+        Ok(AsyncFile {
             file: Mutex::new(file),
-        }))
+        })
     }
 
-    async fn create_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error> {
+    async fn create_file(&self, path: &str) -> VfsResult<Self::WriteFile, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
         let file = core::future::poll_fn(move |_cx| {
@@ -186,15 +167,12 @@ where
         })
         .await?;
 
-        Ok(Box::new(AsyncFile {
+        Ok(AsyncFile {
             file: Mutex::new(file),
-        }))
+        })
     }
 
-    async fn append_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error> {
+    async fn append_file(&self, path: &str) -> VfsResult<Self::WriteFile, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
         let file = core::future::poll_fn(move |_cx| {
@@ -207,9 +185,9 @@ where
         })
         .await?;
 
-        Ok(Box::new(AsyncFile {
+        Ok(AsyncFile {
             file: Mutex::new(file),
-        }))
+        })
     }
 
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error> {

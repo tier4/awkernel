@@ -12,6 +12,7 @@ array-macro = "2.1"
 fixedbitset = "0.5.7"
 async-trait = "0.1"
 async-recursion = "1.1"
+embedded-io-async = "0.6"
 
 [dependencies.futures]
 version = "0.3"
