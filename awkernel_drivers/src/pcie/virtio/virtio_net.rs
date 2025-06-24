@@ -65,6 +65,8 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
+const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
+
 const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
 type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
@@ -216,6 +218,19 @@ impl Virtq {
     #[allow(dead_code)]
     fn virtio_dequeue_commit(&mut self, slot: usize) {
         self.vq_free_entry(slot);
+    }
+
+    /// Stop vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_stop_vq_intr(&mut self) {
+        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+    }
+
+    /// Start vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_start_vq_intr(&mut self) -> bool {
+        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        self.vq_used_idx != self.vq_dma.as_ref().used.idx
     }
 }
 
