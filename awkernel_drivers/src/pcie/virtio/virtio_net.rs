@@ -473,7 +473,8 @@ impl VirtioNetInner {
         self.capabilities = NetCapabilities::empty();
         self.flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
 
-        for i in 0..1 {
+        let num_queues = 1; // TODO: support multiple queues
+        for i in 0..num_queues {
             let mut rx = self.virtio_alloc_vq(2 * i)?;
             rx.virtio_start_vq_intr();
             rx.vq_intr_vec = i + 2;
@@ -481,6 +482,7 @@ impl VirtioNetInner {
             let mut tx = self.virtio_alloc_vq(2 * i + 1)?;
             tx.virtio_stop_vq_intr();
             tx.vq_intr_vec = i + 2;
+
             self.virtqueues.push(Queue {
                 rx: Mutex::new(rx),
                 tx: Mutex::new(tx),
@@ -496,9 +498,10 @@ impl VirtioNetInner {
             let irq = self.virtio_pci_msix_establish(1, IRQType::Control)?;
             irqs.push((irq, IRQType::Control));
 
-            // TODO: support multiple queues
-            let irq = self.virtio_pci_msix_establish(2, IRQType::Queue(0))?;
-            irqs.push((irq, IRQType::Queue(0)));
+            for i in 0..num_queues {
+                let irq = self.virtio_pci_msix_establish(i + 2, IRQType::Queue(i as usize))?;
+                irqs.push((irq, IRQType::Queue(i as usize)));
+            }
 
             self.pcie_int = PCIeInt::MsiX(irqs);
         }
