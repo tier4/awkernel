@@ -1,4 +1,4 @@
-//! Virtual filesystem path (async version)
+//! Virtual filesystem path
 //!
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
@@ -105,6 +105,11 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Creates the directory at this path
+    ///
+    /// Note that the parent directory must exist, while the given path must not exist.
+    ///
+    /// Returns VfsErrorKind::FileExists if a file already exists at the given path
+    /// Returns VfsErrorKind::DirectoryExists if a directory already exists at the given path
     pub async fn create_dir(&self) -> VfsResult<(), E> {
         self.get_parent("create directory").await?;
         self.fs.fs.create_dir(&self.path).await.map_err(|err| {
@@ -219,6 +224,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Removes the directory at this path
+    ///
+    /// The directory must be empty.
     pub async fn remove_dir(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_dir(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
@@ -227,6 +234,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Ensures that the directory at this path is removed, recursively deleting all contents if necessary
+    ///
+    /// Returns successfully if directory does not exist
     #[async_recursion]
     pub async fn remove_dir_all(&self) -> VfsResult<(), E> {
         if !self.exists().await? {
@@ -289,6 +298,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Returns `true` if the path exists and is pointing at a regular file, otherwise returns `false`.
+    ///
+    /// Note that this call may fail if the file's existence cannot be determined or the metadata can not be retrieved
     pub async fn is_file(&self) -> VfsResult<bool, E> {
         if !self.exists().await? {
             return Ok(false);
@@ -298,6 +309,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Returns `true` if the path exists and is pointing at a directory, otherwise returns `false`.
+    ///
+    /// Note that this call may fail if the directory's existence cannot be determined or the metadata can not be retrieved
     pub async fn is_dir(&self) -> VfsResult<bool, E> {
         if !self.exists().await? {
             return Ok(false);
@@ -322,6 +335,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Returns the parent path of this portion of this path
+    ///
+    /// Root will return itself.
     pub fn parent(&self) -> Self {
         let parent_path = self.parent_internal(&self.path);
         Self {
@@ -331,6 +346,13 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Recursively iterates over all the directories and files at this path
+    ///
+    /// Directories are visited before their children
+    ///
+    /// Note that the iterator items can contain errors, usually when directories are removed during the iteration.
+    /// The returned paths may also point to non-existant files if there is concurrent removal.
+    ///
+    /// Also note that loops in the file system hierarchy may cause this iterator to never terminate.
     pub async fn walk_dir(&self) -> VfsResult<WalkDirIterator<E>, E> {
         Ok(WalkDirIterator {
             inner: self.read_dir().await?,
@@ -341,6 +363,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Reads a complete file to a string
+    ///
+    /// Returns an error if the file does not exist or is not valid UTF-8
     pub async fn read_to_string(&self) -> VfsResult<String, E> {
         let metadata = self.metadata().await?;
         if metadata.file_type != VfsFileType::File {
@@ -368,6 +392,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Copies a file to a new destination
+    ///
+    /// The destination must not exist, but its parent directory must
     pub async fn copy_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
@@ -400,6 +426,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Moves or renames a file to a new destination
+    ///
+    /// The destination must not exist, but its parent directory must
     pub async fn move_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
@@ -433,6 +461,10 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Copies a directory to a new destination, recursively
+    ///
+    /// The destination must not exist, but the parent directory must
+    ///
+    /// Returns the number of files copied
     pub async fn copy_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<u64, E> {
         let files_copied = async {
             let mut files_copied = 0u64;
@@ -473,6 +505,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Moves a directory to a new destination, including subdirectories and files
+    ///
+    /// The destination must not exist, but its parent directory must
     pub async fn move_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
         async {
             if destination.exists().await? {
