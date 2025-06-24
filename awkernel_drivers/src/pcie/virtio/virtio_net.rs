@@ -295,19 +295,21 @@ impl Virtq {
         self.vio_txeof()
     }
 
-    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> Result<usize, VirtioDriverErr> {
+    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> usize {
         let len = frame.data.len();
         let buf = self.data_buf.as_mut();
         let dst = &mut buf[slot].as_mut_ptr();
         let header_len = core::mem::size_of::<VirtioNetHdr>();
         unsafe {
+            // TODO: handle VirtIO-net header
+            // For now, we just skip the header by dst.add(header_len)
             core::ptr::copy_nonoverlapping(frame.data.as_ptr(), dst.add(header_len), len);
         }
 
-        Ok(header_len + len)
+        header_len + len
     }
 
-    fn vio_start(&mut self, frames: &[EtherFrameRef]) -> Result<(), VirtioDriverErr> {
+    fn vio_start(&mut self, frames: &[EtherFrameRef]) {
         self.vio_tx_dequeue();
 
         for frame in frames {
@@ -316,7 +318,7 @@ impl Virtq {
                 None => break,
             };
 
-            let len = self.vio_encap(slot, frame)?;
+            let len = self.vio_encap(slot, frame);
             self.virtio_enqueue_reserve(slot);
             self.virtio_enqueue(slot, len, true);
             self.virtio_enqueue_commit(slot);
@@ -325,8 +327,6 @@ impl Virtq {
         if self.virtio_start_vq_intr() {
             self.vio_tx_dequeue();
         }
-
-        Ok(())
     }
 }
 
@@ -971,7 +971,7 @@ impl NetDevice for VirtioNet {
         let vq_index = {
             let mut node = MCSNode::new();
             let mut tx = inner.virtqueues[que_id].tx.lock(&mut node);
-            tx.vio_start(&frames).or(Err(NetDevError::DeviceError))?;
+            tx.vio_start(&frames);
             tx.vq_index
         };
 
