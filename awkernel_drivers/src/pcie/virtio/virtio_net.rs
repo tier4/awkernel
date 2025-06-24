@@ -16,6 +16,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     dma_pool::DMAPool,
@@ -28,6 +29,8 @@ use awkernel_lib::{
 };
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
+
+const RECV_QUEUE_SIZE: usize = 32; // To Be Determined
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -139,6 +142,7 @@ struct Virtq {
     vq_intr_vec: u16,
 
     data_buf: DMAPool<RxTxBuffer>,
+    rx_buffer: RingQ<EtherFrameBuf>,
 }
 
 impl Virtq {
@@ -231,6 +235,54 @@ impl Virtq {
     fn virtio_start_vq_intr(&mut self) -> bool {
         self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
+    }
+
+    /// add mbufs for all the empty receive slots
+    #[allow(dead_code)]
+    fn vio_populate_rx_mbufs(&mut self) {
+        for _ in 0..self.vq_num {
+            let slot = if let Some(slot) = self.virtio_enqueue_prep() {
+                slot
+            } else {
+                break;
+            };
+
+            self.virtio_enqueue_reserve(slot);
+            self.virtio_enqueue(slot, MCLBYTES as usize, false);
+            self.virtio_enqueue_commit(slot);
+        }
+    }
+
+    /// dequeue received packets
+    #[allow(dead_code)]
+    fn vio_rxeof(&mut self) -> u16 {
+        let mut freed = 0;
+
+        while let Some((slot, len)) = self.virtio_dequeue() {
+            let buf = self.data_buf.as_mut();
+            let data = buf[slot];
+
+            // TODO: handle VirtIO-net header
+            // For now, we just skip the header by [12..]
+            let data = data[0..len as usize][12..].to_vec();
+
+            self.rx_buffer
+                .push(EtherFrameBuf { data, vlan: None })
+                .unwrap();
+
+            self.virtio_dequeue_commit(slot);
+            freed += 1;
+        }
+
+        freed
+    }
+
+    #[allow(dead_code)]
+    fn vio_rx_intr(&mut self) {
+        let freed = self.vio_rxeof();
+        if freed > 0 {
+            self.vio_populate_rx_mbufs();
+        }
     }
 }
 
@@ -622,6 +674,7 @@ impl VirtioNetInner {
             vq_index: index,
             vq_intr_vec: 0,
             data_buf,
+            rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
         };
 
         vq.init();
