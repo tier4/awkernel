@@ -1,10 +1,6 @@
-#define NUM_PROC WORKER_NUM
-
-typedef FairLock {
+typedef Mutex {
 	bool is_locked;
-	bool flag[NUM_PROC];
-	chan request = [NUM_PROC - 1] of { int };
-	bool interrupt_flag[NUM_PROC];// This stores the interrupt enabled state of each CPU when the lock is acquired.
+	bool interrupt_flag[WORKER_NUM];// This stores the interrupt enabled state of each CPU when the lock is acquired.
 };
 
 inline lock(tid,mutex) {
@@ -17,40 +13,14 @@ inline lock(tid,mutex) {
 		fi
 	}
 	
-	bool need_wait = false;
-	if
-	:: atomic {
-			mutex.is_locked -> 
-			assert(!mutex.request?[tid]);// Deadlock
-			mutex.flag[tid] = false;
-			mutex.request!tid;
-			need_wait = true;
-		}
-	:: atomic {
-			!mutex.is_locked -> 
-			mutex.is_locked = true;
-		}
-	fi;
-	
-	if
-	:: need_wait -> 
-		mutex.flag[tid];
-	:: else
-	fi
+	do
+	:: atomic {!mutex.is_locked -> mutex.is_locked = true; break;}
+	od
 }
 
 inline unlock(tid,mutex) {
-	atomic {
-		int p;
-		if
-		:: mutex.request?[p] -> 
-			mutex.request?p;
-			mutex.flag[p] = true;
-		:: else -> 
-			mutex.is_locked = false;
-		fi;
-	}
-	
+	mutex.is_locked = false;
+
 	atomic {
 		if
 		:: cpu_id(tid) != - 1 -> 

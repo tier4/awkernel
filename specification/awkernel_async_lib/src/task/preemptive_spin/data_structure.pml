@@ -31,6 +31,6 @@ chan queue = [TASK_NUM] of { byte };// task_ids in ascending order of priority.
 #define cpu_id(tid) (workers[tid].executing_in)
 
 #include "fair_lock.pml"
-FairLock lock_info[TASK_NUM];
-FairLock lock_queue = false;
+Mutex lock_info[TASK_NUM];
+Mutex lock_queue = false;
 
