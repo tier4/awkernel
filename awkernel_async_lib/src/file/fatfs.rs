@@ -66,6 +66,31 @@ impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
     }
 }
 
+// ## 修正点 ##
+// AsyncFile 構造体の impl ブロックを作成し、
+// 同期的な処理を行うヘルパー関数をここに定義します。
+impl<IO, TP, OCC> AsyncFile<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Sync,
+    IO::Error: IoError + 'static + embedded_io_async::Error + Debug,
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
+{
+    // 同期的な読み込み処理
+    fn read_internal(&mut self, buf: &mut [u8]) -> Result<usize, Error<IO::Error>> {
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard).read(buf)
+    }
+
+    // 同期的なシーク処理
+    fn seek_internal(&mut self, pos: SeekFrom) -> Result<u64, Error<IO::Error>> {
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard).seek(pos)
+    }
+}
+
 #[async_trait]
 impl<IO, TP, OCC> AsyncRead for AsyncFile<IO, TP, OCC>
 // AsyncSeekAndRead ではなく embedded_io_async::Read を実装
@@ -76,13 +101,10 @@ where
     OCC: OemCpConverter + Send + Sync + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).read(buf).map_err(VfsError::from);
-            Poll::Ready(result)
-        })
-        .await
+        //let mut node = MCSNode::new();
+        //let mut file_guard = self.file.lock(&mut node);
+        //(*file_guard).read(buf)
+        self.read_internal(buf)
     }
 }
 
@@ -96,13 +118,12 @@ where
     OCC: OemCpConverter + Send + Sync + 'static,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        core::future::poll_fn(|_cx| {
+        let result = {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).seek(pos);
-            Poll::Ready(result)
-        })
-        .await
+            (*file_guard).seek(pos)
+        };
+        result
     }
 }
 

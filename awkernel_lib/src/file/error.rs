@@ -35,6 +35,17 @@ impl<T: IoError> From<T> for Error<T> {
     }
 }
 
+impl<E> embedded_io_async::Error for Error<E>
+where
+    E: embedded_io_async::Error + core::fmt::Debug, // IO::Errorもembedded_io_async::Errorを実装していることを要求
+{
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            _ => embedded_io_async::ErrorKind::NotFound,
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl From<Error<std::io::Error>> for std::io::Error {
     fn from(error: Error<Self>) -> Self {
