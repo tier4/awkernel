@@ -219,7 +219,7 @@ impl Virtq {
     fn virtio_dequeue_commit(&mut self, slot: usize) {
         self.vq_free_entry(slot);
     }
-      
+
     /// Stop vq interrupt.  No guarantee.
     #[allow(dead_code)]
     fn virtio_stop_vq_intr(&mut self) {
