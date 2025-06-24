@@ -969,15 +969,15 @@ impl NetDevice for VirtioNet {
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
 
-        let mut inner = self.inner.write();
-
-        let vq_index = {
+        {
+            let inner = self.inner.read();
             let mut node = MCSNode::new();
             let mut tx = inner.virtqueues[que_id].tx.lock(&mut node);
             tx.vio_start(&frames);
-            tx.vq_index
-        };
+        }
 
+        let vq_index = (que_id * 2 + 1) as u16;
+        let mut inner = self.inner.write();
         inner
             .virtio_pci_kick(vq_index)
             .or(Err(NetDevError::DeviceError))?;
@@ -1020,7 +1020,7 @@ impl NetDevice for VirtioNet {
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
+        let inner = self.inner.read();
 
         let irq_type = if let Some(irq_type) = inner.irq_to_type.get(&irq) {
             irq_type
@@ -1033,14 +1033,13 @@ impl NetDevice for VirtioNet {
             IRQType::Config => Ok(()),
             IRQType::Control => Ok(()),
             IRQType::Queue(idx) => {
-                let vq_index = {
+                {
                     let mut node = MCSNode::new();
                     let mut rx = inner.virtqueues[*idx].rx.lock(&mut node);
                     if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
                         rx.vio_rx_intr();
                     }
-                    rx.vq_index
-                };
+                }
                 {
                     let mut node = MCSNode::new();
                     let mut tx = inner.virtqueues[*idx].tx.lock(&mut node);
@@ -1048,9 +1047,14 @@ impl NetDevice for VirtioNet {
                         tx.vio_tx_intr();
                     }
                 }
+
+                let vq_index = (*idx * 2) as u16;
+                drop(inner);
+                let mut inner = self.inner.write();
                 inner
                     .virtio_pci_kick(vq_index)
                     .or(Err(NetDevError::DeviceError))?;
+
                 Ok(())
             }
         }
