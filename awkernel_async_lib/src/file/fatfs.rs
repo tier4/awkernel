@@ -45,7 +45,7 @@ where
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
-    type Error = VfsError<IO::Error>;
+    type Error = Error<IO::Error>;
 }
 
 #[derive(Clone)]
@@ -99,7 +99,7 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).seek(pos).map_err(VfsError::from);
+            let result = (*file_guard).seek(pos);
             Poll::Ready(result)
         })
         .await
