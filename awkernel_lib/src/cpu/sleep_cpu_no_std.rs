@@ -76,10 +76,10 @@ impl SleepCpu for SleepCpuNoStd {
                 _ => unreachable!(),
             }
 
-            // Because x86 APIC timers are edge trigger interrupts,
-            // timer interrupts fired during interrupt handlers, which disable interrupts,
-            // will be discarded.
-            // So, the timer enabled before is enabled again, here.
+            // Because x86 APIC timers are edge-triggered interrupts,
+            // timer interrupts that occur during interrupt handlers (when interrupts are disabled)
+            // will be lost.
+            // Therefore, the timeout is checked here.
             if let Some(timeout) = timeout.as_ref() {
                 let elapsed = start.elapsed();
                 if *timeout > elapsed {
@@ -87,8 +87,6 @@ impl SleepCpu for SleepCpuNoStd {
                     if dur.as_micros() < 1000 {
                         CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
                         return;
-                    } else {
-                        crate::timer::reset(dur);
                     }
                 } else {
                     CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
@@ -114,7 +112,7 @@ impl SleepCpu for SleepCpuNoStd {
         }
 
         // Rare Case:
-        //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
+        //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-triggered.
         //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
         // returned by IPI: set back to idle
