@@ -92,14 +92,14 @@ pub(super) union RxHiDword {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct RxLower {
+pub(super) struct RxLower {
     pub(super) lo_dword: RxLoDword,
     pub(super) hi_dword: RxHiDword,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct RxUpper {
+pub(super) struct RxUpper {
     pub(super) status_error: u32, // ext status/error
     pub(super) length: u16,       // Packet length
     pub(super) vlan: u16,         // VLAN tag
@@ -107,7 +107,7 @@ struct RxUpper {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct RxWb {
+pub(super) struct RxWb {
     pub(super) lower: RxLower,
     pub(super) upper: RxUpper,
 }
