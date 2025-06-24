@@ -85,8 +85,8 @@ struct Rx {
 }
 
 struct Tx {
-    tx_desc_head: usize,
-    tx_desc_tail: usize,
+    next_avail_desc: usize,
+    next_to_clean: usize,
     tx_desc_ring: DMAPool<TxRing>,
 }
 
@@ -797,8 +797,8 @@ fn igc_allocate_queues(
         });
 
         let tx = Mutex::new(Tx {
-            tx_desc_head: 0,
-            tx_desc_tail: 0,
+            next_avail_desc: 0,
+            next_to_clean: 0,
             tx_desc_ring: DMAPool::new(
                 info.segment_group as usize,
                 core::mem::size_of::<TxRing>() / PAGESIZE,
@@ -942,4 +942,22 @@ fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), Igc
     write_reg(info, IGC_IVAR_MISC, ivar)?;
 
     Ok(())
+}
+
+impl Tx {
+    fn igc_setup_transmit_ring(&mut self) -> Result<(), IgcDriverErr> {
+        // Clear the old ring contents
+        for desc in self.tx_desc_ring.as_mut() {
+            let read = unsafe { &mut desc.read };
+            read.buffer_addr = 0;
+            read.cmd_type_len = 0;
+            read.olinfo_status = 0;
+        }
+
+        // Reset indices
+        self.next_avail_desc = 0;
+        self.next_to_clean = 0;
+
+        Ok(())
+    }
 }
