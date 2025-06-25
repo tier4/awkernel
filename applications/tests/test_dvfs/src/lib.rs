@@ -186,10 +186,10 @@ async fn test_latency_diff() {
             diff.push((t.elapsed(), (end - start) as i64));
         }
 
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(diff.len());
 
-        for i in 0..(N - 1) {
-            result.push((diff[i].0.as_nanos() as u64, diff[i + 1].1 - diff[i].1));
+        for (t, d) in diff.iter() {
+            result.push((t.as_nanos() as u64, *d));
         }
 
         let cpu_id = awkernel_lib::cpu::cpu_id();
