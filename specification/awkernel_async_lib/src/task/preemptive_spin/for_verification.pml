@@ -1,9 +1,9 @@
-int num_terminated = 0;
+int num_terminated = 0
 
-bool waking[TASK_NUM] = false;
+bool waking[TASK_NUM] = false
 
-short runnable_highest_priority = 99;
-short running_lowest_priority = - 99;
+short runnable_highest_priority = 99
+short running_lowest_priority = - 99
 
 inline update_runnable_highest_priority() {
 	atomic {
@@ -12,7 +12,7 @@ inline update_runnable_highest_priority() {
 		for (j: 0 .. TASK_NUM - 1) {
 			if
 			:: (tasks[j].state == Runnable && tasks[j].id < runnable_highest_priority) -> 
-				runnable_highest_priority = tasks[j].id;
+				runnable_highest_priority = tasks[j].id
 			:: else
 			fi
 		}
@@ -26,7 +26,7 @@ inline update_running_lowest_priority() {
 		for (j: 0 .. TASK_NUM - 1) {
 			if
 			:: (tasks[j].state == Running && tasks[j].id > running_lowest_priority) -> 
-				running_lowest_priority = tasks[j].id;
+				running_lowest_priority = tasks[j].id
 			:: else
 			fi
 		}

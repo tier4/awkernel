@@ -19,7 +19,7 @@ inline get_lowest_priority_task(ret_task,ret_cpu_id) {
 					ret_cpu_id = j;
 				:: else
 				fi
-			:: else -> ret_task = - 1;break;// There is idle CPU.
+			:: else -> ret_task = - 1;break// There is idle CPU.
 			fi
 		}
 	}	
@@ -28,7 +28,7 @@ inline get_lowest_priority_task(ret_task,ret_cpu_id) {
 inline set_need_preemption(tid,task) {
 	lock(tid,lock_info[task]);
 	tasks[task].need_preemption = true;
-	unlock(tid,lock_info[task]);
+	unlock(tid,lock_info[task])
 }
 
 inline invoke_preemption(tid,task) {
@@ -39,7 +39,7 @@ inline invoke_preemption(tid,task) {
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
 		printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
-		ipi_requests[lp_cpu_id]!task;
+		ipi_requests[lp_cpu_id]!task
 	:: else
 	fi	
 }
@@ -50,7 +50,7 @@ inline wake_task(tid,task) {
 	queue!!task;
 	unlock(tid,lock_queue);
 	invoke_preemption(tid,task);
-	waking[task] = false;
+	waking[task] = false
 }
 
 /* awkernel_async_lib::task::ArcWake::wake()*/ 
@@ -62,10 +62,10 @@ inline wake(tid,task) {
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
 		tasks[task].need_sched = true;
 		printf("wake() set need_sched: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
-		unlock(tid,lock_info[task]);
+		unlock(tid,lock_info[task])
 	:: tasks[task].state == Terminated -> 
 		printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
-		unlock(tid,lock_info[task]);
+		unlock(tid,lock_info[task])
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
 		printf("wake() call wake_task(): tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		atomic {
@@ -74,7 +74,7 @@ inline wake(tid,task) {
 		}
 		
 		unlock(tid,lock_info[task]);
-		wake_task(tid,task);
+		wake_task(tid,task)
 	fi
 }
 
@@ -108,10 +108,10 @@ inline scheduler_get_next(tid,ret) {
 		
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_queue);
-		ret = head;
+		ret = head
 	:: else -> 
 		unlock(tid,lock_queue);
-		ret = - 1;
+		ret = - 1
 	fi
 }
 
@@ -121,7 +121,7 @@ inline preempt_get_next(tid,ret) {
 		if
 		:: NEXT_TASK[cpu_id(tid)] != - 1 -> 
 			ret = NEXT_TASK[cpu_id(tid)];
-			NEXT_TASK[cpu_id(tid)] = - 1;
+			NEXT_TASK[cpu_id(tid)] = - 1
 		:: else
 		fi
 	}
@@ -132,7 +132,7 @@ inline get_next_task(tid,ret) {
 	preempt_get_next(tid,ret);
 	if
 	:: ret == - 1 -> 
-		scheduler_get_next(tid,ret);
+		scheduler_get_next(tid,ret)
 	:: else
 	fi
 }
@@ -141,14 +141,14 @@ inline context_switch(cur_tid,next_tid) {
 	printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
 	atomic {
 		workers[next_tid].executing_in = cpu_id(cur_tid);
-		workers[cur_tid].executing_in = - 1;
+		workers[cur_tid].executing_in = - 1
 	}
 }
 
 inline set_preempt_context(task,tid) {
 	atomic {
 		tasks[task].thread = tid;
-		workers[tid].used_as_preempt_ctx = true;
+		workers[tid].used_as_preempt_ctx = true
 	}
 }
 
@@ -157,7 +157,7 @@ inline re_schedule(tid) {
 	
 	if
 	:: atomic { PREEMPTED_TASK[cpu_id(tid)]?[preempted] -> PREEMPTED_TASK[cpu_id(tid)]?preempted;}
-		wake_task(tid,preempted);
+		wake_task(tid,preempted)
 	:: else
 	fi
 }
@@ -173,7 +173,7 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	PREEMPTED_TASK[cpu_id(cur_tid)]!cur_task;
 	
 	context_switch(cur_tid,next_tid);
-	re_schedule(cur_tid);
+	re_schedule(cur_tid)
 }
 
 inline take_pooled_thread(ret) {
@@ -190,7 +190,7 @@ inline take_pooled_thread(ret) {
 			fi
 		}
 		
-		assert(ret != - 1);
+		assert(ret != - 1)
 	}
 }
 
@@ -199,7 +199,7 @@ inline take_preempt_context(task,ret) {
 		ret = tasks[task].thread;
 		tasks[task].thread = - 1;
 		assert(workers[ret].used_as_preempt_ctx);
-		workers[ret].used_as_preempt_ctx = false;
+		workers[ret].used_as_preempt_ctx = false
 	}
 }
 
@@ -270,7 +270,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		finish:
 		atomic {
 			interrupt_enabled[cpu_id(tid)] = true;// iretq
-			workers[tid].interrupted = false;
+			workers[tid].interrupted = false
 		}
 	od
 }
@@ -282,7 +282,7 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 		assert(!workers[cur_tid].used_as_preempt_ctx);
 		context_switch(cur_tid,next_tid);
 	}
-	re_schedule(cur_tid);
+	re_schedule(cur_tid)
 }
 
 proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted) {
