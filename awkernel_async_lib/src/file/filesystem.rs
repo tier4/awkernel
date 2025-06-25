@@ -97,7 +97,10 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
 
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
-    async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error>;
+    async fn read_dir(
+        &self,
+        path: &str,
+    ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>, Self::Error>;
 
     /// Creates the directory at this path
     ///
@@ -108,19 +111,19 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
     async fn open_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Creates a file at this path for writing
     async fn create_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Opens the file at this path for appending
     async fn append_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Returns the file metadata for the file at this path
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error>;
