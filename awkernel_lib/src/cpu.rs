@@ -1,5 +1,8 @@
 use crate::arch::ArchImpl;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 pub const NUM_MAX_CPU: usize = 512;
 static NUM_CPU: AtomicUsize = AtomicUsize::new(0);
@@ -51,7 +54,7 @@ pub fn num_cpu() -> usize {
 
 pub trait SleepCpu {
     /// Sleep current CPU.
-    fn sleep(&self);
+    fn sleep(&self, timeout: Option<Duration>);
 
     /// Wake up the CPU.
     ///
@@ -62,8 +65,8 @@ pub trait SleepCpu {
 
 /// Sleep the current CPU.
 #[inline(always)]
-pub fn sleep_cpu() {
-    SLEEP_CPU_IMPL.sleep();
+pub fn sleep_cpu(timeout: Option<Duration>) {
+    SLEEP_CPU_IMPL.sleep(timeout);
 }
 
 /// Wake up the CPU with the given `cpu_id`.

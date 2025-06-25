@@ -95,12 +95,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(not(feature = "std"))]
             {
                 let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
+                let us = dur.as_micros();
 
-                if awkernel_lib::timer::is_timer_enabled() {
+                if awkernel_lib::timer::is_timer_enabled() && us > 1000 {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
-                    awkernel_lib::timer::reset(dur); // start timer
-                    awkernel_lib::cpu::sleep_cpu();
-                    awkernel_lib::timer::disable();
+                    awkernel_lib::cpu::sleep_cpu(Some(dur));
                 } else {
                     let _irq_enable = awkernel_lib::interrupt::InterruptEnable::new();
                     awkernel_lib::delay::wait_microsec(10);

@@ -1,6 +1,9 @@
 use super::{SleepCpu, NUM_MAX_CPU};
 use array_macro::array;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::{
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    time::Duration,
+};
 
 /// CPU sleep/wakeup states
 #[repr(u32)]
@@ -18,11 +21,28 @@ static READY: AtomicBool = AtomicBool::new(false);
 static CPU_SLEEP_TAG: [AtomicU32; NUM_MAX_CPU] =
     array![_ => AtomicU32::new(SleepTag::Active as u32); NUM_MAX_CPU];
 
+struct ResetTimer;
+
+impl Drop for ResetTimer {
+    fn drop(&mut self) {
+        crate::timer::disable();
+    }
+}
+
 /// SleepCpu implementation using state-machine and edge-triggered IPI
 pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
-    fn sleep(&self) {
+    fn sleep(&self, timeout: Option<Duration>) {
+        let start = crate::time::Time::now();
+
+        let _timer = if let Some(timeout) = timeout.as_ref() {
+            crate::timer::reset(*timeout);
+            Some(ResetTimer)
+        } else {
+            None
+        };
+
         // wait until init
         if !READY.load(Ordering::Relaxed) {
             crate::delay::wait_microsec(10);
@@ -56,6 +76,24 @@ impl SleepCpu for SleepCpuNoStd {
                 _ => unreachable!(),
             }
 
+            // Because x86 APIC timers are edge-triggered interrupts,
+            // timer interrupts that occur during interrupt handlers (when interrupts are disabled)
+            // will be lost.
+            // Therefore, the timeout is checked here.
+            if let Some(timeout) = timeout.as_ref() {
+                let elapsed = start.elapsed();
+                if *timeout > elapsed {
+                    let dur = *timeout - elapsed;
+                    if dur.as_micros() < 1000 {
+                        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
+                        return;
+                    }
+                } else {
+                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
+                    return;
+                }
+            }
+
             // In case that there are any tasks to run,
             // wake up the primary CPU to wake me up.
             Self::wake_up(0);
@@ -74,7 +112,7 @@ impl SleepCpu for SleepCpuNoStd {
         }
 
         // Rare Case:
-        //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
+        //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-triggered.
         //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
         // returned by IPI: set back to idle

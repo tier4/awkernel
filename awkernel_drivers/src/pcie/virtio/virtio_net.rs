@@ -331,6 +331,7 @@ impl Virtq {
 }
 
 /// Packet header structure
+#[allow(dead_code)]
 #[repr(C, packed)]
 struct VirtioNetHdr {
     flags: u8,
