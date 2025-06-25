@@ -7,6 +7,72 @@ struct RawCpuIdAndCpuId {
     cpu_id: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CPUVendor {
+    Intel,
+    AMD,
+    Hygon,
+    Centaur,
+}
+
+#[derive(Debug)]
+struct CPUVendorStr {
+    vendor_id: CPUVendor,
+    vendor: &'static str,
+}
+
+const CPU_VENDORS: [CPUVendorStr; 4] = [
+    CPUVendorStr {
+        vendor_id: CPUVendor::Intel,
+        vendor: "GenuineIntel",
+    },
+    CPUVendorStr {
+        vendor_id: CPUVendor::AMD,
+        vendor: "AuthenticAMD",
+    },
+    CPUVendorStr {
+        vendor_id: CPUVendor::Hygon,
+        vendor: "HygonGenuine",
+    },
+    CPUVendorStr {
+        vendor_id: CPUVendor::Centaur,
+        vendor: "CentaurHauls",
+    },
+];
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct CPUId {
+    ebx: u32,
+    edx: u32,
+    ecx: u32,
+}
+
+union CPUVendorData {
+    cpuid: CPUId,
+    vendor_string: [u8; 12],
+}
+
+pub fn get_cpu_vendor() -> Option<CPUVendor> {
+    let cpuid = unsafe { core::arch::x86_64::__cpuid(0) };
+    let cpuid = CPUId {
+        ebx: cpuid.ebx,
+        edx: cpuid.edx,
+        ecx: cpuid.ecx,
+    };
+
+    let vendor_data = CPUVendorData { cpuid };
+    let vendor_str = unsafe { core::str::from_utf8(&vendor_data.vendor_string).unwrap() };
+
+    for vendor in CPU_VENDORS.iter() {
+        if vendor.vendor == vendor_str {
+            return Some(vendor.vendor_id);
+        }
+    }
+
+    None
+}
+
 static mut CPU_ID_NUMA_ID: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
 static mut RAW_CPU_ID_AND_CPU_ID: [RawCpuIdAndCpuId; NUM_MAX_CPU] = [RawCpuIdAndCpuId {

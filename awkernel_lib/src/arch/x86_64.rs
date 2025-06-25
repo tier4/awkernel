@@ -4,7 +4,7 @@ use ::acpi::AcpiTables;
 pub mod acpi;
 pub mod cpu;
 pub mod delay;
-pub(super) mod dvfs;
+pub mod dvfs;
 pub mod fault;
 pub(super) mod interrupt;
 pub mod interrupt_remap;

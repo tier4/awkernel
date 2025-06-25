@@ -1,8 +1,14 @@
 use core::arch::x86_64::__cpuid;
 
+use array_macro::array;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 use x86_64::registers::model_specific::Msr;
 
-use crate::{arch::x86_64::msr::*, cpu::cpu_id};
+use crate::{
+    arch::x86_64::msr::*,
+    cpu::{cpu_id, NUM_MAX_CPU},
+    dvfs::{DesiredPerformance, Dvfs},
+};
 
 const CPUTPM1_HWP_NOTIFICATION: u32 = 0x00000100;
 const CPUTPM1_HWP_ACTIVITY_WINDOW: u32 = 0x00000200;
@@ -87,18 +93,18 @@ impl HwPstateIntel {
             }
 
             if let Some(result) = rdmsr_safe(&hwp_req) {
-                log::error!("Failed to read HWP request MSR for cpu{}", cpu_id());
                 self.req = result;
             } else {
+                log::error!("Failed to read HWP request MSR for cpu{}", cpu_id());
                 return false;
             }
 
             let hwp_caps = Msr::new(MSR_IA32_HWP_CAPABILITIES);
 
             if let Some(result) = rdmsr_safe(&hwp_caps) {
-                log::error!("Failed to read HWP capabilities MSR for cpu{}", cpu_id());
                 caps = result;
             } else {
+                log::error!("Failed to read HWP capabilities MSR for cpu{}", cpu_id());
                 return false;
             }
         }
@@ -184,7 +190,7 @@ impl HwPstateIntel {
     }
 
     /// Select Efficiency/Performance Preference.
-    /// (range from 0, most performant, through 100, most efficient)
+    /// (range from 0, most performance, through 100, most efficient)
     pub(super) fn epp_select(&mut self, epp: u8) -> bool {
         let epp = if epp > 100 { 100 } else { epp };
 
@@ -206,8 +212,24 @@ impl HwPstateIntel {
         }
     }
 
+    /// Select Desired Preference.
+    /// (range from 0, most performance, through 100, most efficient)
+    pub(super) fn desired_select(&mut self, percent: u8) -> bool {
+        let raw_max = ((self.req & IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) >> 8) as u8;
+        let raw_min = (self.req & IA32_HWP_MINIMUM_PERFORMANCE) as u8;
+
+        let percent = if percent > 100 { 100 } else { percent };
+
+        let val = self.percent_to_raw_performance(percent);
+        let val = if val > raw_max { raw_max } else { val };
+        let val = (if val < raw_min { raw_min } else { val }) as u64;
+
+        self.req = (self.req & !IA32_HWP_DESIRED_PERFORMANCE) | (val << 16);
+        self.request()
+    }
+
     /// Select Maximum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If `max` is less than the minimum performance,
     /// this function sets the maximum performance to the minimum performance.
@@ -224,7 +246,7 @@ impl HwPstateIntel {
     }
 
     /// Select Minimum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If `min` is greater than the maximum performance,
     /// this function sets the minimum performance to the maximum performance.
@@ -237,6 +259,19 @@ impl HwPstateIntel {
         let val = (if raw_max < raw_min { raw_max } else { raw_min }) as u64;
 
         self.req = (self.req & !IA32_HWP_MINIMUM_PERFORMANCE) | val;
+        self.request()
+    }
+
+    /// Select Minimum and Maximum Performance.
+    /// (range from 0, lowest performance, through 100, highest performance)
+    fn min_max_peformance_select(&mut self, val: u8) -> bool {
+        let val = self.percent_to_raw_performance(val) as u64;
+
+        self.req = (self.req
+            & !(IA32_HWP_MINIMUM_PERFORMANCE | IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE))
+            | (val << 8)
+            | val;
+
         self.request()
     }
 
@@ -279,6 +314,18 @@ impl HwPstateIntel {
             val as u8
         }
     }
+
+    /// Set Energy_Performance_Preference.
+    /// (range from 0, highest performance, through 100, highest energy efficient)
+    fn set_energy_performance_preference(&mut self, percent: u8) -> bool {
+        let percent = if percent > 100 { 100 } else { percent };
+        let raw_val = percent_to_raw(percent as u64);
+
+        self.req &= !IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE;
+        self.req |= raw_val << 24;
+
+        self.request()
+    }
 }
 
 /// Given x * 10 in [0, 1000], round to the integer nearest x.
@@ -309,4 +356,99 @@ fn percent_to_raw(x: u64) -> u64 {
 fn percent_to_raw_perf_bias(x: u64) -> u64 {
     assert!(x <= 100);
     ((0xf * x) + 50) / 100
+}
+
+static HWPSTATE_INTEL: [Mutex<Option<HwPstateIntel>>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(None); NUM_MAX_CPU];
+
+pub(super) struct HwPstateIntelImpl;
+
+impl Dvfs for HwPstateIntelImpl {
+    fn set_min_performance(min: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.minimum_performance_select(min)
+        } else {
+            false
+        }
+    }
+
+    fn set_max_performance(max: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.maximum_performance_select(max)
+        } else {
+            false
+        }
+    }
+
+    fn set_energy_efficiency(val: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.set_energy_performance_preference(val)
+        } else {
+            false
+        }
+    }
+
+    fn set_desired_performance(val: DesiredPerformance) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            match val {
+                DesiredPerformance::Desired(val) => hwps.desired_select(val),
+                DesiredPerformance::Auto => hwps.desired_select(0),
+            }
+        } else {
+            false
+        }
+    }
+
+    fn set_min_max_performance(val: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.min_max_peformance_select(val)
+        } else {
+            false
+        }
+    }
+}
+
+/// Initialize Intel Hardware-controlled Performance States
+/// This function should be called before the main loop on each CPU core.
+///
+/// # Safety
+///
+/// This function must be called once by each CPU core.
+pub(super) unsafe fn init() -> bool {
+    let cpu_id = cpu_id();
+
+    let hwps = &HWPSTATE_INTEL[cpu_id];
+    let mut node = MCSNode::new();
+    let mut hwps = hwps.lock(&mut node);
+
+    if hwps.is_none() {
+        *hwps = HwPstateIntel::new();
+    }
+
+    hwps.is_some()
 }

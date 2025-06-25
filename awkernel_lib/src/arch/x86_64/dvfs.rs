@@ -4,7 +4,10 @@ use x86_64::registers::model_specific::Msr;
 
 use crate::{delay::wait_millisec, dvfs::Dvfs};
 
-use super::X86;
+use super::{
+    cpu::{self, CPUVendor},
+    X86,
+};
 
 #[allow(dead_code)] // TODO: remove this later
 mod hwpstate_intel;
@@ -17,7 +20,7 @@ const IA32_MISC_ENABLE: u32 = 0x1A0;
 
 impl Dvfs for X86 {
     /// Fix the frequency of the current CPU.
-    fn fix_freq(freq_mhz: u64) {
+    fn fix_freq(freq_mhz: u64) -> bool {
         unsafe {
             let mut misc_enable = Msr::new(IA32_MISC_ENABLE);
             let mut value = misc_enable.read();
@@ -43,26 +46,28 @@ impl Dvfs for X86 {
             value |= target_pstate;
             perf_ctl.write(value);
         }
+
+        true
     }
 
     /// Get the maximum frequency of the current CPU.
-    fn get_max_freq() -> u64 {
+    fn get_max_freq() -> Option<u64> {
         unsafe {
             let platform_info = Msr::new(MSR_PLATFORM_INFO);
             let max_ratio = (platform_info.read() >> 8) & 0xFF;
             let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
 
-            max_ratio * bus_freq_mhz
+            Some(max_ratio * bus_freq_mhz)
         }
     }
 
     /// Get the current frequency of the current CPU.
-    fn get_curr_freq() -> u64 {
+    fn get_curr_freq() -> Option<u64> {
         // Check if the CPU supports the IA32_PERF_MPERF and IA32_PERF_APERF MSRs.
         let cpuid = unsafe { __cpuid(0x6) };
         if (cpuid.ecx & 0x1) == 0 {
             log::warn!("The CPU does not support IA32_PERF_MPERF and IA32_PERF_APERF MSRs.");
-            return 0;
+            return None;
         }
 
         unsafe {
@@ -76,7 +81,36 @@ impl Dvfs for X86 {
             let mperf_delta = mperf.read();
             let aperf_delta = aperf.read();
 
-            aperf_delta * Self::get_max_freq() / mperf_delta
+            Some(aperf_delta * Self::get_max_freq()? / mperf_delta)
+        }
+    }
+
+    fn set_min_performance(min: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_min_performance(min)
+    }
+
+    fn set_max_performance(max: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_max_performance(max)
+    }
+
+    fn set_desired_performance(val: crate::dvfs::DesiredPerformance) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_desired_performance(val)
+    }
+
+    fn set_min_max_performance(min: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_min_max_performance(min)
+    }
+}
+
+/// Initialize DVFS.
+///
+/// # Safety
+///
+/// This function must be called once by each CPU core.
+pub unsafe fn init() {
+    if let Some(CPUVendor::Intel) = cpu::get_cpu_vendor() {
+        if !hwpstate_intel::init() {
+            log::warn!("Failed to initialize Intel Hardware-controlled Performance States.");
         }
     }
 }
