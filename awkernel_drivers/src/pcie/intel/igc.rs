@@ -986,6 +986,7 @@ fn igc_initialize_transmit_unit(info: &PCIeInfo, queues: &[Queue]) -> Result<(),
         txdctl |= 0x1f; // PTHRESH
         txdctl |= 1 << 8; // HTHREASH
         txdctl |= 1 << 16; // WTHREASH
+        txdctl |= 1 << 22; // Reserved bit 22 must always be 1
         txdctl |= IGC_TXDCTL_GRAN;
         txdctl |= 1 << 25; // LWTHREASH
 
