@@ -157,7 +157,7 @@ where
             let directory = &path[..end];
             if let Err(error) = self.fs.fs.create_dir(directory).await {
                 match error.kind() {
-                    embedded_io_async::ErrorKind::AlreadyExists => {} // VfsErrorKind::DirectoryExists から変更
+                    VfsErrorKind::DirectoryExists => {}
                     _ => {
                         return Err(error
                             .with_path(directory)
@@ -174,7 +174,9 @@ where
     }
 
     /// Iterates over all entries of this directory path
-    pub async fn read_dir(&self) -> VfsResult<BoxStream<'static, Self>, FS::Error> {
+    pub async fn read_dir(
+        &self,
+    ) -> VfsResult<Pin<Box<dyn Stream<Item = Self> + Send + Unpin + 'static>>, FS::Error> {
         // E を FS::Error に変更
         let parent = self.path.clone();
         let fs = self.fs.clone();
@@ -218,22 +220,24 @@ where
         // E を FS::Error に変更
         let parent = self.parent();
         if !parent.exists().await? {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| format!("Could not {action}, parent directory does not exist")));
+            return Err(VfsError::from(VfsErrorKind::Other(format!(
+                "Could not {action}, parent directory does not exist"
+            )))
+            .with_path(&*self.path));
         }
         let metadata = parent.metadata().await?;
         if metadata.file_type != VfsFileType::Directory {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| format!("Could not {action}, parent path is not a directory")));
+            return Err(VfsError::from(VfsErrorKind::Other(format!(
+                "Could not {action}, parent path is not a directory"
+            )))
+            .with_path(&*self.path));
         }
         Ok(())
     }
 
     /// Opens the file at this path for appending
     // 戻り値の型を FS::AppendFile に変更
-    pub async fn append_file(&self) -> VfsResult<FS::AppendFile, FS::Error> {
+    pub async fn append_file(&self) -> VfsResult<FS::WriteFile, FS::Error> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
                 .with_context(|| "Could not open file for appending".to_string())
@@ -259,7 +263,6 @@ where
     }
 
     /// Ensures that the directory at this path is removed, recursively deleting all contents if necessary
-    #[async_recursion]
     pub async fn remove_dir_all(&self) -> VfsResult<(), FS::Error> {
         // E を FS::Error に変更
         if !self.exists().await? {
@@ -376,8 +379,11 @@ where
         Ok(WalkDirIterator {
             inner: self.read_dir().await?,
             todo: vec![],
-            _pending_meta: None,
-            pending_read: None,
+            //_pending_meta: None,
+            //pending_read: None,
+            prev_result: None,
+            metadata_fut: None,
+            read_dir_fut: None,
         })
     }
 
@@ -386,26 +392,23 @@ where
         // E を FS::Error に変更
         let metadata = self.metadata().await?;
         if metadata.file_type != VfsFileType::File {
-            return Err(VfsError::from(VfsErrorKind::Other)
-                .with_path(&*self.path)
-                .with_context(|| "Path is a directory".to_string()));
+            return Err(
+                VfsError::from(VfsErrorKind::Other("Path is a directory".into()))
+                    .with_path(&*self.path)
+                    .with_context(|| "Could not read path"),
+            );
         }
         let mut buffer = vec![0; metadata.len as usize];
         self.open_file()
             .await?
             .read_exact(&mut buffer)
             .await
-            .map_err(|err| {
-                err.with_path(&*self.path)
-                    .with_context(|| "Could not read path".to_string())
-            })?;
+            .map_err(|_| VfsError::from(VfsErrorKind::Other("ReadExactError".into())))?; // TODO: ReadExactError mapping
 
         String::from_utf8(buffer).map_err(|_| {
-            VfsError::from(VfsErrorKind::Other)
+            VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
                 .with_path(&*self.path)
-                .with_context(|| {
-                    "Could not read path as string (Invalid UTF-8 sequence)".to_string()
-                })
+                .with_context(|| "Could not read path as string")
         })
     }
 
@@ -415,7 +418,7 @@ where
         async {
             if destination.exists().await? {
                 return Err(
-                    VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
+                    VfsError::from(VfsErrorKind::FileExists).with_path(&*destination.path).with_context(|| {
                         "Destination exists already".to_string()
                     }),
                 );
@@ -448,7 +451,7 @@ where
         // E を FS::Error に変更
         async {
             if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
+                return Err(VfsError::from(VfsErrorKind::FileExists).with_path(&*destination.path).with_context(|| {
                     "Destination exists already".to_string()
                 }));
             }
@@ -482,7 +485,7 @@ where
         let files_copied = async {
             let mut files_copied = 0u64;
             if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::AlreadyExists)
+                return Err(VfsError::from(VfsErrorKind::FileExists)
                     .with_path(&*destination.path)
                     .with_context(|| "Destination exists already".to_string()));
             }
@@ -523,7 +526,7 @@ where
         async {
             if destination.exists().await? {
                 return Err(
-                    VfsError::from(VfsErrorKind::AlreadyExists).with_path(&*destination.path).with_context(|| {
+                    VfsError::from(VfsErrorKind::FileExists).with_path(&*destination.path).with_context(|| {
                         "Destination exists already".to_string()
                     }),
                 );
@@ -568,9 +571,26 @@ where
 pub struct WalkDirIterator<FS: AsyncFileSystem> {
     inner: BoxStream<'static, AsyncVfsPath<FS>>, // AsyncVfsPath<E> から AsyncVfsPath<FS> へ
     todo: Vec<AsyncVfsPath<FS>>,                 // AsyncVfsPath<E> から AsyncVfsPath<FS> へ
-    _pending_meta: Option<BoxFuture<'static, VfsResult<VfsMetadata, FS::Error>>>, // E を FS::Error に変更
-    pending_read:
-        Option<BoxFuture<'static, VfsResult<BoxStream<'static, AsyncVfsPath<FS>>, FS::Error>>>, // E を FS::Error に変更
+    prev_result: Option<AsyncVfsPath<FS>>,
+    // Used to store futures when poll_next returns pending
+    // this ensures a new future is not spawned on each poll.
+    //read_dir_fut: Option<
+    //BoxFuture<
+    //'static,
+    //Result<Box<(dyn Stream<Item = AsyncVfsPath<FS>> + Send + Unpin)>, VfsError<FS::Error>>,
+    //>,
+    //>,
+    read_dir_fut: Option<
+        BoxFuture<
+            'static,
+            // Result の中身を Pin<Box<dyn Stream<Item = AsyncVfsPath<FS>> + Send + Unpin>> に変更
+            Result<
+                Pin<Box<dyn Stream<Item = AsyncVfsPath<FS>> + Send + Unpin + 'static>>,
+                VfsError<FS::Error>,
+            >,
+        >,
+    >,
+    metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError<FS::Error>>>>,
 }
 
 // Unpin 実装もジェネリックパラメータ FS に対応
@@ -589,47 +609,74 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        loop {
-            // First, try to poll the current directory's stream
-            match this.inner.poll_next_unpin(cx) {
-                Poll::Ready(Some(path)) => {
-                    // We got a path, now check if it's a directory to add to `todo`
-                    return Poll::Ready(Some(Ok(path)));
-                }
-                Poll::Ready(None) => {
-                    // The current directory is exhausted. Try to pop from `todo`.
-                    match this.todo.pop() {
-                        None => return Poll::Ready(None), // All done
-                        Some(dir_path) => {
-                            let mut fut = this.pending_read.take().unwrap_or_else(|| {
-                                let fut = async move { dir_path.read_dir().await };
-                                Box::pin(fut)
-                            });
-                            match fut.poll_unpin(cx) {
-                                Poll::Ready(Ok(stream)) => {
-                                    this.inner = stream;
-                                    continue; // Loop to poll the new stream
-                                }
-                                Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                                Poll::Pending => {
-                                    this.pending_read = Some(fut);
-                                    return Poll::Pending;
-                                }
+        // Check if we have a previously stored result from last call
+        // that we could not utilize due to pending path.metadata() call
+        let result = if this.prev_result.is_none() {
+            loop {
+                match this.inner.poll_next_unpin(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Some(path)) => break Ok(path),
+                    Poll::Ready(None) => {
+                        let directory = if this.todo.is_empty() {
+                            return Poll::Ready(None);
+                        } else {
+                            this.todo[this.todo.len() - 1].clone()
+                        };
+                        let mut read_dir_fut = if this.read_dir_fut.is_some() {
+                            this.read_dir_fut.take().unwrap()
+                        } else {
+                            Box::pin(async move { directory.read_dir().await })
+                        };
+                        match read_dir_fut.poll_unpin(cx) {
+                            Poll::Pending => {
+                                this.read_dir_fut = Some(read_dir_fut);
+                                return Poll::Pending;
+                            }
+                            Poll::Ready(Err(err)) => {
+                                let _ = this.todo.pop();
+                                break Err(err);
+                            }
+                            Poll::Ready(Ok(iterator)) => {
+                                let _ = this.todo.pop();
+                                this.inner = iterator;
                             }
                         }
                     }
                 }
-                Poll::Pending => return Poll::Pending,
+            }
+        } else {
+            Ok(this.prev_result.take().unwrap())
+        };
+        if let Ok(path) = &result {
+            let mut metadata_fut = if this.metadata_fut.is_some() {
+                this.metadata_fut.take().unwrap()
+            } else {
+                let path_clone = path.clone();
+                Box::pin(async move { path_clone.metadata().await })
+            };
+            match metadata_fut.poll_unpin(cx) {
+                Poll::Pending => {
+                    this.prev_result = Some(path.clone());
+                    this.metadata_fut = Some(metadata_fut);
+                    return Poll::Pending;
+                }
+                Poll::Ready(Ok(meta)) => {
+                    if meta.file_type == VfsFileType::Directory {
+                        this.todo.push(path.clone());
+                    }
+                }
+                Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err))),
             }
         }
+        Poll::Ready(Some(result))
     }
 }
 
 // CopyError もジェネリックパラメータ FS::Error に対応
 #[derive(Debug)]
 pub enum CopyError<E: IoError> {
-    ReadError(VfsError<E>),
-    WriteError(VfsError<E>),
+    ReadError(E),
+    WriteError(E),
 }
 
 const COPY_BUF_SIZE: usize = 8 * 1024;

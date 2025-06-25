@@ -10,9 +10,10 @@ use awkernel_lib::file::{
     vfs::path::VfsMetadata,
 };
 use core::fmt::Debug;
+use core::pin::Pin;
 use embedded_io_async::{Read, Seek, Write};
-use futures::stream::BoxStream;
-
+use futures::stream::{BoxStream, Stream};
+use futures::Future;
 /// File system implementations must implement this trait
 /// All path parameters are absolute, starting with '/', except for the root directory
 /// which is simply the empty string (i.e. "")
@@ -20,7 +21,6 @@ use futures::stream::BoxStream;
 /// Path components may be any UTF-8 string, except "/", "." and ".."
 ///
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
-#[async_trait]
 pub trait AsyncFileSystem: Sync + Send + Clone + 'static {
     /// このファイルシステムが返すエラー型。
     type Error: IoError + Clone + Send + Sync + Debug;
@@ -28,16 +28,32 @@ pub trait AsyncFileSystem: Sync + Send + Clone + 'static {
     /// open_file から返される読み取り可能なファイルオブジェクトの型。
     /// この型は embedded_io_async::Read と embedded_io_async::Seek を実装し、
     /// Send と 'static のライフタイム要件を満たす必要があります。
-    type ReadFile: Read<Error = Self::Error> + Seek<Error = Self::Error> + Send + 'static;
+    type ReadFile: Read<Error = Error<Self::Error>>
+        + Seek<Error = Error<Self::Error>>
+        + Send
+        + Unpin
+        + 'static;
 
     /// create_file から返される書き込み可能なファイルオブジェクトの型。
     /// この型は embedded_io_async::Write と embedded_io_async::Seek を実装し、
     /// Send と 'static のライフタイム要件を満たす必要があります。
-    type WriteFile: Write<Error = Self::Error> + Seek<Error = Self::Error> + Send + 'static;
+    type WriteFile: Write<Error = Error<Self::Error>>
+        + Seek<Error = Error<Self::Error>>
+        + Send
+        + Unpin
+        + 'static;
 
     /// このディレクトリパスの直下の子をすべてイテレートします。
     /// NOTE: 返される String アイテムは、ローカルのファイル名（"/" を含まない）です。
-    async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error>;
+    fn read_dir(
+        &self,
+        path: &str,
+    ) -> impl Future<
+        Output = VfsResult<
+            Pin<Box<dyn Stream<Item = String> + Send + Unpin + 'static>>,
+            Self::Error,
+        >,
+    > + Send;
 
     /// このパスにディレクトリを作成します。
     ///
@@ -54,7 +70,10 @@ pub trait AsyncFileSystem: Sync + Send + Clone + 'static {
     async fn append_file(&self, path: &str) -> VfsResult<Self::WriteFile, Self::Error>;
 
     /// このパスのファイルのメタデータを返します。
-    async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error>;
+    fn metadata(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = VfsResult<VfsMetadata, Self::Error>> + Send;
 
     /// ファイルの作成タイムスタンプを設定します（実装がサポートしている場合）。
     async fn set_creation_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
