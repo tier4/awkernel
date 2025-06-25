@@ -38,7 +38,7 @@ inline invoke_preemption(tid,task) {
 	if
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
-		// printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
+		printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 		ipi_requests[lp_cpu_id]!task;
 	:: else
 	fi	
@@ -61,13 +61,13 @@ inline wake(tid,task) {
 	if
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
 		tasks[task].need_sched = true;
-		// printf("wake() set need_sched: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+		printf("wake() set need_sched: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		unlock(tid,lock_info[task]);
 	:: tasks[task].state == Terminated -> 
-		// printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+		printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		unlock(tid,lock_info[task]);
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
-		// printf("wake() call wake_task(): tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+		printf("wake() call wake_task(): tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		atomic {
 			tasks[task].state = Runnable;
 			update_runnable_highest_priority();
@@ -104,7 +104,7 @@ inline scheduler_get_next(tid,ret) {
 			update_runnable_highest_priority();
 			update_running_lowest_priority();
 		}
-		// printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
+		printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
 		
 		unlock(tid,lock_info[head]);
 		unlock(tid,lock_queue);
@@ -138,7 +138,7 @@ inline get_next_task(tid,ret) {
 }
 
 inline context_switch(cur_tid,next_tid) {
-	// printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
+	printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
 	atomic {
 		workers[next_tid].executing_in = cpu_id(cur_tid);
 		workers[cur_tid].executing_in = - 1;
@@ -214,19 +214,19 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 	short next_thread;
 	
 	do
-	:: atomic {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
+	:: d_step {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
 			ipi_requests[cpu_id(tid)]?_
 			cpu_id = cpu_id(tid);
 			interrupt_enabled[cpu_id] = false;
 			workers[tid].interrupted = true;
 		}
-		// printf("Received IPI request. cpu_id = %d\n",cpu_id);
+		printf("Received IPI request. cpu_id = %d\n",cpu_id);
 		
 		atomic {
 			cur_task = RUNNING[cpu_id];
 			if
 			:: cur_task == - 1 -> 
-				// printf("There is no running task in cpu_id %d",cpu_id);
+				printf("There is no running task in cpu_id %d",cpu_id);
 				goto finish;
 			:: else
 			fi
@@ -236,7 +236,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		if
 		:: !tasks[cur_task].need_preemption -> 
 			unlock(tid,lock_info[cur_task]);
-			// printf("need_preemption is false: cpu_id = %d,cur_task = %d",cpu_id,cur_task);
+			printf("need_preemption is false: cpu_id = %d,cur_task = %d",cpu_id,cur_task);
 			goto finish;
 		:: else -> unlock(tid,lock_info[cur_task]);
 		fi
@@ -246,12 +246,12 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		get_next_task(tid,hp_task);
 		if
 		:: hp_task == - 1 -> 
-			// printf("get_next_task() returns None: %d",cpu_id);
+			printf("get_next_task() returns None: %d",cpu_id);
 			goto finish;
 		:: else
 		fi
 		
-		// printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
+		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
 		if
 		:: atomic { tasks[hp_task].thread != - 1 -> take_preempt_context(hp_task,next_thread);}
@@ -276,7 +276,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 }
 
 inline yield_and_pool(cur_task,cur_tid,next_tid) {
-	// printf("yield_and_pool(): cur_task = %d,cur_tid = %d,next_tid = %d\n",cur_task,cur_tid,next_tid);
+	printf("yield_and_pool(): cur_task = %d,cur_tid = %d,next_tid = %d\n",cur_task,cur_tid,next_tid);
 	atomic {
 		assert(workers[cur_tid].executing_in != - 1);
 		assert(!workers[cur_tid].used_as_preempt_ctx);
@@ -332,7 +332,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	lock(tid,lock_info[task]);
 	if
 	:: poll_result == Pending -> 
-		// printf("result_future Pending: tid = %d,task = %d\n",tid,task);
+		printf("result_future Pending: tid = %d,task = %d\n",tid,task);
 		atomic {
 			tasks[task].state = Waiting;
 			update_running_lowest_priority();
@@ -347,7 +347,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 		:: else;
 		fi
 	:: poll_result == Ready -> 
-		// printf("result_future Ready: tid = %d,task = %d\n",tid,task);
+		printf("result_future Ready: tid = %d,task = %d\n",tid,task);
 		if
 		:: tasks[task].state != Terminated -> 
 			num_terminated++;
@@ -359,7 +359,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 			update_running_lowest_priority();
 		}
 		
-		// printf("Terminated: tid = %d,task = %d,state = %e,num_terminated = %d,\n",tid,task,tasks[task].state,num_terminated);
+		printf("Terminated: tid = %d,task = %d,state = %e,num_terminated = %d,\n",tid,task,tasks[task].state,num_terminated);
 	fi
 	
 	unlock(tid,lock_info[task]);
@@ -373,11 +373,8 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 init {
 	byte i;
 	
-	for (i: 0 .. TASK_NUM - 1) {
-		tasks[i].id = i;
-		wake(0,i);
-	}
-	
+	wake(0,3);
+
 	for (i: 0 .. IR_HANDLER_NUM - 1) {
 		run interrupt_handler(i);
 	}

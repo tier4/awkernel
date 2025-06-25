@@ -1,27 +1,24 @@
-bool wake_other[TASK_NUM / 2] = false;
+bool future_blocked[TASK_NUM] = false;
 
-// If there is 2 tasks, and their task ID's are 0 and 1.
-// This future will execute as follows.
-//
-// step1: Task 0 wakes Task 1 up, and returns "Pending".
-// step2: Task 1 wakes Task 0 up, and returns "Ready".
-// step3: Task 0 returns "Ready".
-//
-// A task will become "Terminated", after returning "Ready".
+// This assumes that there are 4 tasks, with task IDs 0, 1, 2, and 3.
 inline future(tid,task,ret) {
-	// printf("future(): tid = %d,task = %d\n",tid,task);
+	printf("future(): tid = %d, task = %d\n", tid, task);
 	if
-	:: task >= TASK_NUM / 2 -> 
-		wake(tid,task - TASK_NUM / 2);
+	:: task == 2 -> // 1st Low priority task
+		wake(tid,0);
+		wake(tid,1);
+		future_blocked[2];
 		ret = Ready;
-	:: else -> 
-		if
-		:: wake_other[task] -> 
-			ret = Ready;
-		:: else -> 
-			wake(tid,task + TASK_NUM / 2);
-			wake_other[task] = true;
-			ret = Pending;
-		fi
+	:: task == 3 -> // 2nd Low priority task
+		wake(tid,2);
+		future_blocked[3];
+		ret = Ready;
+	:: task == 0 -> // 1st High priority task
+		ret = Ready;
+	:: task == 1 -> // 2nd High priority task
+	    future_blocked[2] = true;
+		future_blocked[3] = true;
+		ret = Ready;
+	:: else -> assert(false);
 	fi
 }
