@@ -13,9 +13,7 @@ inline lock(tid,mutex) {
 		fi
 	}
 	
-	do
-	:: atomic {!mutex.is_locked -> mutex.is_locked = true; break;}
-	od
+	atomic {!mutex.is_locked -> mutex.is_locked = true;}
 }
 
 inline unlock(tid,mutex) {
