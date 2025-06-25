@@ -284,11 +284,72 @@ impl Virtq {
             self.vio_populate_rx_mbufs();
         }
     }
+
+    #[allow(dead_code)]
+    fn vio_tx_dequeue(&mut self) -> u16 {
+        let mut freed = 0;
+        while let Some((slot, _len)) = self.virtio_dequeue() {
+            self.virtio_dequeue_commit(slot);
+            freed += 1;
+        }
+
+        freed
+    }
+
+    #[allow(dead_code)]
+    fn vio_txeof(&mut self) {
+        let freed = self.vio_tx_dequeue();
+        if freed > 0 {
+            self.virtio_stop_vq_intr();
+        }
+    }
+
+    #[allow(dead_code)]
+    fn vio_tx_intr(&mut self) {
+        self.vio_txeof();
+    }
+
+    #[allow(dead_code)]
+    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> usize {
+        let len = frame.data.len();
+        let buf = self.data_buf.as_mut();
+        let dst = &mut buf[slot].as_mut_ptr();
+        let header_len = core::mem::size_of::<VirtioNetHdr>();
+        unsafe {
+            // TODO: handle VirtIO-net header
+            // For now, we just skip the header by dst.add(header_len)
+            core::ptr::copy_nonoverlapping(frame.data.as_ptr(), dst.add(header_len), len);
+        }
+
+        header_len + len
+    }
+
+    #[allow(dead_code)]
+    fn vio_start(&mut self, frames: &[EtherFrameRef]) {
+        self.vio_tx_dequeue();
+
+        for frame in frames {
+            let slot = match self.virtio_enqueue_prep() {
+                Some(slot) => slot,
+                None => break,
+            };
+
+            let len = self.vio_encap(slot, frame);
+            self.virtio_enqueue_reserve(slot);
+            self.virtio_enqueue(slot, len, true);
+            self.virtio_enqueue_commit(slot);
+        }
+
+        if self.virtio_start_vq_intr() {
+            self.vio_tx_dequeue();
+        }
+    }
 }
 
 /// Packet header structure
+#[allow(dead_code)]
 #[repr(C, packed)]
-struct _VirtioNetHdr {
+struct VirtioNetHdr {
     flags: u8,
     gso_type: u8,
     hdr_len: u16,
