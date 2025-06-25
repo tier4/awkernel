@@ -9,7 +9,7 @@ use awkernel_lib::file::{
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
 };
-use futures::stream::BoxStream;
+use futures::stream::Stream;
 
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
@@ -50,7 +50,7 @@ pub trait AsyncSeekAndWrite<E: IoError>: Send + Unpin {
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send> {
+impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send + Unpin> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>> {
         (**self).read(buf).await
     }
@@ -65,7 +65,7 @@ impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Se
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send> {
+impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send + Unpin> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<E>> {
         (**self).write(buf).await
     }
@@ -97,7 +97,10 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
 
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
-    async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error>;
+    async fn read_dir(
+        &self,
+        path: &str,
+    ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>, Self::Error>;
 
     /// Creates the directory at this path
     ///
@@ -108,19 +111,19 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
     async fn open_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Creates a file at this path for writing
     async fn create_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Opens the file at this path for appending
     async fn append_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
 
     /// Returns the file metadata for the file at this path
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error>;

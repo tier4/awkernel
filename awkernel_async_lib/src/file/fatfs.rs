@@ -26,7 +26,7 @@ use awkernel_lib::{
     time::Time,
 };
 use core::{fmt, task::Poll};
-use futures::stream::{self, BoxStream};
+use futures::stream::{self, Stream};
 
 struct AsyncFile<IO, TP, OCC>
 where
@@ -131,21 +131,21 @@ where
 {
     type Error = IO::Error;
 
-    async fn read_dir(&self, path: &str) -> VfsResult<BoxStream<'static, String>, Self::Error> {
+    async fn read_dir(
+        &self,
+        path: &str,
+    ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
 
-        core::future::poll_fn(move |_cx| {
-            let dir = FileSystem::root_dir(&fs_clone).open_dir(&path)?;
-            let entries: Result<Vec<String>, _> = dir
-                .iter()
-                .map(|entry_res| Ok(entry_res?.file_name()))
-                .collect();
-            Poll::Ready(
-                entries.map(|names| Box::pin(stream::iter(names)) as BoxStream<'static, String>),
-            )
+        let dir = FileSystem::root_dir(&fs_clone).open_dir(&path)?;
+        let entries: Result<Vec<String>, _> = dir
+            .iter()
+            .map(|entry_res| Ok(entry_res?.file_name()))
+            .collect();
+        entries.map(|names| {
+            Box::new(stream::iter(names)) as Box<dyn Unpin + Stream<Item = String> + Send>
         })
-        .await
     }
 
     async fn create_dir(&self, path: &str) -> VfsResult<(), Self::Error> {
@@ -161,7 +161,7 @@ where
     async fn open_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send>, Self::Error> {
+    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send + Unpin>, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
 
@@ -178,7 +178,7 @@ where
     async fn create_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error> {
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
         let file = core::future::poll_fn(move |_cx| {
@@ -194,7 +194,7 @@ where
     async fn append_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send>, Self::Error> {
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
         let file = core::future::poll_fn(move |_cx| {

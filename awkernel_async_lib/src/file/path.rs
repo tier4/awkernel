@@ -167,7 +167,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Creates a file at this path for writing, overwriting any existing file
-    pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
+    pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.get_parent("create file").await?;
         self.fs.fs.create_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
@@ -176,7 +176,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Opens the file at this path for reading
-    pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send>, E> {
+    pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send + Unpin>, E> {
         self.fs.fs.open_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
                 .with_context(|| "Could not open file")
@@ -203,7 +203,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Opens the file at this path for appending
-    pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send>, E> {
+    pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
             err.with_path(&*self.path)
                 .with_context(|| "Could not open file for appending")
