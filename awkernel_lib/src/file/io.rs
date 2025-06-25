@@ -200,6 +200,16 @@ pub trait Seek: IoBase {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
 }
 
+impl From<embedded_io_async::SeekFrom> for SeekFrom {
+    fn from(from: embedded_io_async::SeekFrom) -> Self {
+        match from {
+            embedded_io_async::SeekFrom::Start(n) => SeekFrom::Start(n),
+            embedded_io_async::SeekFrom::End(n) => SeekFrom::End(n),
+            embedded_io_async::SeekFrom::Current(n) => SeekFrom::Current(n),
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl From<SeekFrom> for std::io::SeekFrom {
     fn from(from: SeekFrom) -> Self {

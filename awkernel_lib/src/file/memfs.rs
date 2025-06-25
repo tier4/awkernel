@@ -5,6 +5,7 @@ use super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Debug};
 
+#[derive(Clone)]
 pub struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
@@ -105,5 +106,13 @@ impl IoError for InMemoryDiskError {
     }
     fn other_error() -> Self {
         todo!();
+    }
+}
+
+impl embedded_io_async::Error for InMemoryDiskError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            _ => embedded_io_async::ErrorKind::Unsupported,
+        }
     }
 }

@@ -70,12 +70,6 @@ impl<E> From<Error<E>> for VfsErrorKind<E> {
     }
 }
 
-//impl<E: IoError> From<E> for VfsErrorKind<E> {
-//fn from(err: E) -> Self {
-//VfsErrorKind::IoError(err)
-//}
-//}
-
 impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
