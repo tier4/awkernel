@@ -16,7 +16,9 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
+    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::net_device::{
@@ -28,11 +30,14 @@ use awkernel_lib::{
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
 
+const RECV_QUEUE_SIZE: usize = 32; // To Be Determined
+
 const VIRTIO_NET_ID: u16 = 0x1041;
 
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
+const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
 const VIRTIO_F_NOTIFY_ON_EMPTY: u64 = 1 << 24;
@@ -61,6 +66,14 @@ const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
+const VIRTQ_DESC_F_WRITE: u16 = 2;
+
+const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
+
+const MCLSHIFT: u32 = 11;
+const MCLBYTES: u32 = 1 << MCLSHIFT;
+type RxTxBuffer = [[u8; MCLBYTES as usize]; MAX_VQ_SIZE];
+
 pub enum IRQType {
     Config,
     Control,
@@ -77,88 +90,199 @@ enum PCIeInt {
 // These can chain together via "next".
 #[repr(C, packed)]
 struct VirtqDesc {
-    _addr: u64,  // Address (guest-physical).
-    _len: u32,   // Length.
-    _flags: u16, // The flags as indicated above.
-    _next: u16,  // Next field if flags & NEXT.
+    addr: u64,  // Address (guest-physical).
+    len: u32,   // Length.
+    flags: u16, // The flags as indicated above.
+    next: u16,  // Next field if flags & NEXT.
 }
 
 #[repr(C, packed)]
 struct VirtqAvail {
-    _flags: u16,
-    _idx: u16,
-    _ring: [u16; MAX_VQ_SIZE],
-    _used_event: u16, // Only if VIRTIO_F_EVENT_IDX
+    flags: u16,
+    idx: u16,
+    ring: [u16; MAX_VQ_SIZE],
+    used_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
 // u32 is used here for ids for padding reasons.
 #[repr(C, packed)]
 struct VirtqUsedElem {
-    _id: u32, // Index of start of used descriptor chain.
-    _len: u32, // The number of bytes written into the device writable portion of
-              // the buffer described by the descriptor chain.
+    id: u32, // Index of start of used descriptor chain.
+    len: u32, // The number of bytes written into the device writable portion of
+             // the buffer described by the descriptor chain.
 }
 
 #[repr(C, packed)]
 struct VirtqUsed {
-    _flags: u16,
-    _idx: u16,
-    _ring: [VirtqUsedElem; MAX_VQ_SIZE],
-    _avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
+    flags: u16,
+    idx: u16,
+    ring: [VirtqUsedElem; MAX_VQ_SIZE],
+    avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
 // This is the memory layout on DMA
 #[repr(C, packed)]
 struct VirtqDMA {
-    _desc: [VirtqDesc; MAX_VQ_SIZE], // 4096 bytes
-    _avail: VirtqAvail,              // 518 bytes
-    _pad: [u8; 3578],                // 4096 - 518 = 3578 bytes
-    _used: VirtqUsed,                // 2054 bytes
-    _pad2: [u8; 2042],               // 4096 - 2054 = 2042 bytes
+    desc: [VirtqDesc; MAX_VQ_SIZE], // 4096 bytes
+    avail: VirtqAvail,              // 518 bytes
+    _pad: [u8; 3578],               // 4096 - 518 = 3578 bytes
+    used: VirtqUsed,                // 2054 bytes
+    _pad2: [u8; 2042],              // 4096 - 2054 = 2042 bytes
 } // 4096 * 3 = 12288 bytes in total
 
-struct Virtq {
-    _dma: DMAPool<VirtqDMA>,
-    vq_freelist: LinkedList<VirtqEntry>,
-    // TODO: add more fields
-}
-
 #[allow(dead_code)]
-struct VirtqEntry {
-    qe_index: u16, // index in vq_desc array
-    // The following are used only in the `head' entry
-    qe_next: i16,            // next enq slot
-    qe_indirect: i16,        // 1 if using indirect
-    qe_vr_index: i16,        // index in sc_reqs array
-    qe_desc_base: VirtqDesc, // pointer to vd array
+struct Virtq {
+    vq_dma: DMAPool<VirtqDMA>,
+    vq_freelist: LinkedList<usize>,
+    vq_num: usize,
+    vq_mask: usize,
+    vq_avail_idx: u16,
+    vq_used_idx: u16,
+    vq_index: u16,
+    vq_intr_vec: u16,
+
+    data_buf: DMAPool<RxTxBuffer>,
+    rx_buffer: RingQ<EtherFrameBuf>,
 }
 
 impl Virtq {
-    pub fn new(dma: DMAPool<VirtqDMA>) -> Self {
-        Self {
-            _dma: dma,
-            vq_freelist: LinkedList::new(),
+    fn init(&mut self) {
+        assert!(self.vq_num > 0);
+
+        self.vq_freelist = LinkedList::new();
+        for i in (0..self.vq_num).rev() {
+            self.vq_freelist.push_front(i);
         }
+
+        self.vq_avail_idx = 0;
+        self.vq_used_idx = 0;
     }
 
     #[allow(dead_code)]
-    fn vq_alloc_entry(&mut self) -> Option<VirtqEntry> {
+    fn vq_alloc_entry(&mut self) -> Option<usize> {
         self.vq_freelist.pop_front()
     }
 
     #[allow(dead_code)]
-    fn vq_free_entry(&mut self, entry: VirtqEntry) {
-        self.vq_freelist.push_front(entry);
+    fn vq_free_entry(&mut self, slot: usize) {
+        self.vq_freelist.push_front(slot);
     }
 
     /// enqueue_prep: allocate a slot number
     #[allow(dead_code)]
-    fn virtio_enqueue_prep(&mut self) -> Option<u16> {
-        let mut qe = self.vq_alloc_entry()?;
+    fn virtio_enqueue_prep(&mut self) -> Option<usize> {
+        self.vq_alloc_entry()
+    }
 
-        // next slot is not allocated yet
-        qe.qe_next = -1;
-        Some(qe.qe_index)
+    /// enqueue_reserve: allocate remaining slots and build the descriptor chain.
+    #[allow(dead_code)]
+    fn virtio_enqueue_reserve(&mut self, slot: usize) {
+        self.vq_dma.as_mut().desc[slot].flags = 0;
+    }
+
+    /// enqueue: enqueue a single dmamap.
+    #[allow(dead_code)]
+    fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
+        let desc = &mut self.vq_dma.as_mut().desc[slot];
+
+        desc.addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        desc.len = len as u32;
+        if !write {
+            desc.flags |= VIRTQ_DESC_F_WRITE;
+        }
+        desc.next = 0;
+    }
+
+    /// enqueue_commit: add it to the available ring.
+    #[allow(dead_code)]
+    fn virtio_enqueue_commit(&mut self, slot: usize) {
+        let avail = &mut self.vq_dma.as_mut().avail;
+
+        avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
+        self.vq_avail_idx += 1;
+        avail.idx = self.vq_avail_idx;
+    }
+
+    /// dequeue: dequeue a request from uring.
+    #[allow(dead_code)]
+    fn virtio_dequeue(&mut self) -> Option<(usize, u32)> {
+        if self.vq_used_idx == self.vq_dma.as_ref().used.idx {
+            return None;
+        }
+
+        let used_idx = self.vq_used_idx & self.vq_mask as u16;
+        self.vq_used_idx += 1;
+
+        let used_ring = &self.vq_dma.as_ref().used.ring[used_idx as usize];
+        Some((used_ring.id as usize, used_ring.len))
+    }
+
+    /// dequeue_commit: complete dequeue; the slot is recycled for future use.
+    /// if you forget to call this the slot will be leaked.
+    #[allow(dead_code)]
+    fn virtio_dequeue_commit(&mut self, slot: usize) {
+        self.vq_free_entry(slot);
+    }
+
+    /// Stop vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_stop_vq_intr(&mut self) {
+        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+    }
+
+    /// Start vq interrupt.  No guarantee.
+    #[allow(dead_code)]
+    fn virtio_start_vq_intr(&mut self) -> bool {
+        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        self.vq_used_idx != self.vq_dma.as_ref().used.idx
+    }
+
+    /// add mbufs for all the empty receive slots
+    #[allow(dead_code)]
+    fn vio_populate_rx_mbufs(&mut self) {
+        for _ in 0..self.vq_num {
+            let slot = if let Some(slot) = self.virtio_enqueue_prep() {
+                slot
+            } else {
+                break;
+            };
+
+            self.virtio_enqueue_reserve(slot);
+            self.virtio_enqueue(slot, MCLBYTES as usize, false);
+            self.virtio_enqueue_commit(slot);
+        }
+    }
+
+    /// dequeue received packets
+    #[allow(dead_code)]
+    fn vio_rxeof(&mut self) -> u16 {
+        let mut freed = 0;
+
+        while let Some((slot, len)) = self.virtio_dequeue() {
+            let buf = self.data_buf.as_mut();
+            let data = buf[slot];
+
+            // TODO: handle VirtIO-net header
+            // For now, we just skip the header by [12..]
+            let data = data[0..len as usize][12..].to_vec();
+
+            self.rx_buffer
+                .push(EtherFrameBuf { data, vlan: None })
+                .unwrap();
+
+            self.virtio_dequeue_commit(slot);
+            freed += 1;
+        }
+
+        freed
+    }
+
+    #[allow(dead_code)]
+    fn vio_rx_intr(&mut self) {
+        let freed = self.vio_rxeof();
+        if freed > 0 {
+            self.vio_populate_rx_mbufs();
+        }
     }
 }
 
@@ -285,7 +409,7 @@ impl VirtioNetInner {
         self.driver_features = 0;
         self.driver_features |= VIRTIO_NET_F_MAC;
         self.driver_features |= VIRTIO_NET_F_STATUS;
-        // TODO: setup more features
+        self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
         self.virtio_pci_negotiate_features()?;
 
@@ -519,10 +643,8 @@ impl VirtioNetInner {
     }
 
     /// Allocate a vq.
-    /// maxnsegs denotes how much space should be allocated for indirect descriptors.
-    /// maxnsegs == 1 can be used to disable use indirect descriptors for this queue.
     #[allow(dead_code)]
-    fn virtio_alloc_vq(&mut self, index: u16, _maxnsegs: u16) -> Result<Virtq, VirtioDriverErr> {
+    fn virtio_alloc_vq(&mut self, index: u16) -> Result<Virtq, VirtioDriverErr> {
         let vq_size = self.virtio_pci_read_queue_size(index)? as usize;
         if vq_size == 0 {
             return Err(VirtioDriverErr::NoVirtqueue);
@@ -535,13 +657,27 @@ impl VirtioNetInner {
         }
 
         // alloc and map the memory
-        let allocsize = core::mem::size_of::<Virtq>();
-        let dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let allocsize = core::mem::size_of::<VirtqDMA>();
+        let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        // remember addresses and offsets for later use
-        let vq = Virtq::new(dma);
+        //
+        let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
+        let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        // TODO: continue Virtq initialization
+        let mut vq = Virtq {
+            vq_dma,
+            vq_freelist: LinkedList::new(),
+            vq_num: vq_size,
+            vq_mask: vq_size - 1,
+            vq_avail_idx: 0,
+            vq_used_idx: 0,
+            vq_index: index,
+            vq_intr_vec: 0,
+            data_buf,
+            rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
+        };
+
+        vq.init();
 
         Ok(vq)
     }
@@ -617,12 +753,36 @@ impl NetDevice for VirtioNet {
             }
         }
 
-        LinkStatus::UpFullDuplex
+        let duplex = inner.net_cfg.virtio_get_duplex();
+        match duplex {
+            Ok(0x00) => LinkStatus::UpHalfDuplex,
+            Ok(0x01) => LinkStatus::UpFullDuplex,
+            Ok(0xff) => {
+                log::warn!("virtio-net: duplex is unknown");
+                LinkStatus::Unknown
+            }
+            _ => {
+                log::warn!("virtio-net: cannot get duplex");
+                LinkStatus::Down
+            }
+        }
     }
 
     fn link_speed(&self) -> u64 {
-        // TODO: Implement this
-        10
+        let inner = self.inner.read();
+        let speed = inner.net_cfg.virtio_get_speed();
+
+        match speed {
+            Ok(0xffffffff) => {
+                log::warn!("virtio-net: speed is unknown");
+                0
+            }
+            Ok(speed) => speed as u64,
+            _ => {
+                log::warn!("virtio-net: cannot get speed");
+                0
+            }
+        }
     }
 
     fn mac_address(&self) -> [u8; 6] {

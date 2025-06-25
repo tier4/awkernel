@@ -1,5 +1,6 @@
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
+use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
 use core::convert::TryInto;
@@ -107,7 +108,6 @@ impl ShortName {
         &self.name[..usize::from(self.len)]
     }
 
-    #[cfg(feature = "alloc")]
     fn to_string<OCC: OemCpConverter>(&self, oem_cp_converter: &OCC) -> String {
         // Strip non-ascii characters from short name
         self.as_bytes()
@@ -163,7 +163,6 @@ impl DirFileEntryData {
         &self.name
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_name(&self) -> ShortName {
         let mut name_copy: [u8; SFN_SIZE] = self.name;
         if self.lowercase_basename() {
@@ -217,12 +216,10 @@ impl DirFileEntryData {
         !self.is_dir()
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_basename(&self) -> bool {
         self.reserved_0 & (1 << 3) != 0
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_ext(&self) -> bool {
         self.reserved_0 & (1 << 4) != 0
     }
@@ -526,7 +523,7 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek + Send + Sync, TP, OCC>(
+    pub(crate) fn flush<IO: ReadWriteSeek + Send, TP, OCC>(
         &mut self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -537,7 +534,7 @@ impl DirEntryEditor {
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek + Send + Sync, TP, OCC>(
+    fn write<IO: ReadWriteSeek + Send, TP, OCC>(
         &self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -552,22 +549,21 @@ impl DirEntryEditor {
 ///
 /// `DirEntry` is returned by `DirIter` when reading a directory.
 #[derive(Clone)]
-pub struct DirEntry<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
+pub struct DirEntry<IO: ReadWriteSeek + Send, TP, OCC> {
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
     #[cfg(feature = "lfn")]
     pub(crate) lfn_utf16: LfnBuffer,
     pub(crate) entry_pos: u64,
     pub(crate) offset_range: (u64, u64),
-    pub(crate) fs: &'a FileSystem<IO, TP, OCC>,
+    pub(crate) fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC: OemCpConverter> DirEntry<IO, TP, OCC> {
     /// Returns short file name.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn short_file_name(&self) -> String {
         self.short_name.to_string(&self.fs.options.oem_cp_converter)
@@ -595,7 +591,6 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, 
     }
 
     /// Returns long file name or if it doesn't exist fallbacks to short file name.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn file_name(&self) -> String {
         #[cfg(feature = "lfn")]
@@ -647,9 +642,9 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, 
     ///
     /// Will panic if this is not a file.
     #[must_use]
-    pub fn to_file(&self) -> File<'a, IO, TP, OCC> {
+    pub fn to_file(&self) -> File<IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new(self.first_cluster(), Some(self.editor()), self.fs)
+        File::new(self.first_cluster(), Some(self.editor()), self.fs.clone())
     }
 
     /// Returns `Dir` struct for this entry.
@@ -658,14 +653,14 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, 
     ///
     /// Will panic if this is not a directory.
     #[must_use]
-    pub fn to_dir(&self) -> Dir<'a, IO, TP, OCC> {
+    pub fn to_dir(&self) -> Dir<IO, TP, OCC> {
         assert!(self.is_dir(), "Not a directory entry");
         match self.first_cluster() {
             Some(n) => {
-                let file = File::new(Some(n), Some(self.editor()), self.fs);
-                Dir::new(DirRawStream::File(file), self.fs)
+                let file = File::new(Some(n), Some(self.editor()), self.fs.clone());
+                Dir::new(DirRawStream::File(file), self.fs.clone())
             }
-            None => self.fs.root_dir(),
+            None => FileSystem::root_dir(&self.fs),
         }
     }
 
@@ -740,7 +735,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC: OemCpConverter> DirEntry<'a, 
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> fmt::Debug for DirEntry<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> fmt::Debug for DirEntry<IO, TP, OCC> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
     }
@@ -751,7 +746,6 @@ mod tests {
     use super::super::fs::LossyOemCpConverter;
     use super::*;
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_with_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -771,7 +765,6 @@ mod tests {
             .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn short_name_without_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
@@ -804,7 +797,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "alloc")]
     #[test]
     fn lowercase_short_name() {
         let oem_cp_conv = LossyOemCpConverter::new();

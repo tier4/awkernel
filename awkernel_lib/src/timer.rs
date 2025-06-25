@@ -27,6 +27,15 @@ pub fn register_timer(timer: Box<dyn Timer + Send + Sync>) {
 }
 
 /// Re-enable timer.
+///
+/// # x86_64
+///
+/// Because x86 APIC timer is edge-triggered, we set the timer to periodic
+/// to avoid lost timer interrupts.
+///
+/// # AArch64
+///
+/// AArch64's timer is level-sensitive and it is not periodic.
 #[inline(always)]
 pub fn reset(dur: Duration) {
     let mut node = MCSNode::new();

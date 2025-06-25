@@ -171,14 +171,16 @@ QEMU_X86_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
 QEMU_X86_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
 QEMU_X86_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
 QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
-# QEMU_X86_ARGS+= -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
+# QEMU_X86_ARGS+= -d int # debug interrupt
+# QEMU_X86_ARGS+= --trace apic_mem_writel # debug APIC
+# QEMU_X86_ARGS+= --trace "e1000e_irq_*" --trace "pci_cfg_*" # debug e1000e and PCI
 
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
 QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets_net0.pcap
 QEMU_X86_NET_ARGS+= -netdev user,id=net1,hostfwd=udp::4446-:2001
-QEMU_X86_NET_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34,disable-legacy=on,disable-modern=off
+QEMU_X86_NET_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34,disable-legacy=on,disable-modern=off,speed=1000,duplex=full
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net1,netdev=net1,file=packets_net1.pcap
 
 tcp-dump:
