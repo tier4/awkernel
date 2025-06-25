@@ -41,26 +41,22 @@ inline invoke_preemption(tid,task) {
 		// printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 		ipi_requests[lp_cpu_id]!task;
 	:: else
-		fi	
-	}
+	fi	
+}
 	
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()*/ 
 inline wake_task(tid,task) {
 	lock(tid,lock_queue);
 	queue!!task;
 	unlock(tid,lock_queue);
-	atomic {
-		invoke_preemption(tid,task);
-		waking[task] = false;
-	}
+	invoke_preemption(tid,task);
+	waking[task] = false;
 }
 
 /* awkernel_async_lib::task::ArcWake::wake()*/ 
 inline wake(tid,task) {
-	atomic {
-		waking[task] = true;
-		lock(tid,lock_info[task]);
-	}
+	waking[task] = true;
+	lock(tid,lock_info[task]);
 	
 	if
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
@@ -82,7 +78,7 @@ inline wake(tid,task) {
 	fi
 }
 
-/* awkernel_async_lib::scheduler::fifo::FIFOScheduler::get_next()*/ 
+/* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
 inline scheduler_get_next(tid,ret) {
 	lock(tid,lock_queue);
 	

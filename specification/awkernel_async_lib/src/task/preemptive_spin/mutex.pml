@@ -1,5 +1,5 @@
 typedef Mutex {
-	bool is_locked;
+	bool is_locked = false;
 	bool interrupt_flag[WORKER_NUM];// This stores the interrupt enabled state of each CPU when the lock is acquired.
 };
 
