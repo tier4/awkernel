@@ -10,7 +10,7 @@ run: pan
 
 trail:
 	clear
-	spin -t -p preemptive.pml
+	spin -t preemptive.pml
 
 clean:
 	rm -f pan.* *.trail pan *.tmp
