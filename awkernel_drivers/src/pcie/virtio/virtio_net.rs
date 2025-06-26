@@ -602,9 +602,9 @@ impl VirtioNetInner {
     }
 
     fn virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
-        let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()?;
-        let notify_off_multiplier = self.notify_off_multiplier;
-        let offset = queue_notify_off as usize * notify_off_multiplier as usize;
+        let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()? as usize;
+        let notify_off_multiplier = self.notify_off_multiplier as usize;
+        let offset = queue_notify_off * notify_off_multiplier;
         self.notify_cfg.virtio_set_notify(offset, idx)
     }
 
