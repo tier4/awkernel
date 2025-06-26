@@ -25,7 +25,7 @@ use awkernel_lib::{
         EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::PAGESIZE,
-    sync::rwlock::RwLock,
+    sync::{mutex::Mutex, rwlock::RwLock},
 };
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
@@ -225,13 +225,11 @@ impl Virtq {
     }
 
     /// Stop vq interrupt.  No guarantee.
-    #[allow(dead_code)]
     fn virtio_stop_vq_intr(&mut self) {
         self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
     }
 
     /// Start vq interrupt.  No guarantee.
-    #[allow(dead_code)]
     fn virtio_start_vq_intr(&mut self) -> bool {
         self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
@@ -395,6 +393,12 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
+#[allow(dead_code)]
+struct Queue {
+    rx: Mutex<Virtq>,
+    tx: Mutex<Virtq>,
+}
+
 struct VirtioNetInner {
     info: PCIeInfo,
     mac_addr: [u8; 6],
@@ -406,6 +410,7 @@ struct VirtioNetInner {
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    virtqueues: Vec<Queue>,
     irq_to_type: BTreeMap<u16, IRQType>,
     pcie_int: PCIeInt,
 }
@@ -423,6 +428,7 @@ impl VirtioNetInner {
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            virtqueues: Vec::new(),
             irq_to_type: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         }
@@ -474,29 +480,30 @@ impl VirtioNetInner {
 
         self.virtio_pci_negotiate_features()?;
 
-        // TODO: VIRTIO_NET_F_MQ related setup
-        // TODO: setup virtio queues
-
         if self.virtio_has_feature(VIRTIO_NET_F_MAC) {
             self.mac_addr = self.net_cfg.virtio_get_mac_addr()?;
         } else {
             todo!()
         }
 
-        // TODO: VIRTIO_NET_F_MRG_RXBUF related setup
-
         self.capabilities = NetCapabilities::empty();
         self.flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
 
-        // TODO: VIRTIO_NET_F_CSUM related setup
-        // TODO: VIRTIO_NET_F_HOST_TSO4 related setup
-        // TODO: VIRTIO_NET_F_HOST_TSO6 related setup
-        // TODO: VIRTIO_NET_F_CTRL_GUEST_OFFLOADS related setup
-        // TODO: VIRTIO_NET_F_MRG_RXBUF related setup
-        // TODO: VIRTIO_NET_F_GUEST_TSO related setup
-        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-        // TODO: setup virtio queues
-        // TODO: setup control queue
+        let num_queues = 1; // TODO: support multiple queues
+        for i in 0..num_queues {
+            let mut rx = self.virtio_alloc_vq(2 * i)?;
+            rx.virtio_start_vq_intr();
+            rx.vq_intr_vec = i + 2;
+
+            let mut tx = self.virtio_alloc_vq(2 * i + 1)?;
+            tx.virtio_stop_vq_intr();
+            tx.vq_intr_vec = i + 2;
+
+            self.virtqueues.push(Queue {
+                rx: Mutex::new(rx),
+                tx: Mutex::new(tx),
+            });
+        }
 
         {
             let mut irqs = Vec::new();
@@ -507,18 +514,15 @@ impl VirtioNetInner {
             let irq = self.virtio_pci_msix_establish(1, IRQType::Control)?;
             irqs.push((irq, IRQType::Control));
 
-            // TODO: support multiple queues
-            let intr_vector = 2;
-            let irq = self.virtio_pci_msix_establish(intr_vector, IRQType::Queue(0))?;
-            irqs.push((irq, IRQType::Queue(0)));
+            for i in 0..num_queues {
+                let irq = self.virtio_pci_msix_establish(i + 2, IRQType::Queue(i as usize))?;
+                irqs.push((irq, IRQType::Queue(i as usize)));
+            }
 
             self.pcie_int = PCIeInt::MsiX(irqs);
         }
 
         self.virtio_attach_finish()?;
-
-        // TODO: VIRTIO_NET_F_MQ related setup
-        // TODO: setup virtio queues
 
         Ok(())
     }
@@ -704,7 +708,6 @@ impl VirtioNetInner {
     }
 
     /// Allocate a vq.
-    #[allow(dead_code)]
     fn virtio_alloc_vq(&mut self, index: u16) -> Result<Virtq, VirtioDriverErr> {
         let vq_size = self.virtio_pci_read_queue_size(index)? as usize;
         if vq_size == 0 {
