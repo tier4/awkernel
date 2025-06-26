@@ -37,6 +37,7 @@ pub mod net_device;
 pub mod tcp;
 pub mod tcp_listener;
 pub mod tcp_stream;
+pub mod toeplitz;
 pub mod udp;
 pub mod udp_socket;
 
