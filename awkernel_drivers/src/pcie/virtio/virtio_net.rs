@@ -719,28 +719,22 @@ impl VirtioNetInner {
         self.virtio_pci_negotiate_features()?;
         self.virtio_pci_setup_intrs()?;
 
-        let mut phy_addrs = Vec::new();
-        for queue in self.virtqueues.iter() {
-            {
+        for i in 0..self.virtqueues.len() {
+            let (vq_index, phy_addr) = {
                 let mut node = MCSNode::new();
-                let mut rx = queue.rx.lock(&mut node);
+                let mut rx = self.virtqueues[i].rx.lock(&mut node);
                 rx.init();
-                let vq_index = rx.vq_index;
-                let phy_addr = rx.vq_dma.get_phy_addr().as_usize() as u64;
-                phy_addrs.push((vq_index, phy_addr));
-            }
-            {
-                let mut node = MCSNode::new();
-                let mut tx = queue.tx.lock(&mut node);
-                tx.init();
-                let vq_index = tx.vq_index;
-                let phy_addr = tx.vq_dma.get_phy_addr().as_usize() as u64;
-                phy_addrs.push((vq_index, phy_addr));
-            }
-        }
+                (rx.vq_index, rx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(vq_index, phy_addr)?;
 
-        for (idx, phy_addr) in phy_addrs {
-            self.virtio_pci_setup_queue(idx, phy_addr)?;
+            let (vq_index, phy_addr) = {
+                let mut node = MCSNode::new();
+                let mut tx = self.virtqueues[i].tx.lock(&mut node);
+                tx.init();
+                (tx.vq_index, tx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(vq_index, phy_addr)?;
         }
 
         Ok(())
@@ -791,10 +785,9 @@ impl VirtioNetInner {
         Ok(vq)
     }
 
-    fn vio_iff(&mut self) -> Result<(), VirtioDriverErr> {
+    fn vio_iff(&mut self) {
         self.flags.insert(NetFlags::MULTICAST);
         self.flags.insert(NetFlags::PROMISC);
-        Ok(())
     }
 
     fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
@@ -806,7 +799,7 @@ impl VirtioNetInner {
             rx.vio_populate_rx_mbufs();
         }
 
-        self.vio_iff()?;
+        self.vio_iff();
         self.flags.insert(NetFlags::RUNNING);
 
         Ok(())
