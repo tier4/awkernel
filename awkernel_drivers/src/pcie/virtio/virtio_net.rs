@@ -642,21 +642,19 @@ impl VirtioNetInner {
     }
 
     fn virtio_pci_setup_intrs(&mut self) -> Result<(), VirtioDriverErr> {
-        let mut queue_vectors = Vec::new();
-        for queue in self.virtqueues.iter() {
-            {
+        for i in 0..self.virtqueues.len() {
+            let (idx, vector) = {
                 let mut node = MCSNode::new();
-                let rx = queue.rx.lock(&mut node);
-                queue_vectors.push((rx.vq_index, rx.vq_intr_vec));
-            }
-            {
-                let mut node = MCSNode::new();
-                let tx = queue.tx.lock(&mut node);
-                queue_vectors.push((tx.vq_index, tx.vq_intr_vec));
-            }
-        }
+                let rx = self.virtqueues[i].rx.lock(&mut node);
+                (rx.vq_index, rx.vq_intr_vec)
+            };
+            self.virtio_pci_set_msix_queue_vector(idx, vector)?;
 
-        for (idx, vector) in queue_vectors {
+            let (idx, vector) = {
+                let mut node = MCSNode::new();
+                let tx = self.virtqueues[i].tx.lock(&mut node);
+                (tx.vq_index, tx.vq_intr_vec)
+            };
             self.virtio_pci_set_msix_queue_vector(idx, vector)?;
         }
 
@@ -676,23 +674,19 @@ impl VirtioNetInner {
         self.virtio_pci_attach_finish()?;
         self.virtio_pci_setup_intrs()?;
 
-        let mut phy_addrs = Vec::new();
-        for queue in self.virtqueues.iter() {
-            {
+        for i in 0..self.virtqueues.len() {
+            let (idx, phy_addr) = {
                 let mut node = MCSNode::new();
-                let rx = queue.rx.lock(&mut node);
-                let phy_addr = rx.vq_dma.get_phy_addr().as_usize() as u64;
-                phy_addrs.push((rx.vq_index, phy_addr));
-            }
-            {
-                let mut node = MCSNode::new();
-                let tx = queue.tx.lock(&mut node);
-                let phy_addr = tx.vq_dma.get_phy_addr().as_usize() as u64;
-                phy_addrs.push((tx.vq_index, phy_addr));
-            }
-        }
+                let rx = self.virtqueues[i].rx.lock(&mut node);
+                (rx.vq_index, rx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(idx, phy_addr)?;
 
-        for (idx, phy_addr) in phy_addrs {
+            let (idx, phy_addr) = {
+                let mut node = MCSNode::new();
+                let tx = self.virtqueues[i].tx.lock(&mut node);
+                (tx.vq_index, tx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
             self.virtio_pci_setup_queue(idx, phy_addr)?;
         }
 
