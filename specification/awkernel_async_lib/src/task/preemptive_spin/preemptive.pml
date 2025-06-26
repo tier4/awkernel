@@ -221,8 +221,8 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 	do
 	:: d_step {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
 			ipi_requests[cpu_id(tid)]?_
-			printf("Received IPI request. cpu_id = %d\n",cpu_id);
 			cpu_id = cpu_id(tid);
+			printf("Received IPI request. cpu_id = %d\n",cpu_id);
 			interrupt_enabled[cpu_id] = false;
 			workers[tid].interrupted = true;
 		}
