@@ -872,7 +872,8 @@ impl PCIeDevice for VirtioNet {
 
 impl NetDevice for VirtioNet {
     fn num_queues(&self) -> usize {
-        1
+        let inner = self.inner.read();
+        inner.virtqueues.len()
     }
 
     fn flags(&self) -> NetFlags {
