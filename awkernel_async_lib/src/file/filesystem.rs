@@ -9,7 +9,7 @@ use awkernel_lib::file::{
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
 };
-use futures::stream::BoxStream;
+use futures::stream::Stream;
 
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
@@ -50,7 +50,7 @@ pub trait AsyncSeekAndWrite<E: IoError>: Send + Unpin {
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send> {
+impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send + Unpin> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>> {
         (**self).read(buf).await
     }
@@ -65,7 +65,7 @@ impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Se
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send> {
+impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send + Unpin> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError<E>> {
         (**self).write(buf).await
     }
@@ -160,15 +160,5 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
     /// Moves the src directory to the destination path within the same filesystem (optional)
     async fn move_dir(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
         Err(VfsErrorKind::NotSupported.into())
-    }
-}
-
-impl<E, T> From<T> for AsyncVfsPath<E>
-where
-    E: IoError + Clone + Send + Sync + 'static,
-    T: AsyncFileSystem<Error = E>,
-{
-    fn from(filesystem: T) -> Self {
-        AsyncVfsPath::new(filesystem)
     }
 }
