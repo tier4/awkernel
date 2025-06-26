@@ -9,6 +9,7 @@ use awkernel_lib::{
         ether::{ETHER_ADDR_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
         net_device::{self, LinkStatus, NetDevice, NetFlags},
+        toeplitz::stoeplitz_to_key,
     },
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
@@ -19,7 +20,10 @@ use igc_defines::*;
 use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
-    intel::igc::igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+    intel::igc::{
+        i225::IGC_MRQC_ENABLE_RSS_4Q,
+        igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+    },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
@@ -1018,4 +1022,62 @@ impl Rx {
         self.next_to_check = 0;
         self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
     }
+}
+
+/// Initialise the RSS mapping for NICs that support multiple transmit/
+/// receive rings.
+fn igc_initialize_rss_mapping(info: &PCIeInfo, sc_nqueues: usize) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // The redirection table controls which destination
+    // queue each bucket redirects traffic to.
+    // Each DWORD represents four queues, with the LSB
+    // being the first queue in the DWORD.
+    //
+    // This just allocates buckets to queues using round-robin
+    // allocation.
+    //
+    // NOTE: It Just Happens to line up with the default
+    // RSS allocation method.
+
+    // Warning FM follows
+    let shift = 0;
+    let mut reta = 0;
+    for i in 0..128 {
+        let mut queue_id = i % sc_nqueues;
+        // Adjust if require
+        queue_id <<= shift;
+
+        // The low 8 bits are for hash value (n+0);
+        // The next 8 bits are for hash value (n+1), etc.
+        reta >>= 8;
+        reta |= (queue_id) << 24;
+        if i & 3 == 3 {
+            write_reg(info, IGC_RETA(i >> 2), reta as u32)?;
+            reta = 0;
+        }
+    }
+
+    // MRQC: Multiple Receive Queues Command
+    // Set queuing to RSS control, number depends on the device.
+    let mut mrqc = IGC_MRQC_ENABLE_RSS_4Q;
+
+    // Set up random bits
+    let mut rss_key: [u32; 10] = [0; 10];
+    let rss_key_u8 = unsafe { core::mem::transmute::<&mut [u32; 10], &mut [u8; 40]>(&mut rss_key) };
+    stoeplitz_to_key(rss_key_u8);
+
+    // Now fill our hash function seeds
+    for (i, rk) in rss_key.iter().enumerate() {
+        write_reg_array(info, IGC_RSSRK(0), i, *rk)?;
+    }
+
+    // Configure the RSS fields to hash upon.
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV4 | IGC_MRQC_RSS_FIELD_IPV4_TCP;
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV6 | IGC_MRQC_RSS_FIELD_IPV6_TCP;
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV6_TCP_EX;
+
+    write_reg(info, IGC_MRQC, mrqc)?;
+
+    Ok(())
 }
