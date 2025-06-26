@@ -2,6 +2,7 @@
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -10,7 +11,7 @@ use awkernel_lib::{
         net_device::{self, LinkStatus, NetDevice, NetFlags},
     },
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
@@ -76,8 +77,8 @@ type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
 type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
 
 struct Rx {
-    rx_desc_head: usize,
-    rx_desc_tail: usize,
+    next_to_check: usize,
+    last_desc_filled: usize,
     rx_desc_ring: DMAPool<RxRing>,
 
     // Statistics
@@ -786,8 +787,8 @@ fn igc_allocate_queues(
         irq_to_queue.insert(irq_num, n);
 
         let rx = Mutex::new(Rx {
-            rx_desc_head: 0,
-            rx_desc_tail: 0,
+            next_to_check: 0,
+            last_desc_filled: 0,
             rx_desc_ring: DMAPool::new(
                 info.segment_group as usize,
                 core::mem::size_of::<RxRing>() / PAGESIZE,
@@ -959,5 +960,62 @@ impl Tx {
         self.next_to_clean = 0;
 
         Ok(())
+    }
+}
+
+fn igc_initialize_transmit_unit(info: &PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Setup the Base and Length of the TX descriptor ring.
+    for (i, q) in queues.iter().enumerate() {
+        let mut node = MCSNode::new();
+        let txr = q.tx.lock(&mut node);
+
+        let bus_addr = txr.tx_desc_ring.get_phy_addr();
+
+        // Base and len of TX ring
+        write_reg(info, IGC_TDLEN(i), txr.tx_desc_ring.get_size() as u32)?;
+        write_reg(info, IGC_TDBAH(i), (bus_addr.as_usize() >> 32) as u32)?;
+        write_reg(info, IGC_TDBAL(i), bus_addr.as_usize() as u32)?;
+
+        // Init the HEAD/TAIL indices
+        write_reg(info, IGC_TDT(i), 0)?;
+        write_reg(info, IGC_TDH(i), 0)?;
+
+        let mut txdctl = 0; // Clear txdctl
+        txdctl |= 0x1f; // PTHRESH
+        txdctl |= 1 << 8; // HTHREASH
+        txdctl |= 1 << 16; // WTHREASH
+        txdctl |= 1 << 22; // Reserved bit 22 must always be 1
+        txdctl |= IGC_TXDCTL_GRAN;
+        txdctl |= 1 << 25; // LWTHREASH
+
+        write_reg(info, IGC_TXDCTL(i), txdctl)?;
+    }
+
+    // Program the Transmit Control Register
+    let mut tctl = read_reg(info, IGC_TCTL)?;
+    tctl &= !IGC_TCTL_CT;
+    tctl |= IGC_TCTL_PSP | IGC_TCTL_RTLC | IGC_TCTL_EN | (IGC_COLLISION_THRESHOLD << IGC_CT_SHIFT);
+
+    // This write will effectively turn on the transmit unit.
+    write_reg(info, IGC_TCTL, tctl)?;
+
+    Ok(())
+}
+
+impl Rx {
+    /// Initialize a receive ring and its buffers.
+    fn igc_setup_receive_ring(&mut self) {
+        // Clear the ring contents
+        for desc in self.rx_desc_ring.as_mut() {
+            let read = unsafe { &mut desc.read };
+            read.hdr_addr = 0;
+            read.pkt_addr = 0;
+        }
+
+        // Setup our descriptor indices.
+        self.next_to_check = 0;
+        self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
     }
 }
