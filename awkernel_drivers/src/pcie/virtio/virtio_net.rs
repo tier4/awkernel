@@ -25,7 +25,10 @@ use awkernel_lib::{
         EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::{
+        mutex::{MCSNode, Mutex},
+        rwlock::RwLock,
+    },
 };
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
@@ -577,7 +580,7 @@ impl VirtioNetInner {
         Ok(())
     }
 
-    fn _virtio_pci_setup_queue(&mut self, vq_idx: u16, addr: u64) -> Result<(), VirtioDriverErr> {
+    fn virtio_pci_setup_queue(&mut self, vq_idx: u16, addr: u64) -> Result<(), VirtioDriverErr> {
         self.common_cfg.virtio_set_queue_select(vq_idx)?;
 
         if addr == 0 {
@@ -603,11 +606,11 @@ impl VirtioNetInner {
         self.common_cfg.virtio_get_queue_size()
     }
 
-    fn _virtio_pci_set_msix_config_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
+    fn virtio_pci_set_msix_config_vector(&mut self, vector: u16) -> Result<(), VirtioDriverErr> {
         self.common_cfg.virtio_set_config_msix_vector(vector)
     }
 
-    fn _virtio_pci_set_msix_queue_vector(
+    fn virtio_pci_set_msix_queue_vector(
         &mut self,
         idx: u16,
         vector: u16,
@@ -656,13 +659,54 @@ impl VirtioNetInner {
         Ok(irq_new)
     }
 
+    fn virtio_pci_setup_intrs(&mut self) -> Result<(), VirtioDriverErr> {
+        for i in 0..self.virtqueues.len() {
+            let (idx, vector) = {
+                let mut node = MCSNode::new();
+                let rx = self.virtqueues[i].rx.lock(&mut node);
+                (rx.vq_index, rx.vq_intr_vec)
+            };
+            self.virtio_pci_set_msix_queue_vector(idx, vector)?;
+
+            let (idx, vector) = {
+                let mut node = MCSNode::new();
+                let tx = self.virtqueues[i].tx.lock(&mut node);
+                (tx.vq_index, tx.vq_intr_vec)
+            };
+            self.virtio_pci_set_msix_queue_vector(idx, vector)?;
+        }
+
+        self.virtio_pci_set_msix_config_vector(0)
+    }
+
+    fn virtio_pci_attach_finish(&mut self) -> Result<(), VirtioDriverErr> {
+        // NOTE: msix is already assigned by vio_attach()
+        Ok(())
+    }
+
     fn virtio_has_feature(&self, feature: u64) -> bool {
         self.active_features & feature != 0
     }
 
     fn virtio_attach_finish(&mut self) -> Result<(), VirtioDriverErr> {
-        // TODO: setup msix
-        // TODO: setup virt queues
+        self.virtio_pci_attach_finish()?;
+        self.virtio_pci_setup_intrs()?;
+
+        for i in 0..self.virtqueues.len() {
+            let (idx, phy_addr) = {
+                let mut node = MCSNode::new();
+                let rx = self.virtqueues[i].rx.lock(&mut node);
+                (rx.vq_index, rx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(idx, phy_addr)?;
+
+            let (idx, phy_addr) = {
+                let mut node = MCSNode::new();
+                let tx = self.virtqueues[i].tx.lock(&mut node);
+                (tx.vq_index, tx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(idx, phy_addr)?;
+        }
 
         self.common_cfg
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
