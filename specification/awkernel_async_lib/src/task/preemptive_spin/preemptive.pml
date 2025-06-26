@@ -40,7 +40,7 @@ inline invoke_preemption(tid,task) {
 		set_need_preemption(tid,lp_task);
 		printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 		ipi_requests[lp_cpu_id]!task
-	:: else
+	:: else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 	fi	
 }
 	
@@ -224,10 +224,12 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		printf("Received IPI request. cpu_id = %d\n",cpu_id);
 		
 		atomic {
+			// RunningTaskGuard::take()
 			cur_task = RUNNING[cpu_id];
+			RUNNING[cpu_id] = - 1;
 			if
 			:: cur_task == - 1 -> 
-				printf("There is no running task in cpu_id %d",cpu_id);
+				printf("There is no running task in cpu_id %d\n",cpu_id);
 				goto finish;
 			:: else
 			fi
@@ -237,7 +239,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		if
 		:: !tasks[cur_task].need_preemption -> 
 			unlock(tid,lock_info[cur_task]);
-			printf("need_preemption is false: cpu_id = %d,cur_task = %d",cpu_id,cur_task);
+			printf("need_preemption is false: cpu_id = %d,cur_task = %d\n",cpu_id,cur_task);
 			goto finish;
 		:: else -> unlock(tid,lock_info[cur_task]);
 		fi
@@ -247,7 +249,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		get_next_task(tid,hp_task);
 		if
 		:: hp_task == - 1 -> 
-			printf("get_next_task() returns None: %d",cpu_id);
+			printf("get_next_task() returns None: %d\n",cpu_id);
 			goto finish;
 		:: else
 		fi
@@ -270,6 +272,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		
 		finish:
 		atomic {
+			RUNNING[cpu_id(tid)] = cur_task;// RunningTaskGuard::drop()
 			interrupt_enabled[cpu_id(tid)] = true;// iretq
 			workers[tid].interrupted = false
 		}
