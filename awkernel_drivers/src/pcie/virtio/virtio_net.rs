@@ -239,7 +239,6 @@ impl Virtq {
     }
 
     /// add mbufs for all the empty receive slots
-    #[allow(dead_code)]
     fn vio_populate_rx_mbufs(&mut self) {
         for _ in 0..self.vq_num {
             let slot = if let Some(slot) = self.virtio_enqueue_prep() {
@@ -255,7 +254,6 @@ impl Virtq {
     }
 
     /// dequeue received packets
-    #[allow(dead_code)]
     fn vio_rxeof(&mut self) -> u16 {
         let mut freed = 0;
 
@@ -734,12 +732,26 @@ impl VirtioNetInner {
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK)?;
         self.common_cfg
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER)?;
-
-        // TODO: setup interrupts
-
         self.virtio_pci_negotiate_features()?;
+        self.virtio_pci_setup_intrs()?;
 
-        // TODO: setup virtio queues
+        for i in 0..self.virtqueues.len() {
+            let (vq_index, phy_addr) = {
+                let mut node = MCSNode::new();
+                let mut rx = self.virtqueues[i].rx.lock(&mut node);
+                rx.init();
+                (rx.vq_index, rx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(vq_index, phy_addr)?;
+
+            let (vq_index, phy_addr) = {
+                let mut node = MCSNode::new();
+                let mut tx = self.virtqueues[i].tx.lock(&mut node);
+                tx.init();
+                (tx.vq_index, tx.vq_dma.get_phy_addr().as_usize() as u64)
+            };
+            self.virtio_pci_setup_queue(vq_index, phy_addr)?;
+        }
 
         Ok(())
     }
@@ -790,25 +802,54 @@ impl VirtioNetInner {
         Ok(vq)
     }
 
+    #[allow(dead_code)]
+    fn vio_iff(&mut self) {
+        self.flags.insert(NetFlags::MULTICAST);
+        self.flags.insert(NetFlags::PROMISC);
+    }
+
+    #[allow(dead_code)]
+    fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
+        self.vio_stop()?;
+
+        for queue in self.virtqueues.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut rx = queue.rx.lock(&mut node);
+            rx.vio_populate_rx_mbufs();
+        }
+
+        self.vio_iff();
+        self.flags.insert(NetFlags::RUNNING);
+
+        Ok(())
+    }
+
     fn vio_stop(&mut self) -> Result<(), VirtioDriverErr> {
         self.flags.remove(NetFlags::RUNNING);
-
-        // TODO: stop timers
-
         self.virtio_reset()?;
 
-        // TODO: drain tx/rx queues
+        for queue in self.virtqueues.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut rx = queue.rx.lock(&mut node);
+            rx.vio_rxeof();
+        }
 
         self.virtio_reinit_start()?;
 
-        // TODO: interrupt tx/rx queues
+        for queue in self.virtqueues.iter_mut() {
+            {
+                let mut node = MCSNode::new();
+                let mut rx = queue.rx.lock(&mut node);
+                rx.virtio_start_vq_intr();
+            }
+            {
+                let mut node = MCSNode::new();
+                let mut tx = queue.tx.lock(&mut node);
+                tx.virtio_stop_vq_intr();
+            }
+        }
 
-        self.virtio_reinit_end()?;
-
-        // TODO: VIRTIO_NET_F_MQ related setup
-        // TODO: VIRTIO_NET_F_CTRL_VQ related setup
-
-        Ok(())
+        self.virtio_reinit_end()
     }
 }
 
