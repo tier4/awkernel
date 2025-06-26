@@ -292,7 +292,7 @@ impl Virtq {
     }
 
     fn vio_tx_intr(&mut self) {
-        self.vio_txeof()
+        self.vio_txeof();
     }
 
     fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> usize {
