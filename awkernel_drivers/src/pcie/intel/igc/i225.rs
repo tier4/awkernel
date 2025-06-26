@@ -35,6 +35,8 @@ use super::{
     read_reg, write_flush, write_reg, IgcDriverErr,
 };
 
+pub(super) const IGC_MRQC_ENABLE_RSS_4Q: u32 = 0x00000002;
+
 pub(super) struct I225Flash;
 
 impl IgcOperations for I225Flash {}
