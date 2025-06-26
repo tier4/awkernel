@@ -25,14 +25,10 @@ use awkernel_lib::{
         EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::PAGESIZE,
-<<<<<<< test/virtio
     sync::{
         mutex::{MCSNode, Mutex},
         rwlock::RwLock,
     },
-=======
-    sync::{mutex::Mutex, rwlock::RwLock},
->>>>>>> main
 };
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
@@ -383,10 +379,6 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-<<<<<<< test/virtio
-=======
-#[allow(dead_code)]
->>>>>>> main
 struct Queue {
     rx: Mutex<Virtq>,
     tx: Mutex<Virtq>,
