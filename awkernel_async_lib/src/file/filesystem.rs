@@ -11,6 +11,8 @@ use awkernel_lib::file::{
 };
 use futures::stream::Stream;
 
+// TODO(Koichi98): Currently, we provide our own AsyncSeekAndRead and AsyncSeekAndWrite traits. However, we plan to replace these with traits from embedded-io-async crate in the future. Since this migration would entail extensive modifications, we're temporarily maintaining our current, custom implementation.
+
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>>;
