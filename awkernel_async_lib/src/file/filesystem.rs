@@ -4,7 +4,7 @@ use crate::time::Time;
 use alloc::{boxed::Box, string::String};
 use async_trait::async_trait;
 use awkernel_lib::file::{
-    error::{Error, IoError},
+    error::IoError,
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
@@ -28,6 +28,8 @@ pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
                 Err(e) => return Err(e),
             }
         }
+
+        Ok(())
     }
 }
 
