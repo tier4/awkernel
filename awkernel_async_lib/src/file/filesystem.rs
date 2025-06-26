@@ -11,6 +11,7 @@ use awkernel_lib::file::{
 };
 use futures::stream::Stream;
 
+// NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now."
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>>;
@@ -20,20 +21,12 @@ pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
     async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), VfsError<E>> {
         while !buf.is_empty() {
             match self.read(buf).await {
-                Ok(0) => break,
+                Ok(0) => return Ok(()),
                 Ok(n) => {
                     buf = &mut buf[n..];
                 }
                 Err(e) => return Err(e),
             }
-        }
-        if !buf.is_empty() {
-            Err(VfsError::from(VfsErrorKind::from(Error::from(
-                E::new_unexpected_eof_error(),
-            )))
-            .with_context(|| "failed to fill whole buffer"))
-        } else {
-            Ok(())
         }
     }
 }
