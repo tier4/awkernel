@@ -77,8 +77,8 @@ type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
 type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
 
 struct Rx {
-    rx_desc_head: usize,
-    rx_desc_tail: usize,
+    next_to_check: usize,
+    last_desc_filled: usize,
     rx_desc_ring: DMAPool<RxRing>,
 
     // Statistics
@@ -787,8 +787,8 @@ fn igc_allocate_queues(
         irq_to_queue.insert(irq_num, n);
 
         let rx = Mutex::new(Rx {
-            rx_desc_head: 0,
-            rx_desc_tail: 0,
+            next_to_check: 0,
+            last_desc_filled: 0,
             rx_desc_ring: DMAPool::new(
                 info.segment_group as usize,
                 core::mem::size_of::<RxRing>() / PAGESIZE,
@@ -1002,4 +1002,20 @@ fn igc_initialize_transmit_unit(info: &PCIeInfo, queues: &[Queue]) -> Result<(),
     write_reg(info, IGC_TCTL, tctl)?;
 
     Ok(())
+}
+
+impl Rx {
+    /// Initialize a receive ring and its buffers.
+    fn igc_setup_receive_ring(&mut self) {
+        // Clear the ring contents
+        for desc in self.rx_desc_ring.as_mut() {
+            let read = unsafe { &mut desc.read };
+            read.hdr_addr = 0;
+            read.pkt_addr = 0;
+        }
+
+        // Setup our descriptor indices.
+        self.next_to_check = 0;
+        self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
+    }
 }
