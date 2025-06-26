@@ -1046,12 +1046,12 @@ fn igc_initialize_rss_mapping(info: &PCIeInfo, sc_nqueues: usize) -> Result<(), 
     for i in 0..128 {
         let mut queue_id = i % sc_nqueues;
         // Adjust if require
-        queue_id = queue_id << shift;
+        queue_id <<= shift;
 
         // The low 8 bits are for hash value (n+0);
         // The next 8 bits are for hash value (n+1), etc.
-        reta = reta >> 8;
-        reta = reta | ((queue_id) << 24);
+        reta >>= 8;
+        reta |= (queue_id) << 24;
         if i & 3 == 3 {
             write_reg(info, IGC_RETA(i >> 2), reta as u32)?;
             reta = 0;
@@ -1064,12 +1064,12 @@ fn igc_initialize_rss_mapping(info: &PCIeInfo, sc_nqueues: usize) -> Result<(), 
 
     // Set up random bits
     let mut rss_key: [u32; 10] = [0; 10];
-    let rss_key_u8 = unsafe { core::mem::transmute::<_, &mut [u8; 40]>(&mut rss_key) };
+    let rss_key_u8 = unsafe { core::mem::transmute::<&mut [u32; 10], &mut [u8; 40]>(&mut rss_key) };
     stoeplitz_to_key(rss_key_u8);
 
     // Now fill our hash function seeds
-    for i in 0..10 {
-        write_reg_array(info, IGC_RSSRK(0), i, rss_key[i])?;
+    for (i, rk) in rss_key.iter().enumerate() {
+        write_reg_array(info, IGC_RSSRK(0), i, *rk)?;
     }
 
     // Configure the RSS fields to hash upon.
