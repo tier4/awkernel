@@ -662,7 +662,7 @@ impl VirtioNetInner {
     }
 
     fn virtio_pci_attach_finish(&mut self) -> Result<(), VirtioDriverErr> {
-        // NOTE: we currently support virtio-net specific MSIX
+        // NOTE: msix is already assigned by vio_attach()
         Ok(())
     }
 
