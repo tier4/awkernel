@@ -70,7 +70,7 @@ inline wake(tid,task) {
 		printf("wake() call wake_task(): tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		atomic {
 			tasks[task].state = Runnable;
-			update_runnable_highest_priority();
+			update_runnable_preempted_highest_priority();
 		}
 		
 		unlock(tid,lock_info[task]);
@@ -101,7 +101,7 @@ inline scheduler_get_next(tid,ret) {
 		
 		atomic {
 			tasks[head].state = Running;
-			update_runnable_highest_priority();
+			update_runnable_preempted_highest_priority();
 			update_running_lowest_priority();
 		}
 		printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
@@ -167,6 +167,7 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	set_preempt_context(cur_task,cur_tid);
 	atomic {
 		tasks[cur_task].state = Preempted;
+		update_runnable_preempted_highest_priority();
 		update_running_lowest_priority();
 	}
 	unlock(cur_tid,lock_info[cur_task]);
@@ -372,6 +373,10 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 
 init {
 	byte i;
+
+	for (i: 0 .. TASK_NUM - 1) {
+		tasks[i].id = i;
+	}
 	
 	wake(0,3);
 
