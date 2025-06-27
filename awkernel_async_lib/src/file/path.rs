@@ -31,23 +31,24 @@ use core::{
     pin::Pin,
     task::{Context, Poll},
 };
-use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
+use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
 
-struct AsyncVfs<E: IoError> {
+struct AsyncVFS<E: IoError> {
     fs: Box<dyn AsyncFileSystem<Error = E>>,
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
 #[derive(Clone)]
 pub struct AsyncVfsPath<E: IoError> {
-    path: Arc<str>,
-    fs: Arc<AsyncVfs<E>>,
+    //path: Arc<str>,
+    path: String,
+    fs: Arc<AsyncVFS<E>>,
 }
 
 impl<E: IoError + Clone> PathLike for AsyncVfsPath<E> {
     type Error = E;
     fn get_path(&self) -> String {
-        self.path.to_string()
+        self.path.clone()
     }
 }
 
@@ -62,7 +63,7 @@ impl<E: IoError> Eq for AsyncVfsPath<E> {}
 impl AsyncVfsPath<InMemoryDiskError> {
     pub fn new_in_memory_fatfs() -> Self {
         let fs = AsyncFatFs::new_in_memory();
-        AsyncVfsPath::new(fs)
+        AsyncVfsPath::from(fs)
     }
 }
 
@@ -70,8 +71,8 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem
     pub fn new<T: AsyncFileSystem<Error = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
-            path: "".into(),
-            fs: Arc::new(AsyncVfs {
+            path: "".to_string(),
+            fs: Arc::new(AsyncVFS {
                 fs: Box::new(filesystem),
             }),
         }
@@ -86,7 +87,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub fn join(&self, path: impl AsRef<str>) -> VfsResult<Self, E> {
         let new_path = self.join_internal(&self.path, path.as_ref())?;
         Ok(Self {
-            path: Arc::from(new_path),
+            path: new_path,
             fs: self.fs.clone(),
         })
     }
@@ -94,7 +95,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Returns the root path of this filesystem
     pub fn root(&self) -> Self {
         AsyncVfsPath {
-            path: "".into(),
+            path: "".to_string(),
             fs: self.fs.clone(),
         }
     }
@@ -108,7 +109,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub async fn create_dir(&self) -> VfsResult<(), E> {
         self.get_parent("create directory").await?;
         self.fs.fs.create_dir(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not create directory")
         })
     }
@@ -147,23 +148,25 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 
     /// Iterates over all entries of this directory path
-    pub async fn read_dir(&self) -> VfsResult<BoxStream<'static, Self>, E> {
+    pub async fn read_dir(
+        &self,
+    ) -> VfsResult<Box<dyn Unpin + Stream<Item = AsyncVfsPath<E>> + Send>, E> {
         let parent = self.path.clone();
         let fs = self.fs.clone();
-        let stream = self
-            .fs
-            .fs
-            .read_dir(&self.path)
-            .await
-            .map_err(|err| {
-                err.with_path(&*self.path)
-                    .with_context(|| "Could not read directory")
-            })?
-            .map(move |path_str| Self {
-                path: format!("{parent}/{path_str}").into(),
-                fs: fs.clone(),
-            });
-        Ok(Box::pin(stream))
+        Ok(Box::new(
+            self.fs
+                .fs
+                .read_dir(&self.path)
+                .await
+                .map_err(|err| {
+                    err.with_path(&self.path)
+                        .with_context(|| "Could not read directory")
+                })?
+                .map(move |path| AsyncVfsPath {
+                    path: format!("{}/{}", parent, path),
+                    fs: fs.clone(),
+                }),
+        ))
     }
 
     /// Creates a file at this path for writing, overwriting any existing file
@@ -335,8 +338,9 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         Ok(WalkDirIterator {
             inner: self.read_dir().await?,
             todo: vec![],
-            _pending_meta: None,
-            pending_read: None,
+            prev_result: None,
+            metadata_fut: None,
+            read_dir_fut: None,
         })
     }
 
@@ -518,10 +522,22 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
 
 /// An iterator for recursively walking a file hierarchy
 pub struct WalkDirIterator<E: IoError + Clone + Send + Sync + 'static> {
-    inner: BoxStream<'static, AsyncVfsPath<E>>,
+    /// the path iterator of the current directory
+    inner: Box<dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin>,
+    /// stack of subdirectories still to walk
     todo: Vec<AsyncVfsPath<E>>,
-    _pending_meta: Option<BoxFuture<'static, VfsResult<VfsMetadata, E>>>,
-    pending_read: Option<BoxFuture<'static, VfsResult<BoxStream<'static, AsyncVfsPath<E>>, E>>>,
+    /// used to store the previous yield of the todo stream,
+    /// which would otherwise get dropped if path.metadata() is pending
+    prev_result: Option<AsyncVfsPath<E>>,
+    // Used to store futures when poll_next returns pending
+    // this ensures a new future is not spawned on each poll.
+    read_dir_fut: Option<
+        BoxFuture<
+            'static,
+            Result<Box<(dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin)>, VfsError<E>>,
+        >,
+    >,
+    metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError<E>>>>,
 }
 
 impl<E: IoError + Clone + Send + Sync + 'static> Unpin for WalkDirIterator<E> {}
@@ -531,40 +547,66 @@ impl<E: IoError + Clone + Send + Sync + 'static> Stream for WalkDirIterator<E> {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-
-        loop {
-            // First, try to poll the current directory's stream
-            match this.inner.poll_next_unpin(cx) {
-                Poll::Ready(Some(path)) => {
-                    // We got a path, now check if it's a directory to add to `todo`
-                    return Poll::Ready(Some(Ok(path)));
-                }
-                Poll::Ready(None) => {
-                    // The current directory is exhausted. Try to pop from `todo`.
-                    match this.todo.pop() {
-                        None => return Poll::Ready(None), // All done
-                        Some(dir_path) => {
-                            let mut fut = this.pending_read.take().unwrap_or_else(|| {
-                                let fut = async move { dir_path.read_dir().await };
-                                Box::pin(fut)
-                            });
-                            match fut.poll_unpin(cx) {
-                                Poll::Ready(Ok(stream)) => {
-                                    this.inner = stream;
-                                    continue; // Loop to poll the new stream
-                                }
-                                Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
-                                Poll::Pending => {
-                                    this.pending_read = Some(fut);
-                                    return Poll::Pending;
-                                }
+        // Check if we have a previously stored result from last call
+        // that we could not utilize due to pending path.metadata() call
+        let result = if this.prev_result.is_none() {
+            loop {
+                match this.inner.poll_next_unpin(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Some(path)) => break Ok(path),
+                    Poll::Ready(None) => {
+                        let directory = if this.todo.is_empty() {
+                            return Poll::Ready(None);
+                        } else {
+                            this.todo[this.todo.len() - 1].clone()
+                        };
+                        let mut read_dir_fut = if this.read_dir_fut.is_some() {
+                            this.read_dir_fut.take().unwrap()
+                        } else {
+                            Box::pin(async move { directory.read_dir().await })
+                        };
+                        match read_dir_fut.poll_unpin(cx) {
+                            Poll::Pending => {
+                                this.read_dir_fut = Some(read_dir_fut);
+                                return Poll::Pending;
+                            }
+                            Poll::Ready(Err(err)) => {
+                                let _ = this.todo.pop();
+                                break Err(err);
+                            }
+                            Poll::Ready(Ok(iterator)) => {
+                                let _ = this.todo.pop();
+                                this.inner = iterator;
                             }
                         }
                     }
                 }
-                Poll::Pending => return Poll::Pending,
+            }
+        } else {
+            Ok(this.prev_result.take().unwrap())
+        };
+        if let Ok(path) = &result {
+            let mut metadata_fut = if this.metadata_fut.is_some() {
+                this.metadata_fut.take().unwrap()
+            } else {
+                let path_clone = path.clone();
+                Box::pin(async move { path_clone.metadata().await })
+            };
+            match metadata_fut.poll_unpin(cx) {
+                Poll::Pending => {
+                    this.prev_result = Some(path.clone());
+                    this.metadata_fut = Some(metadata_fut);
+                    return Poll::Pending;
+                }
+                Poll::Ready(Ok(meta)) => {
+                    if meta.file_type == VfsFileType::Directory {
+                        this.todo.push(path.clone());
+                    }
+                }
+                Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err))),
             }
         }
+        Poll::Ready(Some(result))
     }
 }
 
