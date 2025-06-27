@@ -11,6 +11,14 @@ use super::{
 
 pub(super) const IGC_RAR_ENTRIES_BASE: u16 = 16;
 
+// Additional Receive Descriptor Control definitions
+pub(super) const IGC_RXDCTL_QUEUE_ENABLE: u32 = 0x02000000; // Ena specific Rx Queue
+
+// SRRCTL bit definitions
+pub(super) const IGC_SRRCTL_BSIZEPKT_SHIFT: u32 = 10; // Shift _right_
+pub(super) const IGC_SRRCTL_BSIZEHDRSIZE_SHIFT: u32 = 2; // Shift _left_
+pub(super) const IGC_SRRCTL_DESCTYPE_ADV_ONEBUF: u32 = 0x02000000;
+
 /// Transmit Descriptor - Advanced
 pub(super) union IgcAdvTxDesc {
     pub(super) read: TxDescRead,

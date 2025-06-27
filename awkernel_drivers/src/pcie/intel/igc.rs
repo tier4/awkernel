@@ -6,7 +6,7 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::{ETHER_ADDR_LEN, ETHER_TYPE_VLAN},
+        ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
         net_device::{self, LinkStatus, NetDevice, NetFlags},
         toeplitz::stoeplitz_to_key,
@@ -21,8 +21,11 @@ use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
     intel::igc::{
-        i225::IGC_MRQC_ENABLE_RSS_4Q,
-        igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+        i225::{IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
+        igc_base::{
+            IgcAdvRxDesc, IgcAdvTxDesc, IGC_RXDCTL_QUEUE_ENABLE, IGC_SRRCTL_BSIZEPKT_SHIFT,
+            IGC_SRRCTL_DESCTYPE_ADV_ONEBUF,
+        },
     },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
@@ -53,6 +56,10 @@ const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 const IGC_TXPBSIZE: u32 = 20408;
 const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
 
+const IGC_RX_PTHRESH: u32 = 8;
+const IGC_RX_HTHRESH: u32 = 8;
+const IGC_RX_WTHRESH: u32 = 4;
+
 const IGC_MAX_VECTORS: u16 = 8;
 
 const DEVICE_SHORT_NAME: &str = "igc";
@@ -61,6 +68,7 @@ const IGC_DEFAULT_RXD: usize = 1024;
 const IGC_DEFAULT_TXD: usize = 1024;
 
 const MAX_INTS_PER_SEC: u32 = 8000;
+const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -1078,6 +1086,101 @@ fn igc_initialize_rss_mapping(info: &PCIeInfo, sc_nqueues: usize) -> Result<(), 
     mrqc |= IGC_MRQC_RSS_FIELD_IPV6_TCP_EX;
 
     write_reg(info, IGC_MRQC, mrqc)?;
+
+    Ok(())
+}
+
+fn igc_initialize_receive_unit(
+    info: &PCIeInfo,
+    hw: &IgcHw,
+    queues: &[Queue],
+    sc_fc: IgcFcMode,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Make sure receives are disabled while setting
+    // up the descriptor ring.
+    let mut rctl = read_reg(info, IGC_RCTL)?;
+    write_reg(info, IGC_RCTL, rctl & !IGC_RCTL_EN)?;
+
+    // Setup the Receive Control Register
+    rctl &= !(3 << IGC_RCTL_MO_SHIFT);
+    rctl |= IGC_RCTL_EN
+        | IGC_RCTL_BAM
+        | IGC_RCTL_LBM_NO
+        | IGC_RCTL_RDMTS_HALF
+        | (hw.mac.mc_filter_type << IGC_RCTL_MO_SHIFT);
+
+    // Do not store bad packets
+    rctl &= !IGC_RCTL_SBP;
+
+    // Enable Long Packet receive
+    if hw.mac.max_frame_size != ETHER_MAX_LEN as u32 {
+        rctl |= IGC_RCTL_LPE;
+    }
+
+    // Strip the CRC
+    rctl |= IGC_RCTL_SECRC;
+
+    // Set the interrupt throttling rate. Value is calculated
+    // as DEFAULT_ITR = 1/(MAX_INTS_PER_SEC * 256ns)
+    write_reg(info, IGC_ITR, DEFAULT_ITR)?;
+
+    let mut rxcsum = read_reg(info, IGC_RXCSUM)?;
+    rxcsum &= !IGC_RXCSUM_PCSD;
+
+    write_reg(info, IGC_RXCSUM, rxcsum)?;
+
+    if queues.len() > 1 {
+        igc_initialize_rss_mapping(info, queues.len())?;
+    }
+
+    let mut srrctl = 2048 >> IGC_SRRCTL_BSIZEPKT_SHIFT;
+    rctl |= IGC_RCTL_SZ_2048;
+
+    // If TX flow control is disabled and there's > 1 queue defined,
+    // enable DROP.
+    //
+    // This drops frames rather than hanging the RX MAC for all queues.
+    if queues.len() > 1 && matches!(sc_fc, IgcFcMode::None | IgcFcMode::RxPause) {
+        srrctl |= IGC_SRRCTL_DROP_EN;
+    }
+
+    // Setup the Base and Length of the RX descriptor rings.
+    for (i, q) in queues.iter().enumerate() {
+        write_reg(info, IGC_RXDCTL(i), 0)?;
+
+        let mut node = MCSNode::new();
+        let rxr = q.rx.lock(&mut node);
+
+        let bus_addr = rxr.rx_desc_ring.get_phy_addr();
+
+        srrctl |= IGC_SRRCTL_DESCTYPE_ADV_ONEBUF;
+
+        write_reg(info, IGC_RDLEN(i), rxr.rx_desc_ring.get_size() as u32)?;
+        write_reg(info, IGC_RDBAH(i), (bus_addr.as_usize() >> 32) as u32)?;
+        write_reg(info, IGC_RDBAL(i), bus_addr.as_usize() as u32)?;
+        write_reg(info, IGC_SRRCTL(i), srrctl)?;
+
+        // Setup the Head and Tail Descriptor Pointers
+        write_reg(info, IGC_RDH(i), 0)?;
+        write_reg(info, IGC_RDT(i), 0)?;
+
+        // Enable this Queue
+        let mut rxdctl = read_reg(info, IGC_RXDCTL(i))?;
+        rxdctl = IGC_RXDCTL_QUEUE_ENABLE;
+        rxdctl &= 0xfff00000;
+        rxdctl |= IGC_RX_PTHRESH;
+        rxdctl |= IGC_RX_HTHRESH << 8;
+        rxdctl |= IGC_RX_WTHRESH << 16;
+        write_reg(info, IGC_RXDCTL(i), rxdctl)?;
+    }
+
+    // Make sure VLAN Filters are off
+    rctl &= !IGC_RCTL_VFE;
+
+    // Write out the settings
+    write_reg(info, IGC_RCTL, rctl)?;
 
     Ok(())
 }
