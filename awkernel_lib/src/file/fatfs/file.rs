@@ -1,9 +1,9 @@
 use alloc::sync::Arc;
 use core::convert::TryFrom;
 
-use super::super::error::Error;
 use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use super::dir_entry::DirEntryEditor;
+use super::error::Error;
 use super::fs::{FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
 
