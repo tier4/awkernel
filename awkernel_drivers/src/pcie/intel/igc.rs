@@ -1168,7 +1168,7 @@ fn igc_initialize_receive_unit(
 
         // Enable this Queue
         let mut rxdctl = read_reg(info, IGC_RXDCTL(i))?;
-        rxdctl = IGC_RXDCTL_QUEUE_ENABLE;
+        rxdctl |= IGC_RXDCTL_QUEUE_ENABLE;
         rxdctl &= 0xfff00000;
         rxdctl |= IGC_RX_PTHRESH;
         rxdctl |= IGC_RX_HTHRESH << 8;
