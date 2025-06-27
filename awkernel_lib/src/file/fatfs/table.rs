@@ -1,8 +1,9 @@
 use core::borrow::BorrowMut;
 use core::marker::PhantomData;
 
-use super::super::error::{Error, IoError};
+use super::super::error::IoError;
 use super::super::io::{self, Read, ReadLeExt, Seek, Write, WriteLeExt};
+use super::error::Error;
 use super::fs::{FatType, FsStatusFlags};
 
 struct Fat<S> {

@@ -70,7 +70,7 @@ impl Seek for InMemoryDisk {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InMemoryDiskError {
     OutOfBounds,
     WriteZero,
