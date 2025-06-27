@@ -1129,6 +1129,10 @@ fn igc_initialize_receive_unit(
     let mut rxcsum = read_reg(info, IGC_RXCSUM)?;
     rxcsum &= !IGC_RXCSUM_PCSD;
 
+    if queues.len() > 1 {
+        rxcsum |= IGC_RXCSUM_PCSD;
+    }
+
     write_reg(info, IGC_RXCSUM, rxcsum)?;
 
     if queues.len() > 1 {
