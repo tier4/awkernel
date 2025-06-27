@@ -1,5 +1,5 @@
 use super::error::IoError;
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 /// Provides IO error as an associated type.
 ///
@@ -71,16 +71,6 @@ pub trait Read: IoBase {
         } else {
             Err(Self::Error::new_unexpected_eof_error())
         }
-    }
-
-    fn read_to_string(&mut self, buf: &mut String) -> Result<(), Self::Error> {
-        let mut bytes = Vec::new();
-        self.read_to_end(&mut bytes)?;
-
-        let s = String::from_utf8(bytes).map_err(|_e| Self::Error::other_error())?;
-        buf.push_str(&s);
-
-        Ok(())
     }
 
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Self::Error> {

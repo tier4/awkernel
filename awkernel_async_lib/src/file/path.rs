@@ -7,6 +7,7 @@ use crate::file::fatfs::AsyncFatFs;
 
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
+    console,
     file::{
         error::IoError,
         memfs::InMemoryDiskError,
@@ -34,13 +35,12 @@ use core::{
 use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
 
 struct AsyncVFS<E: IoError> {
-    fs: Box<dyn AsyncFileSystem<Error = E>>,
+    fs: Box<dyn AsyncFileSystem<IOError = E>>,
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
 #[derive(Clone)]
 pub struct AsyncVfsPath<E: IoError> {
-    //path: Arc<str>,
     path: String,
     fs: Arc<AsyncVFS<E>>,
 }
@@ -69,7 +69,7 @@ impl AsyncVfsPath<InMemoryDiskError> {
 
 impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem
-    pub fn new<T: AsyncFileSystem<Error = E>>(filesystem: T) -> Self {
+    pub fn new<T: AsyncFileSystem<IOError = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
             path: "".to_string(),
             fs: Arc::new(AsyncVFS {
@@ -162,9 +162,12 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                     err.with_path(&self.path)
                         .with_context(|| "Could not read directory")
                 })?
-                .map(move |path| AsyncVfsPath {
-                    path: format!("{}/{}", parent, path),
-                    fs: fs.clone(),
+                .map(move |path| {
+                    console::print(path.as_str());
+                    AsyncVfsPath {
+                        path: format!("{}/{}", parent, path),
+                        fs: fs.clone(),
+                    }
                 }),
         ))
     }
@@ -173,7 +176,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.get_parent("create file").await?;
         self.fs.fs.create_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not create file")
         })
     }
@@ -181,7 +184,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Opens the file at this path for reading
     pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send + Unpin>, E> {
         self.fs.fs.open_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not open file")
         })
     }
@@ -193,14 +196,14 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
                 "Could not {action}, parent directory does not exist"
             )))
-            .with_path(&*self.path));
+            .with_path(&self.path));
         }
         let metadata = parent.metadata().await?;
         if metadata.file_type != VfsFileType::Directory {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
                 "Could not {action}, parent path is not a directory"
             )))
-            .with_path(&*self.path));
+            .with_path(&self.path));
         }
         Ok(())
     }
@@ -208,7 +211,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Opens the file at this path for appending
     pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not open file for appending")
         })
     }
@@ -216,7 +219,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Removes the file at this path
     pub async fn remove_file(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not remove file")
         })
     }
@@ -224,7 +227,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Removes the directory at this path
     pub async fn remove_dir(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_dir(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not remove directory")
         })
     }
@@ -250,7 +253,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Returns the file metadata for the file at this path
     pub async fn metadata(&self) -> VfsResult<VfsMetadata, E> {
         self.fs.fs.metadata(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not get metadata")
         })
     }
@@ -262,7 +265,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_creation_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set creation timestamp.")
             })
     }
@@ -274,7 +277,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_modification_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set modification timestamp.")
             })
     }
@@ -286,7 +289,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_access_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set access timestamp.")
             })
     }
@@ -328,7 +331,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub fn parent(&self) -> Self {
         let parent_path = self.parent_internal(&self.path);
         Self {
-            path: parent_path.into(),
+            path: parent_path,
             fs: self.fs.clone(),
         }
     }
@@ -350,7 +353,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         if metadata.file_type != VfsFileType::File {
             return Err(
                 VfsError::from(VfsErrorKind::Other("Path is a directory".into()))
-                    .with_path(&*self.path)
+                    .with_path(&self.path)
                     .with_context(|| "Could not read path"),
             );
         }
@@ -360,13 +363,13 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .read_exact(&mut buffer)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not read path")
             })?;
 
         String::from_utf8(buffer).map_err(|_| {
             VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
-                .with_path(&*self.path)
+                .with_path(&self.path)
                 .with_context(|| "Could not read path as string")
         })
     }
@@ -377,7 +380,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             if destination.exists().await? {
                 return Err(
                     VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&*self.path),
+                        .with_path(&self.path),
                 );
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
@@ -397,7 +400,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         }
         .await
         .map_err(|err| {
-            err.with_path(&*self.path).with_context(|| {
+            err.with_path(&self.path).with_context(|| {
                 format!("Could not copy '{}' to '{}'", self.as_str(), destination.as_str())
             })
         })
@@ -410,7 +413,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                 return Err(VfsError::from(VfsErrorKind::Other(
                     "Destination exists already".into(),
                 ))
-                .with_path(&*destination.path));
+                .with_path(&destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.move_file(&self.path, &destination.path).await;
@@ -430,7 +433,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         }
         .await
         .map_err(|err| {
-            err.with_path(&*self.path).with_context(|| {
+            err.with_path(&self.path).with_context(|| {
                 format!("Could not move '{}' to '{}'", self.as_str(), destination.as_str())
             })
         })
@@ -444,7 +447,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                 return Err(VfsError::from(VfsErrorKind::Other(
                     "Destination exists already".into(),
                 ))
-                .with_path(&*destination.path));
+                .with_path(&destination.path));
             }
             destination.create_dir().await?;
             let prefix = &self.path;
@@ -465,7 +468,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         }
         .await
         .map_err(|err: VfsError<E>| {
-            err.with_path(&*self.path).with_context(|| {
+            err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not copy directory '{}' to '{}'",
                     self.as_str(),
@@ -482,7 +485,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             if destination.exists().await? {
                 return Err(
                     VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&*destination.path),
+                        .with_path(&destination.path),
                 );
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
@@ -509,7 +512,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         }
         .await
         .map_err(|err: VfsError<E>| {
-            err.with_path(&*self.path).with_context(|| {
+            err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not move directory '{}' to '{}'",
                     self.as_str(),

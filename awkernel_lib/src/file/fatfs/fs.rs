@@ -6,11 +6,11 @@ use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
-use super::super::error::Error;
 use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
 use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
+use super::error::Error;
 use super::file::File;
 use super::table::{
     alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator,
