@@ -1,6 +1,7 @@
 //! Error and Result definitions
 
-use super::super::error::{Error, IoError};
+use super::super::error::IoError;
+use super::super::fatfs::error::Error as FatfsError;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -36,8 +37,8 @@ impl<E> From<VfsErrorKind<E>> for VfsError<E> {
     }
 }
 
-impl<E: IoError> From<Error<E>> for VfsError<E> {
-    fn from(err: Error<E>) -> Self {
+impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
+    fn from(err: FatfsError<E>) -> Self {
         let kind = err.into();
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
@@ -48,20 +49,14 @@ impl<E: IoError> From<Error<E>> for VfsError<E> {
     }
 }
 
-impl<E> From<Error<E>> for VfsErrorKind<E> {
-    fn from(err: Error<E>) -> Self {
+impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
+    fn from(err: FatfsError<E>) -> Self {
         match err {
-            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
             _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
         }
     }
 }
-
-//impl<E: IoError> From<E> for VfsErrorKind<E> {
-//fn from(err: E) -> Self {
-//VfsErrorKind::IoError(err)
-//}
-//}
 
 impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
@@ -107,9 +102,6 @@ pub enum VfsErrorKind<E> {
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
     IoError(E),
 
-    /// A generic async I/O error
-    AsyncIoError(E),
-
     /// The file or directory at the given path could not be found
     FileNotFound,
 
@@ -135,9 +127,6 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
             VfsErrorKind::IoError(cause) => {
                 write!(f, "IO error: {cause}")
             }
-            VfsErrorKind::AsyncIoError(cause) => {
-                write!(f, "Async IO error: {cause}")
-            }
             VfsErrorKind::FileNotFound => {
                 write!(f, "The file or directory could not be found")
             }
@@ -162,18 +151,3 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
 
 /// The result type of this crate
 pub type VfsResult<T, E> = core::result::Result<T, VfsError<E>>;
-
-impl<E: IoError> IoError for VfsError<E> {
-    fn is_interrupted(&self) -> bool {
-        todo!();
-    }
-    fn new_unexpected_eof_error() -> Self {
-        todo!();
-    }
-    fn new_write_zero_error() -> Self {
-        todo!();
-    }
-    fn other_error() -> Self {
-        todo!();
-    }
-}
