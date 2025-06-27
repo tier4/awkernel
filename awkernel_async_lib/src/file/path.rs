@@ -7,6 +7,7 @@ use crate::file::fatfs::AsyncFatFs;
 
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
+    console,
     file::{
         error::IoError,
         memfs::InMemoryDiskError,
@@ -40,7 +41,6 @@ struct AsyncVFS<E: IoError> {
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
 #[derive(Clone)]
 pub struct AsyncVfsPath<E: IoError> {
-    //path: Arc<str>,
     path: String,
     fs: Arc<AsyncVFS<E>>,
 }
@@ -162,9 +162,12 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                     err.with_path(&self.path)
                         .with_context(|| "Could not read directory")
                 })?
-                .map(move |path| AsyncVfsPath {
-                    path: format!("{}/{}", parent, path),
-                    fs: fs.clone(),
+                .map(move |path| {
+                    console::print(path.as_str());
+                    AsyncVfsPath {
+                        path: format!("{}/{}", parent, path),
+                        fs: fs.clone(),
+                    }
                 }),
         ))
     }
@@ -173,7 +176,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub async fn create_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.get_parent("create file").await?;
         self.fs.fs.create_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not create file")
         })
     }
@@ -181,7 +184,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Opens the file at this path for reading
     pub async fn open_file(&self) -> VfsResult<Box<dyn AsyncSeekAndRead<E> + Send + Unpin>, E> {
         self.fs.fs.open_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not open file")
         })
     }
@@ -193,14 +196,14 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
                 "Could not {action}, parent directory does not exist"
             )))
-            .with_path(&*self.path));
+            .with_path(&self.path));
         }
         let metadata = parent.metadata().await?;
         if metadata.file_type != VfsFileType::Directory {
             return Err(VfsError::from(VfsErrorKind::Other(format!(
                 "Could not {action}, parent path is not a directory"
             )))
-            .with_path(&*self.path));
+            .with_path(&self.path));
         }
         Ok(())
     }
@@ -208,7 +211,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Opens the file at this path for appending
     pub async fn append_file(&self) -> VfsResult<Box<dyn AsyncSeekAndWrite<E> + Send + Unpin>, E> {
         self.fs.fs.append_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not open file for appending")
         })
     }
@@ -216,7 +219,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Removes the file at this path
     pub async fn remove_file(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_file(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not remove file")
         })
     }
@@ -224,7 +227,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Removes the directory at this path
     pub async fn remove_dir(&self) -> VfsResult<(), E> {
         self.fs.fs.remove_dir(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not remove directory")
         })
     }
@@ -250,7 +253,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Returns the file metadata for the file at this path
     pub async fn metadata(&self) -> VfsResult<VfsMetadata, E> {
         self.fs.fs.metadata(&self.path).await.map_err(|err| {
-            err.with_path(&*self.path)
+            err.with_path(&self.path)
                 .with_context(|| "Could not get metadata")
         })
     }
@@ -262,7 +265,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_creation_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set creation timestamp.")
             })
     }
@@ -274,7 +277,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_modification_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set modification timestamp.")
             })
     }
@@ -286,7 +289,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .set_access_time(&self.path, time)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not set access timestamp.")
             })
     }
@@ -328,20 +331,9 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     pub fn parent(&self) -> Self {
         let parent_path = self.parent_internal(&self.path);
         Self {
-            path: parent_path.into(),
+            path: parent_path,
             fs: self.fs.clone(),
         }
-    }
-
-    /// Recursively iterates over all the directories and files at this path
-    pub async fn walk_dir(&self) -> VfsResult<WalkDirIterator<E>, E> {
-        Ok(WalkDirIterator {
-            inner: self.read_dir().await?,
-            todo: vec![],
-            prev_result: None,
-            metadata_fut: None,
-            read_dir_fut: None,
-        })
     }
 
     /// Reads a complete file to a string
@@ -350,7 +342,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
         if metadata.file_type != VfsFileType::File {
             return Err(
                 VfsError::from(VfsErrorKind::Other("Path is a directory".into()))
-                    .with_path(&*self.path)
+                    .with_path(&self.path)
                     .with_context(|| "Could not read path"),
             );
         }
@@ -360,285 +352,14 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             .read_exact(&mut buffer)
             .await
             .map_err(|err| {
-                err.with_path(&*self.path)
+                err.with_path(&self.path)
                     .with_context(|| "Could not read path")
             })?;
 
         String::from_utf8(buffer).map_err(|_| {
             VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
-                .with_path(&*self.path)
+                .with_path(&self.path)
                 .with_context(|| "Could not read path as string")
         })
-    }
-
-    /// Copies a file to a new destination
-    pub async fn copy_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
-        async {
-            if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&*self.path),
-                );
-            }
-            if Arc::ptr_eq(&self.fs, &destination.fs) {
-                let result = self.fs.fs.copy_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
-                }
-            }
-            let mut src = self.open_file().await?;
-            let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
-            Ok(())
-        }
-        .await
-        .map_err(|err| {
-            err.with_path(&*self.path).with_context(|| {
-                format!("Could not copy '{}' to '{}'", self.as_str(), destination.as_str())
-            })
-        })
-    }
-
-    /// Moves or renames a file to a new destination
-    pub async fn move_file(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
-        async {
-            if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::Other(
-                    "Destination exists already".into(),
-                ))
-                .with_path(&*destination.path));
-            }
-            if Arc::ptr_eq(&self.fs, &destination.fs) {
-                let result = self.fs.fs.move_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
-                }
-            }
-            let mut src = self.open_file().await?;
-            let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
-            self.remove_file().await?;
-            Ok(())
-        }
-        .await
-        .map_err(|err| {
-            err.with_path(&*self.path).with_context(|| {
-                format!("Could not move '{}' to '{}'", self.as_str(), destination.as_str())
-            })
-        })
-    }
-
-    /// Copies a directory to a new destination, recursively
-    pub async fn copy_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<u64, E> {
-        let files_copied = async {
-            let mut files_copied = 0u64;
-            if destination.exists().await? {
-                return Err(VfsError::from(VfsErrorKind::Other(
-                    "Destination exists already".into(),
-                ))
-                .with_path(&*destination.path));
-            }
-            destination.create_dir().await?;
-            let prefix = &self.path;
-            let prefix_len = prefix.len();
-            let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
-                let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
-                match src_path.metadata().await?.file_type {
-                    VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => {
-                        src_path.copy_file(&dest_path).await?;
-                        files_copied += 1;
-                    }
-                }
-            }
-            Ok(files_copied)
-        }
-        .await
-        .map_err(|err: VfsError<E>| {
-            err.with_path(&*self.path).with_context(|| {
-                format!(
-                    "Could not copy directory '{}' to '{}'",
-                    self.as_str(),
-                    destination.as_str()
-                )
-            })
-        })?;
-        Ok(files_copied)
-    }
-
-    /// Moves a directory to a new destination, including subdirectories and files
-    pub async fn move_dir(&self, destination: &AsyncVfsPath<E>) -> VfsResult<(), E> {
-        async {
-            if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&*destination.path),
-                );
-            }
-            if Arc::ptr_eq(&self.fs, &destination.fs) {
-                let result = self.fs.fs.move_dir(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
-                }
-            }
-            destination.create_dir().await?;
-            let prefix = &self.path;
-            let prefix_len = prefix.len();
-            let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
-                let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
-                match src_path.metadata().await?.file_type {
-                    VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => src_path.move_file(&dest_path).await?,
-                }
-            }
-            self.remove_dir_all().await?;
-            Ok(())
-        }
-        .await
-        .map_err(|err: VfsError<E>| {
-            err.with_path(&*self.path).with_context(|| {
-                format!(
-                    "Could not move directory '{}' to '{}'",
-                    self.as_str(),
-                    destination.as_str()
-                )
-            })
-        })
-    }
-}
-
-/// An iterator for recursively walking a file hierarchy
-pub struct WalkDirIterator<E: IoError + Clone + Send + Sync + 'static> {
-    /// the path iterator of the current directory
-    inner: Box<dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin>,
-    /// stack of subdirectories still to walk
-    todo: Vec<AsyncVfsPath<E>>,
-    /// used to store the previous yield of the todo stream,
-    /// which would otherwise get dropped if path.metadata() is pending
-    prev_result: Option<AsyncVfsPath<E>>,
-    // Used to store futures when poll_next returns pending
-    // this ensures a new future is not spawned on each poll.
-    read_dir_fut: Option<
-        BoxFuture<
-            'static,
-            Result<Box<(dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin)>, VfsError<E>>,
-        >,
-    >,
-    metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError<E>>>>,
-}
-
-impl<E: IoError + Clone + Send + Sync + 'static> Unpin for WalkDirIterator<E> {}
-
-impl<E: IoError + Clone + Send + Sync + 'static> Stream for WalkDirIterator<E> {
-    type Item = VfsResult<AsyncVfsPath<E>, E>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        // Check if we have a previously stored result from last call
-        // that we could not utilize due to pending path.metadata() call
-        let result = if this.prev_result.is_none() {
-            loop {
-                match this.inner.poll_next_unpin(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Some(path)) => break Ok(path),
-                    Poll::Ready(None) => {
-                        let directory = if this.todo.is_empty() {
-                            return Poll::Ready(None);
-                        } else {
-                            this.todo[this.todo.len() - 1].clone()
-                        };
-                        let mut read_dir_fut = if this.read_dir_fut.is_some() {
-                            this.read_dir_fut.take().unwrap()
-                        } else {
-                            Box::pin(async move { directory.read_dir().await })
-                        };
-                        match read_dir_fut.poll_unpin(cx) {
-                            Poll::Pending => {
-                                this.read_dir_fut = Some(read_dir_fut);
-                                return Poll::Pending;
-                            }
-                            Poll::Ready(Err(err)) => {
-                                let _ = this.todo.pop();
-                                break Err(err);
-                            }
-                            Poll::Ready(Ok(iterator)) => {
-                                let _ = this.todo.pop();
-                                this.inner = iterator;
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            Ok(this.prev_result.take().unwrap())
-        };
-        if let Ok(path) = &result {
-            let mut metadata_fut = if this.metadata_fut.is_some() {
-                this.metadata_fut.take().unwrap()
-            } else {
-                let path_clone = path.clone();
-                Box::pin(async move { path_clone.metadata().await })
-            };
-            match metadata_fut.poll_unpin(cx) {
-                Poll::Pending => {
-                    this.prev_result = Some(path.clone());
-                    this.metadata_fut = Some(metadata_fut);
-                    return Poll::Pending;
-                }
-                Poll::Ready(Ok(meta)) => {
-                    if meta.file_type == VfsFileType::Directory {
-                        this.todo.push(path.clone());
-                    }
-                }
-                Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err))),
-            }
-        }
-        Poll::Ready(Some(result))
-    }
-}
-
-#[derive(Debug)]
-pub enum CopyError<E: IoError> {
-    ReadError(VfsError<E>),
-    WriteError(VfsError<E>),
-}
-
-const COPY_BUF_SIZE: usize = 8 * 1024;
-
-pub async fn simple_async_copy<E: IoError + Clone, R, W>(
-    reader: &mut R,
-    writer: &mut W,
-) -> Result<u64, CopyError<E>>
-where
-    R: AsyncSeekAndRead<E> + Unpin + ?Sized,
-    W: AsyncSeekAndWrite<E> + Unpin + ?Sized,
-{
-    let mut buf = [0; COPY_BUF_SIZE];
-    let mut total_bytes_copied = 0;
-    loop {
-        let bytes_read = match reader.read(&mut buf).await {
-            Ok(0) => return Ok(total_bytes_copied),
-            Ok(n) => n,
-            Err(e) => return Err(CopyError::ReadError(e)),
-        };
-
-        writer
-            .write_all(&buf[..bytes_read])
-            .await
-            .map_err(CopyError::WriteError)?;
-        total_bytes_copied += bytes_read as u64;
     }
 }
