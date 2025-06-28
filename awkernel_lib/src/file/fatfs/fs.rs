@@ -1,3 +1,4 @@
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
 use core::convert::TryFrom;
