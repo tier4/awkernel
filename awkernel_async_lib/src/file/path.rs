@@ -165,7 +165,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                 .map(move |path| {
                     console::print(path.as_str());
                     AsyncVfsPath {
-                        path: format!("{}/{}", parent, path),
+                        path: format!("{parent}/{path}"),
                         fs: fs.clone(),
                     }
                 }),
