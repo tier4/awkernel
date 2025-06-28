@@ -1,3 +1,4 @@
+use alloc::string::String;
 use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
