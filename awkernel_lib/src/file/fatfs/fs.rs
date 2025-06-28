@@ -1,4 +1,3 @@
-#[cfg(not(feature = "std"))]
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
@@ -349,13 +348,6 @@ pub trait IntoStorage<T: Read + Write + Seek> {
 impl<T: Read + Write + Seek> IntoStorage<T> for T {
     fn into_storage(self) -> Self {
         self
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWrapper<T>> for T {
-    fn into_storage(self) -> io::StdIoWrapper<Self> {
-        io::StdIoWrapper::new(self)
     }
 }
 
