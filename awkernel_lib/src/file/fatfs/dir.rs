@@ -1,12 +1,12 @@
 use alloc::sync::Arc;
-#[cfg(all(not(feature = "std"), feature = "lfn"))]
+#[cfg(feature = "lfn")]
 use alloc::vec::Vec;
 use core::num;
 use core::str;
 #[cfg(feature = "lfn")]
 use core::{iter, slice};
 
-use super::super::error::{Error, IoError};
+use super::super::error::IoError;
 use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use super::dir_entry::{
     DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes, ShortName,
@@ -15,6 +15,7 @@ use super::dir_entry::{
 #[cfg(feature = "lfn")]
 use super::dir_entry::{LFN_ENTRY_LAST_FLAG, LFN_PART_LEN};
 use super::dir_entry::{SFN_PADDING, SFN_SIZE};
+use super::error::Error;
 use super::file::File;
 use super::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
 use super::time::TimeProvider;

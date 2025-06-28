@@ -1,9 +1,9 @@
 use alloc::sync::Arc;
 use core::convert::TryFrom;
 
-use super::super::error::Error;
 use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use super::dir_entry::DirEntryEditor;
+use super::error::Error;
 use super::fs::{FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
 
@@ -314,16 +314,6 @@ impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Read for File<IO, TP, OCC>
     }
 }
 
-#[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Read for File<IO, TP, OCC>
-where
-    std::io::Error: From<Error<IO::Error>>,
-{
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Ok(Read::read(self, buf)?)
-    }
-}
-
 impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Write for File<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         log::trace!("File::write");
@@ -398,24 +388,6 @@ impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Write for File<IO, TP, OCC
     }
 }
 
-#[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Write for File<IO, TP, OCC>
-where
-    std::io::Error: From<Error<IO::Error>>,
-{
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(Write::write(self, buf)?)
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        Ok(Write::write_all(self, buf)?)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(Write::flush(self)?)
-    }
-}
-
 impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for File<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         log::trace!("File::seek");
@@ -481,15 +453,5 @@ impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for File<IO, TP, OCC> {
         self.offset = new_offset;
         self.current_cluster = new_cluster;
         Ok(u64::from(self.offset))
-    }
-}
-
-#[cfg(feature = "std")]
-impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> std::io::Seek for File<IO, TP, OCC>
-where
-    std::io::Error: From<Error<IO::Error>>,
-{
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(Seek::seek(self, pos.into())?)
     }
 }

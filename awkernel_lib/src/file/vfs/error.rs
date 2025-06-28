@@ -1,43 +1,34 @@
 //! Error and Result definitions
 
-use std::{error, fmt, io};
+use super::super::error::IoError;
+use super::super::fatfs::error::Error as FatfsError;
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+};
+use core::fmt;
 
 /// The error type of this crate
 #[derive(Debug)]
-pub struct VfsError {
+pub struct VfsError<E> {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
-    kind: VfsErrorKind,
+    kind: VfsErrorKind<E>,
     /// An optional human-readable string describing the context for this error
     ///
     /// If not provided, a generic context message is used
     context: String,
     /// The underlying error
-    cause: Option<Box<VfsError>>,
+    cause: Option<Box<VfsError<E>>>,
 }
 
 /// The only way to create a VfsError is via a VfsErrorKind
 ///
 /// This conversion implements certain normalizations
-impl From<VfsErrorKind> for VfsError {
-    fn from(kind: VfsErrorKind) -> Self {
-        // Normalize the error here before we return it
-        let kind = match kind {
-            VfsErrorKind::IoError(io) => match io.kind() {
-                io::ErrorKind::NotFound => VfsErrorKind::FileNotFound,
-                // TODO: If MSRV changes to 1.53, enable this. Alternatively,
-                //      if it's possible to #[cfg] just this line, try that
-                // io::ErrorKind::Unsupported => VfsErrorKind::NotSupported,
-                _ => VfsErrorKind::IoError(io),
-            },
-            // Remaining kinda are passed through as-is
-            other => other,
-        };
-
+impl<E> From<VfsErrorKind<E>> for VfsError<E> {
+    fn from(kind: VfsErrorKind<E>) -> Self {
         Self {
-            // TODO (Techno): See if this could be checked at compile-time to make sure the VFS abstraction
-            //              never forgets to add a path. Might need a separate error type for FS impls vs VFS
             path: "PATH NOT FILLED BY VFS LAYER".into(),
             kind,
             context: "An error occured".into(),
@@ -46,15 +37,30 @@ impl From<VfsErrorKind> for VfsError {
     }
 }
 
-impl From<io::Error> for VfsError {
-    fn from(err: io::Error) -> Self {
-        Self::from(VfsErrorKind::IoError(err))
+impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
+    fn from(err: FatfsError<E>) -> Self {
+        let kind = err.into();
+        Self {
+            path: "PATH NOT FILLED BY VFS LAYER".into(),
+            kind,
+            context: "An error occurred".into(),
+            cause: None,
+        }
     }
 }
 
-impl VfsError {
+impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
+    fn from(err: FatfsError<E>) -> Self {
+        match err {
+            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
+        }
+    }
+}
+
+impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
-    pub(crate) fn with_path(mut self, path: impl Into<String>) -> Self {
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
         self.path = path.into();
         self
     }
@@ -68,12 +74,12 @@ impl VfsError {
         self
     }
 
-    pub fn with_cause(mut self, cause: VfsError) -> Self {
+    pub fn with_cause(mut self, cause: VfsError<E>) -> Self {
         self.cause = Some(Box::new(cause));
         self
     }
 
-    pub fn kind(&self) -> &VfsErrorKind {
+    pub fn kind(&self) -> &VfsErrorKind<E> {
         &self.kind
     }
 
@@ -82,33 +88,19 @@ impl VfsError {
     }
 }
 
-impl fmt::Display for VfsError {
+impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} for '{}': {}", self.context, self.path, self.kind())
     }
 }
 
-impl error::Error for VfsError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        if let Some(cause) = &self.cause {
-            Some(cause)
-        } else {
-            None
-        }
-    }
-}
-
 /// The kinds of errors that can occur
 #[derive(Debug)]
-pub enum VfsErrorKind {
+pub enum VfsErrorKind<E> {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
-    IoError(io::Error),
-
-    #[cfg(feature = "async-vfs")]
-    /// A generic async I/O error
-    AsyncIoError(io::Error),
+    IoError(E),
 
     /// The file or directory at the given path could not be found
     FileNotFound,
@@ -129,15 +121,11 @@ pub enum VfsErrorKind {
     NotSupported,
 }
 
-impl fmt::Display for VfsErrorKind {
+impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
-                write!(f, "IO error: {}", cause)
-            }
-            #[cfg(feature = "async-vfs")]
-            VfsErrorKind::AsyncIoError(cause) => {
-                write!(f, "Async IO error: {}", cause)
+                write!(f, "IO error: {cause}")
             }
             VfsErrorKind::FileNotFound => {
                 write!(f, "The file or directory could not be found")
@@ -146,7 +134,7 @@ impl fmt::Display for VfsErrorKind {
                 write!(f, "The path is invalid")
             }
             VfsErrorKind::Other(message) => {
-                write!(f, "FileSystem error: {}", message)
+                write!(f, "FileSystem error: {message}")
             }
             VfsErrorKind::NotSupported => {
                 write!(f, "Functionality not supported by this filesystem")
@@ -162,27 +150,4 @@ impl fmt::Display for VfsErrorKind {
 }
 
 /// The result type of this crate
-pub type VfsResult<T> = std::result::Result<T, VfsError>;
-
-#[cfg(test)]
-mod tests {
-    use crate::error::VfsErrorKind;
-    use crate::{VfsError, VfsResult};
-
-    fn produce_vfs_result() -> VfsResult<()> {
-        Err(VfsError::from(VfsErrorKind::Other("Not a file".into())).with_path("foo"))
-    }
-
-    fn produce_anyhow_result() -> anyhow::Result<()> {
-        Ok(produce_vfs_result()?)
-    }
-
-    #[test]
-    fn anyhow_compatibility() {
-        let result = produce_anyhow_result().unwrap_err();
-        assert_eq!(
-            result.to_string(),
-            "An error occured for 'foo': FileSystem error: Not a file"
-        )
-    }
-}
+pub type VfsResult<T, E> = core::result::Result<T, VfsError<E>>;

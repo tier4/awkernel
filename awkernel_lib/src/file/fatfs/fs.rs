@@ -1,4 +1,3 @@
-#[cfg(not(feature = "std"))]
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
@@ -6,11 +5,11 @@ use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
-use super::super::error::Error;
 use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
 use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
+use super::error::Error;
 use super::file::File;
 use super::table::{
     alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator,
@@ -349,13 +348,6 @@ pub trait IntoStorage<T: Read + Write + Seek> {
 impl<T: Read + Write + Seek> IntoStorage<T> for T {
     fn into_storage(self) -> Self {
         self
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWrapper<T>> for T {
-    fn into_storage(self) -> io::StdIoWrapper<Self> {
-        io::StdIoWrapper::new(self)
     }
 }
 

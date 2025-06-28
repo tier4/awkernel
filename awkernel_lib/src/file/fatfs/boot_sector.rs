@@ -1,8 +1,9 @@
 use core::slice;
 
-use super::super::error::{Error, IoError};
+use super::super::error::IoError;
 use super::super::io::{Read, ReadLeExt, Write, WriteLeExt};
 use super::dir_entry::DIR_ENTRY_SIZE;
+use super::error::Error;
 use super::fs::{FatType, FormatVolumeOptions, FsStatusFlags};
 use super::table::RESERVED_FAT_ENTRIES;
 
