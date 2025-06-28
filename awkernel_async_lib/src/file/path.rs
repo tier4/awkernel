@@ -35,7 +35,7 @@ use core::{
 use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
 
 struct AsyncVFS<E: IoError> {
-    fs: Box<dyn AsyncFileSystem<Error = E>>,
+    fs: Box<dyn AsyncFileSystem<IOError = E>>,
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
@@ -69,7 +69,7 @@ impl AsyncVfsPath<InMemoryDiskError> {
 
 impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem
-    pub fn new<T: AsyncFileSystem<Error = E>>(filesystem: T) -> Self {
+    pub fn new<T: AsyncFileSystem<IOError = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
             path: "".to_string(),
             fs: Arc::new(AsyncVFS {
