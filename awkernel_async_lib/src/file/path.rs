@@ -165,7 +165,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
                 .map(move |path| {
                     console::print(path.as_str());
                     AsyncVfsPath {
-                        path: format!("{}/{}", parent, path),
+                        path: format!("{parent}/{path}"),
                         fs: fs.clone(),
                     }
                 }),
@@ -523,6 +523,9 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
     }
 }
 
+type ReadDirOperationResult<E> =
+    Result<Box<(dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin)>, VfsError<E>>;
+
 /// An iterator for recursively walking a file hierarchy
 pub struct WalkDirIterator<E: IoError + Clone + Send + Sync + 'static> {
     /// the path iterator of the current directory
@@ -534,12 +537,7 @@ pub struct WalkDirIterator<E: IoError + Clone + Send + Sync + 'static> {
     prev_result: Option<AsyncVfsPath<E>>,
     // Used to store futures when poll_next returns pending
     // this ensures a new future is not spawned on each poll.
-    read_dir_fut: Option<
-        BoxFuture<
-            'static,
-            Result<Box<(dyn Stream<Item = AsyncVfsPath<E>> + Send + Unpin)>, VfsError<E>>,
-        >,
-    >,
+    read_dir_fut: Option<BoxFuture<'static, ReadDirOperationResult<E>>>,
     metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError<E>>>>,
 }
 
