@@ -1016,7 +1016,7 @@ impl PCIeInfo {
                 PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
                     pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
                 )) => return nvme::attach(self),
-                _ => log::info!("vendor_id:{} device_id:{}", self.vendor, self.id),
+                _ => (),
             },
         }
 
