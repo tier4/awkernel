@@ -11,7 +11,7 @@ use awkernel_async_lib::net::{
     IpAddr,
 };
 
-const INTERFACE_ID: u64 = 1;
+const INTERFACE_ID: u64 = 0;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
@@ -253,21 +253,17 @@ async fn udp_test() {
 
     let mut buf = [0u8; 1024 * 2];
 
-    let mut i = 0;
-
-    let msg = format!("Hello Awkernel! {i}");
+    let msg = format!("Hello Awkernel!");
     if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
         log::error!("Failed to send a UDP packet: {e:?}");
         return;
     }
 
     loop {
-        i += 1;
-        let msg = format!("Hello Awkernel! {i}");
-
         if let Some(Ok(_)) =
-            awkernel_async_lib::timeout(Duration::from_millis(1000), socket.recv(&mut buf)).await
+            awkernel_async_lib::timeout(Duration::from_millis(5000), socket.recv(&mut buf)).await
         {
+            log::debug!("Received a UDP packet.");
             if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
                 log::error!("Failed to send a UDP packet: {e:?}");
             }
