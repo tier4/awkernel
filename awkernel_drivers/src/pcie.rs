@@ -1012,12 +1012,14 @@ impl PCIeInfo {
             pcie_id::VIRTIO_VENDOR_ID => {
                 return virtio::attach(self);
             }
-            _ => match self.get_class() {
-                PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
+            _ => {
+                if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
                     pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
-                )) => return nvme::attach(self),
-                _ => (),
-            },
+                )) = self.get_class()
+                {
+                    return nvme::attach(self);
+                }
+            }
         }
 
         Ok(self.unknown_device())
