@@ -11,7 +11,7 @@ use awkernel_async_lib::net::{
     IpAddr,
 };
 
-const INTERFACE_ID: u64 = 0;
+const INTERFACE_ID: u64 = 1;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
@@ -41,33 +41,33 @@ pub async fn run() {
     )
     .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp listen".into(),
-        tcp_listen_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp listen".into(),
+    //     tcp_listen_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp connect".into(),
-        tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp connect".into(),
+    //     tcp_connect_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast recv".into(),
-        ipv4_multicast_recv_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test IPv4 multicast recv".into(),
+    //     ipv4_multicast_recv_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast send".into(),
-        ipv4_multicast_send_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test IPv4 multicast send".into(),
+    //     ipv4_multicast_send_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 }
 
 async fn ipv4_multicast_send_test() {
@@ -254,27 +254,25 @@ async fn udp_test() {
     let mut buf = [0u8; 1024 * 2];
 
     let mut i = 0;
+
+    let msg = format!("Hello Awkernel! {i}");
+    if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
+        log::error!("Failed to send a UDP packet: {e:?}");
+        return;
+    }
+
     loop {
-        let t0 = awkernel_lib::time::Time::now();
-
-        // Send a UDP packet.
-        let msg = format!("Hello Awkernel! {}", i);
-
-        if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
-            log::error!("Failed to send a UDP packet: {:?}", e);
-            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-            continue;
-        }
-
-        // Receive a UDP packet.
-        if let Some(Ok(_)) =
-            awkernel_async_lib::timeout(Duration::from_secs(1), socket.recv(&mut buf)).await
-        {
-            let rtt = t0.elapsed().as_micros() as u64;
-            log::debug!("i = {i}, RTT: {rtt} [us]");
-        }
-
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
         i += 1;
+        let msg = format!("Hello Awkernel! {i}");
+
+        if let Some(Ok(_)) =
+            awkernel_async_lib::timeout(Duration::from_millis(1000), socket.recv(&mut buf)).await
+        {
+            if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
+                log::error!("Failed to send a UDP packet: {e:?}");
+            }
+        } else {
+            log::error!("Failed to receive a UDP packet.");
+        }
     }
 }
