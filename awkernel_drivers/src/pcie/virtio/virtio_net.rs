@@ -331,7 +331,6 @@ impl Virtq {
 }
 
 /// Packet header structure
-#[allow(dead_code)]
 #[repr(C, packed)]
 struct VirtioNetHdr {
     flags: u8,
@@ -965,10 +964,10 @@ impl NetDevice for VirtioNet {
             tx.vio_start(&frames);
         }
 
-        let vq_index = (que_id * 2 + 1) as u16;
+        let tx_vq_index = (que_id * 2 + 1) as u16;
         let mut inner = self.inner.write();
         inner
-            .virtio_pci_kick(vq_index)
+            .virtio_pci_kick(tx_vq_index)
             .or(Err(NetDevError::DeviceError))?;
 
         Ok(())
@@ -1017,7 +1016,6 @@ impl NetDevice for VirtioNet {
             return Ok(());
         };
 
-        // TODO: handle each interrupt
         match irq_type {
             IRQType::Config => Ok(()),
             IRQType::Control => Ok(()),
@@ -1037,11 +1035,11 @@ impl NetDevice for VirtioNet {
                     }
                 }
 
-                let vq_index = (*idx * 2) as u16;
+                let rx_vq_index = (*idx * 2) as u16;
                 drop(inner);
                 let mut inner = self.inner.write();
                 inner
-                    .virtio_pci_kick(vq_index)
+                    .virtio_pci_kick(rx_vq_index)
                     .or(Err(NetDevError::DeviceError))?;
 
                 Ok(())
