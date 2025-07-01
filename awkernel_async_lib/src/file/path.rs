@@ -8,7 +8,6 @@ use awkernel_lib::{
     console,
     file::{
         error::IoError,
-        memfs::InMemoryDiskError,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsResult},
             path::{PathLike, VfsFileType, VfsMetadata},
@@ -23,14 +22,9 @@ use alloc::{
     string::{String, ToString},
     sync::Arc,
     vec,
-    vec::Vec,
 };
 use async_recursion::async_recursion;
-use core::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 
 struct AsyncVFS<E: IoError> {
     fs: Box<dyn AsyncFileSystem<IOError = E>>,
@@ -58,7 +52,7 @@ impl<E: IoError> PartialEq for AsyncVfsPath<E> {
 
 impl<E: IoError> Eq for AsyncVfsPath<E> {}
 
-impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
+impl<E: IoError> AsyncVfsPath<E> {
     /// Creates a root path for the given filesystem
     pub fn new<T: AsyncFileSystem<IOError = E>>(filesystem: T) -> Self {
         AsyncVfsPath {
