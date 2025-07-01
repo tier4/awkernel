@@ -32,7 +32,7 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<E> From<Error<E>> for VfsErrorKind<E> {
+impl<E: IoError> From<Error<E>> for VfsErrorKind<E> {
     fn from(err: Error<E>) -> Self {
         match err {
             Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
