@@ -173,7 +173,9 @@ where
     async fn create_dir(&self, path: &str) -> VfsResult<(), Self::IOError> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
-        let _ = FileSystem::root_dir(&fs_clone).create_dir(&path);
+        FileSystem::root_dir(&fs_clone)
+            .create_dir(&path)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         Ok(())
     }
 
@@ -272,7 +274,10 @@ where
     async fn remove_file(&self, path: &str) -> VfsResult<(), Self::IOError> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
-        let _ = FileSystem::root_dir(&fs_clone).remove(&path);
+        FileSystem::root_dir(&fs_clone)
+            .remove(&path)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
+
         Ok(())
     }
 
