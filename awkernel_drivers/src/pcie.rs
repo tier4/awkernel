@@ -36,6 +36,7 @@ pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
+pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
@@ -755,6 +756,7 @@ impl PCIeInfo {
         let pcie_class = pcie_class::PCIeClass::from_u8(
             (cls_rev_id >> 24) as u8,
             ((cls_rev_id >> 16) & 0xff) as u8,
+            ((cls_rev_id >> 8) & 0xff) as u8,
         )
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
@@ -1010,7 +1012,14 @@ impl PCIeInfo {
             pcie_id::VIRTIO_VENDOR_ID => {
                 return virtio::attach(self);
             }
-            _ => (),
+            _ => {
+                if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
+                    pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
+                )) = self.get_class()
+                {
+                    return nvme::attach(self);
+                }
+            }
         }
 
         Ok(self.unknown_device())
