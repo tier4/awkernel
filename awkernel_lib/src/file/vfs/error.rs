@@ -10,7 +10,7 @@ use core::fmt;
 
 /// The error type of this crate
 #[derive(Debug)]
-pub struct VfsError<E> {
+pub struct VfsError<E: IoError> {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
@@ -26,34 +26,13 @@ pub struct VfsError<E> {
 /// The only way to create a VfsError is via a VfsErrorKind
 ///
 /// This conversion implements certain normalizations
-impl<E> From<VfsErrorKind<E>> for VfsError<E> {
+impl<E: IoError> From<VfsErrorKind<E>> for VfsError<E> {
     fn from(kind: VfsErrorKind<E>) -> Self {
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
             kind,
             context: "An error occured".into(),
             cause: None,
-        }
-    }
-}
-
-impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        let kind = err.into();
-        Self {
-            path: "PATH NOT FILLED BY VFS LAYER".into(),
-            kind,
-            context: "An error occurred".into(),
-            cause: None,
-        }
-    }
-}
-
-impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        match err {
-            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
-            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
         }
     }
 }
@@ -96,7 +75,7 @@ impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
 
 /// The kinds of errors that can occur
 #[derive(Debug)]
-pub enum VfsErrorKind<E> {
+pub enum VfsErrorKind<E: IoError> {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
@@ -121,7 +100,7 @@ pub enum VfsErrorKind<E> {
     NotSupported,
 }
 
-impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
+impl<E: fmt::Display + IoError> fmt::Display for VfsErrorKind<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
