@@ -37,27 +37,6 @@ impl<E> From<VfsErrorKind<E>> for VfsError<E> {
     }
 }
 
-impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        let kind = err.into();
-        Self {
-            path: "PATH NOT FILLED BY VFS LAYER".into(),
-            kind,
-            context: "An error occurred".into(),
-            cause: None,
-        }
-    }
-}
-
-impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        match err {
-            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
-            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
-        }
-    }
-}
-
 impl<E: IoError> VfsError<E> {
     // Path filled by the VFS crate rather than the implementations
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
