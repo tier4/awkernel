@@ -7,7 +7,7 @@ use alloc::format;
 /// Generic parameter `T` is a type of external error returned by the user provided storage
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum Error<T> {
+pub enum Error<T: IoError> {
     /// A user provided storage instance returned an error during an input/output operation.
     Io(T),
     /// A read operation cannot be completed because an end of a file has been reached prematurely.
@@ -32,7 +32,7 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<E: core::fmt::Debug> From<Error<E>> for VfsErrorKind<E> {
+impl<E: core::fmt::Debug + IoError> From<Error<E>> for VfsErrorKind<E> {
     fn from(err: Error<E>) -> Self {
         match err {
             Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
@@ -49,7 +49,7 @@ impl<E: core::fmt::Debug> From<Error<E>> for VfsErrorKind<E> {
     }
 }
 
-impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
+impl<T: core::fmt::Display + IoError> core::fmt::Display for Error<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Io(io_error) => write!(f, "IO error: {io_error}"),
