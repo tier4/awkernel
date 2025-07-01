@@ -1,7 +1,6 @@
 //! Error and Result definitions
 
 use super::super::error::IoError;
-use super::super::fatfs::error::Error as FatfsError;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -10,7 +9,7 @@ use core::fmt;
 
 /// The error type of this crate
 #[derive(Debug)]
-pub struct VfsError<E> {
+pub struct VfsError<E: IoError> {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
@@ -26,34 +25,13 @@ pub struct VfsError<E> {
 /// The only way to create a VfsError is via a VfsErrorKind
 ///
 /// This conversion implements certain normalizations
-impl<E> From<VfsErrorKind<E>> for VfsError<E> {
+impl<E: IoError> From<VfsErrorKind<E>> for VfsError<E> {
     fn from(kind: VfsErrorKind<E>) -> Self {
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
             kind,
             context: "An error occured".into(),
             cause: None,
-        }
-    }
-}
-
-impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        let kind = err.into();
-        Self {
-            path: "PATH NOT FILLED BY VFS LAYER".into(),
-            kind,
-            context: "An error occurred".into(),
-            cause: None,
-        }
-    }
-}
-
-impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        match err {
-            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
-            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
         }
     }
 }
@@ -96,14 +74,14 @@ impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
 
 /// The kinds of errors that can occur
 #[derive(Debug)]
-pub enum VfsErrorKind<E> {
+pub enum VfsErrorKind<E: IoError> {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
     IoError(E),
 
     /// The file or directory at the given path could not be found
-    FileNotFound,
+    NotFound,
 
     /// The given path is invalid, e.g. because contains '.' or '..'
     InvalidPath,
@@ -111,23 +89,29 @@ pub enum VfsErrorKind<E> {
     /// Generic error variant
     Other(String),
 
-    /// There is already a directory at the given path
-    DirectoryExists,
+    /// There is already a file or a directory at the given path
+    AlreadyExists,
 
-    /// There is already a file at the given path
-    FileExists,
+    /// An operation cannot be finished because a directory is not empty.
+    DirectoryIsNotEmpty,
+
+    /// File system internal structures are corrupted/invalid.
+    CorruptedFileSystem,
+
+    /// There is not enough free space on the storage to finish the requested operation.
+    NotEnoughSpace,
 
     /// Functionality not supported by this filesystem
     NotSupported,
 }
 
-impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
+impl<E: fmt::Display + IoError> fmt::Display for VfsErrorKind<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
                 write!(f, "IO error: {cause}")
             }
-            VfsErrorKind::FileNotFound => {
+            VfsErrorKind::NotFound => {
                 write!(f, "The file or directory could not be found")
             }
             VfsErrorKind::InvalidPath => {
@@ -136,14 +120,20 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
             VfsErrorKind::Other(message) => {
                 write!(f, "FileSystem error: {message}")
             }
+            VfsErrorKind::AlreadyExists => {
+                write!(f, "File or directory already exists")
+            }
+            VfsErrorKind::DirectoryIsNotEmpty => {
+                write!(f, "Directory is not empty")
+            }
+            VfsErrorKind::CorruptedFileSystem => {
+                write!(f, "Corrupted file system")
+            }
+            VfsErrorKind::NotEnoughSpace => {
+                write!(f, "Not enough space")
+            }
             VfsErrorKind::NotSupported => {
                 write!(f, "Functionality not supported by this filesystem")
-            }
-            VfsErrorKind::DirectoryExists => {
-                write!(f, "Directory already exists")
-            }
-            VfsErrorKind::FileExists => {
-                write!(f, "File already exists")
             }
         }
     }

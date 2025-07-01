@@ -1,11 +1,13 @@
 use super::super::error::IoError;
+use super::super::vfs::error::VfsErrorKind;
+use alloc::format;
 
 /// Error enum with all errors that can be returned by functions from this crate
 ///
 /// Generic parameter `T` is a type of external error returned by the user provided storage
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum Error<T> {
+pub enum Error<T: IoError> {
     /// A user provided storage instance returned an error during an input/output operation.
     Io(T),
     /// A read operation cannot be completed because an end of a file has been reached prematurely.
@@ -30,7 +32,24 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
+impl<E: core::fmt::Debug + IoError> From<Error<E>> for VfsErrorKind<E> {
+    fn from(err: Error<E>) -> Self {
+        match err {
+            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            Error::NotFound => VfsErrorKind::NotFound,
+            Error::DirectoryIsNotEmpty => VfsErrorKind::DirectoryIsNotEmpty,
+            Error::AlreadyExists => VfsErrorKind::AlreadyExists,
+            Error::InvalidInput => VfsErrorKind::InvalidPath,
+            Error::CorruptedFileSystem => VfsErrorKind::CorruptedFileSystem,
+            Error::NotEnoughSpace => VfsErrorKind::NotEnoughSpace,
+            Error::InvalidFileNameLength => VfsErrorKind::InvalidPath,
+            Error::UnsupportedFileNameCharacter => VfsErrorKind::NotSupported,
+            _ => VfsErrorKind::Other(format!("Error from fatfs: {err:?}")),
+        }
+    }
+}
+
+impl<T: core::fmt::Display + IoError> core::fmt::Display for Error<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Io(io_error) => write!(f, "IO error: {io_error}"),
