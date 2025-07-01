@@ -1,4 +1,4 @@
-//! Async Virtual filesystem path
+//! Async virtual filesystem path
 //!
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
