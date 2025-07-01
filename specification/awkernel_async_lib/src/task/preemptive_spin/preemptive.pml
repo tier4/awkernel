@@ -63,12 +63,12 @@ inline wake(tid,task) {
 	if
 	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Preempted -> 
 		atomic{
-			tasks[task].need_sched = true;
 			printf("wake() set need_sched: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+			tasks[task].need_sched = true;
 		}
 		unlock(tid,lock_info[task])
-	:: atomic{tasks[task].state == Terminated -> 
-		printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);}
+	:: tasks[task].state == Terminated -> 
+		printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 		unlock(tid,lock_info[task])
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
 		atomic {
@@ -295,7 +295,7 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 
 proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted) {
 	if
-	:: tid >= CPU_NUM -> re_schedule(tid);// thread_entry();
+	:: tid >= CPU_NUM -> re_schedule(tid);assert(RUNNING[cpu_id(tid)] == -1);// thread_entry();
 	:: else
 	fi
 	
@@ -335,7 +335,10 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	future(tid,task,poll_result);
 	interrupt_enabled[cpu_id(tid)] = false;
 	
-	RUNNING[cpu_id(tid)] = - 1;
+	atomic {
+		assert(RUNNING[cpu_id(tid)] == task);
+		RUNNING[cpu_id(tid)] = - 1;
+	}
 	
 	lock(tid,lock_info[task]);
 	if
