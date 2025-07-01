@@ -11,7 +11,7 @@ use awkernel_lib::file::{
 };
 use futures::stream::Stream;
 
-// NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now."
+// NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now.
 #[async_trait]
 pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError<E>>;
@@ -88,72 +88,77 @@ impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + 
 #[async_trait]
 pub trait AsyncFileSystem: Sync + Send + 'static {
     /// The error type that can be returned by this file system.
-    type Error: IoError + Clone + Send + Sync;
+    type IOError: IoError + Clone + Send + Sync;
 
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
     async fn read_dir(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>, Self::Error>;
+    ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>, Self::IOError>;
 
     /// Creates the directory at this path
     ///
     /// Note that the parent directory must already exist.
-    async fn create_dir(&self, path: &str) -> VfsResult<(), Self::Error>;
+    async fn create_dir(&self, path: &str) -> VfsResult<(), Self::IOError>;
 
     /// Opens the file at this path for reading
     async fn open_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::Error> + Send + Unpin>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::IOError> + Send + Unpin>, Self::IOError>;
 
     /// Creates a file at this path for writing
     async fn create_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::IOError> + Send + Unpin>, Self::IOError>;
 
     /// Opens the file at this path for appending
     async fn append_file(
         &self,
         path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::Error> + Send + Unpin>, Self::Error>;
+    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::IOError> + Send + Unpin>, Self::IOError>;
 
     /// Returns the file metadata for the file at this path
-    async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::Error>;
+    async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata, Self::IOError>;
 
     /// Sets the files creation timestamp, if the implementation supports it
-    async fn set_creation_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
+    async fn set_creation_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::IOError> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Sets the files modification timestamp, if the implementation supports it
-    async fn set_modification_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
+    async fn set_modification_time(
+        &self,
+        _path: &str,
+        _time: Time,
+    ) -> VfsResult<(), Self::IOError> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Sets the files access timestamp, if the implementation supports it
-    async fn set_access_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::Error> {
+    async fn set_access_time(&self, _path: &str, _time: Time) -> VfsResult<(), Self::IOError> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Returns true if a file or directory at path exists, false otherwise
-    async fn exists(&self, path: &str) -> VfsResult<bool, Self::Error>;
+    async fn exists(&self, path: &str) -> VfsResult<bool, Self::IOError>;
 
     /// Removes the file at this path
-    async fn remove_file(&self, path: &str) -> VfsResult<(), Self::Error>;
+    async fn remove_file(&self, path: &str) -> VfsResult<(), Self::IOError>;
 
     /// Removes the directory at this path
-    async fn remove_dir(&self, path: &str) -> VfsResult<(), Self::Error>;
+    async fn remove_dir(&self, path: &str) -> VfsResult<(), Self::IOError>;
 
     /// Copies the src path to the destination path within the same filesystem (optional)
-    async fn copy_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
+    async fn copy_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::IOError> {
         Err(VfsErrorKind::NotSupported.into())
     }
     /// Moves the src path to the destination path within the same filesystem (optional)
-    async fn move_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
+    async fn move_file(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::IOError> {
         Err(VfsErrorKind::NotSupported.into())
     }
     /// Moves the src directory to the destination path within the same filesystem (optional)
-    async fn move_dir(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::Error> {
+    async fn move_dir(&self, _src: &str, _dest: &str) -> VfsResult<(), Self::IOError> {
         Err(VfsErrorKind::NotSupported.into())
     }
 }
+
