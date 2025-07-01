@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-#[cfg(all(not(feature = "std"), feature = "lfn"))]
+#[cfg(feature = "lfn")]
 use alloc::vec::Vec;
 use core::num;
 use core::str;
