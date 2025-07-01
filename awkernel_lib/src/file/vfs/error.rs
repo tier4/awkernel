@@ -10,7 +10,7 @@ use core::fmt;
 
 /// The error type of this crate
 #[derive(Debug)]
-pub struct VfsError<E> {
+pub struct VfsError<E: IoError> {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
@@ -26,7 +26,7 @@ pub struct VfsError<E> {
 /// The only way to create a VfsError is via a VfsErrorKind
 ///
 /// This conversion implements certain normalizations
-impl<E> From<VfsErrorKind<E>> for VfsError<E> {
+impl<E: IoError> From<VfsErrorKind<E>> for VfsError<E> {
     fn from(kind: VfsErrorKind<E>) -> Self {
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
@@ -75,7 +75,7 @@ impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
 
 /// The kinds of errors that can occur
 #[derive(Debug)]
-pub enum VfsErrorKind<E> {
+pub enum VfsErrorKind<E: IoError> {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
@@ -100,7 +100,7 @@ pub enum VfsErrorKind<E> {
     NotSupported,
 }
 
-impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
+impl<E: fmt::Display + IoError> fmt::Display for VfsErrorKind<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
