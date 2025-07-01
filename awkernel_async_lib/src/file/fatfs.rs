@@ -18,7 +18,7 @@ use awkernel_lib::{
         io::{Read, Seek, SeekFrom, Write},
         memfs::InMemoryDisk,
         vfs::{
-            error::{VfsError, VfsResult},
+            error::{VfsError, VfsErrorKind, VfsResult},
             path::{VfsFileType, VfsMetadata},
         },
     },
@@ -48,7 +48,9 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).read(buf).map_err(VfsError::from);
+            let result = (*file_guard)
+                .read(buf)
+                .map_err(|e| VfsError::from(VfsErrorKind::from(e)));
             Poll::Ready(result)
         })
         .await
@@ -58,7 +60,9 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard).seek(pos).map_err(VfsError::from);
+            let result = (*file_guard)
+                .seek(pos)
+                .map_err(|e| VfsError::from(VfsErrorKind::from(e)));
             Poll::Ready(result)
         })
         .await
@@ -76,7 +80,11 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).write(buf).map_err(VfsError::from))
+            Poll::Ready(
+                (*file_guard)
+                    .write(buf)
+                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
+            )
         })
         .await
     }
@@ -85,7 +93,11 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).write_all(buf).map_err(VfsError::from))
+            Poll::Ready(
+                (*file_guard)
+                    .write_all(buf)
+                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
+            )
         })
         .await
     }
@@ -94,7 +106,11 @@ where
         core::future::poll_fn(|_cx| {
             let mut node = MCSNode::new();
             let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready((*file_guard).flush().map_err(VfsError::from))
+            Poll::Ready(
+                (*file_guard)
+                    .flush()
+                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
+            )
         })
         .await
     }
@@ -138,10 +154,16 @@ where
         let path = path.to_string();
         let fs_clone = self.fs.clone();
 
-        let dir = FileSystem::root_dir(&fs_clone).open_dir(&path)?;
+        let dir = FileSystem::root_dir(&fs_clone)
+            .open_dir(&path)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let entries: Result<Vec<String>, _> = dir
             .iter()
-            .map(|entry_res| Ok(entry_res?.file_name()))
+            .map(|entry_res| {
+                entry_res
+                    .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
+                    .and_then(|entry| Ok(entry.file_name()))
+            })
             .collect();
         entries.map(|names| {
             Box::new(stream::iter(names)) as Box<dyn Unpin + Stream<Item = String> + Send>
@@ -162,7 +184,9 @@ where
         let path = path.to_string();
         let fs_clone = self.fs.clone();
 
-        let file = FileSystem::root_dir(&fs_clone).open_file(&path)?;
+        let file = FileSystem::root_dir(&fs_clone)
+            .open_file(&path)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(Box::new(AsyncFile {
             file: Mutex::new(file),
@@ -175,7 +199,9 @@ where
     ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::IOError> + Send + Unpin>, Self::IOError> {
         let path = path.to_string();
         let fs_clone = self.fs.clone();
-        let file = FileSystem::root_dir(&fs_clone).create_file(&path)?;
+        let file = FileSystem::root_dir(&fs_clone)
+            .create_file(&path)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(Box::new(AsyncFile {
             file: Mutex::new(file),
@@ -195,7 +221,8 @@ where
                 Ok(file)
             })();
             result
-        }?;
+        }
+        .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(Box::new(AsyncFile {
             file: Mutex::new(file),
@@ -214,7 +241,9 @@ where
         }
         let path = path.to_string();
         let fs_clone = self.fs.clone();
-        let entry = FileSystem::root_dir(&fs_clone).find_entry(&path, None, None)?;
+        let entry = FileSystem::root_dir(&fs_clone)
+            .find_entry(&path, None, None)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let metadata = VfsMetadata {
             file_type: if entry.is_dir() {
                 VfsFileType::Directory

@@ -1,7 +1,6 @@
 //! Error and Result definitions
 
 use super::super::error::IoError;
-use super::super::fatfs::error::Error as FatfsError;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -33,27 +32,6 @@ impl<E> From<VfsErrorKind<E>> for VfsError<E> {
             kind,
             context: "An error occured".into(),
             cause: None,
-        }
-    }
-}
-
-impl<E: IoError> From<FatfsError<E>> for VfsError<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        let kind = err.into();
-        Self {
-            path: "PATH NOT FILLED BY VFS LAYER".into(),
-            kind,
-            context: "An error occurred".into(),
-            cause: None,
-        }
-    }
-}
-
-impl<E> From<FatfsError<E>> for VfsErrorKind<E> {
-    fn from(err: FatfsError<E>) -> Self {
-        match err {
-            FatfsError::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
-            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
         }
     }
 }

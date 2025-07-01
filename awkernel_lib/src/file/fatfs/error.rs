@@ -1,4 +1,6 @@
 use super::super::error::IoError;
+use super::super::vfs::error::VfsErrorKind;
+use alloc::string::ToString;
 
 /// Error enum with all errors that can be returned by functions from this crate
 ///
@@ -28,6 +30,15 @@ pub enum Error<T> {
     InvalidFileNameLength,
     /// The provided file name contains an invalid character.
     UnsupportedFileNameCharacter,
+}
+
+impl<E> From<Error<E>> for VfsErrorKind<E> {
+    fn from(err: Error<E>) -> Self {
+        match err {
+            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            _ => VfsErrorKind::Other("Generic error from fatfs.".to_string()),
+        }
+    }
 }
 
 impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
