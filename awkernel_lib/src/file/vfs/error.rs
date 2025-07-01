@@ -121,11 +121,20 @@ impl<E: fmt::Display> fmt::Display for VfsErrorKind<E> {
             VfsErrorKind::Other(message) => {
                 write!(f, "FileSystem error: {message}")
             }
-            VfsErrorKind::NotSupported => {
-                write!(f, "Functionality not supported by this filesystem")
-            }
             VfsErrorKind::AlreadyExists => {
                 write!(f, "File or directory already exists")
+            }
+            VfsErrorKind::DirectoryIsNotEmpty => {
+                write!(f, "Directory is not empty")
+            }
+            VfsErrorKind::CorruptedFileSystem => {
+                write!(f, "Corrupted file system")
+            }
+            VfsErrorKind::NotEnoughSpace => {
+                write!(f, "Not enough space")
+            }
+            VfsErrorKind::NotSupported => {
+                write!(f, "Functionality not supported by this filesystem")
             }
         }
     }

@@ -32,7 +32,7 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<E> From<Error<E>> for VfsErrorKind<E> {
+impl<E: core::fmt::Debug> From<Error<E>> for VfsErrorKind<E> {
     fn from(err: Error<E>) -> Self {
         match err {
             Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
@@ -44,7 +44,7 @@ impl<E> From<Error<E>> for VfsErrorKind<E> {
             Error::NotEnoughSpace => VfsErrorKind::NotEnoughSpace,
             Error::InvalidFileNameLength => VfsErrorKind::InvalidPath,
             Error::UnsupportedFileNameCharacter => VfsErrorKind::NotSupported,
-            _ => VfsErrorKind::Other(format!("Error from fatfs: {:?}", Err)),
+            _ => VfsErrorKind::Other(format!("Error from fatfs: {:?}", err)),
         }
     }
 }
