@@ -140,8 +140,7 @@ impl AsyncVfsPath {
     ///
     /// Note that the parent directory must exist, while the given path must not exist.
     ///
-    /// Returns VfsErrorKind::FileExists if a file already exists at the given path
-    /// Returns VfsErrorKind::DirectoryExists if a directory already exists at the given path
+    /// Returns VfsErrorKind::AlreadyExists if a file already exists at the given path
     ///
     /// ```
     /// # use vfs::async_vfs::{AsyncMemoryFS, AsyncVfsPath};
@@ -200,7 +199,7 @@ impl AsyncVfsPath {
             let directory = &path[..end];
             if let Err(error) = self.fs.fs.create_dir(directory).await {
                 match error.kind() {
-                    VfsErrorKind::DirectoryExists => {}
+                    VfsErrorKind::AlreadyExists => {}
                     _ => {
                         return Err(error.with_path(directory).with_context(|| {
                             format!("Could not create directories at '{}'", path)
