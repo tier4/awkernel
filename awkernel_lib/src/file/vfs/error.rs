@@ -1,7 +1,6 @@
 //! Error and Result definitions
 
 use super::super::error::IoError;
-use super::super::fatfs::error::Error as FatfsError;
 use alloc::{
     boxed::Box,
     string::{String, ToString},

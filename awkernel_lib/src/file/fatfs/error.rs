@@ -44,7 +44,7 @@ impl<E: core::fmt::Debug> From<Error<E>> for VfsErrorKind<E> {
             Error::NotEnoughSpace => VfsErrorKind::NotEnoughSpace,
             Error::InvalidFileNameLength => VfsErrorKind::InvalidPath,
             Error::UnsupportedFileNameCharacter => VfsErrorKind::NotSupported,
-            _ => VfsErrorKind::Other(format!("Error from fatfs: {:?}", err)),
+            _ => VfsErrorKind::Other(format!("Error from fatfs: {err:?}")),
         }
     }
 }
