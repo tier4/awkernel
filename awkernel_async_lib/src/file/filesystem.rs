@@ -87,8 +87,6 @@ impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
 #[async_trait]
 pub trait AsyncFileSystem: Sync + Send + 'static {
-    /// The error type that can be returned by this file system.
-
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
     async fn read_dir(
