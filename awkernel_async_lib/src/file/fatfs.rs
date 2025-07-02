@@ -162,7 +162,7 @@ where
             .map(|entry_res| {
                 entry_res
                     .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
-                    .and_then(|entry| Ok(entry.file_name()))
+                    .map(|entry| entry.file_name())
             })
             .collect();
         entries.map(|names| {
