@@ -131,7 +131,7 @@ impl<E: IoError + Clone + Send + Sync + 'static> AsyncVfsPath<E> {
             let directory = &path[..end];
             if let Err(error) = self.fs.fs.create_dir(directory).await {
                 match error.kind() {
-                    VfsErrorKind::DirectoryExists => {}
+                    VfsErrorKind::AlreadyExists => {}
                     _ => {
                         return Err(error
                             .with_path(directory)
