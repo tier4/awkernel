@@ -13,12 +13,12 @@ use futures::stream::Stream;
 
 // NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now.
 #[async_trait]
-pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
+pub trait AsyncSeekAndRead: Send + Unpin {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError>;
 
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
 
-    async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<()> {
+    async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), VfsError> {
         while !buf.is_empty() {
             match self.read(buf).await {
                 Ok(0) => return Ok(()),
@@ -34,38 +34,38 @@ pub trait AsyncSeekAndRead<E: IoError>: Send + Unpin {
 }
 
 #[async_trait]
-pub trait AsyncSeekAndWrite<E: IoError>: Send + Unpin {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize>;
+pub trait AsyncSeekAndWrite: Send + Unpin {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError>;
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()>;
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError>;
 
     async fn flush(&mut self) -> Result<()>;
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError>;
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndRead<E> for Box<dyn AsyncSeekAndRead<E> + Send + Unpin> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+impl AsyncSeekAndRead for Box<dyn AsyncSeekAndRead + Send + Unpin> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError> {
         (**self).read(buf).await
     }
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError> {
         (**self).seek(pos).await
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), VfsError> {
         (**self).read_exact(buf).await
     }
 }
 
 #[async_trait]
-impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + Send + Unpin> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError> {
         (**self).write(buf).await
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError> {
         (**self).write_all(buf).await
     }
 
@@ -73,7 +73,7 @@ impl<E: IoError + Send> AsyncSeekAndWrite<E> for Box<dyn AsyncSeekAndWrite<E> + 
         (**self).flush().await
     }
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError> {
         (**self).seek(pos).await
     }
 }
@@ -102,22 +102,15 @@ pub trait AsyncFileSystem: Sync + Send + 'static {
     async fn create_dir(&self, path: &str) -> VfsResult<()>;
 
     /// Opens the file at this path for reading
-    async fn open_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndRead<Self::IOError> + Send + Unpin>>;
+    async fn open_file(&self, path: &str) -> VfsResult<Box<dyn AsyncSeekAndRead + Send + Unpin>>;
 
     /// Creates a file at this path for writing
-    async fn create_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::IOError> + Send + Unpin>>;
+    async fn create_file(&self, path: &str)
+        -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>>;
 
     /// Opens the file at this path for appending
-    async fn append_file(
-        &self,
-        path: &str,
-    ) -> VfsResult<Box<dyn AsyncSeekAndWrite<Self::IOError> + Send + Unpin>>;
+    async fn append_file(&self, path: &str)
+        -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>>;
 
     /// Returns the file metadata for the file at this path
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata>;
