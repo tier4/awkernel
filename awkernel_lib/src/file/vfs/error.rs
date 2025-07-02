@@ -1,6 +1,4 @@
 //! Error and Result definitions
-
-use super::super::error::IoError;
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -9,24 +7,24 @@ use core::fmt;
 
 /// The error type of this crate
 #[derive(Debug)]
-pub struct VfsError<E: IoError> {
+pub struct VfsError {
     /// The path this error was encountered in
     path: String,
     /// The kind of error
-    kind: VfsErrorKind<E>,
+    kind: VfsErrorKind,
     /// An optional human-readable string describing the context for this error
     ///
     /// If not provided, a generic context message is used
     context: String,
     /// The underlying error
-    cause: Option<Box<VfsError<E>>>,
+    cause: Option<Box<VfsError>>,
 }
 
 /// The only way to create a VfsError is via a VfsErrorKind
 ///
 /// This conversion implements certain normalizations
-impl<E: IoError> From<VfsErrorKind<E>> for VfsError<E> {
-    fn from(kind: VfsErrorKind<E>) -> Self {
+impl From<VfsErrorKind> for VfsError {
+    fn from(kind: VfsErrorKind) -> Self {
         Self {
             path: "PATH NOT FILLED BY VFS LAYER".into(),
             kind,
@@ -36,7 +34,7 @@ impl<E: IoError> From<VfsErrorKind<E>> for VfsError<E> {
     }
 }
 
-impl<E: IoError> VfsError<E> {
+impl VfsError {
     // Path filled by the VFS crate rather than the implementations
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
         self.path = path.into();
@@ -52,12 +50,12 @@ impl<E: IoError> VfsError<E> {
         self
     }
 
-    pub fn with_cause(mut self, cause: VfsError<E>) -> Self {
+    pub fn with_cause(mut self, cause: VfsError) -> Self {
         self.cause = Some(Box::new(cause));
         self
     }
 
-    pub fn kind(&self) -> &VfsErrorKind<E> {
+    pub fn kind(&self) -> &VfsErrorKind {
         &self.kind
     }
 
@@ -66,7 +64,7 @@ impl<E: IoError> VfsError<E> {
     }
 }
 
-impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
+impl fmt::Display for VfsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} for '{}': {}", self.context, self.path, self.kind())
     }
@@ -74,14 +72,14 @@ impl<E: fmt::Display + IoError> fmt::Display for VfsError<E> {
 
 /// The kinds of errors that can occur
 #[derive(Debug)]
-pub enum VfsErrorKind<E: IoError> {
+pub enum VfsErrorKind {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
-    IoError(E),
+    IoError(VfsIoError),
 
     /// The file or directory at the given path could not be found
-    FileNotFound,
+    NotFound,
 
     /// The given path is invalid, e.g. because contains '.' or '..'
     InvalidPath,
@@ -89,23 +87,29 @@ pub enum VfsErrorKind<E: IoError> {
     /// Generic error variant
     Other(String),
 
-    /// There is already a directory at the given path
-    DirectoryExists,
+    /// There is already a file or a directory at the given path
+    AlreadyExists,
 
-    /// There is already a file at the given path
-    FileExists,
+    /// An operation cannot be finished because a directory is not empty.
+    DirectoryIsNotEmpty,
+
+    /// File system internal structures are corrupted/invalid.
+    CorruptedFileSystem,
+
+    /// There is not enough free space on the storage to finish the requested operation.
+    NotEnoughSpace,
 
     /// Functionality not supported by this filesystem
     NotSupported,
 }
 
-impl<E: fmt::Display + IoError> fmt::Display for VfsErrorKind<E> {
+impl fmt::Display for VfsErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VfsErrorKind::IoError(cause) => {
                 write!(f, "IO error: {cause}")
             }
-            VfsErrorKind::FileNotFound => {
+            VfsErrorKind::NotFound => {
                 write!(f, "The file or directory could not be found")
             }
             VfsErrorKind::InvalidPath => {
@@ -114,18 +118,51 @@ impl<E: fmt::Display + IoError> fmt::Display for VfsErrorKind<E> {
             VfsErrorKind::Other(message) => {
                 write!(f, "FileSystem error: {message}")
             }
+            VfsErrorKind::AlreadyExists => {
+                write!(f, "File or directory already exists")
+            }
+            VfsErrorKind::DirectoryIsNotEmpty => {
+                write!(f, "Directory is not empty")
+            }
+            VfsErrorKind::CorruptedFileSystem => {
+                write!(f, "Corrupted file system")
+            }
+            VfsErrorKind::NotEnoughSpace => {
+                write!(f, "Not enough space")
+            }
             VfsErrorKind::NotSupported => {
                 write!(f, "Functionality not supported by this filesystem")
             }
-            VfsErrorKind::DirectoryExists => {
-                write!(f, "Directory already exists")
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum VfsIoError {
+    OutOfBounds,
+    WriteZero,
+    UnexpectedEof,
+    Interrupted,
+}
+
+impl fmt::Display for VfsIoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VfsIoError::OutOfBounds => {
+                write!(f, "Out of bounds access")
             }
-            VfsErrorKind::FileExists => {
-                write!(f, "File already exists")
+            VfsIoError::WriteZero => {
+                write!(f, "Failed to write whole buffer")
+            }
+            VfsIoError::UnexpectedEof => {
+                write!(f, "Failed to fill whole buffer")
+            }
+            VfsIoError::Interrupted => {
+                write!(f, "Operation interrupted")
             }
         }
     }
 }
 
 /// The result type of this crate
-pub type VfsResult<T, E> = core::result::Result<T, VfsError<E>>;
+pub type VfsResult<T> = core::result::Result<T, VfsError>;
