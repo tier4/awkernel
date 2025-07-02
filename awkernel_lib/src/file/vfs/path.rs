@@ -3,7 +3,6 @@
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
-use super::super::error::IoError;
 use super::super::io::{Read, Seek, Write};
 use crate::time::Time;
 use alloc::{
@@ -26,7 +25,6 @@ impl<T> SeekAndWrite for T where T: Seek + Write {}
 
 /// A trait for common non-async behaviour of both sync and async paths
 pub trait PathLike: Clone {
-    type Error: IoError;
     fn get_path(&self) -> String;
     fn filename_internal(&self) -> String {
         let path = self.get_path();
@@ -50,7 +48,7 @@ pub trait PathLike: Clone {
         index.map(|idx| path[..idx].to_string()).unwrap_or_default()
     }
 
-    fn join_internal(&self, in_path: &str, path: &str) -> VfsResult<String, Self::Error> {
+    fn join_internal(&self, in_path: &str, path: &str) -> VfsResult<String> {
         if path.is_empty() {
             return Ok(in_path.to_string());
         }
