@@ -16,7 +16,7 @@ use futures::stream::Stream;
 pub trait AsyncSeekAndRead: Send + Unpin {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError>;
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError>;
 
     async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), VfsError> {
         while !buf.is_empty() {
@@ -39,7 +39,7 @@ pub trait AsyncSeekAndWrite: Send + Unpin {
 
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError>;
 
-    async fn flush(&mut self) -> Result<()>;
+    async fn flush(&mut self) -> Result<(), VfsError>;
 
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError>;
 }
@@ -69,7 +69,7 @@ impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
         (**self).write_all(buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), VfsError> {
         (**self).flush().await
     }
 
