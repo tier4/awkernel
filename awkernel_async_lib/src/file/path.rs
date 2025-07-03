@@ -34,7 +34,7 @@ struct AsyncVFS {
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AsyncVfsPath {
     path: String,
     fs: Arc<AsyncVFS>,
@@ -344,37 +344,37 @@ impl AsyncVfsPath {
                     .with_context(|| "Could not read path"),
             );
         }
-        let mut buffer = vec![0; metadata.len as usize];
+        let mut result = String::with_capacity(metadata.len as usize);
         self.open_file()
             .await?
-            .read_exact(&mut buffer)
+            .read_to_string(&mut result)
             .await
             .map_err(|err| {
                 err.with_path(&self.path)
                     .with_context(|| "Could not read path")
             })?;
-
-        String::from_utf8(buffer).map_err(|_| {
-            VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
-                .with_path(&self.path)
-                .with_context(|| "Could not read path as string")
-        })
+        Ok(result)
     }
 
     /// Copies a file to a new destination
     pub async fn copy_file(&self, destination: &AsyncVfsPath) -> VfsResult<()> {
         async {
             if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&self.path),
-                );
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&self.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.copy_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                match result {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             let mut src = self.open_file().await?;
@@ -386,7 +386,11 @@ impl AsyncVfsPath {
         .await
         .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
-                format!("Could not copy '{}' to '{}'", self.as_str(), destination.as_str())
+                format!(
+                    "Could not copy '{}' to '{}'",
+                    self.as_str(),
+                    destination.as_str()
+                )
             })
         })
     }
@@ -401,10 +405,15 @@ impl AsyncVfsPath {
                 .with_path(&destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
-                let result = self.fs.fs.move_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                let result = self.fs.fs.move_file(&self.path, &destination.path);
+                match result.await {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             let mut src = self.open_file().await?;
@@ -416,9 +425,14 @@ impl AsyncVfsPath {
         .await
         .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
-                format!("Could not move '{}' to '{}'", self.as_str(), destination.as_str())
+                format!(
+                    "Could not move '{}' to '{}'",
+                    self.as_str(),
+                    destination.as_str()
+                )
             })
-        })
+        })?;
+        Ok(())
     }
 
     /// Copies a directory to a new destination, recursively
@@ -432,24 +446,22 @@ impl AsyncVfsPath {
                 .with_path(&destination.path));
             }
             destination.create_dir().await?;
-            let prefix = &self.path;
+            let prefix = self.path.as_str();
             let prefix_len = prefix.len();
             let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
+            while let Some(file) = path_stream.next().await {
+                let src_path: AsyncVfsPath = file?;
                 let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
                 match src_path.metadata().await?.file_type {
                     VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => {
-                        src_path.copy_file(&dest_path).await?;
-                        files_copied += 1;
-                    }
+                    VfsFileType::File => src_path.copy_file(&dest_path).await?,
                 }
+                files_copied += 1;
             }
             Ok(files_copied)
         }
         .await
-        .map_err(|err: VfsError| {
+        .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not copy directory '{}' to '{}'",
@@ -465,35 +477,40 @@ impl AsyncVfsPath {
     pub async fn move_dir(&self, destination: &AsyncVfsPath) -> VfsResult<()> {
         async {
             if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&destination.path),
-                );
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.move_dir(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                match result {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             destination.create_dir().await?;
-            let prefix = &self.path;
+            let prefix = self.path.as_str();
             let prefix_len = prefix.len();
             let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
+            while let Some(file) = path_stream.next().await {
+                let src_path: AsyncVfsPath = file?;
                 let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
                 match src_path.metadata().await?.file_type {
                     VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => src_path.move_file(&dest_path).await?,
+                    VfsFileType::File => src_path.copy_file(&dest_path).await?,
                 }
             }
             self.remove_dir_all().await?;
             Ok(())
         }
         .await
-        .map_err(|err: VfsError| {
+        .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not move directory '{}' to '{}'",
@@ -501,7 +518,8 @@ impl AsyncVfsPath {
                     destination.as_str()
                 )
             })
-        })
+        })?;
+        Ok(())
     }
 }
 
