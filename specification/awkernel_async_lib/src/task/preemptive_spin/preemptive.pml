@@ -145,6 +145,7 @@ inline context_switch(cur_tid,next_tid) {
 	atomic {
 		assert(workers[next_tid].executing_in == -1);
 		printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
+		workers[next_tid].used_as_preempt_ctx = false;
 		workers[next_tid].executing_in = cpu_id(cur_tid);
 		workers[cur_tid].executing_in = - 1
 	}
@@ -197,6 +198,7 @@ inline take_pooled_thread(ret) {
 		}
 		
 		assert(ret != - 1)
+		printf("take_pooled_thread(): ret_tid = %d\n",ret);
 	}
 }
 
@@ -204,8 +206,8 @@ inline take_preempt_context(task,ret) {
 	atomic {
 		ret = tasks[task].thread;
 		tasks[task].thread = - 1;
+		assert(workers[ret].executing_in == - 1);
 		assert(workers[ret].used_as_preempt_ctx);
-		workers[ret].used_as_preempt_ctx = false
 	}
 }
 
