@@ -5,7 +5,6 @@
 
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
-    console,
     file::vfs::{
         error::{VfsError, VfsErrorKind, VfsResult},
         path::{PathLike, VfsFileType, VfsMetadata},
