@@ -154,4 +154,3 @@ impl From<Box<dyn AsyncFileSystem>> for AsyncVfsPath {
         AsyncVfsPath::new(filesystem)
     }
 }
-
