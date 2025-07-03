@@ -143,6 +143,7 @@ inline get_next_task(tid,ret) {
 
 inline context_switch(cur_tid,next_tid) {
 	atomic {
+		assert(workers[next_tid].executing_in == -1);
 		printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
 		workers[next_tid].executing_in = cpu_id(cur_tid);
 		workers[cur_tid].executing_in = - 1
