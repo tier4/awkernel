@@ -389,7 +389,8 @@ impl AsyncVfsPath {
                     destination.as_str()
                 )
             })
-        })
+        })?;
+        Ok(())
     }
 
     /// Moves or renames a file to a new destination
@@ -428,7 +429,8 @@ impl AsyncVfsPath {
                     destination.as_str()
                 )
             })
-        })
+        })?;
+        Ok(())
     }
 
     /// Copies a directory to a new destination, recursively
@@ -475,16 +477,21 @@ impl AsyncVfsPath {
     pub async fn move_dir(&self, destination: &AsyncVfsPath) -> VfsResult<()> {
         async {
             if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&destination.path),
-                );
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.move_dir(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                match result {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             destination.create_dir().await?;
