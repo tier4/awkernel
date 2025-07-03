@@ -371,10 +371,8 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
+            let _ = simple_async_copy(&mut src, &mut dest).await?;
+
             Ok(())
         }
         .await
@@ -403,10 +401,7 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
+            let _ = simple_async_copy(&mut src, &mut dest).await?;
             self.remove_file().await?;
             Ok(())
         }
@@ -595,15 +590,8 @@ impl Stream for WalkDirIterator {
     }
 }
 
-#[derive(Debug)]
-pub enum CopyError {
-    ReadError(VfsError),
-    WriteError(VfsError),
-}
-
 const COPY_BUF_SIZE: usize = 8 * 1024;
-
-pub async fn simple_async_copy<R, W>(reader: &mut R, writer: &mut W) -> Result<u64, CopyError>
+pub async fn simple_async_copy<R, W>(reader: &mut R, writer: &mut W) -> VfsResult<u64>
 where
     R: AsyncSeekAndRead + Unpin + ?Sized,
     W: AsyncSeekAndWrite + Unpin + ?Sized,
@@ -614,13 +602,10 @@ where
         let bytes_read = match reader.read(&mut buf).await {
             Ok(0) => return Ok(total_bytes_copied),
             Ok(n) => n,
-            Err(e) => return Err(CopyError::ReadError(e)),
+            Err(e) => return Err(e),
         };
 
-        writer
-            .write_all(&buf[..bytes_read])
-            .await
-            .map_err(CopyError::WriteError)?;
+        writer.write_all(&buf[..bytes_read]).await?;
         total_bytes_copied += bytes_read as u64;
     }
 }
