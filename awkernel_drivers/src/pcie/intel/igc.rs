@@ -1043,7 +1043,7 @@ impl Rx {
 
         let read_buf = DMAPool::new(
             info.segment_group as usize,
-            core::mem::size_of::<RxRing>() / PAGESIZE,
+            core::mem::size_of::<RxBuffer>() / PAGESIZE,
         )
         .ok_or(IgcDriverErr::DMAPool)?;
         self.read_buf = Some(read_buf);
