@@ -3,8 +3,8 @@
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
-use crate::file::fatfs::AsyncFatFs;
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
+use crate::file::fatfs::AsyncFatFs;
 use awkernel_lib::{
     file::vfs::{
         error::{VfsError, VfsErrorKind, VfsResult},
@@ -526,8 +526,6 @@ pub struct WalkDirIterator {
     read_dir_fut: Option<BoxFuture<'static, ReadDirOperationResult>>,
     metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError>>>,
 }
-
-impl Unpin for WalkDirIterator {}
 
 impl Stream for WalkDirIterator {
     type Item = VfsResult<AsyncVfsPath>;
