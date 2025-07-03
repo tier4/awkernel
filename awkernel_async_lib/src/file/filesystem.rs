@@ -8,6 +8,7 @@ use awkernel_lib::file::{
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
 };
+use core::fmt::Debug;
 use futures::stream::Stream;
 
 // NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now.
@@ -85,7 +86,7 @@ impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
 ///
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
 #[async_trait]
-pub trait AsyncFileSystem: Sync + Send {
+pub trait AsyncFileSystem: Sync + Send + Debug {
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
     async fn read_dir(

@@ -27,12 +27,13 @@ use core::{
 };
 use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
 
+#[derive(Debug)]
 struct AsyncVFS {
     fs: Box<dyn AsyncFileSystem>,
 }
 
 /// A virtual filesystem path, identifying a single file or directory in this virtual filesystem
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AsyncVfsPath {
     path: String,
     fs: Arc<AsyncVFS>,
@@ -519,7 +520,12 @@ pub struct WalkDirIterator {
     metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError>>>,
 }
 
-impl Unpin for WalkDirIterator {}
+impl core::fmt::Debug for WalkDirIterator {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("WalkDirIterator")?;
+        self.todo.fmt(f)
+    }
+}
 
 impl Stream for WalkDirIterator {
     type Item = VfsResult<AsyncVfsPath>;
