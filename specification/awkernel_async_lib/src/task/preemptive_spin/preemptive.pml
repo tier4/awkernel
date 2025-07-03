@@ -146,7 +146,6 @@ inline context_switch(cur_tid,next_tid) {
 		assert(!workers[next_tid].pooled);
 		assert(workers[next_tid].executing_in == -1);
 		printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
-		workers[next_tid].used_as_preempt_ctx = false;
 		workers[next_tid].executing_in = cpu_id(cur_tid);
 		workers[cur_tid].executing_in = - 1
 	}
@@ -210,6 +209,7 @@ inline take_preempt_context(task,ret) {
 		tasks[task].thread = - 1;
 		assert(workers[ret].executing_in == - 1);
 		assert(workers[ret].used_as_preempt_ctx);
+		workers[ret].used_as_preempt_ctx = false;
 	}
 }
 
