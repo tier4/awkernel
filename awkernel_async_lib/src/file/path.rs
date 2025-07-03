@@ -371,7 +371,7 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            let _ = simple_async_copy(&mut src, &mut dest).await?;
+            let _ = async_copy(&mut src, &mut dest).await?;
 
             Ok(())
         }
@@ -401,7 +401,7 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            let _ = simple_async_copy(&mut src, &mut dest).await?;
+            let _ = async_copy(&mut src, &mut dest).await?;
             self.remove_file().await?;
             Ok(())
         }
@@ -424,11 +424,11 @@ impl AsyncVfsPath {
                 .with_path(&destination.path));
             }
             destination.create_dir().await?;
-            let prefix = &self.path;
+            let prefix = self.path.as_str();
             let prefix_len = prefix.len();
             let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
+            while let Some(file) = path_stream.next().await {
+                let src_path: AsyncVfsPath = file?;
                 let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
                 match src_path.metadata().await?.file_type {
                     VfsFileType::Directory => dest_path.create_dir().await?,
@@ -441,7 +441,7 @@ impl AsyncVfsPath {
             Ok(files_copied)
         }
         .await
-        .map_err(|err: VfsError| {
+        .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not copy directory '{}' to '{}'",
@@ -470,22 +470,22 @@ impl AsyncVfsPath {
                 }
             }
             destination.create_dir().await?;
-            let prefix = &self.path;
+            let prefix = self.path.as_str();
             let prefix_len = prefix.len();
             let mut path_stream = self.walk_dir().await?;
-            while let Some(result) = path_stream.next().await {
-                let src_path = result?;
+            while let Some(file) = path_stream.next().await {
+                let src_path: AsyncVfsPath = file?;
                 let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
                 match src_path.metadata().await?.file_type {
                     VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => src_path.move_file(&dest_path).await?,
+                    VfsFileType::File => src_path.copy_file(&dest_path).await?,
                 }
             }
             self.remove_dir_all().await?;
             Ok(())
         }
         .await
-        .map_err(|err: VfsError| {
+        .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
                 format!(
                     "Could not move directory '{}' to '{}'",
@@ -591,7 +591,7 @@ impl Stream for WalkDirIterator {
 }
 
 const COPY_BUF_SIZE: usize = 8 * 1024;
-pub async fn simple_async_copy<R, W>(reader: &mut R, writer: &mut W) -> VfsResult<u64>
+pub async fn async_copy<R, W>(reader: &mut R, writer: &mut W) -> VfsResult<u64>
 where
     R: AsyncSeekAndRead + Unpin + ?Sized,
     W: AsyncSeekAndWrite + Unpin + ?Sized,
