@@ -1,13 +1,11 @@
-//! Virtual filesystem path (async version)
+//! Async virtual filesystem path
 //!
 //! The virtual file system abstraction generalizes over file systems and allow using
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
 use crate::file::fatfs::AsyncFatFs;
-
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
 use awkernel_lib::{
-    console,
     file::vfs::{
         error::{VfsError, VfsErrorKind, VfsResult},
         path::{PathLike, VfsFileType, VfsMetadata},
@@ -153,12 +151,9 @@ impl AsyncVfsPath {
                     err.with_path(&self.path)
                         .with_context(|| "Could not read directory")
                 })?
-                .map(move |path| {
-                    console::print(path.as_str());
-                    AsyncVfsPath {
-                        path: format!("{parent}/{path}"),
-                        fs: fs.clone(),
-                    }
+                .map(move |path| AsyncVfsPath {
+                    path: format!("{parent}/{path}"),
+                    fs: fs.clone(),
                 }),
         ))
     }
