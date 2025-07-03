@@ -144,12 +144,9 @@ impl AsyncVfsPath {
                     err.with_path(&self.path)
                         .with_context(|| "Could not read directory")
                 })?
-                .map(move |path| {
-                    console::print(path.as_str());
-                    AsyncVfsPath {
-                        path: format!("{parent}/{path}"),
-                        fs: fs.clone(),
-                    }
+                .map(move |path| AsyncVfsPath {
+                    path: format!("{parent}/{path}"),
+                    fs: fs.clone(),
                 }),
         ))
     }
