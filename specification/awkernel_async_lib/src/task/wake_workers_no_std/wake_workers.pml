@@ -43,7 +43,9 @@ inline interrupt_handler(cpu_id) {
         :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true;
         :: else -> goto return_interrupt_handler;
         fi
+    }
 
+    d_step {
         // handle IPI
         if
         :: IPI[cpu_id] == true ->
@@ -51,7 +53,9 @@ inline interrupt_handler(cpu_id) {
             printf("CPU#{%d}: handle IPI\n", cpu_id);
         :: else
         fi
+    }
 
+    d_step {
         // handle timer interrupt
         if
         :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
@@ -59,7 +63,9 @@ inline interrupt_handler(cpu_id) {
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id);
         :: else
         fi
+    }
 
+    d_step {
         // Enable timer.
         // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
         // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
@@ -78,7 +84,7 @@ inline wait_interrupt(cpu_id) {
     assert(interrupt_mask[cpu_id] == false);
     if
     :: (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
-    :: IPI[cpu_id]
+    :: IPI[cpu_id] -> IPI[cpu_id] = false
     fi
 }
 
