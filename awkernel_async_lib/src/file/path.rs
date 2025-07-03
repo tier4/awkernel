@@ -454,9 +454,9 @@ impl AsyncVfsPath {
                     VfsFileType::Directory => dest_path.create_dir().await?,
                     VfsFileType::File => {
                         src_path.copy_file(&dest_path).await?;
-                        files_copied += 1;
                     }
                 }
+                files_copied += 1;
             }
             Ok(files_copied)
         }
@@ -518,7 +518,8 @@ impl AsyncVfsPath {
                     destination.as_str()
                 )
             })
-        })
+        })?;
+        Ok(())
     }
 }
 
