@@ -1,7 +1,7 @@
 //! The async filesystem trait definitions needed to implement new async virtual filesystems
 use super::path::AsyncVfsPath;
 use crate::time::Time;
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::file::{
     io::SeekFrom,
@@ -30,6 +30,30 @@ pub trait AsyncSeekAndRead: Send + Unpin {
         }
 
         Ok(())
+    }
+
+    async fn read_to_string(&mut self, buf: &mut String) -> Result<usize, VfsError> {
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 8192];
+
+        loop {
+            let bytes_read = self.read(&mut chunk).await?;
+            if bytes_read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..bytes_read]);
+        }
+
+        match String::from_utf8(bytes) {
+            Ok(s) => {
+                let len = s.len();
+                buf.push_str(&s);
+                Ok(len)
+            }
+            Err(_) => Err(VfsError::from(VfsErrorKind::Other(
+                "Invalid UTF-8 sequence".into(),
+            ))),
+        }
     }
 }
 

@@ -336,21 +336,16 @@ impl AsyncVfsPath {
                     .with_context(|| "Could not read path"),
             );
         }
-        let mut buffer = vec![0; metadata.len as usize];
+        let mut result = String::with_capacity(metadata.len as usize);
         self.open_file()
             .await?
-            .read_exact(&mut buffer)
+            .read_to_string(&mut result)
             .await
             .map_err(|err| {
                 err.with_path(&self.path)
                     .with_context(|| "Could not read path")
             })?;
-
-        String::from_utf8(buffer).map_err(|_| {
-            VfsError::from(VfsErrorKind::Other("Invalid UTF-8 sequence".into()))
-                .with_path(&self.path)
-                .with_context(|| "Could not read path as string")
-        })
+        Ok(result)
     }
 
     /// Copies a file to a new destination
@@ -452,9 +447,7 @@ impl AsyncVfsPath {
                 let dest_path = destination.join(&src_path.as_str()[prefix_len + 1..])?;
                 match src_path.metadata().await?.file_type {
                     VfsFileType::Directory => dest_path.create_dir().await?,
-                    VfsFileType::File => {
-                        src_path.copy_file(&dest_path).await?;
-                    }
+                    VfsFileType::File => src_path.copy_file(&dest_path).await?,
                 }
                 files_copied += 1;
             }
