@@ -1,5 +1,6 @@
 use super::{SleepCpu, NUM_MAX_CPU};
 use array_macro::array;
+use core::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
 struct SleepState {
@@ -12,7 +13,10 @@ static MUTEX_COND: [(std::sync::Mutex<SleepState>, std::sync::Condvar); NUM_MAX_
 pub(super) struct SleepCpuStd;
 
 impl SleepCpu for SleepCpuStd {
-    fn sleep(&self) {
+    fn sleep(&self, timeout: Option<Duration>) {
+        // SleepCpuStd::sleep() does not support timeout.
+        assert!(timeout.is_none());
+
         let cpu_id = super::cpu_id();
 
         // The primary CPU uses epoll/select to wait for events.

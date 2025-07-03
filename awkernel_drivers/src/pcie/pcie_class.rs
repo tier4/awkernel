@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PCIeClass {
     Unclassified,
-    MassStorageController,
+    MassStorageController(PCIeStorageSubClass),
     NetworkController,
     DisplayController,
     MultimediaController,
@@ -25,10 +25,13 @@ pub enum PCIeClass {
 }
 
 impl PCIeClass {
-    pub fn from_u8(pcie_class: u8, pcie_sub_class: u8) -> Option<Self> {
+    pub fn from_u8(pcie_class: u8, pcie_sub_class: u8, programming_interface: u8) -> Option<Self> {
         let pcie_class = match pcie_class {
             0x00 => Self::Unclassified,
-            0x01 => Self::MassStorageController,
+            0x01 => Self::MassStorageController(PCIeStorageSubClass::from_u8(
+                pcie_sub_class,
+                programming_interface,
+            )?),
             0x02 => Self::NetworkController,
             0x03 => Self::DisplayController,
             0x04 => Self::MultimediaController,
@@ -91,5 +94,65 @@ impl PCIeBridgeSubClass {
         };
 
         Some(pcie_sub_class)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PCIeStorageSubClass {
+    Scsi,
+    Ide,
+    FloppyDisk,
+    Ipi,
+    Raid,
+    Ata,
+    SerialAta,
+    SerialAttachedScsi,
+    Nvm(PCIeStorageNvmProgrammingInterface),
+    Flash,
+    Other,
+}
+
+impl PCIeStorageSubClass {
+    pub fn from_u8(pcie_sub_class: u8, pcie_programming_interface: u8) -> Option<Self> {
+        let pcie_sub_class = match pcie_sub_class {
+            0x00 => Self::Scsi,
+            0x01 => Self::Ide,
+            0x02 => Self::FloppyDisk,
+            0x03 => Self::Ipi,
+            0x04 => Self::Raid,
+            0x05 => Self::Ata,
+            0x06 => Self::SerialAta,
+            0x07 => Self::SerialAttachedScsi,
+            0x08 => Self::Nvm(PCIeStorageNvmProgrammingInterface::from_u8(
+                pcie_programming_interface,
+            )?),
+            0x09 => Self::Flash,
+            0x80 => Self::Other,
+            _ => return None,
+        };
+
+        Some(pcie_sub_class)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PCIeStorageNvmProgrammingInterface {
+    VendorSpecificInterface,
+    NvmHostControllerInterface,
+    NvmExpressIOController,
+    NvmExpressAdministrativeController,
+}
+
+impl PCIeStorageNvmProgrammingInterface {
+    pub fn from_u8(pcie_programming_interface: u8) -> Option<Self> {
+        let pcie_programming_interface = match pcie_programming_interface {
+            0x00 => Self::VendorSpecificInterface,
+            0x01 => Self::NvmHostControllerInterface,
+            0x02 => Self::NvmExpressIOController,
+            0x03 => Self::NvmExpressAdministrativeController,
+            _ => return None,
+        };
+
+        Some(pcie_programming_interface)
     }
 }

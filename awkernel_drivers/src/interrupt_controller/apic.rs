@@ -32,6 +32,8 @@ pub mod registers {
     mmio_rw!(offset 0x390 => pub(crate) XAPIC_TIMER_CURRENT_COUNT<u32>);
     mmio_rw!(offset 0x3e0 => pub(crate) XAPIC_TIMER_DIV<u32>);
 
+    pub const LVT_TIMER_PERIODIC: u32 = 1 << 17;
+
     bitflags! {
         pub struct IcrFlags: u32 {
             const LEVEL_TRIGGER = 1 << 15;       // Trigger Mode: 0: Edge, 1: Level
@@ -588,7 +590,14 @@ impl awkernel_lib::timer::Timer for TimerXapic {
             initial_count as u32
         };
 
-        registers::XAPIC_LVT_TIMER.write(TIMER_IRQ as u32, self.apic_base);
+        if initial_count == 0 {
+            log::warn!("TimerXapic::reset(): initial_count is 0");
+        }
+
+        registers::XAPIC_LVT_TIMER.write(
+            TIMER_IRQ as u32 | registers::LVT_TIMER_PERIODIC,
+            self.apic_base,
+        );
         registers::XAPIC_TIMER_DIV.write(self.timer_div, self.apic_base);
         registers::XAPIC_TIMER_INITIAL_COUNT.write(initial_count, self.apic_base);
     }
@@ -618,8 +627,13 @@ impl awkernel_lib::timer::Timer for TimerX2apic {
             initial_count as u64
         };
 
+        if initial_count == 0 {
+            log::warn!("TimerX2apic::reset(): initial_count is 0");
+        }
+
         unsafe {
-            registers::X2APIC_LVT_TIMER.write(TIMER_IRQ as u64);
+            registers::X2APIC_LVT_TIMER
+                .write(TIMER_IRQ as u64 | registers::LVT_TIMER_PERIODIC as u64);
             registers::X2APIC_TIMER_DIV.write(self.timer_div as u64);
             registers::X2APIC_TIMER_INITIAL_COUNT.write(initial_count);
         }

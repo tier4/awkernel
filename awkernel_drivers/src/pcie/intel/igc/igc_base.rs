@@ -11,105 +11,113 @@ use super::{
 
 pub(super) const IGC_RAR_ENTRIES_BASE: u16 = 16;
 
+// Additional Receive Descriptor Control definitions
+pub(super) const IGC_RXDCTL_QUEUE_ENABLE: u32 = 0x02000000; // Ena specific Rx Queue
+
+// SRRCTL bit definitions
+pub(super) const IGC_SRRCTL_BSIZEPKT_SHIFT: u32 = 10; // Shift _right_
+pub(super) const IGC_SRRCTL_BSIZEHDRSIZE_SHIFT: u32 = 2; // Shift _left_
+pub(super) const IGC_SRRCTL_DESCTYPE_ADV_ONEBUF: u32 = 0x02000000;
+
 /// Transmit Descriptor - Advanced
 pub(super) union IgcAdvTxDesc {
-    read: TxDescRead,
-    wb: TxDescWb,
+    pub(super) read: TxDescRead,
+    pub(super) wb: TxDescWb,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(super) struct TxDescRead {
-    buffer_addr: u64, // Address of descriptor's data buf
-    cmd_type_len: u32,
-    olinfo_status: u32,
+    pub(super) buffer_addr: u64, // Address of descriptor's data buf
+    pub(super) cmd_type_len: u32,
+    pub(super) olinfo_status: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(super) struct TxDescWb {
-    rsvd: u64, // Reserved
-    nxtseq_seed: u32,
-    status: u32,
+    pub(super) rsvd: u64, // Reserved
+    pub(super) nxtseq_seed: u32,
+    pub(super) status: u32,
 }
 
 /// Context descriptors
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub(super) struct IgcAdvTxContextDesc {
-    vlan_macip_lens: u32,
-    ts: TxContextTS,
-    type_tucmd_mlhl: u32,
-    mss_l4len_idx: u32,
+    pub(super) vlan_macip_lens: u32,
+    pub(super) ts: TxContextTS,
+    pub(super) type_tucmd_mlhl: u32,
+    pub(super) mss_l4len_idx: u32,
 }
 
 #[derive(Clone, Copy)]
 pub(super) union TxContextTS {
-    launch_time: u32, // Launch time
-    seqnum_seed: u32, // Sequence number seed
+    pub(super) launch_time: u32, // Launch time
+    pub(super) seqnum_seed: u32, // Sequence number seed
 }
 
 /// Receive Descriptor - Advanced
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub(super) struct IgcAdvRxDesc {
-    read: RxRead,
-    wb: RxWb, // writeback
+pub(super) union IgcAdvRxDesc {
+    pub(super) read: RxRead,
+    pub(super) wb: RxWb, // writeback
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(super) struct RxRead {
-    pkt_addr: u64, // Packet buffer address
-    hdr_addr: u64, // Header buffer address
+    pub(super) pkt_addr: u64, // Packet buffer address
+    pub(super) hdr_addr: u64, // Header buffer address
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(super) struct RxHsRss {
-    pkt_info: u16, // Packet type
-    hdr_info: u16, // Split Header, header buffer len
+    pub(super) pkt_info: u16, // Packet type
+    pub(super) hdr_info: u16, // Split Header, header buffer len
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(super) struct RxCsumIp {
-    ip_id: u16, // IP id
-    csum: u16,  // Packet checksum
+    pub(super) ip_id: u16, // IP id
+    pub(super) csum: u16,  // Packet checksum
 }
 
 #[derive(Clone, Copy)]
 pub(super) union RxLoDword {
-    data: u32,
-    hs_rss: RxHsRss,
+    pub(super) data: u32,
+    pub(super) hs_rss: RxHsRss,
 }
 
 #[derive(Clone, Copy)]
 pub(super) union RxHiDword {
-    rss: u32, // RSS hash
-    csum_ip: RxCsumIp,
+    pub(super) rss: u32, // RSS hash
+    pub(super) csum_ip: RxCsumIp,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct RxLower {
-    lo_dword: RxLoDword,
-    hi_dword: RxHiDword,
+pub(super) struct RxLower {
+    pub(super) lo_dword: RxLoDword,
+    pub(super) hi_dword: RxHiDword,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct RxUpper {
-    status_error: u32, // ext status/error
-    length: u16,       // Packet length
-    vlan: u16,         // VLAN tag
+pub(super) struct RxUpper {
+    pub(super) status_error: u32, // ext status/error
+    pub(super) length: u16,       // Packet length
+    pub(super) vlan: u16,         // VLAN tag
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct RxWb {
-    lower: RxLower,
-    upper: RxUpper,
+pub(super) struct RxWb {
+    pub(super) lower: RxLower,
+    pub(super) upper: RxUpper,
 }
 
 /// Acquire access rights to the correct PHY.

@@ -2,15 +2,17 @@
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
+    addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::{ETHER_ADDR_LEN, ETHER_TYPE_VLAN},
+        ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
         net_device::{self, LinkStatus, NetDevice, NetFlags},
+        toeplitz::stoeplitz_to_key,
     },
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
@@ -18,7 +20,13 @@ use igc_defines::*;
 use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
-    intel::igc::igc_base::{IgcAdvRxDesc, IgcAdvTxDesc},
+    intel::igc::{
+        i225::{IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
+        igc_base::{
+            IgcAdvRxDesc, IgcAdvTxDesc, IGC_RXDCTL_QUEUE_ENABLE, IGC_SRRCTL_BSIZEPKT_SHIFT,
+            IGC_SRRCTL_DESCTYPE_ADV_ONEBUF,
+        },
+    },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
@@ -48,6 +56,10 @@ const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 const IGC_TXPBSIZE: u32 = 20408;
 const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
 
+const IGC_RX_PTHRESH: u32 = 8;
+const IGC_RX_HTHRESH: u32 = 8;
+const IGC_RX_WTHRESH: u32 = 4;
+
 const IGC_MAX_VECTORS: u16 = 8;
 
 const DEVICE_SHORT_NAME: &str = "igc";
@@ -56,6 +68,10 @@ const IGC_DEFAULT_RXD: usize = 1024;
 const IGC_DEFAULT_TXD: usize = 1024;
 
 const MAX_INTS_PER_SEC: u32 = 8000;
+const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
+
+const MAX_FRAME_SIZE: u32 = 9234;
+const RX_BUFFER_SIZE: usize = 4096 * 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -70,23 +86,29 @@ pub enum IgcDriverErr {
     Param,
     Phy,
     Config,
+    DmaPoolAlloc,
 }
 
 type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
 type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
 
+type RxBuffer = [[u8; RX_BUFFER_SIZE]; IGC_DEFAULT_RXD];
+
 struct Rx {
-    rx_desc_head: usize,
-    rx_desc_tail: usize,
+    next_to_check: usize,
+    last_desc_filled: usize,
     rx_desc_ring: DMAPool<RxRing>,
+
+    read_buf: Option<DMAPool<RxBuffer>>,
+    slots: usize,
 
     // Statistics
     dropped_pkts: u64,
 }
 
 struct Tx {
-    tx_desc_head: usize,
-    tx_desc_tail: usize,
+    next_avail_desc: usize,
+    next_to_clean: usize,
     tx_desc_ring: DMAPool<TxRing>,
 }
 
@@ -134,6 +156,13 @@ struct LinkInfo {
     link_status: LinkStatus,
 }
 
+struct QueueInfo {
+    que: Vec<Queue>,
+    irqs_to_queues: BTreeMap<u16, usize>,
+    irqs_queues: Vec<IRQ>,
+    irq_events: IRQ,
+}
+
 pub struct IgcInner {
     ops: Box<dyn IgcOperations + Sync + Send>,
     info: PCIeInfo,
@@ -142,14 +171,11 @@ pub struct IgcInner {
     mta: Box<[[u8; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]>, // Multicast address table
     multicast_addrs: MulticastAddrs,
     if_flags: NetFlags,
+    queue_info: QueueInfo,
 }
 
 pub struct Igc {
     inner: RwLock<IgcInner>,
-    que: Vec<Queue>,
-    irqs_to_queues: BTreeMap<u16, usize>,
-    irqs_queues: Vec<IRQ>,
-    irq_events: IRQ,
 }
 
 impl Igc {
@@ -177,7 +203,7 @@ impl Igc {
         }
 
         // Set the max frame size.
-        hw.mac.max_frame_size = 9234;
+        hw.mac.max_frame_size = MAX_FRAME_SIZE;
 
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
@@ -195,15 +221,16 @@ impl Igc {
             }
         };
 
-        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info));
-
-        let igc = Self {
-            inner,
+        let queue_info = QueueInfo {
             que,
             irqs_to_queues,
             irqs_queues,
             irq_events,
         };
+
+        let inner = RwLock::new(IgcInner::new(ops, info, hw, link_info, queue_info));
+
+        let igc = Self { inner };
         let mac_addr = igc.mac_address();
 
         log::info!(
@@ -279,12 +306,14 @@ impl NetDevice for Igc {
     }
 
     fn irqs(&self) -> Vec<u16> {
-        let mut result = Vec::with_capacity(self.irqs_queues.len() + 1);
-        for irq in self.irqs_queues.iter() {
+        let inner = self.inner.read();
+
+        let mut result = Vec::with_capacity(inner.queue_info.irqs_queues.len() + 1);
+        for irq in inner.queue_info.irqs_queues.iter() {
             result.push(irq.get_irq());
         }
 
-        result.push(self.irq_events.get_irq());
+        result.push(inner.queue_info.irq_events.get_irq());
 
         result
     }
@@ -305,7 +334,8 @@ impl NetDevice for Igc {
     }
 
     fn num_queues(&self) -> usize {
-        self.que.len()
+        let inner = self.inner.read();
+        inner.queue_info.que.len()
     }
 
     fn recv(
@@ -331,7 +361,8 @@ impl NetDevice for Igc {
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
-        self.irqs_to_queues.get(&irq).copied()
+        let inner = self.inner.read();
+        inner.queue_info.irqs_to_queues.get(&irq).copied()
     }
 }
 
@@ -573,6 +604,7 @@ impl IgcInner {
         info: PCIeInfo,
         hw: IgcHw,
         link_info: LinkInfo,
+        queue_info: QueueInfo,
     ) -> Self {
         Self {
             ops,
@@ -582,6 +614,7 @@ impl IgcInner {
             mta: Box::new([[0; ETHER_ADDR_LEN]; MAX_NUM_MULTICAST_ADDRESSES]),
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
+            queue_info,
         }
     }
 
@@ -775,19 +808,21 @@ fn igc_allocate_queues(
         irq_to_queue.insert(irq_num, n);
 
         let rx = Mutex::new(Rx {
-            rx_desc_head: 0,
-            rx_desc_tail: 0,
+            next_to_check: 0,
+            last_desc_filled: 0,
             rx_desc_ring: DMAPool::new(
                 info.segment_group as usize,
                 core::mem::size_of::<RxRing>() / PAGESIZE,
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
+            read_buf: None,
+            slots: IGC_DEFAULT_RXD,
             dropped_pkts: 0,
         });
 
         let tx = Mutex::new(Tx {
-            tx_desc_head: 0,
-            tx_desc_tail: 0,
+            next_avail_desc: 0,
+            next_to_clean: 0,
             tx_desc_ring: DMAPool::new(
                 info.segment_group as usize,
                 core::mem::size_of::<TxRing>() / PAGESIZE,
@@ -929,6 +964,273 @@ fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), Igc
     // And for the link interrupt
     let ivar = (queues.len() as u32 | IGC_IVAR_VALID) << 8;
     write_reg(info, IGC_IVAR_MISC, ivar)?;
+
+    Ok(())
+}
+
+impl Tx {
+    fn igc_setup_transmit_ring(&mut self) -> Result<(), IgcDriverErr> {
+        // Clear the old ring contents
+        for desc in self.tx_desc_ring.as_mut() {
+            let read = unsafe { &mut desc.read };
+            read.buffer_addr = 0;
+            read.cmd_type_len = 0;
+            read.olinfo_status = 0;
+        }
+
+        // Reset indices
+        self.next_avail_desc = 0;
+        self.next_to_clean = 0;
+
+        Ok(())
+    }
+}
+
+fn igc_initialize_transmit_unit(info: &PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Setup the Base and Length of the TX descriptor ring.
+    for (i, q) in queues.iter().enumerate() {
+        let mut node = MCSNode::new();
+        let txr = q.tx.lock(&mut node);
+
+        let bus_addr = txr.tx_desc_ring.get_phy_addr();
+
+        // Base and len of TX ring
+        write_reg(info, IGC_TDLEN(i), txr.tx_desc_ring.get_size() as u32)?;
+        write_reg(info, IGC_TDBAH(i), (bus_addr.as_usize() >> 32) as u32)?;
+        write_reg(info, IGC_TDBAL(i), bus_addr.as_usize() as u32)?;
+
+        // Init the HEAD/TAIL indices
+        write_reg(info, IGC_TDT(i), 0)?;
+        write_reg(info, IGC_TDH(i), 0)?;
+
+        let mut txdctl = 0; // Clear txdctl
+        txdctl |= 0x1f; // PTHRESH
+        txdctl |= 1 << 8; // HTHREASH
+        txdctl |= 1 << 16; // WTHREASH
+        txdctl |= 1 << 22; // Reserved bit 22 must always be 1
+        txdctl |= IGC_TXDCTL_GRAN;
+        txdctl |= 1 << 25; // LWTHREASH
+
+        write_reg(info, IGC_TXDCTL(i), txdctl)?;
+    }
+
+    // Program the Transmit Control Register
+    let mut tctl = read_reg(info, IGC_TCTL)?;
+    tctl &= !IGC_TCTL_CT;
+    tctl |= IGC_TCTL_PSP | IGC_TCTL_RTLC | IGC_TCTL_EN | (IGC_COLLISION_THRESHOLD << IGC_CT_SHIFT);
+
+    // This write will effectively turn on the transmit unit.
+    write_reg(info, IGC_TCTL, tctl)?;
+
+    Ok(())
+}
+
+impl Rx {
+    /// Initialize a receive ring and its buffers.
+    fn igc_setup_receive_ring(&mut self, info: &PCIeInfo) -> Result<(), IgcDriverErr> {
+        // Clear the ring contents
+        for desc in self.rx_desc_ring.as_mut() {
+            let read = unsafe { &mut desc.read };
+            read.hdr_addr = 0;
+            read.pkt_addr = 0;
+        }
+
+        // Setup our descriptor indices.
+        self.next_to_check = 0;
+        self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
+
+        let read_buf = DMAPool::new(
+            info.segment_group as usize,
+            core::mem::size_of::<RxBuffer>() / PAGESIZE,
+        )
+        .ok_or(IgcDriverErr::DmaPoolAlloc)?;
+        self.read_buf = Some(read_buf);
+
+        Ok(())
+    }
+
+    fn igc_rxfill(&mut self) -> Result<bool, IgcDriverErr> {
+        let mut i = self.last_desc_filled;
+        let mut post = false;
+
+        let Some(read_buf) = self.read_buf.as_mut() else {
+            return Err(IgcDriverErr::DmaPoolAlloc);
+        };
+
+        while self.slots > 0 {
+            i += 1;
+            if i == self.rx_desc_ring.as_ref().len() {
+                i = 0;
+            }
+
+            let phy_addr = read_buf.get_phy_addr() + i * RX_BUFFER_SIZE;
+            self.rx_desc_ring.as_mut()[i].read.pkt_addr = (phy_addr.as_usize() as u64).to_le();
+
+            self.last_desc_filled = i;
+            self.slots -= 1;
+
+            post = true;
+        }
+
+        Ok(post)
+    }
+}
+
+/// Initialise the RSS mapping for NICs that support multiple transmit/
+/// receive rings.
+fn igc_initialize_rss_mapping(info: &PCIeInfo, sc_nqueues: usize) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // The redirection table controls which destination
+    // queue each bucket redirects traffic to.
+    // Each DWORD represents four queues, with the LSB
+    // being the first queue in the DWORD.
+    //
+    // This just allocates buckets to queues using round-robin
+    // allocation.
+    //
+    // NOTE: It Just Happens to line up with the default
+    // RSS allocation method.
+
+    // Warning FM follows
+    let shift = 0;
+    let mut reta = 0;
+    for i in 0..128 {
+        let mut queue_id = i % sc_nqueues;
+        // Adjust if require
+        queue_id <<= shift;
+
+        // The low 8 bits are for hash value (n+0);
+        // The next 8 bits are for hash value (n+1), etc.
+        reta >>= 8;
+        reta |= (queue_id) << 24;
+        if i & 3 == 3 {
+            write_reg(info, IGC_RETA(i >> 2), reta as u32)?;
+            reta = 0;
+        }
+    }
+
+    // MRQC: Multiple Receive Queues Command
+    // Set queuing to RSS control, number depends on the device.
+    let mut mrqc = IGC_MRQC_ENABLE_RSS_4Q;
+
+    // Set up random bits
+    let mut rss_key: [u32; 10] = [0; 10];
+    let rss_key_u8 = unsafe { core::mem::transmute::<&mut [u32; 10], &mut [u8; 40]>(&mut rss_key) };
+    stoeplitz_to_key(rss_key_u8);
+
+    // Now fill our hash function seeds
+    for (i, rk) in rss_key.iter().enumerate() {
+        write_reg_array(info, IGC_RSSRK(0), i, *rk)?;
+    }
+
+    // Configure the RSS fields to hash upon.
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV4 | IGC_MRQC_RSS_FIELD_IPV4_TCP;
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV6 | IGC_MRQC_RSS_FIELD_IPV6_TCP;
+    mrqc |= IGC_MRQC_RSS_FIELD_IPV6_TCP_EX;
+
+    write_reg(info, IGC_MRQC, mrqc)?;
+
+    Ok(())
+}
+
+fn igc_initialize_receive_unit(
+    info: &PCIeInfo,
+    hw: &IgcHw,
+    queues: &[Queue],
+    sc_fc: IgcFcMode,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Make sure receives are disabled while setting
+    // up the descriptor ring.
+    let mut rctl = read_reg(info, IGC_RCTL)?;
+    write_reg(info, IGC_RCTL, rctl & !IGC_RCTL_EN)?;
+
+    // Setup the Receive Control Register
+    rctl &= !(3 << IGC_RCTL_MO_SHIFT);
+    rctl |= IGC_RCTL_EN
+        | IGC_RCTL_BAM
+        | IGC_RCTL_LBM_NO
+        | IGC_RCTL_RDMTS_HALF
+        | (hw.mac.mc_filter_type << IGC_RCTL_MO_SHIFT);
+
+    // Do not store bad packets
+    rctl &= !IGC_RCTL_SBP;
+
+    // Enable Long Packet receive
+    if hw.mac.max_frame_size != ETHER_MAX_LEN as u32 {
+        rctl |= IGC_RCTL_LPE;
+    }
+
+    // Strip the CRC
+    rctl |= IGC_RCTL_SECRC;
+
+    // Set the interrupt throttling rate. Value is calculated
+    // as DEFAULT_ITR = 1/(MAX_INTS_PER_SEC * 256ns)
+    write_reg(info, IGC_ITR, DEFAULT_ITR)?;
+
+    let mut rxcsum = read_reg(info, IGC_RXCSUM)?;
+    rxcsum &= !IGC_RXCSUM_PCSD;
+
+    if queues.len() > 1 {
+        rxcsum |= IGC_RXCSUM_PCSD;
+    }
+
+    write_reg(info, IGC_RXCSUM, rxcsum)?;
+
+    if queues.len() > 1 {
+        igc_initialize_rss_mapping(info, queues.len())?;
+    }
+
+    let mut srrctl = 2048 >> IGC_SRRCTL_BSIZEPKT_SHIFT;
+    rctl |= IGC_RCTL_SZ_2048;
+
+    // If TX flow control is disabled and there's > 1 queue defined,
+    // enable DROP.
+    //
+    // This drops frames rather than hanging the RX MAC for all queues.
+    if queues.len() > 1 && matches!(sc_fc, IgcFcMode::None | IgcFcMode::RxPause) {
+        srrctl |= IGC_SRRCTL_DROP_EN;
+    }
+
+    // Setup the Base and Length of the RX descriptor rings.
+    for (i, q) in queues.iter().enumerate() {
+        write_reg(info, IGC_RXDCTL(i), 0)?;
+
+        let mut node = MCSNode::new();
+        let rxr = q.rx.lock(&mut node);
+
+        let bus_addr = rxr.rx_desc_ring.get_phy_addr();
+
+        srrctl |= IGC_SRRCTL_DESCTYPE_ADV_ONEBUF;
+
+        write_reg(info, IGC_RDLEN(i), rxr.rx_desc_ring.get_size() as u32)?;
+        write_reg(info, IGC_RDBAH(i), (bus_addr.as_usize() >> 32) as u32)?;
+        write_reg(info, IGC_RDBAL(i), bus_addr.as_usize() as u32)?;
+        write_reg(info, IGC_SRRCTL(i), srrctl)?;
+
+        // Setup the Head and Tail Descriptor Pointers
+        write_reg(info, IGC_RDH(i), 0)?;
+        write_reg(info, IGC_RDT(i), 0)?;
+
+        // Enable this Queue
+        let mut rxdctl = read_reg(info, IGC_RXDCTL(i))?;
+        rxdctl |= IGC_RXDCTL_QUEUE_ENABLE;
+        rxdctl &= 0xfff00000;
+        rxdctl |= IGC_RX_PTHRESH;
+        rxdctl |= IGC_RX_HTHRESH << 8;
+        rxdctl |= IGC_RX_WTHRESH << 16;
+        write_reg(info, IGC_RXDCTL(i), rxdctl)?;
+    }
+
+    // Make sure VLAN Filters are off
+    rctl &= !IGC_RCTL_VFE;
+
+    // Write out the settings
+    write_reg(info, IGC_RCTL, rctl)?;
 
     Ok(())
 }
