@@ -392,7 +392,8 @@ impl AsyncVfsPath {
                     destination.as_str()
                 )
             })
-        })
+        })?;
+        Ok(())
     }
 
     /// Moves or renames a file to a new destination
