@@ -517,7 +517,7 @@ impl AsyncVfsPath {
 }
 
 type ReadDirOperationResult =
-    Result<Box<(dyn Stream<Item = AsyncVfsPath> + Send + Unpin)>, VfsError>;
+    Result<Box<dyn Stream<Item = AsyncVfsPath> + Send + Unpin>, VfsError>;
 
 /// An iterator for recursively walking a file hierarchy
 pub struct WalkDirIterator {
