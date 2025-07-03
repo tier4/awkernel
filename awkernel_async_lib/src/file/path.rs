@@ -28,6 +28,7 @@ use core::{
 };
 use futures::{future::BoxFuture, FutureExt, Stream, StreamExt};
 
+#[derive(Debug)]
 struct AsyncVFS {
     fs: Box<dyn AsyncFileSystem>,
 }
@@ -378,10 +379,8 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
+            let _ = async_copy(&mut src, &mut dest).await?;
+
             Ok(())
         }
         .await
@@ -410,10 +409,7 @@ impl AsyncVfsPath {
             }
             let mut src = self.open_file().await?;
             let mut dest = destination.create_file().await?;
-            simple_async_copy(&mut src, &mut dest).await.map_err(|err| match err {
-                CopyError::ReadError(e) => e,
-                CopyError::WriteError(e) => e,
-            })?;
+            let _ = async_copy(&mut src, &mut dest).await?;
             self.remove_file().await?;
             Ok(())
         }
@@ -509,8 +505,7 @@ impl AsyncVfsPath {
     }
 }
 
-type ReadDirOperationResult =
-    Result<Box<(dyn Stream<Item = AsyncVfsPath> + Send + Unpin)>, VfsError>;
+type ReadDirOperationResult = Result<Box<dyn Stream<Item = AsyncVfsPath> + Send + Unpin>, VfsError>;
 
 /// An iterator for recursively walking a file hierarchy
 pub struct WalkDirIterator {
@@ -525,6 +520,13 @@ pub struct WalkDirIterator {
     // this ensures a new future is not spawned on each poll.
     read_dir_fut: Option<BoxFuture<'static, ReadDirOperationResult>>,
     metadata_fut: Option<BoxFuture<'static, Result<VfsMetadata, VfsError>>>,
+}
+
+impl core::fmt::Debug for WalkDirIterator {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("WalkDirIterator")?;
+        self.todo.fmt(f)
+    }
 }
 
 impl Stream for WalkDirIterator {
@@ -595,15 +597,8 @@ impl Stream for WalkDirIterator {
     }
 }
 
-#[derive(Debug)]
-pub enum CopyError {
-    ReadError(VfsError),
-    WriteError(VfsError),
-}
-
 const COPY_BUF_SIZE: usize = 8 * 1024;
-
-pub async fn simple_async_copy<R, W>(reader: &mut R, writer: &mut W) -> Result<u64, CopyError>
+pub async fn async_copy<R, W>(reader: &mut R, writer: &mut W) -> VfsResult<u64>
 where
     R: AsyncSeekAndRead + Unpin + ?Sized,
     W: AsyncSeekAndWrite + Unpin + ?Sized,
@@ -614,13 +609,10 @@ where
         let bytes_read = match reader.read(&mut buf).await {
             Ok(0) => return Ok(total_bytes_copied),
             Ok(n) => n,
-            Err(e) => return Err(CopyError::ReadError(e)),
+            Err(e) => return Err(e),
         };
 
-        writer
-            .write_all(&buf[..bytes_read])
-            .await
-            .map_err(CopyError::WriteError)?;
+        writer.write_all(&buf[..bytes_read]).await?;
         total_bytes_copied += bytes_read as u64;
     }
 }

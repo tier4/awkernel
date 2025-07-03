@@ -1,13 +1,14 @@
 //! The async filesystem trait definitions needed to implement new async virtual filesystems
 use super::path::AsyncVfsPath;
 use crate::time::Time;
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::file::{
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
 };
+use core::fmt::Debug;
 use futures::stream::Stream;
 
 // NOTE: We're currently using our own AsyncSeekAndRead and AsyncSeekAndWrite traits. We might replace these with traits from embedded-io-async in the future. However, that change would involve many modifications, and embedded-io-async doesn't seem stable yet, so we're sticking with our current approach for now.
@@ -29,6 +30,30 @@ pub trait AsyncSeekAndRead: Send + Unpin {
         }
 
         Ok(())
+    }
+
+    async fn read_to_string(&mut self, buf: &mut String) -> Result<usize, VfsError> {
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 8192];
+
+        loop {
+            let bytes_read = self.read(&mut chunk).await?;
+            if bytes_read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..bytes_read]);
+        }
+
+        match String::from_utf8(bytes) {
+            Ok(s) => {
+                let len = s.len();
+                buf.push_str(&s);
+                Ok(len)
+            }
+            Err(_) => Err(VfsError::from(VfsErrorKind::Other(
+                "Invalid UTF-8 sequence".into(),
+            ))),
+        }
     }
 }
 
@@ -85,7 +110,7 @@ impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
 ///
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
 #[async_trait]
-pub trait AsyncFileSystem: Sync + Send {
+pub trait AsyncFileSystem: Sync + Send + Debug {
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
     async fn read_dir(

@@ -70,6 +70,9 @@ const IGC_DEFAULT_TXD: usize = 1024;
 const MAX_INTS_PER_SEC: u32 = 8000;
 const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
+const MAX_FRAME_SIZE: u32 = 9234;
+const RX_BUFFER_SIZE: usize = 4096 * 3;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
     NoBar0,
@@ -83,15 +86,21 @@ pub enum IgcDriverErr {
     Param,
     Phy,
     Config,
+    DmaPoolAlloc,
 }
 
 type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
 type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
 
+type RxBuffer = [[u8; RX_BUFFER_SIZE]; IGC_DEFAULT_RXD];
+
 struct Rx {
     next_to_check: usize,
     last_desc_filled: usize,
     rx_desc_ring: DMAPool<RxRing>,
+
+    read_buf: Option<DMAPool<RxBuffer>>,
+    slots: usize,
 
     // Statistics
     dropped_pkts: u64,
@@ -194,7 +203,7 @@ impl Igc {
         }
 
         // Set the max frame size.
-        hw.mac.max_frame_size = 9234;
+        hw.mac.max_frame_size = MAX_FRAME_SIZE;
 
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
@@ -806,6 +815,8 @@ fn igc_allocate_queues(
                 core::mem::size_of::<RxRing>() / PAGESIZE,
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
+            read_buf: None,
+            slots: IGC_DEFAULT_RXD,
             dropped_pkts: 0,
         });
 
@@ -1018,7 +1029,7 @@ fn igc_initialize_transmit_unit(info: &PCIeInfo, queues: &[Queue]) -> Result<(),
 
 impl Rx {
     /// Initialize a receive ring and its buffers.
-    fn igc_setup_receive_ring(&mut self) {
+    fn igc_setup_receive_ring(&mut self, info: &PCIeInfo) -> Result<(), IgcDriverErr> {
         // Clear the ring contents
         for desc in self.rx_desc_ring.as_mut() {
             let read = unsafe { &mut desc.read };
@@ -1029,6 +1040,41 @@ impl Rx {
         // Setup our descriptor indices.
         self.next_to_check = 0;
         self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
+
+        let read_buf = DMAPool::new(
+            info.segment_group as usize,
+            core::mem::size_of::<RxBuffer>() / PAGESIZE,
+        )
+        .ok_or(IgcDriverErr::DmaPoolAlloc)?;
+        self.read_buf = Some(read_buf);
+
+        Ok(())
+    }
+
+    fn igc_rxfill(&mut self) -> Result<bool, IgcDriverErr> {
+        let mut i = self.last_desc_filled;
+        let mut post = false;
+
+        let Some(read_buf) = self.read_buf.as_mut() else {
+            return Err(IgcDriverErr::DmaPoolAlloc);
+        };
+
+        while self.slots > 0 {
+            i += 1;
+            if i == self.rx_desc_ring.as_ref().len() {
+                i = 0;
+            }
+
+            let phy_addr = read_buf.get_phy_addr() + i * RX_BUFFER_SIZE;
+            self.rx_desc_ring.as_mut()[i].read.pkt_addr = (phy_addr.as_usize() as u64).to_le();
+
+            self.last_desc_filled = i;
+            self.slots -= 1;
+
+            post = true;
+        }
+
+        Ok(post)
     }
 }
 

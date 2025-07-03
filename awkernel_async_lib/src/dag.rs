@@ -15,13 +15,36 @@
 //! - `finish_create_dags()`: The function to validate the defined DAGs and start their execution.
 //! - `DagError`: Defines potential errors that can occur during DAG validation.
 //!
+//! # DAG Constraints and Validation
+//!
+//! To ensure data flow integrity and predictable execution, the system enforces several constraints during the `finish_create_dags` call.
+//!
+//! ## 1. Structural Integrity
+//! These rules concern the overall shape of the graph.
+//!
+//! - **Must be Acyclic**: The graph cannot contain any directed cycles.
+//! - **Must be Connected**: All nodes must form a single, weakly connected component. Orphaned nodes or subgraphs are not allowed.
+//!
+//! ## 2. Register API Interface Correctness
+//!
+//! - **Arity Matching**: The number of topics a reactor subscribes to must match its function's argument count. The number of topics it publishes must match its return value count.
+//! - **No Duplicate Subscriptions/Publications**: A single reactor cannot subscribe to or publish the same topic multiple times.
+//!
+//! ## 3. Data Flow Integrity
+//!
+//! - **No Dangling Edges**: Every published topic must be subscribed to by another node, and every subscribed topic must have a publisher.
+//! - **Globally Unique Topics (Inter-DAG)**: A topic name must be unique across all active DAGs in the system. This prevents different data pipelines from unintentionally interfering with each other.
+//!
 //! # Example Usage
 //!
 //! See the `applications/tests/test_dag` example for practical usage.
 //!
 //! # Notes
 //!
-//!  The assumption is that there is one sink vertex and one source vertexe.
+//! This constraint may be relaxed in the future to support more complex topologies.
+//!
+//! - **Single Publisher per Topic (Intra-DAG)**: Within a single DAG, a topic can only be published to by one node.
+//! - **Source and Sink**: The current implementation assumes that a DAG has a single source and a single sink.
 //!
 mod graph;
 mod unionfind;
