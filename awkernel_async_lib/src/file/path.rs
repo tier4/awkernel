@@ -357,16 +357,21 @@ impl AsyncVfsPath {
     pub async fn copy_file(&self, destination: &AsyncVfsPath) -> VfsResult<()> {
         async {
             if destination.exists().await? {
-                return Err(
-                    VfsError::from(VfsErrorKind::Other("Destination exists already".into()))
-                        .with_path(&self.path),
-                );
+                return Err(VfsError::from(VfsErrorKind::Other(
+                    "Destination exists already".into(),
+                ))
+                .with_path(&self.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
                 let result = self.fs.fs.copy_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                match result {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             let mut src = self.open_file().await?;
@@ -378,7 +383,11 @@ impl AsyncVfsPath {
         .await
         .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
-                format!("Could not copy '{}' to '{}'", self.as_str(), destination.as_str())
+                format!(
+                    "Could not copy '{}' to '{}'",
+                    self.as_str(),
+                    destination.as_str()
+                )
             })
         })
     }
@@ -393,10 +402,15 @@ impl AsyncVfsPath {
                 .with_path(&destination.path));
             }
             if Arc::ptr_eq(&self.fs, &destination.fs) {
-                let result = self.fs.fs.move_file(&self.path, &destination.path).await;
-                if !matches!(result, Err(ref err) if matches!(err.kind(), VfsErrorKind::NotSupported))
-                {
-                    return result;
+                let result = self.fs.fs.move_file(&self.path, &destination.path);
+                match result.await {
+                    Err(err) => match err.kind() {
+                        VfsErrorKind::NotSupported => {
+                            // continue
+                        }
+                        _ => return Err(err),
+                    },
+                    other => return other,
                 }
             }
             let mut src = self.open_file().await?;
@@ -408,7 +422,11 @@ impl AsyncVfsPath {
         .await
         .map_err(|err| {
             err.with_path(&self.path).with_context(|| {
-                format!("Could not move '{}' to '{}'", self.as_str(), destination.as_str())
+                format!(
+                    "Could not move '{}' to '{}'",
+                    self.as_str(),
+                    destination.as_str()
+                )
             })
         })
     }
