@@ -1,5 +1,5 @@
 use super::super::error::IoError;
-use super::super::vfs::error::VfsErrorKind;
+use super::super::vfs::error::{VfsErrorKind, VfsIoError};
 use alloc::format;
 
 /// Error enum with all errors that can be returned by functions from this crate
@@ -32,10 +32,10 @@ pub enum Error<T: IoError> {
     UnsupportedFileNameCharacter,
 }
 
-impl<E: core::fmt::Debug + IoError> From<Error<E>> for VfsErrorKind<E> {
+impl<E: core::fmt::Debug + IoError + Into<VfsIoError>> From<Error<E>> for VfsErrorKind {
     fn from(err: Error<E>) -> Self {
         match err {
-            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t),
+            Error::Io(io_error_t) => VfsErrorKind::IoError(io_error_t.into()),
             Error::NotFound => VfsErrorKind::NotFound,
             Error::DirectoryIsNotEmpty => VfsErrorKind::DirectoryIsNotEmpty,
             Error::AlreadyExists => VfsErrorKind::AlreadyExists,
