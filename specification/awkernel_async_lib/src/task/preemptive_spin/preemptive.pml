@@ -143,6 +143,7 @@ inline get_next_task(tid,ret) {
 
 inline context_switch(cur_tid,next_tid) {
 	atomic {
+		assert(!workers[next_tid].pooled);
 		assert(workers[next_tid].executing_in == -1);
 		printf("context_switch(): cur_tid = %d,next_tid = %d\n",cur_tid,next_tid);
 		workers[next_tid].used_as_preempt_ctx = false;
@@ -190,8 +191,9 @@ inline take_pooled_thread(ret) {
 		byte i;
 		for (i : 0 .. WORKER_NUM - 1) {
 			if
-			:: (workers[i].executing_in == - 1 && !workers[i].used_as_preempt_ctx) -> 
+			:: (workers[i].pooled) -> 
 				ret = i;
+				workers[i].pooled = false;
 				break;
 			:: else
 			fi
@@ -291,6 +293,7 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 		printf("yield_and_pool(): cur_task = %d,cur_tid = %d,next_tid = %d\n",cur_task,cur_tid,next_tid);
 		assert(workers[cur_tid].executing_in != - 1);
 		assert(!workers[cur_tid].used_as_preempt_ctx);
+		workers[cur_tid].pooled = true;
 		context_switch(cur_tid,next_tid);
 	}
 	re_schedule(cur_tid)
@@ -402,6 +405,7 @@ init {
 	
 	atomic {
 		for (i: 0 .. CPU_NUM - 1) {
+			workers[i].pooled = false;
 			workers[i].executing_in = i;
 		}
 	}
