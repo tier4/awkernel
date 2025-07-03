@@ -309,10 +309,15 @@ impl Virtq {
         header_len + len
     }
 
-    fn vio_start(&mut self, frame: &EtherFrameRef) {
+    fn vio_start(&mut self, frames: &[EtherFrameRef]) {
         self.vio_tx_dequeue();
 
-        if let Some(slot) = self.virtio_enqueue_prep() {
+        for frame in frames {
+            let slot = match self.virtio_enqueue_prep() {
+                Some(slot) => slot,
+                None => break,
+            };
+
             let len = self.vio_encap(slot, frame);
             self.virtio_enqueue_reserve(slot);
             self.virtio_enqueue(slot, len, true);
@@ -951,11 +956,13 @@ impl NetDevice for VirtioNet {
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+        let frames = [data];
+
         {
             let inner = self.inner.read();
             let mut node = MCSNode::new();
             let mut tx = inner.virtqueues[que_id].tx.lock(&mut node);
-            tx.vio_start(&data);
+            tx.vio_start(&frames);
         }
 
         let tx_vq_index = (que_id * 2 + 1) as u16;
