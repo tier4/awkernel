@@ -86,7 +86,7 @@ pub enum IgcDriverErr {
     Param,
     Phy,
     Config,
-    DMAPool,
+    DmaPoolAlloc,
 }
 
 type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
@@ -1045,7 +1045,7 @@ impl Rx {
             info.segment_group as usize,
             core::mem::size_of::<RxBuffer>() / PAGESIZE,
         )
-        .ok_or(IgcDriverErr::DMAPool)?;
+        .ok_or(IgcDriverErr::DmaPoolAlloc)?;
         self.read_buf = Some(read_buf);
 
         Ok(())
@@ -1056,7 +1056,7 @@ impl Rx {
         let mut post = false;
 
         let Some(read_buf) = self.read_buf.as_mut() else {
-            return Err(IgcDriverErr::DMAPool);
+            return Err(IgcDriverErr::DmaPoolAlloc);
         };
 
         while self.slots > 0 {
