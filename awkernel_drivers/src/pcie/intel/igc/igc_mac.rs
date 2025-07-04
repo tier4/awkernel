@@ -472,3 +472,53 @@ pub(super) fn igc_hash_mc_addr_generic(hw: &IgcHw, mc_addr: &[u8; ETHER_ADDR_LEN
 
     hash_mask & ((mc_addr[4] as u32 >> (8 - bit_shift)) | ((mc_addr[5] as u32) << bit_shift))
 }
+
+/// Clears the base hardware counters by reading the counter registers.
+pub(super) fn igc_clear_hw_cntrs_base_generic(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
+    // Read all the base hardware counters to clear them.
+    for reg in [
+        IGC_CRCERRS,
+        IGC_MPC,
+        IGC_SCC,
+        IGC_ECOL,
+        IGC_MCC,
+        IGC_LATECOL,
+        IGC_COLC,
+        IGC_RERC,
+        IGC_DC,
+        IGC_RLEC,
+        IGC_XONRXC,
+        IGC_XONTXC,
+        IGC_XOFFRXC,
+        IGC_XOFFTXC,
+        IGC_FCRUC,
+        IGC_GPRC,
+        IGC_BPRC,
+        IGC_MPRC,
+        IGC_GPTC,
+        IGC_GORCL,
+        IGC_GORCH,
+        IGC_GOTCL,
+        IGC_GOTCH,
+        IGC_RNBC,
+        IGC_RUC,
+        IGC_RFC,
+        IGC_ROC,
+        IGC_RJC,
+        IGC_TORL,
+        IGC_TORH,
+        IGC_TOTL,
+        IGC_TOTH,
+        IGC_TPR,
+        IGC_TPT,
+        IGC_MPTC,
+        IGC_BPTC,
+        IGC_TLPIC,
+        IGC_RLPIC,
+        IGC_RXDMTC,
+    ] {
+        read_reg(info, reg)?;
+    }
+
+    Ok(())
+}
