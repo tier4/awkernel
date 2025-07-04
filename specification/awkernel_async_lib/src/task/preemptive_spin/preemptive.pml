@@ -34,7 +34,7 @@ inline set_need_preemption(tid,task) {
 inline invoke_preemption(tid,task) {
 	int lp_task = - 1;
 	int lp_cpu_id;
-	get_lowest_priority_task(tid,task,lp_task,lp_cpu_id);
+	get_lowest_priority_task(lp_task,lp_cpu_id);
 	if
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
