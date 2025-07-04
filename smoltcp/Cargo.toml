@@ -156,8 +156,7 @@ required-features = [
 ]
 
 [dependencies.awkernel_sync]
-#git = "https://github.com/tier4/awkernel_sync.git"
-path = "../awkernel_sync"
+git = "https://github.com/tier4/awkernel_sync.git"
 default-features = false
 
 [dependencies.bitflags]

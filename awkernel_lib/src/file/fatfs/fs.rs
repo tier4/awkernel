@@ -328,7 +328,6 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-#[derive(Debug)]
 pub struct FileSystem<
     IO: ReadWriteSeek + Send + Debug,
     TP = DefaultTimeProvider,
@@ -343,6 +342,27 @@ pub struct FileSystem<
     total_clusters: u32,
     fs_info: Mutex<FsInfoSector>,
     current_status_flags: Mutex<FsStatusFlags>,
+}
+
+impl<IO, TP, OCC> Debug for FileSystem<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Debug,
+    TP: Debug,
+    OCC: Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FileSystem")
+            .field("disk", &"<Mutex> disk")
+            .field("options", &self.options)
+            .field("fat_type", &self.fat_type)
+            .field("bpb", &self.bpb)
+            .field("first_data_sector", &self.first_data_sector)
+            .field("root_dir_sectors", &self.root_dir_sectors)
+            .field("total_clusters", &self.total_clusters)
+            .field("fs_info", &"<Mutex> fs_info")
+            .field("current_status_flags", &"<Mutex> status flags")
+            .finish()
+    }
 }
 
 pub trait IntoStorage<T: Read + Write + Seek> {
