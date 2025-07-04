@@ -25,12 +25,12 @@ use awkernel_lib::{
     sync::{mcs::MCSNode, mutex::Mutex},
     time::Time,
 };
-use core::task::Poll;
+use core::{fmt::Debug, task::Poll};
 use futures::stream::{self, Stream};
 
-struct AsyncFile<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug>
+struct AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
+    IO: ReadWriteSeek + Send + Debug + Sync,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
@@ -38,9 +38,9 @@ where
 }
 
 #[async_trait]
-impl<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug> AsyncSeekAndRead for AsyncFile<IO, TP, OCC>
+impl<IO, TP, OCC> AsyncSeekAndRead for AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
+    IO: ReadWriteSeek + Send + Sync + Debug,
     IO::Error: Into<VfsIoError>,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
@@ -71,9 +71,9 @@ where
 }
 
 #[async_trait]
-impl<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug> AsyncSeekAndWrite for AsyncFile<IO, TP, OCC>
+impl<IO, TP, OCC> AsyncSeekAndWrite for AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
+    IO: ReadWriteSeek + Send + Debug + Sync,
     IO::Error: Into<VfsIoError>,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
@@ -123,9 +123,9 @@ where
 }
 
 #[derive(Debug)]
-pub struct AsyncFatFs<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug>
+pub struct AsyncFatFs<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + core::fmt::Debug,
+    IO: ReadWriteSeek + Send + Sync + Debug,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
@@ -143,7 +143,7 @@ impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
 #[async_trait]
 impl<IO, TP, OCC> AsyncFileSystem for AsyncFatFs<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + core::fmt::Debug + 'static,
+    IO: ReadWriteSeek + Send + Sync + Debug + 'static,
     IO::Error: Into<VfsIoError>,
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
