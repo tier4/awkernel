@@ -21,7 +21,6 @@ use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
     intel::igc::{
-        self,
         i225::{IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
         igc_base::{
             IgcAdvRxDesc, IgcAdvTxDesc, IGC_RXDCTL_QUEUE_ENABLE, IGC_SRRCTL_BSIZEPKT_SHIFT,
@@ -818,7 +817,7 @@ impl IgcInner {
         )?;
 
         // Setup VLAN support, basic and offload if available.
-        write_reg(&mut self.info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
+        write_reg(&self.info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
 
         // Prepare transmit descriptors and buffers.
         if let Err(e) = self.igc_setup_transmit_structures() {
@@ -839,7 +838,7 @@ impl IgcInner {
         if self.capabilities.contains(NetCapabilities::VLAN_HWTAGGING) {
             let mut ctrl = read_reg(&self.info, IGC_CTRL)?;
             ctrl |= IGC_CTRL_VME;
-            write_reg(&mut self.info, IGC_CTRL, ctrl)?;
+            write_reg(&self.info, IGC_CTRL, ctrl)?;
         }
 
         // Setup multicast table.
