@@ -8,7 +8,7 @@ use awkernel_lib::{
     net::{
         ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
-        net_device::{self, LinkStatus, NetDevice, NetFlags},
+        net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags},
         toeplitz::stoeplitz_to_key,
     },
     paging::PAGESIZE,
@@ -21,11 +21,13 @@ use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
     intel::igc::{
+        self,
         i225::{IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
         igc_base::{
             IgcAdvRxDesc, IgcAdvTxDesc, IGC_RXDCTL_QUEUE_ENABLE, IGC_SRRCTL_BSIZEPKT_SHIFT,
             IGC_SRRCTL_DESCTYPE_ADV_ONEBUF,
         },
+        igc_mac::igc_clear_hw_cntrs_base_generic,
     },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
@@ -172,6 +174,7 @@ pub struct IgcInner {
     multicast_addrs: MulticastAddrs,
     if_flags: NetFlags,
     queue_info: QueueInfo,
+    capabilities: net_device::NetCapabilities,
 }
 
 pub struct Igc {
@@ -615,6 +618,13 @@ impl IgcInner {
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
             queue_info,
+            capabilities: NetCapabilities::CSUM_IPv4
+                | NetCapabilities::CSUM_TCPv4
+                | NetCapabilities::CSUM_UDPv4
+                | NetCapabilities::CSUM_TCPv6
+                | NetCapabilities::CSUM_UDPv6
+                | NetCapabilities::VLAN_MTU
+                | NetCapabilities::VLAN_HWTAGGING,
         }
     }
 
@@ -668,7 +678,14 @@ impl IgcInner {
         self.ops.reset_hw(&mut self.info, &mut self.hw)?;
         write_reg(&self.info, IGC_WUC, 0)?;
 
-        // TODO: Free transmit and receive structures.
+        // TODO: Free transmit structures.
+
+        // Free receive structures.
+        for q in self.queue_info.que.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut rx = q.rx.lock(&mut node);
+            rx.read_buf = None; // Free the read buffer
+        }
 
         // Update link status.
         igc_update_link_status(
@@ -677,6 +694,189 @@ impl IgcInner {
             &mut self.hw,
             &mut self.link_info,
         )?;
+
+        Ok(())
+    }
+
+    //      835 void
+    //  836 igc_init(void *arg)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    //  837 {
+    //  838         struct igc_softc *sc = (struct igc_softc *)arg;
+    //  839         struct ifnet *ifp = &sc->sc_ac.ac_if;
+    //  840         struct rx_ring *rxr;
+    //  841         uint32_t ctrl = 0;
+    //  842         int i, s;
+    //  843
+    //  844         s = splnet();
+    //  845
+    //  846         igc_stop(sc);
+    //  847
+    //  848         /* Get the latest mac address, user can use a LAA. */
+    //  849         bcopy(sc->sc_ac.ac_enaddr, sc->hw.mac.addr, ETHER_ADDR_LEN);
+    //  850
+    //  851         /* Put the address into the receive address array. */
+    //  852         igc_rar_set(&sc->hw, sc->hw.mac.addr, 0);
+    //  853
+    //  854         /* Initialize the hardware. */
+    //  855         igc_reset(sc);
+    //  856         igc_update_link_status(sc);
+    //  857
+    //  858         /* Setup VLAN support, basic and offload if available. */
+    //  859         IGC_WRITE_REG(&sc->hw, IGC_VET, ETHERTYPE_VLAN);
+    //  860
+    //  861         /* Prepare transmit descriptors and buffers. */
+    //  862         if (igc_setup_transmit_structures(sc)) {
+    //  863                 printf("%s: Could not setup transmit structures\n",
+    //  864                     DEVNAME(sc));
+    //  865                 igc_stop(sc);
+    //  866                 splx(s);
+    //  867                 return;
+    //  868         }
+    //  869         igc_initialize_transmit_unit(sc);
+    //  870
+    //  871         sc->rx_mbuf_sz = MCLBYTES + ETHER_ALIGN;
+    //  872         /* Prepare receive descriptors and buffers. */
+    //  873         if (igc_setup_receive_structures(sc)) {
+    //  874                 printf("%s: Could not setup receive structures\n",
+    //  875                     DEVNAME(sc));
+    //  876                 igc_stop(sc);
+    //  877                 splx(s);
+    //  878                 return;
+    //  879         }
+    //  880         igc_initialize_receive_unit(sc);
+    //  881
+    //  882         if (ifp->if_capabilities & IFCAP_VLAN_HWTAGGING) {
+    //  883                 ctrl = IGC_READ_REG(&sc->hw, IGC_CTRL);
+    //  884                 ctrl |= IGC_CTRL_VME;
+    //  885                 IGC_WRITE_REG(&sc->hw, IGC_CTRL, ctrl);
+    //  886         }
+    //  887
+    //  888         /* Setup multicast table. */
+    //  889         igc_iff(sc);
+    //  890
+    //  891         igc_clear_hw_cntrs_base_generic(&sc->hw);
+    //  892
+    //  893         igc_configure_queues(sc);
+    //  894
+    //  895         /* This clears any pending interrupts */
+    //  896         IGC_READ_REG(&sc->hw, IGC_ICR);
+    //  897         IGC_WRITE_REG(&sc->hw, IGC_ICS, IGC_ICS_LSC);
+    //  898
+    //  899         /* The driver can now take control from firmware. */
+    //  900         igc_get_hw_control(sc);
+    //  901
+    //  902         /* Set Energy Efficient Ethernet. */
+    //  903         igc_set_eee_i225(&sc->hw, true, true, true);
+    //  904
+    //  905         for (i = 0; i < sc->sc_nqueues; i++) {
+    //  906                 rxr = &sc->rx_rings[i];
+    //  907                 igc_rxfill(rxr);
+    //  908                 if (if_rxr_inuse(&rxr->rx_ring) == 0) {
+    //  909                         printf("%s: Unable to fill any rx descriptors\n",
+    //  910                             DEVNAME(sc));
+    //  911                         igc_stop(sc);
+    //  912                         splx(s);
+    //  913                 }
+    //  914                 IGC_WRITE_REG(&sc->hw, IGC_RDT(i),
+    //  915                     (rxr->last_desc_filled + 1) % sc->num_rx_desc);
+    //  916         }
+    //  917
+    //  918         igc_enable_intr(sc);
+    //  919
+    //  920         ifp->if_flags |= IFF_RUNNING;
+    //  921         for (i = 0; i < sc->sc_nqueues; i++)
+    //  922                 ifq_clr_oactive(ifp->if_ifqs[i]);
+    //  923
+    //  924         splx(s);
+    //  925 }
+
+    fn igc_init(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        self.igc_stop()?;
+
+        // Put the address into the receive address array.
+        self.ops.rar_set(&mut self.info, &self.hw.mac.addr, 0)?;
+
+        // Initialize the hardware.
+        let sc_fc = IgcFcMode::None; // No flow control request.
+        let sc_dmac = 0; // DMA Coalescing is disabled by default.
+
+        igc_reset(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            sc_fc,
+            sc_dmac,
+        )?;
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )?;
+
+        // Setup VLAN support, basic and offload if available.
+        write_reg(&mut self.info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
+
+        // Prepare transmit descriptors and buffers.
+        if let Err(e) = self.igc_setup_transmit_structures() {
+            log::error!("igc: Could not setup transmit structures: {e:?}");
+            self.igc_stop()?;
+            return Err(e);
+        }
+        igc_initialize_transmit_unit(&self.info, &self.queue_info.que)?;
+
+        // Prepare receive descriptors and buffers.
+        if let Err(e) = self.igc_setup_receive_structures() {
+            log::error!("igc: Could not setup receive structures: {e:?}");
+            self.igc_stop()?;
+            return Err(e);
+        }
+        igc_initialize_receive_unit(&self.info, &self.hw, &self.queue_info.que, sc_fc)?;
+
+        if self.capabilities.contains(NetCapabilities::VLAN_HWTAGGING) {
+            let mut ctrl = read_reg(&self.info, IGC_CTRL)?;
+            ctrl |= IGC_CTRL_VME;
+            write_reg(&mut self.info, IGC_CTRL, ctrl)?;
+        }
+
+        // Setup multicast table.
+        self.igc_iff()?;
+
+        igc_clear_hw_cntrs_base_generic(&self.info)?;
+
+        igc_configure_queues(&self.info, &self.queue_info.que)?;
+
+        // This clears any pending interrupts
+        read_reg(&self.info, IGC_ICR)?;
+        write_reg(&self.info, IGC_ICS, IGC_ICS_LSC)?;
+
+        // The driver can now take control from firmware.
+        igc_get_hw_control(&mut self.info)?;
+
+        // TODO: continue
+
+        Ok(())
+    }
+
+    fn igc_setup_transmit_structures(&mut self) -> Result<(), IgcDriverErr> {
+        for q in self.queue_info.que.iter() {
+            let mut node = MCSNode::new();
+            let mut tx = q.tx.lock(&mut node);
+            tx.igc_setup_transmit_ring()?;
+        }
+
+        Ok(())
+    }
+
+    fn igc_setup_receive_structures(&mut self) -> Result<(), IgcDriverErr> {
+        for q in self.queue_info.que.iter() {
+            let mut node = MCSNode::new();
+            let mut rx = q.rx.lock(&mut node);
+            rx.igc_setup_receive_ring(&self.info)?;
+        }
 
         Ok(())
     }
@@ -878,7 +1078,7 @@ enum QueueType {
 }
 
 fn igc_set_queues(
-    info: &mut PCIeInfo,
+    info: &PCIeInfo,
     entry: u32,
     vector: u32,
     qtype: QueueType,
@@ -939,7 +1139,7 @@ fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     Ok(())
 }
 
-fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+fn igc_configure_queues(info: &PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
     use igc_regs::*;
 
     // First turn on RSS capability
