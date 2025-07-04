@@ -6,6 +6,7 @@ use super::vfs::error::VfsIoError;
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Debug};
 
+#[derive(Debug)]
 pub struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,

@@ -28,9 +28,9 @@ use awkernel_lib::{
 use core::task::Poll;
 use futures::stream::{self, Stream};
 
-struct AsyncFile<IO, TP, OCC>
+struct AsyncFile<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug>
 where
-    IO: ReadWriteSeek + Send + Sync,
+    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
@@ -38,12 +38,12 @@ where
 }
 
 #[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndRead for AsyncFile<IO, TP, OCC>
+impl<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug> AsyncSeekAndRead for AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + 'static,
+    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
     IO::Error: Into<VfsIoError>,
-    TP: TimeProvider + Send + Sync + 'static,
-    OCC: OemCpConverter + Send + Sync + 'static,
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError> {
         core::future::poll_fn(|_cx| {
@@ -71,12 +71,12 @@ where
 }
 
 #[async_trait]
-impl<IO, TP, OCC> AsyncSeekAndWrite for AsyncFile<IO, TP, OCC>
+impl<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug> AsyncSeekAndWrite for AsyncFile<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + 'static,
+    IO: ReadWriteSeek + Send + core::fmt::Debug + Sync,
     IO::Error: Into<VfsIoError>,
-    TP: TimeProvider + Send + Sync + 'static,
-    OCC: OemCpConverter + Send + Sync + 'static,
+    TP: TimeProvider + Send + Sync,
+    OCC: OemCpConverter + Send + Sync,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError> {
         core::future::poll_fn(|_cx| {
@@ -122,9 +122,10 @@ where
     }
 }
 
-pub struct AsyncFatFs<IO, TP, OCC>
+#[derive(Debug)]
+pub struct AsyncFatFs<IO, TP: core::fmt::Debug, OCC: core::fmt::Debug>
 where
-    IO: ReadWriteSeek + Send + Sync,
+    IO: ReadWriteSeek + Send + Sync + core::fmt::Debug,
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
@@ -142,7 +143,7 @@ impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
 #[async_trait]
 impl<IO, TP, OCC> AsyncFileSystem for AsyncFatFs<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Sync + 'static,
+    IO: ReadWriteSeek + Send + Sync + core::fmt::Debug + 'static,
     IO::Error: Into<VfsIoError>,
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
