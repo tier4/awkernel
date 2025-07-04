@@ -2,9 +2,11 @@ extern crate alloc;
 
 use super::error::IoError;
 use super::io::{IoBase, Read, Seek, SeekFrom, Write};
+use super::vfs::error::VfsIoError;
 use alloc::{string::String, vec::Vec};
 use core::fmt::{self, Debug};
 
+#[derive(Debug)]
 pub struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
@@ -102,5 +104,11 @@ impl IoError for InMemoryDiskError {
 
     fn new_write_zero_error() -> Self {
         InMemoryDiskError::WriteZero
+    }
+}
+
+impl From<InMemoryDiskError> for VfsIoError {
+    fn from(_err: InMemoryDiskError) -> Self {
+        VfsIoError::OutOfBounds
     }
 }
