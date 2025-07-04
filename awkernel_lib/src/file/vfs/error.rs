@@ -143,6 +143,7 @@ pub enum VfsIoError {
     WriteZero,
     UnexpectedEof,
     Interrupted,
+    Other(String),
 }
 
 impl fmt::Display for VfsIoError {
@@ -159,6 +160,9 @@ impl fmt::Display for VfsIoError {
             }
             VfsIoError::Interrupted => {
                 write!(f, "Operation interrupted")
+            }
+            VfsIoError::Other(msg) => {
+                write!(f, "An error occured: {msg}")
             }
         }
     }

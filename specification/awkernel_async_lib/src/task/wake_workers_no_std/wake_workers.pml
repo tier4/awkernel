@@ -27,47 +27,52 @@ inline compare_exchange(target, current, new, prev)
 }
 
 inline send_ipi(cpu_id) {
-    d_step {
+    if
+    :: d_step {
+        interrupt_mask[cpu_id] == false ->
+        IPI[cpu_id] = true;
         printf("send IPI to CPU#{%d}, interrupt_mask[%d] = %d\n", cpu_id, cpu_id, interrupt_mask[cpu_id]);
-        if
-        :: interrupt_mask[cpu_id] == false -> IPI[cpu_id] = true;
-        :: else
-        fi
     }
+    :: else
+    fi
 }
 
 inline interrupt_handler(cpu_id) {
     // disable interrupts
-    atomic {
-        if
-        :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true;
-        :: else -> goto return_interrupt_handler;
-        fi
+    if
+    :: d_step {
+        interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true;
+    }
+    :: else -> goto return_interrupt_handler;
+    fi
 
-        // handle IPI
-        if
-        :: IPI[cpu_id] == true ->
-            IPI[cpu_id] = false;
-            printf("CPU#{%d}: handle IPI\n", cpu_id);
-        :: else
-        fi
+    // handle IPI
+    if
+    :: d_step {
+        IPI[cpu_id] == true ->
+        IPI[cpu_id] = false;
+        printf("CPU#{%d}: handle IPI\n", cpu_id);
+    }
+    :: else
+    fi
 
-        // handle timer interrupt
-        if
-        :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
+    // handle timer interrupt
+    if
+    :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
+       d_step {
             timer_interrupt[cpu_id] = false;
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id);
-        :: else
-        fi
+       }
+    :: else
+    fi
 
-        // Enable timer.
-        // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
-        // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
-        if
-        :: CPU_SLEEP_TAG[cpu_id] == Waiting -> timer_reset(cpu_id)
-        :: else
-        fi
-    }
+    // Enable timer.
+    // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
+    // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
+    if
+    :: CPU_SLEEP_TAG[cpu_id] == Waiting -> timer_reset(cpu_id)
+    :: else
+    fi
 
     // enable interrupts
     interrupt_mask[cpu_id] = false;
@@ -78,7 +83,7 @@ inline wait_interrupt(cpu_id) {
     assert(interrupt_mask[cpu_id] == false);
     if
     :: (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
-    :: IPI[cpu_id]
+    :: d_step { IPI[cpu_id] -> IPI[cpu_id] = false }
     fi
 }
 
@@ -139,7 +144,6 @@ inline sleep(cpu_id) {
     :: rnd == 2 -> interrupt_handler(cpu_id)
     :: else
     fi
-
 
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val);
 
@@ -235,8 +239,10 @@ inline wake_workers(cpu_id) {
 }
 
 inline timer_reset(cpu_id) {
-    printf("CPU#{%d}: reset timer\n", cpu_id);
-    timer_enable[cpu_id] = true;
+    d_step {
+        printf("CPU#{%d}: reset timer\n", cpu_id);
+        timer_enable[cpu_id] = true;
+    }
 }
 
 inline timer_disable(cpu_id) {
@@ -253,7 +259,7 @@ inline task_poll() {
     // spawn a new task
     // `Task::wake()` in awkernel_async_lib/src/task.rs
     do
-    :: atomic { created_task < TASK_NUM ->
+    :: d_step { created_task < TASK_NUM ->
         created_task++;
         run_queue++;
     }
@@ -302,8 +308,9 @@ proctype primary_main() {
 
 proctype timer(byte cpu_id) {
     do
-    :: d_step { timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == false ->
-            timer_interrupt[cpu_id] = true;
+    :: d_step {
+        timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == false ->
+        timer_interrupt[cpu_id] = true;
     }
     od
 }

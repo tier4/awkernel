@@ -108,7 +108,13 @@ impl IoError for InMemoryDiskError {
 }
 
 impl From<InMemoryDiskError> for VfsIoError {
-    fn from(_err: InMemoryDiskError) -> Self {
-        VfsIoError::OutOfBounds
+    fn from(err: InMemoryDiskError) -> Self {
+        match err {
+            InMemoryDiskError::OutOfBounds => VfsIoError::OutOfBounds,
+            InMemoryDiskError::WriteZero => VfsIoError::WriteZero,
+            InMemoryDiskError::UnexpectedEof => VfsIoError::UnexpectedEof,
+            InMemoryDiskError::Interrupted => VfsIoError::Interrupted,
+            InMemoryDiskError::Other(msg) => VfsIoError::Other(msg),
+        }
     }
 }

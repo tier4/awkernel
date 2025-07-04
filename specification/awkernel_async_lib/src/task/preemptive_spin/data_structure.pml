@@ -2,6 +2,7 @@ typedef Worker {
 	short executing_in = - 1;// cpu_id when this is executed, -1 otherwise.
 	bool used_as_preempt_ctx = false;
 	bool interrupted = false;
+	bool pooled = true;
 }
 
 Worker workers[WORKER_NUM]
