@@ -34,15 +34,16 @@ inline set_need_preemption(tid,task) {
 inline invoke_preemption(tid,task) {
 	int lp_task = - 1;
 	int lp_cpu_id;
-	get_lowest_priority_task(lp_task,lp_cpu_id);
+	get_lowest_priority_task(tid,task,lp_task,lp_cpu_id);
 	if
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
 		atomic{
 			printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 			ipi_requests[lp_cpu_id]!task
+			waking[task] = false
 		}
-	:: atomic{else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id])}
+	:: atomic{else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);waking[task] = false}
 	fi	
 }
 	
@@ -52,7 +53,6 @@ inline wake_task(tid,task) {
 	queue!!task;
 	unlock(tid,lock_queue);
 	invoke_preemption(tid,task);
-	waking[task] = false
 }
 
 /* awkernel_async_lib::task::ArcWake::wake()*/ 
@@ -179,7 +179,10 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	unlock(cur_tid,lock_info[cur_task]);
 	PREEMPTED_TASK[cpu_id(cur_tid)]!cur_task;
 	
-	context_switch(cur_tid,next_tid);
+	atomic {
+		handling_interrupt[cur_tid] = false;
+		context_switch(cur_tid,next_tid);
+	}
 	re_schedule(cur_tid)
 }
 
@@ -230,6 +233,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			printf("Received IPI request. cpu_id = %d\n",cpu_id);
 			interrupt_enabled[cpu_id] = false;
 			workers[tid].interrupted = true;
+			handling_interrupt[tid] = true;
 		}
 		
 		atomic {
@@ -284,6 +288,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			RUNNING[cpu_id(tid)] = cur_task;// RunningTaskGuard::drop()
 			interrupt_enabled[cpu_id(tid)] = true;// iretq
 			workers[tid].interrupted = false
+			handling_interrupt[tid] = false;
 		}
 	od
 }
