@@ -912,7 +912,7 @@ fn igc_set_eee_i225(
             ipcnfg &= !IGC_IPCNFG_EEE_2_5G_AN;
         }
 
-        eeer |= (IGC_EEER_TX_LPI_EN | IGC_EEER_RX_LPI_EN | IGC_EEER_LPI_FC);
+        eeer |= IGC_EEER_TX_LPI_EN | IGC_EEER_RX_LPI_EN | IGC_EEER_LPI_FC;
 
         // This bit should not be set in normal operation.
         if eee_su & IGC_EEE_SU_LPI_CLK_STP != 0 {
