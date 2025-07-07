@@ -1,6 +1,8 @@
 #define WORKERS 2
 #define TASK_NUM (WORKERS + 1)
 #define CPU_NUM (WORKERS + 1)
+#define TIMEOUT_NONE false
+#define TIMEOUT_SOME true
 
 mtype = { Active, Waiting, Waking }
 mtype CPU_SLEEP_TAG[CPU_NUM]
@@ -10,9 +12,17 @@ bool IPI[CPU_NUM]             // edge-trigger interrupt
 bool timer_enable[CPU_NUM]
 bool timer_interrupt[CPU_NUM] // level-sensitive interrupt
 
-byte run_queue = 1
+chan run_queue = [TASK_NUM] of { byte } // run queue
+
+byte task_id = 1
 byte num_blocking = 0
-byte created_task = 1
+byte created_task = 0
+
+chan delta_list = [TASK_NUM] of { byte } // delta list
+
+bool task_need_sleep[TASK_NUM + 1] = true
+
+byte finished_tasks = 0
 
 inline compare_exchange(target, current, new, prev)
 {
@@ -47,24 +57,22 @@ inline interrupt_handler(cpu_id) {
     fi
 
     // handle IPI
-    if
-    :: d_step {
-        IPI[cpu_id] == true ->
-        IPI[cpu_id] = false
-        printf("CPU#{%d}: handle IPI\n", cpu_id)
-    }
-    :: else
-    fi
+    d_step {
+        if
+        :: IPI[cpu_id] == true ->
+            IPI[cpu_id] = false
+            printf("CPU#{%d}: handle IPI\n", cpu_id)
+        :: else
+        fi
 
-    // handle timer interrupt
-    if
-    :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
-       d_step {
+        // handle timer interrupt
+        if
+        :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
             timer_interrupt[cpu_id] = false
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id)
-       }
-    :: else
-    fi
+        :: else
+        fi
+    }
 
     // Enable timer.
     // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
@@ -87,18 +95,24 @@ inline wait_interrupt(cpu_id) {
     fi
 }
 
-inline rnd5(rnd) {
+inline rnd4(rnd) {
     if
     :: rnd = 0
     :: rnd = 1
     :: rnd = 2
     :: rnd = 3
-    :: rnd = 4
     fi
 }
 
 // `SleepCpuNoStd::sleep()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
-inline sleep(cpu_id) {
+inline sleep(cpu_id, tout) {
+    if
+    :: tout != TIMEOUT_NONE ->
+        // enable timer
+        timer_reset(cpu_id)
+    :: else
+    fi
+
     // if wake-up already pending, consume and return
     if
     :: CPU_SLEEP_TAG[cpu_id] == Waking -> goto return_sleep2
@@ -109,7 +123,7 @@ inline sleep(cpu_id) {
     d_step {
         // enable interrupts and halt until IPI arrives
         interrupt_mask[cpu_id] = false
-        rnd5(rnd)
+        rnd4(rnd)
     }
 
     // receive interrupts
@@ -131,6 +145,22 @@ inline sleep(cpu_id) {
     // receive interrupts
     if
     :: rnd == 1 -> interrupt_handler(cpu_id)
+    :: else
+    fi
+
+    // Because x86 APIC timers are edge-triggered interrupts,
+    // timer interrupts that occur during interrupt handlers (when interrupts are disabled)
+    // will be lost.
+    // Therefore, the timeout is checked here.
+    if
+    :: tout != TIMEOUT_NONE ->
+        if
+        :: true ->
+            // timeout <= elapsed
+            CPU_SLEEP_TAG[cpu_id] = Active
+            goto return_sleep3
+        :: true
+        fi
     :: else
     fi
 
@@ -177,6 +207,7 @@ return_sleep2:
     CPU_SLEEP_TAG[cpu_id] = Active
 
 return_sleep3:
+    timer_disable(cpu_id)
 }
 
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
@@ -217,7 +248,7 @@ return_wake_up:
 
 // `wake_workers()` in awkernel_async_lib/src/task.rs
 inline wake_workers(cpu_id) {
-    byte num_tasks = run_queue
+    byte num_tasks = len(run_queue)
     byte i
     bool result
 
@@ -252,8 +283,18 @@ inline timer_disable(cpu_id) {
     }
 }
 
+inline spawn_task() {
+    byte tmp
+    d_step {
+        run_queue ! task_id
+        printf("spawn_task: task_id = %d, len(run_queue) = %d\n", task_id, len(run_queue))
+        task_id++
+    }
+    wake_up(CPU_NUM, 0, tmp)
+}
+
 // Simulate tasks
-inline task_poll() {
+inline task_poll(tid) {
     bool result
 
     // spawn a new task
@@ -261,9 +302,8 @@ inline task_poll() {
     do
     :: d_step { created_task < TASK_NUM ->
         created_task++
-        run_queue++
     }
-        wake_up(CPU_NUM, 0, result)
+        spawn_task()
     :: break
     od
 
@@ -273,35 +313,78 @@ inline task_poll() {
     if
     :: d_step { num_blocking < WORKERS - 1 ->
         num_blocking++
-        printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
+        printf("block: num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
     }
         false // block
         assert(false)
-    :: skip
+    :: true
+    fi
+
+    d_step {
+        if
+        :: task_need_sleep[tid] ->
+            task_need_sleep[tid] = false
+            delta_list ! tid // sleeping
+        :: else -> finished_tasks++
+            printf("task_poll: tid = %d, finished_tasks = %d\n", tid, finished_tasks)
+            if
+            :: finished_tasks + num_blocking == TASK_NUM ->
+                printf("All tasks finished.\n")
+            :: else
+            fi
+        fi
+    }
+
+}
+
+// Wake up sleeping tasks.
+// `wake_task()` in awkernel_async_lib/src/scheduler.rs
+inline wake_task(time_to_wait) {
+    byte tid;
+    d_step {
+        if
+        :: len(delta_list) > 0 ->
+            delta_list ? tid
+            run_queue ! tid
+            printf("wake_task: tid = %d, len(run_queue) = %d, len(delta_list) = %d\n", tid, len(run_queue), len(delta_list))
+            time_to_wait = TIMEOUT_SOME
+        :: else ->
+            time_to_wait = TIMEOUT_NONE
+        fi
+    }
+}
+
+inline get_next_task(tid) {
+    if
+    :: d_step {
+        len(run_queue) > 0 ->
+        run_queue ? tid
+        printf("get_next_task: tid = %d, len(run_queue) = %d\n", tid, len(run_queue))
+    }
+    :: else ->
+        tid = 0
     fi
 }
 
 // `run_main()` in awkernel_async_lib/src/task.rs
 proctype run_main(byte cpu_id) {
+    byte tid
     do
-    :: d_step { run_queue > 0 ->
-        run_queue--
-        printf("run_queue--: run_queue = %d\n", run_queue)
-    }
-        task_poll()
-    :: else ->
-        sleep(cpu_id)
-        timer_disable(cpu_id)
+    :: get_next_task(tid)
+        if
+        :: tid > 0 -> task_poll(tid)
+        :: else -> sleep(cpu_id, TIMEOUT_NONE)
+        fi
     od
 }
 
 // `main()` in kernel/src/main.rs
 proctype primary_main() {
+    bool time_to_wait;
     do
     :: true ->
-        sleep(0)
-        timer_disable(0)
-
+        wake_task(time_to_wait)
+        sleep(0, time_to_wait)
         wake_workers(0)
     od
 }
@@ -326,6 +409,9 @@ init {
         timer_interrupt[i] = false
     }
 
+    created_task++
+    spawn_task()
+
     for (i: 0 .. CPU_NUM - 1) {
         run timer(i)
     }
@@ -338,5 +424,5 @@ init {
 }
 
 ltl eventually_execute  {
-    <>[] (run_queue == 0)
+    <>[] (len(run_queue) == 0)
 }
