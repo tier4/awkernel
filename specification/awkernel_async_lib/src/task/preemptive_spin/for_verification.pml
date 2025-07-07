@@ -1,6 +1,6 @@
 int num_terminated = 0
 
-bool waking[TASK_NUM] = false
+byte waking[TASK_NUM] = 0
 bool handling_interrupt[IR_HANDLER_NUM] = false
 
 short runnable_preempted_highest_priority = 99

@@ -41,9 +41,8 @@ inline invoke_preemption(tid,task) {
 		atomic{
 			printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 			ipi_requests[lp_cpu_id]!task
-			waking[task] = false
 		}
-	:: atomic{else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);waking[task] = false}
+	:: atomic{else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);}
 	fi	
 }
 	
@@ -53,11 +52,15 @@ inline wake_task(tid,task) {
 	queue!!task;
 	unlock(tid,lock_queue);
 	invoke_preemption(tid,task);
+	atomic {
+		assert(waking[task] > 0);
+		waking[task]--;
+	}
 }
 
 /* awkernel_async_lib::task::ArcWake::wake()*/ 
 inline wake(tid,task) {
-	waking[task] = true;
+	waking[task]++;
 	lock(tid,lock_info[task]);
 	
 	if
@@ -65,10 +68,16 @@ inline wake(tid,task) {
 		atomic{
 			printf("wake() set need_sched: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 			tasks[task].need_sched = true;
+			assert(waking[task] > 0);
+			waking[task]--;
 		}
 		unlock(tid,lock_info[task])
 	:: tasks[task].state == Terminated -> 
-		printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+		atomic {
+			printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+			assert(waking[task] > 0);
+			waking[task]--;
+		}
 		unlock(tid,lock_info[task])
 	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
 		atomic {
@@ -181,6 +190,7 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	
 	atomic {
 		handling_interrupt[cur_tid] = false;
+		waking[cur_task]++;
 		context_switch(cur_tid,next_tid);
 	}
 	re_schedule(cur_tid)
