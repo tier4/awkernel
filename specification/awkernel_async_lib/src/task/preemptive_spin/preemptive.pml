@@ -94,8 +94,8 @@ inline wake_task(tid,task) {
 	bool preemption_invoked;
 	invoke_preemption(tid,task,preemption_invoked);
 	if
-	:: !preemption_invoked ->
-		printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);
+	:: atomic{!preemption_invoked ->
+		printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);}
 		lock(tid,lock_queue);
 		queue!!task;
 		unlock(tid,lock_queue);
@@ -164,6 +164,8 @@ inline scheduler_get_next(tid,ret) {
 		atomic {
 			printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
 			tasks[head].state = Running;
+			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),head);
+			RUNNING[cpu_id(tid)] = head;
 			update_runnable_preempted_highest_priority();
 			update_running_lowest_priority();
 		}
@@ -195,7 +197,11 @@ inline get_next_task(tid,ret) {
 	if
 	:: ret == - 1 -> 
 		scheduler_get_next(tid,ret)
-	:: else
+	:: else ->
+		atomic {
+			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),ret);
+			RUNNING[cpu_id(tid)] = ret;
+		}
 	fi
 }
 
@@ -382,11 +388,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	
 	if
 	:: task == - 1 -> goto start;
-	:: else ->
-		atomic {
-			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),task);
-			RUNNING[cpu_id(tid)] = task;
-		}
+	:: else
 	fi
 	
 	// If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -409,6 +411,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	
 	atomic {
 		assert(RUNNING[cpu_id(tid)] == task);
+		printf("RUNNING[cpu_id(tid)] = -1: cpu_id = %d",cpu_id(tid));
 		RUNNING[cpu_id(tid)] = - 1;
 	}
 	
