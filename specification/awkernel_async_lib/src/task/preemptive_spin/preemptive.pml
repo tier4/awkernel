@@ -307,14 +307,12 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			fi
 		}
 		
-		lock(tid,lock_info[cur_task]);
 		if
-		:: !tasks[cur_task].need_preemption -> 
-			unlock(tid,lock_info[cur_task]);
-			printf("need_preemption is false: cpu_id = %d,cur_task = %d\n",cpu_id,cur_task);
+		:: atomic{cur_task < hp_task ->
+			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);}
 			wake(tid,hp_task);
 			goto finish;
-		:: else -> unlock(tid,lock_info[cur_task]);
+		:: else
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
