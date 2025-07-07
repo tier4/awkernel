@@ -92,15 +92,15 @@ inline invoke_preemption(tid,task,ret) {
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()*/ 
 inline wake_task(tid,task) {
 	bool preemption_invoked;
+	lock(tid,lock_queue);
 	invoke_preemption(tid,task,preemption_invoked);
 	if
 	:: atomic{!preemption_invoked ->
 		printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);}
-		lock(tid,lock_queue);
 		queue!!task;
-		unlock(tid,lock_queue);
 	:: else
 	fi
+	unlock(tid,lock_queue);
 	atomic {
 		assert(waking[task] > 0);
 		waking[task]--;
