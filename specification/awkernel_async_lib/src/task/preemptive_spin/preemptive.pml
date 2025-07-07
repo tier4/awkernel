@@ -301,7 +301,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			if
 			:: atomic{cur_task == - 1 -> 
 				printf("There is no running task in cpu_id %d\n",cpu_id);}
-				wake(tid,hp_task);
+				wake_task(tid,hp_task);
 				goto finish;
 			:: else
 			fi
@@ -310,7 +310,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		if
 		:: atomic{cur_task < hp_task ->
 			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);}
-			wake(tid,hp_task);
+			wake_task(tid,hp_task);
 			goto finish;
 		:: else
 		fi
