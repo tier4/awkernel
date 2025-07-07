@@ -7,6 +7,7 @@ use crate::pcie::{
             igc_check_downshift_generic, igc_phy_has_link_generic, igc_setup_copper_link_generic,
             IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD,
         },
+        IgcMacType,
     },
     PCIeInfo,
 };
@@ -872,4 +873,60 @@ fn igc_setup_copper_link_i225(
     write_reg(info, IGC_I225_PHPM, phpm_reg)?;
 
     igc_setup_copper_link_generic(ops, info, hw)
+}
+
+/// Enable/disable EEE based on setting in dev_spec structure.
+fn igc_set_eee_i225(
+    info: &PCIeInfo,
+    hw: &IgcHw,
+    adv2p5g: bool,
+    adv1g: bool,
+    adv100m: bool,
+) -> Result<(), IgcDriverErr> {
+    if hw.mac.mac_type != IgcMacType::I225 || hw.phy.media_type != IgcMediaType::Copper {
+        return Ok(());
+    }
+
+    let mut ipcnfg = read_reg(info, IGC_IPCNFG)?;
+    let mut eeer = read_reg(info, IGC_EEER)?;
+
+    // Enable or disable per user setting
+    if !hw.dev_spec.eee_disable {
+        let eee_su = read_reg(info, IGC_EEE_SU)?;
+
+        if adv100m {
+            ipcnfg |= IGC_IPCNFG_EEE_100M_AN;
+        } else {
+            ipcnfg &= !IGC_IPCNFG_EEE_100M_AN;
+        }
+
+        if adv1g {
+            ipcnfg |= IGC_IPCNFG_EEE_1G_AN;
+        } else {
+            ipcnfg &= !IGC_IPCNFG_EEE_1G_AN;
+        }
+
+        if adv2p5g {
+            ipcnfg |= IGC_IPCNFG_EEE_2_5G_AN;
+        } else {
+            ipcnfg &= !IGC_IPCNFG_EEE_2_5G_AN;
+        }
+
+        eeer |= IGC_EEER_TX_LPI_EN | IGC_EEER_RX_LPI_EN | IGC_EEER_LPI_FC;
+
+        // This bit should not be set in normal operation.
+        if eee_su & IGC_EEE_SU_LPI_CLK_STP != 0 {
+            log::debug!("LPI Clock Stop Bit should not be set!");
+        }
+    } else {
+        ipcnfg &= !(IGC_IPCNFG_EEE_2_5G_AN | IGC_IPCNFG_EEE_1G_AN | IGC_IPCNFG_EEE_100M_AN);
+        eeer &= !(IGC_EEER_TX_LPI_EN | IGC_EEER_RX_LPI_EN | IGC_EEER_LPI_FC);
+    }
+
+    write_reg(info, IGC_IPCNFG, ipcnfg)?;
+    write_reg(info, IGC_EEER, eeer)?;
+    read_reg(info, IGC_IPCNFG)?;
+    read_reg(info, IGC_EEER)?;
+
+    Ok(())
 }

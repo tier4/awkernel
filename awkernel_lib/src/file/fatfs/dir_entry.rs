@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
 use core::convert::TryInto;
-use core::fmt;
+use core::fmt::{self, Debug};
 #[cfg(not(feature = "unicode"))]
 use core::iter;
 
@@ -523,7 +523,7 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC>(
+    pub(crate) fn flush<IO: ReadWriteSeek + Send + Debug, TP, OCC>(
         &mut self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -534,7 +534,7 @@ impl DirEntryEditor {
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC>(
+    fn write<IO: ReadWriteSeek + Send + Debug, TP, OCC>(
         &self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -549,7 +549,7 @@ impl DirEntryEditor {
 ///
 /// `DirEntry` is returned by `DirIter` when reading a directory.
 #[derive(Clone)]
-pub struct DirEntry<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC> {
+pub struct DirEntry<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
     #[cfg(feature = "lfn")]
@@ -560,7 +560,7 @@ pub struct DirEntry<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP, OCC> {
     /// Returns short file name.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -735,7 +735,7 @@ impl<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC: OemCpConverter> DirEn
     }
 }
 
-impl<IO: ReadWriteSeek + Send + core::fmt::Debug, TP, OCC> fmt::Debug for DirEntry<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> fmt::Debug for DirEntry<IO, TP, OCC> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
     }
