@@ -345,7 +345,6 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		
 		finish:
 		atomic {
-			RUNNING[cpu_id(tid)] = cur_task;// RunningTaskGuard::drop()
 			interrupt_enabled[cpu_id(tid)] = true;// iretq
 			workers[tid].interrupted = false
 			handling_interrupt[tid] = false;
