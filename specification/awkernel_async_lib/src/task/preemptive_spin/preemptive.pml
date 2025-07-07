@@ -7,19 +7,57 @@
 #include "for_verification.pml"
 #include "future_mock.pml"
 
-inline get_lowest_priority_task(ret_task,ret_cpu_id) {
+inline get_highest_priority_in_ipi_requests(cpu_id,ret_task) {
+	d_step {
+		byte k = 0;
+		ret_task = 99;
+
+		do
+		:: k < len(ipi_requests[cpu_id]) ->
+			byte ipi_pending_task;
+			ipi_requests[cpu_id]?ipi_pending_task; ipi_requests[cpu_id]!ipi_pending_task;
+			if
+			:: ipi_pending_task < ret_task -> 
+				ret_task = ipi_pending_task;
+			:: else
+			fi
+			k++;
+		:: else -> break
+		od
+	}
+}
+
+inline min(a,b,ret) {
 	atomic {
+		if
+		:: a < b -> ret = a
+		:: else -> ret = b
+		fi
+	}
+}
+
+inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
+	atomic {
+		printf("get_lowest_priority_task(): tid = %d,task = %d\n",tid,task);
 		byte j;
 		for (j : 0 .. CPU_NUM - 1) {
 			if
-			:: RUNNING[j] != - 1 -> 
+			:: RUNNING[j] == -1 || RUNNING[j] == task ->// There is idle CPU or the task has already been running.
+				assert(empty(ipi_requests[j]));
+				ret_task = - 1;
+				break
+			:: else ->
+				byte highest_pending;
+				get_highest_priority_in_ipi_requests(j,highest_pending);
+				byte min_ret;
+				min(RUNNING[j],highest_pending,min_ret);
+
 				if
-				:: RUNNING[j] > ret_task -> 
-					ret_task = RUNNING[j];
+				:: min_ret > ret_task -> 
+					ret_task = min_ret;
 					ret_cpu_id = j;
 				:: else
 				fi
-			:: else -> ret_task = - 1;break// There is idle CPU.
 			fi
 		}
 	}	
@@ -31,10 +69,10 @@ inline set_need_preemption(tid,task) {
 	unlock(tid,lock_info[task])
 }
 
-inline invoke_preemption(tid,task) {
+inline invoke_preemption(tid,task,ret) {
 	int lp_task = - 1;
 	int lp_cpu_id;
-	get_lowest_priority_task(lp_task,lp_cpu_id);
+	get_lowest_priority_task(tid,task,lp_task,lp_cpu_id);
 	if
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
@@ -42,16 +80,27 @@ inline invoke_preemption(tid,task) {
 			printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
 			ipi_requests[lp_cpu_id]!task
 		}
-	:: atomic{else -> printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);}
-	fi	
+		ret = true;
+	:: else -> 
+		atomic {
+			printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
+			ret = false;
+		}
+	fi
 }
 	
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()*/ 
 inline wake_task(tid,task) {
-	lock(tid,lock_queue);
-	queue!!task;
-	unlock(tid,lock_queue);
-	invoke_preemption(tid,task);
+	bool preemption_invoked;
+	invoke_preemption(tid,task,preemption_invoked);
+	if
+	:: !preemption_invoked ->
+		printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);
+		lock(tid,lock_queue);
+		queue!!task;
+		unlock(tid,lock_queue);
+	:: else
+	fi
 	atomic {
 		assert(waking[task] > 0);
 		waking[task]--;
@@ -238,7 +287,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 	
 	do
 	:: d_step {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
-			ipi_requests[cpu_id(tid)]?_
+			ipi_requests[cpu_id(tid)]?hp_task;
 			cpu_id = cpu_id(tid);
 			printf("Received IPI request. cpu_id = %d\n",cpu_id);
 			interrupt_enabled[cpu_id] = false;
@@ -249,10 +298,10 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		atomic {
 			// RunningTaskGuard::take()
 			cur_task = RUNNING[cpu_id];
-			RUNNING[cpu_id] = - 1;
 			if
 			:: atomic{cur_task == - 1 -> 
 				printf("There is no running task in cpu_id %d\n",cpu_id);}
+				wake(tid,hp_task);
 				goto finish;
 			:: else
 			fi
@@ -263,19 +312,16 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		:: !tasks[cur_task].need_preemption -> 
 			unlock(tid,lock_info[cur_task]);
 			printf("need_preemption is false: cpu_id = %d,cur_task = %d\n",cpu_id,cur_task);
+			wake(tid,hp_task);
 			goto finish;
 		:: else -> unlock(tid,lock_info[cur_task]);
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
-		hp_task = - 1;
-		get_next_task(tid,hp_task);
-		if
-		:: atomic{hp_task == - 1 -> 
-			printf("get_next_task() returns None: %d\n",cpu_id);}
-			goto finish;
-		:: else
-		fi
+		atomic {
+			printf("RUNNING[cpu_id] = hp_task: cpu_id = %d,hp_task = %d\n",cpu_id,hp_task);
+			RUNNING[cpu_id] = hp_task;
+		}
 		
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
@@ -316,7 +362,7 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 
 proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted) {
 	if
-	:: tid >= CPU_NUM -> re_schedule(tid);assert(RUNNING[cpu_id(tid)] == -1);// thread_entry();
+	:: tid >= CPU_NUM -> re_schedule(tid);// thread_entry();
 	:: else
 	fi
 	
@@ -333,7 +379,11 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	
 	if
 	:: task == - 1 -> goto start;
-	:: else
+	:: else ->
+		atomic {
+			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),task);
+			RUNNING[cpu_id(tid)] = task;
+		}
 	fi
 	
 	// If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -348,9 +398,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 		goto start;
 	:: else -> unlock(tid,lock_info[task]);
 	fi
-	
-	RUNNING[cpu_id(tid)] = task;
-	
+
 	// Invoke a task.
 	interrupt_enabled[cpu_id(tid)] = true;
 	future(tid,task,poll_result);
