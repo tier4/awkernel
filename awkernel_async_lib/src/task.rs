@@ -696,16 +696,19 @@ pub fn run_main() {
             let mut ctx = Context::from_waker(&w);
 
             let result = {
+                let cpu_id = awkernel_lib::cpu::cpu_id();
                 let mut node = MCSNode::new();
                 let Some(mut guard) = task.future.try_lock(&mut node) else {
                     // This task is running on another CPU,
                     // and re-schedule the task to avoid starvation just in case.
+                    RUNNING[cpu_id].store(0, Ordering::Relaxed);
                     task.wake();
                     continue;
                 };
 
                 // Can remove this?
                 if guard.is_terminated() {
+                    RUNNING[cpu_id].store(0, Ordering::Relaxed);
                     continue;
                 }
 
@@ -714,13 +717,12 @@ pub fn run_main() {
                     let mut info = task.info.lock(&mut node);
 
                     if matches!(info.state, State::Terminated | State::Panicked) {
+                        RUNNING[cpu_id].store(0, Ordering::Relaxed);
                         continue;
                     }
 
                     info.update_last_executed();
                 }
-
-                let cpu_id = awkernel_lib::cpu::cpu_id();
 
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
