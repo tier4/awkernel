@@ -36,6 +36,23 @@ inline min(a,b,ret) {
 	}
 }
 
+inline remove_from_ipi_requests(cpu_id,task) {
+	d_step {
+		byte k = 0;
+		do
+		:: k < len(ipi_requests[cpu_id]) ->
+			byte ipi_pending_task;
+			ipi_requests[cpu_id]?ipi_pending_task;
+			if
+			:: ipi_pending_task != task -> ipi_requests[cpu_id]!ipi_pending_task;
+			:: atomic{else -> printf("remove_from_ipi_requests(): remove task %d from ipi_requests[%d]\n",task,cpu_id);}
+			fi
+			k++;
+		:: else -> break
+		od
+	}
+}
+
 inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
 	atomic {
 		printf("get_lowest_priority_task(): tid = %d,task = %d\n",tid,task);
@@ -293,7 +310,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 	
 	do
 	:: d_step {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
-			ipi_requests[cpu_id(tid)]?hp_task;
+			ipi_requests[cpu_id(tid)]?<hp_task>;
 			cpu_id = cpu_id(tid);
 			printf("Received IPI request. cpu_id = %d\n",cpu_id);
 			interrupt_enabled[cpu_id] = false;
@@ -307,6 +324,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			if
 			:: atomic{cur_task == - 1 -> 
 				printf("There is no running task in cpu_id %d\n",cpu_id);}
+				remove_from_ipi_requests(cpu_id,hp_task);
 				atomic {
 					waking[hp_task]++;
 					wake_task(tid,hp_task);
@@ -319,6 +337,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		if
 		:: atomic{cur_task < hp_task ->
 			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);}
+			remove_from_ipi_requests(cpu_id,hp_task);
 			atomic {
 				waking[hp_task]++;
 				wake_task(tid,hp_task);
@@ -332,6 +351,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			printf("RUNNING[cpu_id] = hp_task: cpu_id = %d,hp_task = %d\n",cpu_id,hp_task);
 			RUNNING[cpu_id] = hp_task;
 		}
+		remove_from_ipi_requests(cpu_id,hp_task);
 		
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
