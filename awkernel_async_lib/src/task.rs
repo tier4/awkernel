@@ -75,6 +75,30 @@ impl Task {
     }
 }
 
+impl PartialEq for Task {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Task {}
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // Higher (smaller) priority is greater.
+        match other.priority.cmp(&self.priority) {
+            core::cmp::Ordering::Equal => other.id.cmp(&self.id),
+            ord => ord,
+        }
+    }
+}
+
 unsafe impl Sync for Task {}
 unsafe impl Send for Task {}
 
@@ -348,10 +372,16 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
 }
 
 #[inline(always)]
+pub fn set_current_task(cpu_id: usize, task_id: u32) {
+    RUNNING[cpu_id].store(task_id, Ordering::Relaxed);
+}
+
+#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
+            set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
             return Some(next);
         }
     }
@@ -698,6 +728,7 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
+                // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
@@ -859,6 +890,13 @@ pub fn get_num_preemption() -> usize {
     {
         0
     }
+}
+
+#[inline(always)]
+pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+    tasks.id_to_task.get(&task_id).cloned()
 }
 
 #[inline(always)]

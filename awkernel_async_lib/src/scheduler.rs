@@ -6,6 +6,8 @@ use core::time::Duration;
 
 use crate::task::Task;
 use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use alloc::collections::binary_heap::BinaryHeap;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
@@ -24,6 +26,38 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
+
+/// Tasks that request preemption by IPI. The key is the IPI destination CPU ID.
+static PREEMPTION_PENDING_TASKS: Mutex<BTreeMap<usize, BinaryHeap<Arc<Task>>>> =
+    Mutex::new(BTreeMap::new());
+
+#[inline(always)]
+pub fn peek_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    pending_tasks
+        .get(&cpu_id)
+        .and_then(|heap| heap.peek().cloned())
+}
+
+#[inline(always)]
+pub fn remove_preemption_pending(cpu_id: usize, task_id: u32) {
+    let mut node = MCSNode::new();
+    let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    if let Some(heap) = pending_tasks.get_mut(&cpu_id) {
+        heap.retain(|task| task.id != task_id);
+    }
+}
+
+#[inline(always)]
+pub fn push_preemption_pending(cpu_id: usize, task: Arc<Task>) {
+    let mut node = MCSNode::new();
+    let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    pending_tasks
+        .entry(cpu_id)
+        .or_insert_with(BinaryHeap::new)
+        .push(task);
+}
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
