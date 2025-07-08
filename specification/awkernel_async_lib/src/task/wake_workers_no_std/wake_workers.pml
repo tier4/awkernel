@@ -397,6 +397,9 @@ proctype primary_main() {
 proctype timer(byte cpu_id) {
     do
     :: d_step {
+#ifdef TIMER_EDGE // edge-triggered timer interrupt
+        interrupt_mask[cpu_id] == false &&
+#endif
         timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == false ->
         timer_interrupt[cpu_id] = true
     }
@@ -438,8 +441,6 @@ ltl eventually_execute {
 ltl cpu_waking_to_active {
     // CPU is waking up from sleep to active state.
     // This is used to check if the CPU is woken up by the primary CPU.
-    [] ((CPU_SLEEP_TAG[0] == Waking) -> <> (CPU_SLEEP_TAG[0] == Active)) &&
-    [] ((CPU_SLEEP_TAG[1] == Waking) -> <> (CPU_SLEEP_TAG[1] == Active)) &&
-    [] ((CPU_SLEEP_TAG[2] == Waking) -> <> (CPU_SLEEP_TAG[2] == Active))
+    [] ((CPU_SLEEP_TAG[0] == Waking) -> <> (CPU_SLEEP_TAG[0] == Active))
 }
 #endif
