@@ -37,6 +37,9 @@ impl PrioritizedFIFOData {
 impl Scheduler for PrioritizedFIFOScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
+        // The reason for acquiring this lock before invoke_preemption() is to prevent priority inversion from occurring
+        // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
+        // within the scheduler's get_next().
         let mut data = self.data.lock(&mut node);
 
         if !self.invoke_preemption(task.clone()) {
