@@ -12,7 +12,7 @@ mtype CPU_SLEEP_TAG[CPU_NUM]
 bool interrupt_mask[CPU_NUM]
 bool IPI[CPU_NUM]             // edge-trigger interrupt
 bool timer_enable[CPU_NUM]
-bool timer_interrupt[CPU_NUM] // level-sensitive interrupt
+bool timer_interrupt[CPU_NUM] // level-sensitive interrupt for AArch64, edge-trigger for x86
 
 byte run_queue = 0
 
@@ -306,6 +306,8 @@ inline task_poll() {
     :: break
     od
 
+
+#ifdef EVENTUALLY_EXECUTE
     // Simulate blocking tasks.
     // Even if there are `WORKERS - 1` blocking tasks,
     // every task will be woken up.
@@ -318,6 +320,9 @@ inline task_poll() {
         assert(false)
     :: true
     fi
+#else
+    skip
+#endif
 
     d_step {
         if
@@ -423,6 +428,18 @@ init {
     }
 }
 
-ltl eventually_execute  {
+#ifdef EVENTUALLY_EXECUTE
+ltl eventually_execute {
     <>[] (run_queue == 0)
 }
+#endif
+
+#ifdef CPU_WAKING_TO_ACTIVE
+ltl cpu_waking_to_active {
+    // CPU is waking up from sleep to active state.
+    // This is used to check if the CPU is woken up by the primary CPU.
+    [] ((CPU_SLEEP_TAG[0] == Waking) -> <> (CPU_SLEEP_TAG[0] == Active)) &&
+    [] ((CPU_SLEEP_TAG[1] == Waking) -> <> (CPU_SLEEP_TAG[1] == Active)) &&
+    [] ((CPU_SLEEP_TAG[2] == Waking) -> <> (CPU_SLEEP_TAG[2] == Active))
+}
+#endif
