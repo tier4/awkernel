@@ -53,13 +53,9 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
 
     let mut in_memory_disk = InMemoryDisk::new(disk_data, 0);
 
-    log::info!("Attempting to format FAT filesystem in memory...");
-    match format_volume(&mut in_memory_disk, FormatVolumeOptions::new()) {
-        Ok(_) => log::info!("FAT filesystem formatted successfully in memory!"),
-        Err(e) => {
-            log::error!("Error formatting FAT filesystem: {e:?}");
-            return Err("Failed to format FAT volume.");
-        }
+    if let Err(e) = format_volume(&mut in_memory_disk, FormatVolumeOptions::new()) {
+        log::error!("Error formatting FAT filesystem: {e:?}");
+        return Err("Failed to format FAT volume.");
     }
 
     let file_system = match FileSystem::new(in_memory_disk, FsOptions::new()) {
