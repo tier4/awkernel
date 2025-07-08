@@ -3,6 +3,8 @@
 #define CPU_NUM (WORKERS + 1)
 #define TIMEOUT_NONE false
 #define TIMEOUT_SOME true
+#define TASK_ID_NONE false
+#define TASK_ID_SOME true
 
 mtype = { Active, Waiting, Waking }
 mtype CPU_SLEEP_TAG[CPU_NUM]
@@ -12,16 +14,14 @@ bool IPI[CPU_NUM]             // edge-trigger interrupt
 bool timer_enable[CPU_NUM]
 bool timer_interrupt[CPU_NUM] // level-sensitive interrupt
 
-chan run_queue = [TASK_NUM] of { byte } // run queue
+byte run_queue = 0
 
-byte task_id = 1
 byte num_blocking = 0
 byte created_task = 0
 
-chan delta_list = [TASK_NUM] of { byte } // delta list
+byte delta_list = 0
 
-bool task_need_sleep[TASK_NUM + 1] = true
-
+byte sleep_tasks_counter = 1
 byte finished_tasks = 0
 
 inline compare_exchange(target, current, new, prev)
@@ -248,7 +248,7 @@ return_wake_up:
 
 // `wake_workers()` in awkernel_async_lib/src/task.rs
 inline wake_workers(cpu_id) {
-    byte num_tasks = len(run_queue)
+    byte num_tasks = run_queue
     byte i
     bool result
 
@@ -286,15 +286,14 @@ inline timer_disable(cpu_id) {
 inline spawn_task() {
     byte tmp
     d_step {
-        run_queue ! task_id
-        printf("spawn_task: task_id = %d, len(run_queue) = %d\n", task_id, len(run_queue))
-        task_id++
+        run_queue++
+        printf("spawn_task: run_queue = %d\n", run_queue)
     }
     wake_up(CPU_NUM, 0, tmp)
 }
 
 // Simulate tasks
-inline task_poll(tid) {
+inline task_poll() {
     bool result
 
     // spawn a new task
@@ -322,11 +321,13 @@ inline task_poll(tid) {
 
     d_step {
         if
-        :: task_need_sleep[tid] ->
-            task_need_sleep[tid] = false
-            delta_list ! tid // sleeping
-        :: else -> finished_tasks++
-            printf("task_poll: tid = %d, finished_tasks = %d\n", tid, finished_tasks)
+        :: sleep_tasks_counter > 0 ->
+            sleep_tasks_counter--
+            delta_list++
+            printf("sleep: delta_list = %d, cpu_id = %d\n", delta_list, cpu_id)
+        :: else ->
+            finished_tasks++
+            printf("task_poll: finished_tasks = %d\n", finished_tasks)
             if
             :: finished_tasks + num_blocking == TASK_NUM ->
                 printf("All tasks finished.\n")
@@ -334,7 +335,6 @@ inline task_poll(tid) {
             fi
         fi
     }
-
 }
 
 // Wake up sleeping tasks.
@@ -343,10 +343,10 @@ inline wake_task(time_to_wait) {
     byte tid;
     d_step {
         if
-        :: len(delta_list) > 0 ->
-            delta_list ? tid
-            run_queue ! tid
-            printf("wake_task: tid = %d, len(run_queue) = %d, len(delta_list) = %d\n", tid, len(run_queue), len(delta_list))
+        :: delta_list > 0 ->
+            delta_list--
+            run_queue++
+            printf("wake_task: tid = %d, run_queue = %d, delta_list = %d\n", tid, run_queue, delta_list)
             time_to_wait = TIMEOUT_SOME
         :: else ->
             time_to_wait = TIMEOUT_NONE
@@ -357,22 +357,22 @@ inline wake_task(time_to_wait) {
 inline get_next_task(tid) {
     if
     :: d_step {
-        len(run_queue) > 0 ->
-        run_queue ? tid
-        printf("get_next_task: tid = %d, len(run_queue) = %d\n", tid, len(run_queue))
+        run_queue > 0 ->
+        run_queue--
+        printf("get_next_task: run_queue = %d\n", run_queue)
+        tid = TASK_ID_SOME
     }
-    :: else ->
-        tid = 0
+    :: else -> tid = TASK_ID_NONE
     fi
 }
 
 // `run_main()` in awkernel_async_lib/src/task.rs
 proctype run_main(byte cpu_id) {
-    byte tid
+    bool tid;
     do
     :: get_next_task(tid)
         if
-        :: tid > 0 -> task_poll(tid)
+        :: tid == TASK_ID_SOME -> task_poll()
         :: else -> sleep(cpu_id, TIMEOUT_NONE)
         fi
     od
@@ -424,5 +424,5 @@ init {
 }
 
 ltl eventually_execute  {
-    <>[] (len(run_queue) == 0)
+    <>[] (run_queue == 0)
 }
