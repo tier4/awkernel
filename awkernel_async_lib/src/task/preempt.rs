@@ -120,9 +120,11 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
 
 /// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
 /// `super::RUNNING[cpu_id]` will be restored after dropping.
+#[allow(dead_code)]
 struct RunningTaskGuard(u32);
 
 impl RunningTaskGuard {
+    #[allow(dead_code)]
     fn take() -> Option<Self> {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let task_id = super::RUNNING[cpu_id].swap(0, Ordering::Relaxed);

@@ -53,10 +53,7 @@ pub fn remove_preemption_pending(cpu_id: usize, task_id: u32) {
 pub fn push_preemption_pending(cpu_id: usize, task: Arc<Task>) {
     let mut node = MCSNode::new();
     let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
-    pending_tasks
-        .entry(cpu_id)
-        .or_insert_with(BinaryHeap::new)
-        .push(task);
+    pending_tasks.entry(cpu_id).or_default().push(task);
 }
 
 /// Type of scheduler.
