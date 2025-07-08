@@ -285,15 +285,17 @@ where
 }
 
 fn to_vfs_datetime(_date_time: DateTime) -> Option<Time> {
-    // This conversion might be lossy or incorrect depending on the Time struct definition.
-    // Assuming Time can be created from a unix timestamp.
-    // fatfs DateTime doesn't directly provide a unix timestamp.
-    // This part needs a proper implementation based on your Time struct.
-    // For now, returning None.
+    // TODO - Currently, we use NullTimeProvider which does not provide actual time.
+    // Once we implement a proper time provider, we can convert DateTime to Time.
+    // For now, we return None to indicate that the conversion is not implemented.
+    // This is a placeholder for the actual implementation.
     todo!()
 }
 
 fn to_vfs_date(_date: Date) -> Option<Time> {
-    // TODO - Define the conversion between DateTime/Date in fatfs/time.rs
+    // TODO - Currently, we use NullTimeProvider which does not provide actual time.
+    // Once we implement a proper time provider, we can convert DateTime to Time.
+    // For now, we return None to indicate that the conversion is not implemented.
+    // This is a placeholder for the actual implementation.
     None
 }
