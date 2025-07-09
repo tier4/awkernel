@@ -20,7 +20,7 @@ use crate::{
     sync::rwlock::RwLock,
 };
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec::Vec};
 use core::alloc::{GlobalAlloc, Layout};
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
@@ -29,9 +29,10 @@ static FAT_FS_INSTANCE: RwLock<
     Option<Arc<FileSystem<InMemoryDisk, AwkernelTimeProvider, LossyOemCpConverter>>>,
 > = RwLock::new(None);
 
-pub fn init_memory_fatfs() -> Result<(), &'static str> {
+pub fn init_memory_fatfs() -> Result<(), String> {
     let mut fs_guard = FAT_FS_INSTANCE.write();
     if fs_guard.is_some() {
+        return Err("FAT filesystem has already been initialized.".into());
     }
 
     let disk_layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
@@ -39,7 +40,7 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
 
     let raw_disk_memory = unsafe { System.alloc(disk_layout) };
     if raw_disk_memory.is_null() {
-        return Err("Failed to allocate memory for the in-memory disk.");
+        return Err("Failed to allocate memory for the in-memory disk.".into());
     }
 
     let disk_data = unsafe {
@@ -53,8 +54,7 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
     let mut in_memory_disk = InMemoryDisk::new(disk_data, 0);
 
     if let Err(e) = format_volume(&mut in_memory_disk, FormatVolumeOptions::new()) {
-        log::error!("Error formatting FAT filesystem: {e:?}");
-        return Err("Failed to format FAT volume.");
+        return Err(format!("Failed to format FAT volume: {e:?}"));
     }
 
     let fs_options = FsOptions {
@@ -67,8 +67,7 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
     let file_system = match FileSystem::new(in_memory_disk, fs_options) {
         Ok(fs) => fs,
         Err(e) => {
-            log::error!("Error creating new FileSystem instance: {e:?}");
-            return Err("Failed to create FileSystem instance.");
+            return Err(format!("Failed to create FileSystem instance: {e:?}"));
         }
     };
 
