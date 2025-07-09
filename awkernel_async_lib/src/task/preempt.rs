@@ -129,7 +129,7 @@ unsafe fn do_preemption() {
 
     // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
-    let Some(cur_task_id) = get_current_task(cpu_id) else {
+    let Some(current_task_id) = get_current_task(cpu_id) else {
         remove_preemption_pending(cpu_id, next.id);
         next.scheduler.wake_task(next);
         return;
@@ -138,9 +138,9 @@ unsafe fn do_preemption() {
     {
         let mut node = MCSNode::new();
         let tasks = super::TASKS.lock(&mut node);
-        let cur_task = tasks.id_to_task.get(&cur_task_id).unwrap();
+        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
 
-        if cur_task > &next {
+        if current_task > &next {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;
@@ -154,7 +154,7 @@ unsafe fn do_preemption() {
     let current_task = {
         let mut node = MCSNode::new();
         let tasks = super::TASKS.lock(&mut node);
-        let current_task = tasks.id_to_task.get(&cur_task_id).unwrap();
+        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
         current_task.clone()
     };
 
