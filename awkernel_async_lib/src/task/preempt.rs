@@ -118,42 +118,6 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
     pool.push_back(ctx);
 }
 
-/// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
-/// `super::RUNNING[cpu_id]` will be restored after dropping.
-#[allow(dead_code)]
-struct RunningTaskGuard(u32);
-
-impl RunningTaskGuard {
-    #[allow(dead_code)]
-    fn take() -> Option<Self> {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-        let task_id = super::RUNNING[cpu_id].swap(0, Ordering::Relaxed);
-        if task_id != 0 {
-            Some(Self(task_id))
-        } else {
-            None
-        }
-    }
-}
-
-impl Drop for RunningTaskGuard {
-    fn drop(&mut self) {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let task = tasks.id_to_task.get(&self.0).unwrap();
-
-        {
-            let mut node = MCSNode::new();
-            let mut info = task.info.lock(&mut node);
-            info.update_last_executed();
-        }
-
-        super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
-    }
-}
-
 unsafe fn do_preemption() {
     #[cfg(feature = "perf")]
     super::perf::start_context_switch();
