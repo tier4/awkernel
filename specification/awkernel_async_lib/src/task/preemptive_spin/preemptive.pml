@@ -45,7 +45,7 @@ inline remove_from_ipi_requests(cpu_id,task) {
 			ipi_requests[cpu_id]?ipi_pending_task;
 			if
 			:: ipi_pending_task != task -> ipi_requests[cpu_id]!ipi_pending_task;
-			:: atomic{else -> printf("remove_from_ipi_requests(): remove task %d from ipi_requests[%d]\n",task,cpu_id);}
+			:: else -> printf("remove_from_ipi_requests(): remove task %d from ipi_requests[%d]\n",task,cpu_id)
 			fi
 			k++;
 		:: else -> break
