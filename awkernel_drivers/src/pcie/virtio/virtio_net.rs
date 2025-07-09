@@ -258,7 +258,9 @@ impl Virtq {
             let header = unsafe { &*(header.as_ptr() as *const VirtioNetHdr) };
 
             if header.num_buffers > 1 {
-                log::error!("virtio-net: num_buffers > 1. Receipt of large packets is not supported");
+                log::error!(
+                    "virtio-net: num_buffers > 1. Receipt of large packets is not supported"
+                );
                 break;
             }
 
@@ -554,7 +556,9 @@ impl VirtioNetInner {
 
         self.active_features = negotiated_features;
 
-        if negotiated_features & VIRTIO_F_VERSION_1 == 0 || negotiated_features & VIRTIO_NET_F_MRG_RXBUF == 0 {
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0
+            || negotiated_features & VIRTIO_NET_F_MRG_RXBUF == 0
+        {
             self.common_cfg
                 .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(VirtioDriverErr::InitFailure);
