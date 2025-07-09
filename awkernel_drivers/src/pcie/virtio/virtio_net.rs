@@ -894,7 +894,7 @@ impl NetDevice for VirtioNet {
             Ok(0x01) => LinkStatus::UpFullDuplex,
             Ok(0xff) => {
                 log::warn!("virtio-net: duplex is unknown");
-                LinkStatus::Down
+                LinkStatus::Unknown
             }
             _ => {
                 log::warn!("virtio-net: cannot get duplex");
