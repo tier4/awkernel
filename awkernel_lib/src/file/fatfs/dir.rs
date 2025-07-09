@@ -1308,6 +1308,7 @@ impl ShortNameGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
 
     #[test]
     fn test_split_path() {

@@ -12,7 +12,7 @@ use crate::{
     file::{
         fatfs::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
-            time::NullTimeProvider,
+            time::AwkernelTimeProvider,
         },
         memfs::InMemoryDisk,
     },
@@ -26,7 +26,7 @@ use core::alloc::{GlobalAlloc, Layout};
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
 
 static FAT_FS_INSTANCE: RwLock<
-    Option<Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>>>,
+    Option<Arc<FileSystem<InMemoryDisk, AwkernelTimeProvider, LossyOemCpConverter>>>,
 > = RwLock::new(None);
 
 pub fn init_memory_fatfs() -> Result<(), &'static str> {
@@ -58,7 +58,14 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
         return Err("Failed to format FAT volume.");
     }
 
-    let file_system = match FileSystem::new(in_memory_disk, FsOptions::new()) {
+    let fs_options = FsOptions {
+        update_accessed_date: false,
+        oem_cp_converter: LossyOemCpConverter::new(),
+        time_provider: AwkernelTimeProvider::new(),
+        strict: true,
+    };
+    
+    let file_system = match FileSystem::new(in_memory_disk, fs_options) {
         Ok(fs) => fs,
         Err(e) => {
             log::error!("Error creating new FileSystem instance: {e:?}");
@@ -71,7 +78,7 @@ pub fn init_memory_fatfs() -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn get_memory_fatfs() -> Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>> {
+pub fn get_memory_fatfs() -> Arc<FileSystem<InMemoryDisk, AwkernelTimeProvider, LossyOemCpConverter>> {
     let fs_guard = FAT_FS_INSTANCE.read();
 
     (*fs_guard)
