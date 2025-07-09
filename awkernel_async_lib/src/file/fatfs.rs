@@ -1,10 +1,5 @@
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::{
     file::{
@@ -129,10 +124,7 @@ where
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-
-        let dir = FileSystem::root_dir(&fs_clone)
+        let dir = FileSystem::root_dir(&self.fs)
             .open_dir(&path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let entries: Result<Vec<String>, _> = dir
@@ -149,19 +141,14 @@ where
     }
 
     async fn create_dir(&self, path: &str) -> VfsResult<()> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        FileSystem::root_dir(&fs_clone)
+        FileSystem::root_dir(&self.fs)
             .create_dir(&path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         Ok(())
     }
 
     async fn open_file(&self, path: &str) -> VfsResult<Box<dyn AsyncSeekAndRead + Send + Unpin>> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-
-        let file = FileSystem::root_dir(&fs_clone)
+        let file = FileSystem::root_dir(&self.fs)
             .open_file(&path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
@@ -174,9 +161,7 @@ where
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        let file = FileSystem::root_dir(&fs_clone)
+        let file = FileSystem::root_dir(&self.fs)
             .create_file(&path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
@@ -189,11 +174,9 @@ where
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
         let file = {
             let result: Result<File<IO, TP, OCC>, Error<IO::Error>> = (|| {
-                let mut file = FileSystem::root_dir(&fs_clone).open_file(&path)?;
+                let mut file = FileSystem::root_dir(&self.fs).open_file(&path)?;
                 file.seek(SeekFrom::End(0))?;
                 Ok(file)
             })();
@@ -216,9 +199,7 @@ where
                 accessed: None,
             });
         }
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        let entry = FileSystem::root_dir(&fs_clone)
+        let entry = FileSystem::root_dir(&self.fs)
             .find_entry(&path, None, None)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let metadata = VfsMetadata {
@@ -239,17 +220,13 @@ where
         if path.is_empty() {
             return Ok(true);
         }
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        Ok(FileSystem::root_dir(&fs_clone)
+        Ok(FileSystem::root_dir(&self.fs)
             .find_entry(&path, None, None)
             .is_ok())
     }
 
     async fn remove_file(&self, path: &str) -> VfsResult<()> {
-        let path = path.to_string();
-        let fs_clone = self.fs.clone();
-        FileSystem::root_dir(&fs_clone)
+        FileSystem::root_dir(&self.fs)
             .remove(&path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
