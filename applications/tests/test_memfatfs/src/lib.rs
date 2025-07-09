@@ -9,13 +9,14 @@ use awkernel_lib::file::fatfs::init_memory_fatfs;
 pub async fn run() {
     awkernel_async_lib::spawn(
         "test fatfs".into(),
-        fatfs_test(),
+        memfatfs_test(),
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
 }
 
-async fn fatfs_test() {
+async fn memfatfs_test() {
+    // TODO - Remove this when the filesystem is fully ready. This will be done in the kernel initialization.
     match init_memory_fatfs() {
         Ok(_) => log::info!("In-memory FAT filesystem initialized successfully."),
         Err(e) => {
@@ -25,13 +26,11 @@ async fn fatfs_test() {
     }
 
     let root_path = AsyncVfsPath::new_in_memory_fatfs();
-    log::info!("AsyncFatFs instance created.");
-
     let file_name = "test.txt";
-    let data_to_write = b"Hello from the in-memory FAT filesystem! This is a test string.";
+    let data_to_write = b"Hello from the in-memory FAT filesystem!";
     let bytes_written;
 
-    let file_path = root_path.join("file.txt").unwrap();
+    let file_path = root_path.join(file_name).unwrap();
     log::info!("Attempting to create and write to file '{file_name}'");
 
     match file_path.create_file().await {

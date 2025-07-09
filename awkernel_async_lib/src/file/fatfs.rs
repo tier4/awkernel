@@ -25,7 +25,7 @@ use awkernel_lib::{
     sync::{mcs::MCSNode, mutex::Mutex},
     time::Time,
 };
-use core::{fmt::Debug, task::Poll};
+use core::fmt::Debug;
 use futures::stream::{self, Stream};
 
 struct AsyncFile<IO, TP, OCC>
@@ -46,27 +46,19 @@ where
     OCC: OemCpConverter + Send + Sync,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, VfsError> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard)
-                .read(buf)
-                .map_err(|e| VfsError::from(VfsErrorKind::from(e)));
-            Poll::Ready(result)
-        })
-        .await
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard)
+            .read(buf)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
     }
 
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            let result = (*file_guard)
-                .seek(pos)
-                .map_err(|e| VfsError::from(VfsErrorKind::from(e)));
-            Poll::Ready(result)
-        })
-        .await
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard)
+            .seek(pos)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
     }
 }
 
@@ -79,42 +71,27 @@ where
     OCC: OemCpConverter + Send + Sync,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, VfsError> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready(
-                (*file_guard)
-                    .write(buf)
-                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
-            )
-        })
-        .await
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard)
+            .write(buf)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
     }
 
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), VfsError> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready(
-                (*file_guard)
-                    .write_all(buf)
-                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
-            )
-        })
-        .await
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard)
+            .write_all(buf)
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
     }
 
     async fn flush(&mut self) -> Result<(), VfsError> {
-        core::future::poll_fn(|_cx| {
-            let mut node = MCSNode::new();
-            let mut file_guard = self.file.lock(&mut node);
-            Poll::Ready(
-                (*file_guard)
-                    .flush()
-                    .map_err(|e| VfsError::from(VfsErrorKind::from(e))),
-            )
-        })
-        .await
+        let mut node = MCSNode::new();
+        let mut file_guard = self.file.lock(&mut node);
+        (*file_guard)
+            .flush()
+            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))
     }
 
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, VfsError> {

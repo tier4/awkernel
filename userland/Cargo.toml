@@ -82,12 +82,12 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
-[dependencies.test_filesystem]
-path = "../applications/tests/test_filesystem"
+[dependencies.test_memfatfs]
+path = "../applications/tests/test_memfatfs"
 optional = true
 
 [features]
-default = ["test_filesystem"]
+default = ["test_memfatfs"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -109,4 +109,4 @@ test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
-test_filesystem = ["dep:test_filesystem"]
+test_memfatfs = ["dep:test_memfatfs"]
