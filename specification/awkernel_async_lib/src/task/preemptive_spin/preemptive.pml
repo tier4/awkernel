@@ -307,6 +307,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 	short cur_task;
 	short hp_task;
 	short next_thread;
+	byte pending_lp_task;
 	
 	do
 	:: d_step {interrupt_enabled[cpu_id(tid)] && nempty(ipi_requests[cpu_id(tid)]) -> 
@@ -351,6 +352,14 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			RUNNING[cpu_id] = hp_task;
 		}
 		remove_from_ipi_requests(cpu_id,hp_task);
+
+		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
+		do
+		:: atomic {ipi_requests[cpu_id]?[pending_lp_task] -> ipi_requests[cpu_id]?pending_lp_task;
+			waking[pending_lp_task]++;}
+			wake_task(tid,pending_lp_task)
+		:: atomic{else -> break}
+		od
 		
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
