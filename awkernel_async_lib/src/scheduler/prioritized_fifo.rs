@@ -44,8 +44,8 @@ impl Scheduler for PrioritizedFIFOScheduler {
 
         if !self.invoke_preemption(task.clone()) {
             let priority = {
-                let mut node = MCSNode::new();
-                let info = task.info.lock(&mut node);
+                let mut node_inner = MCSNode::new();
+                let info = task.info.lock(&mut node_inner);
                 match info.scheduler_type {
                     SchedulerType::PrioritizedFIFO(p) => p,
                     _ => unreachable!(),
