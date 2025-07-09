@@ -35,3 +35,4 @@ chan queue = [TASK_NUM] of { byte }// task_ids in ascending order of priority.
 Mutex lock_info[TASK_NUM]
 Mutex lock_queue = false
 
+#define BYTE_MAX 255

@@ -10,7 +10,7 @@
 inline get_highest_priority_in_ipi_requests(cpu_id,ret_task) {
 	d_step {
 		byte k = 0;
-		ret_task = 99;
+		ret_task = BYTE_MAX;
 
 		do
 		:: k < len(ipi_requests[cpu_id]) ->

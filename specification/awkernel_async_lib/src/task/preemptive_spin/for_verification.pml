@@ -3,12 +3,12 @@ int num_terminated = 0
 byte waking[TASK_NUM] = 0
 bool handling_interrupt[IR_HANDLER_NUM] = false
 
-short runnable_preempted_highest_priority = 99
-short running_lowest_priority = - 99
+short runnable_preempted_highest_priority = BYTE_MAX
+short running_lowest_priority = - BYTE_MAX
 
 inline update_runnable_preempted_highest_priority() {
 	atomic {
-		runnable_preempted_highest_priority = 99;
+		runnable_preempted_highest_priority = BYTE_MAX;
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
 			if
@@ -22,7 +22,7 @@ inline update_runnable_preempted_highest_priority() {
 
 inline update_running_lowest_priority() {
 	atomic {
-		running_lowest_priority = - 99;
+		running_lowest_priority = - BYTE_MAX;
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
 			if
