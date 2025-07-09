@@ -55,6 +55,13 @@ pub fn push_preemption_pending(cpu_id: usize, task: Arc<Task>) {
     pending_tasks.entry(cpu_id).or_default().push(task);
 }
 
+#[inline(always)]
+pub fn pop_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    pending_tasks.get_mut(&cpu_id).and_then(|heap| heap.pop())
+}
+
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
 /// 0 is the highest priority and 99 is the lowest priority.

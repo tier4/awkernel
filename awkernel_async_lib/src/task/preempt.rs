@@ -1,5 +1,5 @@
 use crate::{
-    scheduler::{peek_preemption_pending, remove_preemption_pending},
+    scheduler::{peek_preemption_pending, pop_preemption_pending, remove_preemption_pending},
     task::{get_current_task, set_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
@@ -149,6 +149,12 @@ unsafe fn do_preemption() {
 
     set_current_task(cpu_id, next.id);
     remove_preemption_pending(cpu_id, next.id);
+
+    // Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
+    // This is necessary to handle cases where the number of IPI sends differs from the number of executions of this function.
+    while let Some(p) = pop_preemption_pending(cpu_id) {
+        p.scheduler.wake_task(p);
+    }
 
     // If there is a task to be invoked next, execute the task.
     let current_task = {
