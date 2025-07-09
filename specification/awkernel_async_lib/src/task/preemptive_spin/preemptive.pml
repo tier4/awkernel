@@ -319,7 +319,6 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		}
 		
 		atomic {
-			// RunningTaskGuard::take()
 			cur_task = RUNNING[cpu_id];
 			if
 			:: atomic{cur_task == - 1 -> 
