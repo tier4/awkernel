@@ -32,7 +32,6 @@ static FAT_FS_INSTANCE: RwLock<
 pub fn init_memory_fatfs() -> Result<(), &'static str> {
     let mut fs_guard = FAT_FS_INSTANCE.write();
     if fs_guard.is_some() {
-        return Err("FAT filesystem has already been initialized.");
     }
 
     let disk_layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
