@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::collections::BTreeMap;
 use core::borrow::BorrowMut;
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -10,7 +11,7 @@ use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
 use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
 use super::error::Error;
-use super::file::File;
+use super::file::{File, FileMetadata};
 use super::table::{
     alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator,
     RESERVED_FAT_ENTRIES,
@@ -342,6 +343,8 @@ pub struct FileSystem<
     total_clusters: u32,
     fs_info: Mutex<FsInfoSector>,
     current_status_flags: Mutex<FsStatusFlags>,
+    // Metadata cache for open files - maps entry position to shared metadata
+    pub(crate) metadata_cache: Mutex<BTreeMap<u64, Arc<Mutex<FileMetadata>>>>,
 }
 
 impl<IO, TP, OCC> Debug for FileSystem<IO, TP, OCC>
@@ -361,6 +364,7 @@ where
             .field("total_clusters", &self.total_clusters)
             .field("fs_info", &"<Mutex> fs_info")
             .field("current_status_flags", &"<Mutex> status flags")
+            .field("metadata_cache", &"<Mutex> metadata cache")
             .finish()
     }
 }
@@ -448,6 +452,7 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
             total_clusters,
             fs_info: Mutex::new(fs_info),
             current_status_flags: Mutex::new(status_flags),
+            metadata_cache: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -700,7 +705,6 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
                     FsIoAdapter { fs: Arc::clone(fs) },
                 )),
                 FatType::Fat32 => DirRawStream::File(File::new(
-                    Some(fs.bpb.root_dir_first_cluster),
                     None,
                     Arc::clone(fs),
                 )),
@@ -722,6 +726,27 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> FileSystem<IO, T
         let char_iter = volume_label_iter.map(|c| self.options.oem_cp_converter.decode(c));
         // Build string from character iterator
         char_iter.collect()
+    }
+}
+
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC>
+    FileSystem<IO, TP, OCC>
+{
+    /// Get or create shared metadata for a file
+    pub(crate) fn get_or_create_metadata(
+        &self,
+        entry_pos: u64,
+        entry_data: DirFileEntryData,
+        first_cluster: Option<u32>,
+    ) -> Arc<Mutex<FileMetadata>> {
+        let mut node = MCSNode::new();
+        let mut cache = self.metadata_cache.lock(&mut node);
+        
+        cache.entry(entry_pos)
+            .or_insert_with(|| {
+                Arc::new(Mutex::new(FileMetadata::new(first_cluster, entry_data, entry_pos)))
+            })
+            .clone()
     }
 }
 

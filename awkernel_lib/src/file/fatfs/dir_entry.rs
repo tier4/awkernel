@@ -204,7 +204,7 @@ impl DirFileEntryData {
         }
     }
 
-    fn set_size(&mut self, size: u32) {
+    pub(crate) fn set_size(&mut self, size: u32) {
         self.size = size;
     }
 
@@ -224,15 +224,15 @@ impl DirFileEntryData {
         self.reserved_0 & (1 << 4) != 0
     }
 
-    fn created(&self) -> DateTime {
+    pub(crate) fn created(&self) -> DateTime {
         DateTime::decode(self.create_date, self.create_time_1, self.create_time_0)
     }
 
-    fn accessed(&self) -> Date {
+    pub(crate) fn accessed(&self) -> Date {
         Date::decode(self.access_date)
     }
 
-    fn modified(&self) -> DateTime {
+    pub(crate) fn modified(&self) -> DateTime {
         DateTime::decode(self.modify_date, self.modify_time, 0)
     }
 
@@ -644,7 +644,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     #[must_use]
     pub fn to_file(&self) -> File<IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new(self.first_cluster(), Some(self.editor()), self.fs.clone())
+        let metadata = self.fs.get_or_create_metadata(
+            self.entry_pos,
+            self.data.clone(),
+            self.first_cluster(),
+        );
+        File::new(Some(metadata), self.fs.clone())
     }
 
     /// Returns `Dir` struct for this entry.
@@ -656,8 +661,13 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     pub fn to_dir(&self) -> Dir<IO, TP, OCC> {
         assert!(self.is_dir(), "Not a directory entry");
         match self.first_cluster() {
-            Some(n) => {
-                let file = File::new(Some(n), Some(self.editor()), self.fs.clone());
+            Some(_) => {
+                let metadata = self.fs.get_or_create_metadata(
+                    self.entry_pos,
+                    self.data.clone(),
+                    self.first_cluster(),
+                );
+                let file = File::new(Some(metadata), self.fs.clone());
                 Dir::new(DirRawStream::File(file), self.fs.clone())
             }
             None => FileSystem::root_dir(&self.fs),
