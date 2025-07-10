@@ -1,4 +1,7 @@
-use crate::task::{get_current_task, Task};
+use crate::{
+    scheduler::{peek_preemption_pending, pop_preemption_pending, remove_preemption_pending},
+    task::{get_current_task, set_current_task, Task},
+};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -115,110 +118,90 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
     pool.push_back(ctx);
 }
 
-/// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
-/// `super::RUNNING[cpu_id]` will be restored after dropping.
-struct RunningTaskGuard(u32);
-
-impl RunningTaskGuard {
-    fn take() -> Option<Self> {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-        let task_id = super::RUNNING[cpu_id].swap(0, Ordering::Relaxed);
-        if task_id != 0 {
-            Some(Self(task_id))
-        } else {
-            None
-        }
-    }
-}
-
-impl Drop for RunningTaskGuard {
-    fn drop(&mut self) {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let task = tasks.id_to_task.get(&self.0).unwrap();
-
-        {
-            let mut node = MCSNode::new();
-            let mut info = task.info.lock(&mut node);
-            info.update_last_executed();
-        }
-
-        super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
-    }
-}
-
 unsafe fn do_preemption() {
     #[cfg(feature = "perf")]
     super::perf::start_context_switch();
 
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    let Some(next) = peek_preemption_pending(cpu_id) else {
+        return;
+    };
+
     // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
-    let Some(task_id) = RunningTaskGuard::take() else {
+    let Some(current_task_id) = get_current_task(cpu_id) else {
+        remove_preemption_pending(cpu_id, next.id);
+        next.scheduler.wake_task(next);
         return;
     };
 
     {
         let mut node = MCSNode::new();
         let tasks = super::TASKS.lock(&mut node);
-        let task = tasks.id_to_task.get(&task_id.0).unwrap();
+        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
 
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        if !info.need_preemption {
+        if current_task > &next {
+            remove_preemption_pending(cpu_id, next.id);
+            next.scheduler.wake_task(next);
             return;
         }
     }
 
+    set_current_task(cpu_id, next.id);
+    remove_preemption_pending(cpu_id, next.id);
+
+    // Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
+    // This is necessary to handle cases where the number of IPI sends differs from the number of executions of this function.
+    while let Some(p) = pop_preemption_pending(cpu_id) {
+        p.scheduler.wake_task(p);
+    }
+
     // If there is a task to be invoked next, execute the task.
-    if let Some(next) = super::get_next_task() {
-        let current_task = {
-            let mut node = MCSNode::new();
-            let tasks = super::TASKS.lock(&mut node);
-            let current_task = tasks.id_to_task.get(&task_id.0).unwrap();
-            current_task.clone()
+    let current_task = {
+        let mut node = MCSNode::new();
+        let tasks = super::TASKS.lock(&mut node);
+        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
+        current_task.clone()
+    };
+
+    if let Some(next_thread) = {
+        let mut node = MCSNode::new();
+        let mut task_info = next.info.lock(&mut node);
+        task_info.take_preempt_context()
+    } {
+        // If the next task is a preempted task, yield to it.
+        yield_preempted_and_wake_task(current_task, next_thread);
+    } else {
+        // Otherwise, get a thread from the thread pool or create a new thread.
+
+        let next_thread = if let Some(t) = thread::take_pooled_thread() {
+            // If there is a thread in the thread pool, use it,
+            t
+        } else if let Ok(mut t) = thread::create_thread(thread_entry, 0) {
+            // or create a new thread.
+
+            // Set an argument.
+            unsafe { t.set_argument(t.get_cpu_context() as *const _ as usize) };
+
+            t
+        } else {
+            // failed to create thread.
+            log::warn!("failed to create a worker thread.");
+            next.scheduler.wake_task(next);
+            return;
         };
 
-        if let Some(next_thread) = {
+        {
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+
+            // Insert the next task to the queue.
             let mut node = MCSNode::new();
-            let mut task_info = next.info.lock(&mut node);
-            task_info.take_preempt_context()
-        } {
-            // If the next task is a preempted task, yield to it.
-            yield_preempted_and_wake_task(current_task, next_thread);
-        } else {
-            // Otherwise, get a thread from the thread pool or create a new thread.
+            let mut next_task = NEXT_TASK[cpu_id].lock(&mut node);
 
-            let next_thread = if let Some(t) = thread::take_pooled_thread() {
-                // If there is a thread in the thread pool, use it,
-                t
-            } else if let Ok(mut t) = thread::create_thread(thread_entry, 0) {
-                // or create a new thread.
-
-                // Set an argument.
-                unsafe { t.set_argument(t.get_cpu_context() as *const _ as usize) };
-
-                t
-            } else {
-                // failed to create thread.
-                log::warn!("failed to create a worker thread.");
-                next.scheduler.wake_task(next);
-                return;
-            };
-
-            {
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-
-                // Insert the next task to the queue.
-                let mut node = MCSNode::new();
-                let mut next_task = NEXT_TASK[cpu_id].lock(&mut node);
-
-                next_task.push_back(next);
-            }
-
-            yield_preempted_and_wake_task(current_task, next_thread);
+            next_task.push_back(next);
         }
+
+        yield_preempted_and_wake_task(current_task, next_thread);
     }
 }
 
@@ -241,9 +224,6 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 
     // Re-schedule the preempted task.
     re_schedule();
-
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-    assert_eq!(None, get_current_task(cpu_id));
 
     // Run the main function.
     super::run_main();
