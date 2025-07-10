@@ -892,36 +892,15 @@ impl NetDevice for VirtioNet {
             }
         }
 
-        let duplex = inner.net_cfg.virtio_get_duplex();
-        match duplex {
+        match inner.net_cfg.virtio_get_duplex() {
             Ok(0x00) => LinkStatus::UpHalfDuplex,
-            Ok(0x01) => LinkStatus::UpFullDuplex,
-            Ok(0xff) => {
-                log::warn!("virtio-net: duplex is unknown");
-                LinkStatus::Unknown
-            }
-            _ => {
-                log::warn!("virtio-net: cannot get duplex");
-                LinkStatus::Down
-            }
+            _ => LinkStatus::UpFullDuplex,
         }
     }
 
     fn link_speed(&self) -> u64 {
         let inner = self.inner.read();
-        let speed = inner.net_cfg.virtio_get_speed();
-
-        match speed {
-            Ok(0xffffffff) => {
-                log::warn!("virtio-net: speed is unknown");
-                0
-            }
-            Ok(speed) => speed as u64,
-            _ => {
-                log::warn!("virtio-net: cannot get speed");
-                0
-            }
-        }
+        inner.net_cfg.virtio_get_speed().unwrap_or(0) as u64
     }
 
     fn mac_address(&self) -> [u8; 6] {
