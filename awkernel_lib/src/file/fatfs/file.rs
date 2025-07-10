@@ -5,7 +5,7 @@ use core::fmt::Debug;
 use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use super::dir_entry::DirFileEntryData;
 use super::error::Error;
-use super::fs::{FileSystem, ReadWriteSeek, FatType};
+use super::fs::{FatType, FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
 
 use awkernel_sync::mcs::MCSNode;
@@ -25,7 +25,11 @@ pub(crate) struct FileMetadata {
 }
 
 impl FileMetadata {
-    pub(crate) fn new(first_cluster: Option<u32>, entry_data: DirFileEntryData, entry_pos: u64) -> Self {
+    pub(crate) fn new(
+        first_cluster: Option<u32>,
+        entry_data: DirFileEntryData,
+        entry_pos: u64,
+    ) -> Self {
         let size = entry_data.size().unwrap_or(0);
         Self {
             first_cluster,
@@ -35,7 +39,7 @@ impl FileMetadata {
             dirty: false,
         }
     }
-    
+
     pub(crate) fn size(&self) -> Option<u32> {
         if self.entry_data.is_dir() {
             None
@@ -43,14 +47,14 @@ impl FileMetadata {
             Some(self.size)
         }
     }
-    
+
     pub(crate) fn set_size(&mut self, size: u32) {
         if self.size != size {
             self.size = size;
             self.dirty = true;
         }
     }
-    
+
     pub(crate) fn set_first_cluster(&mut self, cluster: Option<u32>, fat_type: FatType) {
         if cluster != self.first_cluster {
             self.first_cluster = cluster;
@@ -58,18 +62,21 @@ impl FileMetadata {
             self.dirty = true;
         }
     }
-    
+
     pub(crate) fn set_modified(&mut self, date_time: DateTime) {
         self.entry_data.set_modified(date_time);
         self.dirty = true;
     }
-    
+
     pub(crate) fn set_accessed(&mut self, date: Date) {
         self.entry_data.set_accessed(date);
         self.dirty = true;
     }
-    
-    pub(crate) fn flush<IO: ReadWriteSeek + Send + Debug>(&mut self, disk: &mut IO) -> Result<(), IO::Error> {
+
+    pub(crate) fn flush<IO: ReadWriteSeek + Send + Debug>(
+        &mut self,
+        disk: &mut IO,
+    ) -> Result<(), IO::Error> {
         if self.dirty {
             // Update size before serializing
             self.entry_data.set_size(self.size);
@@ -139,7 +146,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
             }
             let first_cluster = metadata.first_cluster;
             drop(metadata);
-            
+
             if let Some(current_cluster) = self.current_cluster {
                 // current cluster is none only if offset is 0
                 debug_assert!(self.offset > 0);
@@ -152,7 +159,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 Ok(())
             }
         } else {
-            // Note: we cannot handle this case because there is no size field
             panic!("Trying to truncate a file without metadata");
         }
     }
