@@ -63,6 +63,11 @@ impl FileMetadata {
         }
     }
 
+    pub(crate) fn set_created(&mut self, date_time: DateTime) {
+        self.entry_data.set_created(date_time);
+        self.dirty = true;
+    }
+
     pub(crate) fn set_modified(&mut self, date_time: DateTime) {
         self.entry_data.set_modified(date_time);
         self.dirty = true;
@@ -159,7 +164,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 Ok(())
             }
         } else {
-            panic!("Trying to truncate a file without metadata");
+            panic!("Trying to truncate a file without metadata (root directory?)");
         }
     }
 
@@ -243,8 +248,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
-            metadata.entry_data.set_created(date_time);
-            metadata.dirty = true;
+            metadata.set_created(date_time);
         }
     }
 
