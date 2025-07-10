@@ -39,6 +39,7 @@ const VIRTIO_NET_ID: u16 = 0x1041;
 
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
 const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
@@ -252,9 +253,18 @@ impl Virtq {
             let buf = self.data_buf.as_mut();
             let data = buf[slot];
 
-            // TODO: handle VirtIO-net header
-            // For now, we just skip the header by [12..]
-            let data = data[0..len as usize][12..].to_vec();
+            let header_len = core::mem::size_of::<VirtioNetHdr>();
+            let header = &data[0..header_len];
+            let header = unsafe { &*(header.as_ptr() as *const VirtioNetHdr) };
+
+            if header.num_buffers > 1 {
+                log::error!(
+                    "virtio-net: num_buffers > 1. Receipt of large packets is not supported"
+                );
+                break;
+            }
+
+            let data = data[header_len..len as usize].to_vec();
 
             self.rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
@@ -454,6 +464,7 @@ impl VirtioNetInner {
     fn vio_attach(&mut self) -> Result<(), VirtioDriverErr> {
         self.driver_features = 0;
         self.driver_features |= VIRTIO_NET_F_MAC;
+        self.driver_features |= VIRTIO_NET_F_MRG_RXBUF;
         self.driver_features |= VIRTIO_NET_F_STATUS;
         self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
@@ -545,9 +556,9 @@ impl VirtioNetInner {
 
         self.active_features = negotiated_features;
 
-        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-
-        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0
+            || negotiated_features & VIRTIO_NET_F_MRG_RXBUF == 0
+        {
             self.common_cfg
                 .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(VirtioDriverErr::InitFailure);
