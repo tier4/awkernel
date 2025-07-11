@@ -1145,13 +1145,11 @@ impl NetDevice for VirtioNet {
             tx.vio_start(&data);
         }
 
-        {
-            let mut inner = self.inner.write();
-            let tx_vq_index = (que_id * 2 + 1) as u16;
-            inner
-                .virtio_notify(tx_vq_index)
-                .or(Err(NetDevError::DeviceError))?;
-        }
+        let tx_vq_index = (que_id * 2 + 1) as u16;
+        let mut inner = self.inner.write();
+        inner
+            .virtio_notify(tx_vq_index)
+            .or(Err(NetDevError::DeviceError))?;
 
         Ok(())
     }
