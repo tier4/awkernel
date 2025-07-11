@@ -305,30 +305,30 @@ inline task_poll() {
 
     // spawn a new task
     // `Task::wake()` in awkernel_async_lib/src/task.rs
-    // do
-    // :: d_step { created_task < TASK_NUM ->
-    //     created_task++
-    // }
-    //     spawn_task()
-    // :: break
-    // od
+    do
+    :: d_step { created_task < TASK_NUM ->
+        created_task++
+    }
+        spawn_task()
+    :: break
+    od
 
-// #ifdef EVENTUALLY_EXECUTE
-//     // Simulate blocking tasks.
-//     // Even if there are `WORKERS - 1` blocking tasks,
-//     // every task will be woken up.
-//     if
-//     :: d_step { num_blocking < WORKERS - 1 ->
-//         num_blocking++
-//         printf("block: num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
-//     }
-//         false // block
-//         assert(false)
-//     :: true
-//     fi
-// #else
-//     skip
-// #endif
+#ifdef EVENTUALLY_EXECUTE
+    // Simulate blocking tasks.
+    // Even if there are `WORKERS - 1` blocking tasks,
+    // every task will be woken up.
+    if
+    :: d_step { num_blocking < WORKERS - 1 ->
+        num_blocking++
+        printf("block: num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
+    }
+        false // block
+        assert(false)
+    :: true
+    fi
+#else
+    skip
+#endif
 
     if
     :: d_step {
