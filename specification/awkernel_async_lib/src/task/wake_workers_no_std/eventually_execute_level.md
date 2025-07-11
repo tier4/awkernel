@@ -1618,5 +1618,4 @@ collapse counts: [ 0:1176156 2:120 3:677 4:3 5:51 6:2 ]
 
 pan: elapsed time 1.87e+03 seconds
 pan: rate 841606.42 states/second
-
 ```
