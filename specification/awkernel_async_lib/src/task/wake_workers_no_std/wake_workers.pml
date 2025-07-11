@@ -171,7 +171,7 @@ inline sleep(cpu_id, tout) {
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
     byte tmp
-    wake_up(cpu_id, 0, tmp)
+    // wake_up(cpu_id, 0, tmp)
 
     // receive interrupts
     if
@@ -305,30 +305,30 @@ inline task_poll() {
 
     // spawn a new task
     // `Task::wake()` in awkernel_async_lib/src/task.rs
-    do
-    :: d_step { created_task < TASK_NUM ->
-        created_task++
-    }
-        spawn_task()
-    :: break
-    od
+    // do
+    // :: d_step { created_task < TASK_NUM ->
+    //     created_task++
+    // }
+    //     spawn_task()
+    // :: break
+    // od
 
-#ifdef EVENTUALLY_EXECUTE
-    // Simulate blocking tasks.
-    // Even if there are `WORKERS - 1` blocking tasks,
-    // every task will be woken up.
-    if
-    :: d_step { num_blocking < WORKERS - 1 ->
-        num_blocking++
-        printf("block: num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
-    }
-        false // block
-        assert(false)
-    :: true
-    fi
-#else
-    skip
-#endif
+// #ifdef EVENTUALLY_EXECUTE
+//     // Simulate blocking tasks.
+//     // Even if there are `WORKERS - 1` blocking tasks,
+//     // every task will be woken up.
+//     if
+//     :: d_step { num_blocking < WORKERS - 1 ->
+//         num_blocking++
+//         printf("block: num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id)
+//     }
+//         false // block
+//         assert(false)
+//     :: true
+//     fi
+// #else
+//     skip
+// #endif
 
     if
     :: d_step {
@@ -340,7 +340,8 @@ inline task_poll() {
 
         printf("sleep: delta_list = %d, cpu_id = %d\n", delta_list, cpu_id)
     }
-        wake_up(cpu_id, 0, result)
+        // wake_up(cpu_id, 0, result)
+        // assert(false)
 
         polling[cpu_id - 1] = false
     :: else -> d_step {
@@ -471,7 +472,7 @@ ltl cpu_waking_to_active {
     timer_interrupt[0] == true ||  \
     cnt_scheduling_event > 0)
 
-ltl concurrent_work_conserving {
+ltl concurrent_work_conservation {
     [] (run_queue > 0 && (CPU_SLEEP_TAG[1] == Waiting || polling[0] == true) ->
         !(!(E || IPI[1] == true || timer_interrupt[1] == true) &&
             CPU_SLEEP_TAG[1] == Waiting) &&
