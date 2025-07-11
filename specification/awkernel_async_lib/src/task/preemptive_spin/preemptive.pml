@@ -182,10 +182,12 @@ inline scheduler_get_next(tid,ret) {
 		atomic {
 			printf("scheduler_get_next(): tid = %d,Chosen task = %d\n",tid,head);
 			tasks[head].state = Running;
-			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),head);
-			RUNNING[cpu_id(tid)] = head;
 			update_runnable_preempted_highest_priority();
 			update_running_lowest_priority();
+		}
+		atomic {
+			printf("RUNNING[cpu_id(tid)] = task: cpu_id = %d,task = %d\n",cpu_id(tid),head);
+			RUNNING[cpu_id(tid)] = head;
 		}
 		
 		unlock(tid,lock_info[head]);
