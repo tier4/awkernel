@@ -45,6 +45,7 @@ const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
 const VIRTIO_F_NOTIFY_ON_EMPTY: u64 = 1 << 24;
+const VIRTIO_F_EVENT_IDX: u64 = 1 << 29;
 const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 const VIRTIO_F_ACCESS_PLATFORM: u64 = 1 << 33;
 
@@ -144,6 +145,7 @@ struct Virtq {
     vq_index: u16,
     vq_intr_vec: u16,
 
+    is_event_idx: bool,
     data_buf: DMAPool<RxTxBuffer>,
     rx_buffer: RingQ<EtherFrameBuf>,
 }
@@ -219,14 +221,57 @@ impl Virtq {
         self.vq_free_entry(slot);
     }
 
+    /// Increase the event index in order to delay interrupts.
+    /// Returns false on success; returns true if the used ring has already advanced
+    /// too far, and the caller must process the queue again (otherwise, no
+    /// more interrupts will happen).
+    fn virtio_postpone_intr(&mut self, nslots: u16) -> bool {
+        let idx = self.vq_used_idx + nslots;
+
+        // set the new event index: avail_ring->used_event = idx
+        self.vq_dma.as_mut().avail.used_event = idx;
+
+        // number of slots in the used ring available to be supplied to the avail ring.
+        let nused = self.vq_dma.as_ref().used.idx - self.vq_used_idx;
+        debug_assert!(nused < self.vq_num as u16);
+
+        nslots < nused
+    }
+
+    /// Postpone interrupt until 3/4 of the available descriptors have been consumed.
+    fn virtio_postpone_intr_smart(&mut self) -> bool {
+        let nslots = (self.vq_dma.as_ref().avail.idx - self.vq_used_idx) * 3 / 4;
+        self.virtio_postpone_intr(nslots)
+    }
+
+    /// Postpone interrupt until all of the available descriptors have been consumed.
+    fn virtio_postpone_intr_far(&mut self) -> bool {
+        let nslots = self.vq_dma.as_ref().avail.idx - self.vq_used_idx;
+        self.virtio_postpone_intr(nslots)
+    }
+
     /// Stop vq interrupt.  No guarantee.
     fn virtio_stop_vq_intr(&mut self) {
-        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+        if self.is_event_idx {
+            // No way to disable the interrupt completely with RingEventIdx.
+            // Instead advance used_event by half the possible value.
+            // This won't happen soon and is far enough in the past to not trigger a spurious interrupt.
+            self.vq_dma.as_mut().avail.used_event = self.vq_used_idx + 0x8000;
+        } else {
+            self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+        }
     }
 
     /// Start vq interrupt.  No guarantee.
     fn virtio_start_vq_intr(&mut self) -> bool {
-        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        // If event index feature is negotiated,
+        // enabling interrupts is done through setting the latest consumed index in the used_event field
+        if self.is_event_idx {
+            self.vq_dma.as_mut().avail.used_event = self.vq_used_idx;
+        } else {
+            self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        }
+
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
     }
 
@@ -463,6 +508,7 @@ impl VirtioNetInner {
 
     fn vio_attach(&mut self) -> Result<(), VirtioDriverErr> {
         self.driver_features = 0;
+        self.driver_features |= VIRTIO_F_EVENT_IDX;
         self.driver_features |= VIRTIO_NET_F_MAC;
         self.driver_features |= VIRTIO_NET_F_MRG_RXBUF;
         self.driver_features |= VIRTIO_NET_F_STATUS;
@@ -521,7 +567,11 @@ impl VirtioNetInner {
         self.active_features = 0;
 
         // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-        // TODO: VIRTIO_F_RING_EVENT_IDX related setup
+
+        // The driver must add VIRTIO_F_EVENT_IDX if it supports it.
+        // If it did, check if it is disabled by bit 2 in the driver flags.
+        if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) && 
+
 
         self.virtio_pci_negotiate_features_10()?;
 
@@ -782,6 +832,7 @@ impl VirtioNetInner {
             vq_used_idx: 0,
             vq_index: index,
             vq_intr_vec: 0,
+            is_event_idx: self.virtio_has_feature(VIRTIO_F_EVENT_IDX),
             data_buf,
             rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
         };
@@ -789,6 +840,27 @@ impl VirtioNetInner {
         vq.init();
 
         Ok(vq)
+    }
+
+    fn virtio_notify(&mut self, vq_idx: u16) -> Result<(), VirtioDriverErr> {
+        if self.virtio_has_feature(VIRTIO_F_RING_EVENT_IDX) {
+            let vq = &mut self.virtqueues[vq_idx];
+            let o = vq.vq_dma.as_ref().avail.idx;
+            let n = vq.vq_avail_idx;
+            vq.vq_dma.as_mut().avail.idx = n;
+            let t = vq.vq_dma.as_ref().used.avail_event;
+            if (n - t) < (n - o) {
+                self.virtio_pci_kick(vq_idx)?;
+            }
+        } else {
+            let vq = &mut self.virtqueues[vq_idx];
+            vq.vq_dma.as_mut().avail.idx = vq.vq_avail_idx;
+            if vq.vq_dma.as_ref().used.flags & VIRTQ_USED_F_NO_NOTIFY == 0 {
+                self.virtio_pci_kick(vq_idx)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn vio_iff(&mut self) {
