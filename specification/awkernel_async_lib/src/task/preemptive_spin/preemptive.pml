@@ -39,8 +39,9 @@ inline min(a,b,ret) {
 inline remove_from_ipi_requests(cpu_id,task) {
 	d_step {
 		byte k = 0;
+		byte original_len = len(ipi_requests[cpu_id]);
 		do
-		:: k < len(ipi_requests[cpu_id]) ->
+		:: k < original_len ->
 			byte ipi_pending_task;
 			ipi_requests[cpu_id]?ipi_pending_task;
 			if
