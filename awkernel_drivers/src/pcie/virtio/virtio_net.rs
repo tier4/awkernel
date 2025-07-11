@@ -74,6 +74,12 @@ const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 const VIRTQ_DESC_F_NEXT: u16 = 1; // This marks a buffer as continuing via the next field.
 const VIRTQ_DESC_F_WRITE: u16 = 2; // This marks a buffer as write-only (otherwise read-only).
 
+// The device uses this in used->flags to advise the driver: don’t kick me when you add a buffer.
+// It’s unreliable, so it’s simply an optimization.
+const VIRTQ_USED_F_NO_NOTIFY: u16 = 1;
+
+// The driver uses this in avail->flags to advise the device: don’t interrupt me when you consume a buffer.
+// It’s unreliable, so it’s simply an optimization.
 const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
 
 const MCLSHIFT: u32 = 11;
@@ -253,7 +259,6 @@ impl Virtq {
 
         avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
         self.vq_avail_idx += 1;
-        avail.idx = self.vq_avail_idx;
     }
 
     /// dequeue: dequeue a request from uring.
@@ -302,6 +307,7 @@ impl Virtq {
     fn virtio_postpone_intr_far(&mut self) -> bool {
         let nslots = self.vq_dma.as_ref().avail.idx - self.vq_used_idx;
         self.virtio_postpone_intr(nslots)
+    }
 
     /// enqueue_abort: rollback.
     fn virtio_enqueue_abort(&mut self, slot: usize) {
@@ -345,7 +351,8 @@ impl Virtq {
     }
 
     /// add mbufs for all the empty receive slots
-    fn vio_populate_rx_mbufs(&mut self) {
+    fn vio_populate_rx_mbufs(&mut self) -> bool {
+        let mut should_notify = false;
         for _ in 0..self.vq_num {
             let slot = if let Some(slot) = self.virtio_enqueue_prep() {
                 slot
@@ -361,7 +368,10 @@ impl Virtq {
             let data_phy_addr = self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize;
             self.virtio_enqueue(slot, data_phy_addr, MCLBYTES as usize, false);
             self.virtio_enqueue_commit(slot);
+            should_notify = true;
         }
+
+        should_notify
     }
 
     /// dequeue received packets
@@ -396,10 +406,12 @@ impl Virtq {
         freed
     }
 
-    fn vio_rx_intr(&mut self) {
+    fn vio_rx_intr(&mut self) -> bool {
         let freed = self.vio_rxeof();
         if freed > 0 {
-            self.vio_populate_rx_mbufs();
+            self.vio_populate_rx_mbufs()
+        } else {
+            false
         }
     }
 
@@ -460,7 +472,13 @@ impl Virtq {
 
         self.virtio_enqueue_commit(slot);
 
-        if self.virtio_start_vq_intr() {
+        let should_dequeue = if self.is_event_idx {
+            self.virtio_postpone_intr_smart()
+        } else {
+            self.virtio_start_vq_intr()
+        };
+
+        if should_dequeue {
             self.vio_tx_dequeue();
         }
     }
@@ -618,7 +636,11 @@ impl VirtioNetInner {
             rx.vq_intr_vec = i + 2;
 
             let mut tx = self.virtio_alloc_vq(2 * i + 1)?;
-            tx.virtio_stop_vq_intr();
+            if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) {
+                tx.virtio_postpone_intr_far();
+            } else {
+                tx.virtio_stop_vq_intr();
+            }
             tx.vq_intr_vec = i + 2;
 
             self.virtqueues.push(Queue {
@@ -653,11 +675,6 @@ impl VirtioNetInner {
         self.active_features = 0;
 
         // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-
-        // The driver must add VIRTIO_F_EVENT_IDX if it supports it.
-        // If it did, check if it is disabled by bit 2 in the driver flags.
-        if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) && 
-
 
         self.virtio_pci_negotiate_features_10()?;
 
@@ -936,21 +953,29 @@ impl VirtioNetInner {
     }
 
     fn virtio_notify(&mut self, vq_idx: u16) -> Result<(), VirtioDriverErr> {
-        if self.virtio_has_feature(VIRTIO_F_RING_EVENT_IDX) {
-            let vq = &mut self.virtqueues[vq_idx];
-            let o = vq.vq_dma.as_ref().avail.idx;
-            let n = vq.vq_avail_idx;
-            vq.vq_dma.as_mut().avail.idx = n;
-            let t = vq.vq_dma.as_ref().used.avail_event;
-            if (n - t) < (n - o) {
-                self.virtio_pci_kick(vq_idx)?;
+        let should_kick = {
+            let queue_idx = (vq_idx / 2) as usize;
+            let mut node = MCSNode::new();
+            let vq = if vq_idx % 2 == 0 {
+                &mut self.virtqueues[queue_idx].rx.lock(&mut node)
+            } else {
+                &mut self.virtqueues[queue_idx].tx.lock(&mut node)
+            };
+
+            if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) {
+                let old_idx = vq.vq_dma.as_ref().avail.idx;
+                let new_idx = vq.vq_avail_idx;
+                vq.vq_dma.as_mut().avail.idx = new_idx;
+                let event_idx = vq.vq_dma.as_ref().used.avail_event + 1;
+                (new_idx - event_idx) < (new_idx - old_idx)
+            } else {
+                vq.vq_dma.as_mut().avail.idx = vq.vq_avail_idx;
+                vq.vq_dma.as_ref().used.flags & VIRTQ_USED_F_NO_NOTIFY == 0
             }
-        } else {
-            let vq = &mut self.virtqueues[vq_idx];
-            vq.vq_dma.as_mut().avail.idx = vq.vq_avail_idx;
-            if vq.vq_dma.as_ref().used.flags & VIRTQ_USED_F_NO_NOTIFY == 0 {
-                self.virtio_pci_kick(vq_idx)?;
-            }
+        };
+
+        if should_kick {
+            self.virtio_pci_kick(vq_idx)?;
         }
 
         Ok(())
@@ -964,10 +989,17 @@ impl VirtioNetInner {
     fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
         self.vio_stop()?;
 
+        let mut should_notify = Vec::new();
         for queue in self.virtqueues.iter_mut() {
             let mut node = MCSNode::new();
             let mut rx = queue.rx.lock(&mut node);
-            rx.vio_populate_rx_mbufs();
+            should_notify.push(rx.vio_populate_rx_mbufs());
+        }
+
+        for (queue_idx, should_notify) in should_notify.iter().enumerate() {
+            if *should_notify {
+                self.virtio_notify((queue_idx * 2) as u16)?;
+            }
         }
 
         self.vio_iff();
@@ -1113,11 +1145,13 @@ impl NetDevice for VirtioNet {
             tx.vio_start(&data);
         }
 
-        let tx_vq_index = (que_id * 2 + 1) as u16;
-        let mut inner = self.inner.write();
-        inner
-            .virtio_pci_kick(tx_vq_index)
-            .or(Err(NetDevError::DeviceError))?;
+        {
+            let mut inner = self.inner.write();
+            let tx_vq_index = (que_id * 2 + 1) as u16;
+            inner
+                .virtio_notify(tx_vq_index)
+                .or(Err(NetDevError::DeviceError))?;
+        }
 
         Ok(())
     }
@@ -1169,13 +1203,16 @@ impl NetDevice for VirtioNet {
             IRQType::Config => Ok(()),
             IRQType::Control => Ok(()),
             IRQType::Queue(idx) => {
-                {
+                let should_notify = {
                     let mut node = MCSNode::new();
                     let mut rx = inner.virtqueues[*idx].rx.lock(&mut node);
                     if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
-                        rx.vio_rx_intr();
+                        rx.vio_rx_intr()
+                    } else {
+                        false
                     }
-                }
+                };
+
                 {
                     let mut node = MCSNode::new();
                     let mut tx = inner.virtqueues[*idx].tx.lock(&mut node);
@@ -1184,12 +1221,14 @@ impl NetDevice for VirtioNet {
                     }
                 }
 
-                let rx_vq_index = (*idx * 2) as u16;
-                drop(inner);
-                let mut inner = self.inner.write();
-                inner
-                    .virtio_pci_kick(rx_vq_index)
-                    .or(Err(NetDevError::DeviceError))?;
+                if should_notify {
+                    let rx_vq_index = (*idx * 2) as u16;
+                    drop(inner);
+                    let mut inner = self.inner.write();
+                    inner
+                        .virtio_notify(rx_vq_index)
+                        .or(Err(NetDevError::DeviceError))?;
+                }
 
                 Ok(())
             }
