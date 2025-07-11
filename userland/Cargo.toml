@@ -26,6 +26,10 @@ optional = true
 path = "../applications/tests/test_network"
 optional = true
 
+[dependencies.test_ntp]
+path = "../applications/tests/test_ntp"
+optional = true
+
 [dependencies.test_rpi_hal]
 path = "../applications/tests/test_rpi_hal"
 optional = true
@@ -91,6 +95,7 @@ rd_gen_to_dags = ["dep:rd_gen_to_dags"]
 
 # Test applications
 test_network = ["dep:test_network"]
+test_ntp = ["dep:test_ntp"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]

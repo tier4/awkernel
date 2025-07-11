@@ -210,6 +210,11 @@ impl IfNetInner {
             self.interface.routes_mut().remove_default_ipv4_route();
         }
 
+        self.interface
+            .routes_mut()
+            .add_default_ipv4_route(gateway)
+            .unwrap();
+        log::error!("adding {gateway:?} as a gateway");
         self.default_gateway_ipv4 = Some(gateway);
     }
 }
