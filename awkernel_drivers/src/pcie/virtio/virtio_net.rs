@@ -70,7 +70,8 @@ const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
-const VIRTQ_DESC_F_WRITE: u16 = 2;
+const VIRTQ_DESC_F_NEXT: u16 = 1; // This marks a buffer as continuing via the next field.
+const VIRTQ_DESC_F_WRITE: u16 = 2; // This marks a buffer as write-only (otherwise read-only).
 
 const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
 
@@ -88,6 +89,12 @@ pub enum IRQType {
 enum PCIeInt {
     None,
     MsiX(Vec<(IRQ, IRQType)>),
+}
+
+#[derive(Copy, Clone)]
+struct VirtqueueEnrty {
+    index: u16, // index in VirtqDesc array
+    next: i16,  // next enq slot
 }
 
 // Virtio ring descriptors: 16 bytes.
@@ -137,6 +144,7 @@ struct VirtqDMA {
 struct Virtq {
     vq_dma: DMAPool<VirtqDMA>,
     vq_freelist: LinkedList<usize>,
+    vq_entries: [VirtqueueEnrty; MAX_VQ_SIZE],
     vq_num: usize,
     vq_mask: usize,
     vq_avail_idx: u16,
@@ -146,6 +154,7 @@ struct Virtq {
 
     data_buf: DMAPool<RxTxBuffer>,
     rx_buffer: RingQ<EtherFrameBuf>,
+    tx_hdrs: DMAPool<[VirtioNetHdr; MAX_VQ_SIZE]>,
 }
 
 impl Virtq {
@@ -155,6 +164,7 @@ impl Virtq {
         self.vq_freelist = LinkedList::new();
         for i in (0..self.vq_num).rev() {
             self.vq_freelist.push_front(i);
+            self.vq_entries[i].index = i as u16;
         }
 
         self.vq_avail_idx = 0;
@@ -171,24 +181,68 @@ impl Virtq {
 
     /// enqueue_prep: allocate a slot number
     fn virtio_enqueue_prep(&mut self) -> Option<usize> {
-        self.vq_alloc_entry()
+        let slot = self.vq_alloc_entry()?;
+        self.vq_entries[slot].next = -1; // next slot is not allocated yet
+        Some(slot)
     }
 
     /// enqueue_reserve: allocate remaining slots and build the descriptor chain.
-    fn virtio_enqueue_reserve(&mut self, slot: usize) {
-        self.vq_dma.as_mut().desc[slot].flags = 0;
+    /// Calls virtio_enqueue_abort() on failure.
+    fn virtio_enqueue_reserve(&mut self, slot: usize, nsegs: usize) -> Result<(), VirtioDriverErr> {
+        debug_assert!(self.vq_entries[slot].next == -1);
+        debug_assert!((1..=MAX_VQ_SIZE).contains(&nsegs));
+
+        self.vq_entries[slot].next = self.vq_entries[slot].index as i16;
+
+        let mut s = slot;
+        for _ in 0..nsegs - 1 {
+            let next_slot = if let Some(slot) = self.vq_alloc_entry() {
+                slot
+            } else {
+                self.vq_dma.as_mut().desc[s].flags = 0;
+                self.virtio_enqueue_abort(slot);
+                return Err(VirtioDriverErr::NoSlot);
+            };
+
+            self.vq_dma.as_mut().desc[s].flags = VIRTQ_DESC_F_NEXT;
+            self.vq_dma.as_mut().desc[s].next = next_slot as u16;
+            s = next_slot;
+        }
+
+        self.vq_dma.as_mut().desc[s].flags = 0;
+
+        Ok(())
     }
 
     /// enqueue: enqueue a single dmamap.
-    fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
-        let desc = &mut self.vq_dma.as_mut().desc[slot];
+    fn virtio_enqueue(&mut self, slot: usize, phy_addr: usize, len: usize, write: bool) {
+        let next_slot = self.vq_entries[slot].next;
+        debug_assert!(next_slot >= 0);
 
-        desc.addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        let desc = &mut self.vq_dma.as_mut().desc[next_slot as usize];
+
+        desc.addr = phy_addr as u64;
         desc.len = len as u32;
         if !write {
             desc.flags |= VIRTQ_DESC_F_WRITE;
         }
-        desc.next = 0;
+        let next_slot = desc.next;
+
+        self.vq_entries[slot].next = next_slot as i16;
+    }
+
+    fn virtio_enqueue_p(&mut self, slot: usize, phy_addr: usize, len: usize, write: bool) {
+        let next_slot = self.vq_entries[slot].next;
+        debug_assert!(next_slot >= 0);
+
+        let desc = &mut self.vq_dma.as_mut().desc[next_slot as usize];
+        desc.addr = phy_addr as u64;
+        desc.len = len as u32;
+        if !write {
+            desc.flags |= VIRTQ_DESC_F_WRITE;
+        }
+
+        self.vq_entries[slot].next = desc.next as i16;
     }
 
     /// enqueue_commit: add it to the available ring.
@@ -219,6 +273,22 @@ impl Virtq {
         self.vq_free_entry(slot);
     }
 
+    /// enqueue_abort: rollback.
+    fn virtio_enqueue_abort(&mut self, slot: usize) {
+        if self.vq_entries[slot].next < 0 {
+            self.vq_free_entry(slot);
+            return;
+        }
+
+        let mut s = slot;
+        while self.vq_dma.as_mut().desc[s].flags & VIRTQ_DESC_F_NEXT != 0 {
+            self.vq_free_entry(s);
+            s = self.vq_dma.as_mut().desc[s].next as usize;
+        }
+
+        self.vq_free_entry(s);
+    }
+
     /// Stop vq interrupt.  No guarantee.
     fn virtio_stop_vq_intr(&mut self) {
         self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
@@ -239,8 +309,13 @@ impl Virtq {
                 break;
             };
 
-            self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, MCLBYTES as usize, false);
+            // NOTE: assume nsegs in rx dmamap is 1
+            if self.virtio_enqueue_reserve(slot, 1).is_err() {
+                break;
+            }
+
+            let data_phy_addr = self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize;
+            self.virtio_enqueue(slot, data_phy_addr, MCLBYTES as usize, false);
             self.virtio_enqueue_commit(slot);
         }
     }
@@ -305,29 +380,41 @@ impl Virtq {
         self.vio_txeof();
     }
 
-    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> usize {
+    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> (usize, usize) {
         let len = frame.data.len();
-        let buf = self.data_buf.as_mut();
-        let dst = &mut buf[slot].as_mut_ptr();
-        let header_len = core::mem::size_of::<VirtioNetHdr>();
+        let buf = self.data_buf.as_mut()[slot].as_mut_ptr();
         unsafe {
-            // TODO: handle VirtIO-net header
-            // For now, we just skip the header by dst.add(header_len)
-            core::ptr::copy_nonoverlapping(frame.data.as_ptr(), dst.add(header_len), len);
+            core::ptr::copy_nonoverlapping(frame.data.as_ptr(), buf, len);
         }
 
-        header_len + len
+        let data_phy_addr = self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize;
+        (data_phy_addr, len)
     }
 
     fn vio_start(&mut self, frame: &EtherFrameRef) {
         self.vio_tx_dequeue();
 
-        if let Some(slot) = self.virtio_enqueue_prep() {
-            let len = self.vio_encap(slot, frame);
-            self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, len, true);
-            self.virtio_enqueue_commit(slot);
+        let slot = if let Some(slot) = self.virtio_enqueue_prep() {
+            slot
+        } else {
+            log::error!("virtio-net: virtio_enqueue_prep failed");
+            return;
+        };
+
+        // NOTE: assume nsegs in tx dmamap is 1. +1 is for the header
+        if self.virtio_enqueue_reserve(slot, 1 + 1).is_err() {
+            log::error!("virtio-net: virtio_enqueue_reserve failed");
+            return;
         }
+
+        let header_len = core::mem::size_of::<VirtioNetHdr>();
+        let header_phy_addr = self.tx_hdrs.get_phy_addr().as_usize() + slot * header_len;
+        self.virtio_enqueue_p(slot, header_phy_addr, header_len, true);
+
+        let (data_phy_addr, data_len) = self.vio_encap(slot, frame);
+        self.virtio_enqueue(slot, data_phy_addr, data_len, true);
+
+        self.virtio_enqueue_commit(slot);
 
         if self.virtio_start_vq_intr() {
             self.vio_tx_dequeue();
@@ -765,16 +852,22 @@ impl VirtioNetInner {
             return Err(VirtioDriverErr::InvalidQueueSize);
         }
 
-        // alloc and map the memory
+        // DMAPool for virtqueues
         let allocsize = core::mem::size_of::<VirtqDMA>();
         let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        //
+        // DMAPool for sent/received data
         let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
         let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
+        // DMAPool for tx headers
+        let allocsize = core::mem::size_of::<VirtioNetHdr>() * MAX_VQ_SIZE;
+        debug_assert!(allocsize <= PAGESIZE);
+        let tx_hdrs = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+
         let mut vq = Virtq {
             vq_dma,
+            vq_entries: [VirtqueueEnrty { index: 0, next: -1 }; MAX_VQ_SIZE],
             vq_freelist: LinkedList::new(),
             vq_num: vq_size,
             vq_mask: vq_size - 1,
@@ -784,6 +877,7 @@ impl VirtioNetInner {
             vq_intr_vec: 0,
             data_buf,
             rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
+            tx_hdrs,
         };
 
         vq.init();
