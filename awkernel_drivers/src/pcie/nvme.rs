@@ -109,11 +109,10 @@ fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
     let mut i: u32 = 0;
 
     while (read_reg(info, NVME_CSTS)? & NVME_CSTS_RDY) != rdy {
-        i += 1;
         if i > rdy_to {
-            let csts = read_reg(info, NVME_CSTS)?;
             return Err(NvmeDriverErr::NotReady);
         }
+        i += 1;
 
         wait_microsec(1000);
         fence(Ordering::SeqCst);
