@@ -41,3 +41,5 @@ but one worker thread will execute tasks as follows.
 - [cpu_waking_to_active_edge.md](cpu_waking_to_active_edge.md)
 - [eventually_execute_level.md](eventually_execute_level.md)
 - [eventually_execute_edge.md](eventually_execute_edge.md)
+- [concurrent_work_conservation_level.md](concurrent_work_conservation_level.md)
+- [concurrent_work_conservation_edge.md](concurrent_work_conservation_edge.md)
