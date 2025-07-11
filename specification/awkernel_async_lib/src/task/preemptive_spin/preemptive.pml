@@ -100,7 +100,7 @@ inline invoke_preemption(tid,task,ret) {
 		ret = true;
 	:: else -> 
 		atomic {
-			printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
+			printf("invoke_preemption() no need to preempt: hp_task = %d,lp_task = %d\n",task,lp_task);
 			ret = false;
 		}
 	fi
