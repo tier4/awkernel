@@ -98,8 +98,8 @@ fn disable(info: &PCIeInfo, rdy_to: u32) -> Result<(), NvmeDriverErr> {
     }
 
     cc &= !NVME_CC_EN;
-    write_reg(info, NVME_CC, cc)?;
 
+    write_reg(info, NVME_CC, cc)?;
     fence(Ordering::SeqCst);
 
     ready(info, 0, rdy_to)
@@ -112,11 +112,6 @@ fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
         i += 1;
         if i > rdy_to {
             let csts = read_reg(info, NVME_CSTS)?;
-            log::error!(
-                "NVMe: Controller not ready after {} ms, CSTS=0x{:08x}",
-                rdy_to,
-                csts
-            );
             return Err(NvmeDriverErr::NotReady);
         }
 
@@ -124,7 +119,6 @@ fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
         fence(Ordering::SeqCst);
     }
 
-    log::info!("NVMe: Controller ready");
     Ok(())
 }
 
