@@ -9,6 +9,8 @@ const DEVICE_NAME: &str = "NVMe Controller";
 const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
+pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
+// TODO - to be considered.
 
 pub(super) fn attach(
     mut info: PCIeInfo,
@@ -33,6 +35,8 @@ struct NvmeInner {
     _dstrd: u32,
     _rdy_to: u32,
     _mps: usize,
+    _mdts: usize,
+    _max_prpl: usize,
 }
 impl NvmeInner {
     fn new(info: PCIeInfo) -> Result<Self, NvmeDriverErr> {
@@ -66,12 +70,16 @@ impl NvmeInner {
         };
 
         let rdy_to = NVME_CAP_TO(cap);
+        let mdts = MAXPHYS;
+        let max_prpl = mdts / mps;
 
         Ok(Self {
             info,
             _dstrd: dstrd,
             _rdy_to: rdy_to,
             _mps: mps,
+            _mdts: mdts,
+            _max_prpl: max_prpl,
         })
     }
 }
