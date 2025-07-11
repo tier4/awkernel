@@ -226,9 +226,9 @@ impl Virtq {
         if !write {
             desc.flags |= VIRTQ_DESC_F_WRITE;
         }
-        let next_slot = self.vq_entries[next_slot as usize].next;
+        let next_slot = desc.next;
 
-        self.vq_entries[slot].next = next_slot;
+        self.vq_entries[slot].next = next_slot as i16;
     }
 
     fn virtio_enqueue_p(&mut self, slot: usize, phy_addr: usize, len: usize, write: bool) {
