@@ -340,8 +340,7 @@ inline task_poll() {
 
         printf("sleep: delta_list = %d, cpu_id = %d\n", delta_list, cpu_id)
     }
-        // wake_up(cpu_id, 0, result)
-        // assert(false)
+        wake_up(cpu_id, 0, result)
 
         polling[cpu_id - 1] = false
     :: else -> d_step {
@@ -455,11 +454,19 @@ ltl eventually_execute {
 }
 #endif
 
-#ifdef CPU_WAKING_TO_ACTIVE
-ltl cpu_waking_to_active {
+#ifdef CPU_WAKING_TO_ACTIVE_CPU0
+ltl cpu_waking_to_active_cpu0 {
     // CPU is waking up from sleep to active state.
     // This is used to check if the CPU is woken up by the primary CPU.
     [] ((CPU_SLEEP_TAG[0] == Waking) -> <> (CPU_SLEEP_TAG[0] == Active))
+}
+#endif
+
+#ifdef CPU_WAKING_TO_ACTIVE_CPU1
+ltl cpu_waking_to_active_cpu1 {
+    // CPU is waking up from sleep to active state.
+    // This is used to check if the CPU is woken up by the primary CPU.
+    [] ((CPU_SLEEP_TAG[1] == Waking) -> <> (CPU_SLEEP_TAG[1] == Active))
 }
 #endif
 
