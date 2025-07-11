@@ -1,9 +1,16 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{format, sync::Arc};
-use awkernel_lib::sync::rwlock::RwLock;
+use awkernel_lib::{paging::PAGESIZE, sync::rwlock::RwLock};
+
+mod nvme_regs;
+use nvme_regs::*;
 
 const DEVICE_NAME: &str = "NVMe Controller";
 const _DEVICE_SHORT_NAME: &str = "nvme";
+
+pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
+pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
+// TODO - to be considered.
 
 pub(super) fn attach(
     mut info: PCIeInfo,
@@ -25,11 +32,55 @@ pub(super) fn attach(
 }
 struct NvmeInner {
     info: PCIeInfo,
+    _dstrd: u32,
+    _rdy_to: u32,
+    _mps: usize,
+    _mdts: usize,
+    _max_prpl: usize,
 }
 impl NvmeInner {
     fn new(info: PCIeInfo) -> Result<Self, NvmeDriverErr> {
-        log::info!("NVMe: Initializing NVMe controller");
-        Ok(Self { info })
+        let reg = read_reg(&info, NVME_VS)?;
+        if reg == 0xffffffff {
+            log::error!("NVMe: Invalid register mapping");
+            return Err(NvmeDriverErr::InitFailure);
+        }
+
+        let cap =
+            read_reg(&info, NVME_CAP)? as u64 | ((read_reg(&info, NVME_CAP + 4)? as u64) << 32);
+        let dstrd = NVME_CAP_DSTRD(cap);
+
+        // Check page size compatibility
+        let mpsmin = NVME_CAP_MPSMIN(cap);
+        let mpsmax = NVME_CAP_MPSMAX(cap);
+
+        if mpsmin > PAGE_SHIFT {
+            log::error!(
+                "NVMe: minimum page size {} is greater than CPU page size {}",
+                1 << mpsmin,
+                1 << PAGE_SHIFT
+            );
+            return Err(NvmeDriverErr::IncompatiblePageSize);
+        }
+
+        let mps = if mpsmax < PAGE_SHIFT {
+            1 << mpsmax
+        } else {
+            1 << PAGE_SHIFT
+        };
+
+        let rdy_to = NVME_CAP_TO(cap);
+        let mdts = MAXPHYS;
+        let max_prpl = mdts / mps;
+
+        Ok(Self {
+            info,
+            _dstrd: dstrd,
+            _rdy_to: rdy_to,
+            _mps: mps,
+            _mdts: mdts,
+            _max_prpl: max_prpl,
+        })
     }
 }
 
