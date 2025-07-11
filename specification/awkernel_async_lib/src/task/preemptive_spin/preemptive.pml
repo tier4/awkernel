@@ -320,20 +320,18 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			handling_interrupt[tid] = true;
 		}
 		
-		atomic {
-			cur_task = RUNNING[cpu_id];
-			if
-			:: atomic{cur_task == - 1 -> 
-				printf("There is no running task in cpu_id %d\n",cpu_id);}
-				remove_from_ipi_requests(cpu_id,hp_task);
-				atomic {
-					waking[hp_task]++;
-					wake_task(tid,hp_task);
-				}
-				goto finish;
-			:: else
-			fi
-		}
+		cur_task = RUNNING[cpu_id];
+		if
+		:: atomic{cur_task == - 1 -> 
+			printf("There is no running task in cpu_id %d\n",cpu_id);}
+			remove_from_ipi_requests(cpu_id,hp_task);
+			atomic {
+				waking[hp_task]++;
+				wake_task(tid,hp_task);
+			}
+			goto finish
+		:: else
+		fi
 		
 		if
 		:: atomic{cur_task < hp_task ->
