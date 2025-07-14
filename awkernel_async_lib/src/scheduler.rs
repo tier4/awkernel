@@ -22,7 +22,6 @@ pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
 mod priority_based_rr;
-mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
