@@ -10,6 +10,7 @@ use alloc::rc::Rc;
 pub mod addr;
 pub mod allocator;
 pub mod arch;
+pub mod barrier;
 pub mod config;
 pub mod console;
 pub mod cpu;
