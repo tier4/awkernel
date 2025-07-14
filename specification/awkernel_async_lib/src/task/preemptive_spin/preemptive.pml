@@ -54,16 +54,39 @@ inline remove_from_ipi_requests(cpu_id,task) {
 	}
 }
 
+inline get_higher_priority_num_in_queue(task,ret) {
+	d_step {
+		byte k = 0;
+		ret = 0;
+		do
+		:: k < len(queue) ->
+			byte queued_task;
+			queue?queued_task; queue!queued_task;
+			if
+			:: queued_task < task -> ret++;
+			:: else
+			fi
+			k++;
+		:: else -> break
+		od
+	}
+}
+
 inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
+	byte j;
+	byte num_idle_cpus = 0;
+
 	atomic {
 		printf("get_lowest_priority_task(): tid = %d,task = %d\n",tid,task);
-		byte j;
 		for (j : 0 .. CPU_NUM - 1) {
 			if
-			:: RUNNING[j] == -1 || RUNNING[j] == task ->// There is idle CPU or the task has already been running.
+			:: RUNNING[j] == task ->// The task has already been running.
 				assert(empty(ipi_requests[j]));
 				ret_task = - 1;
 				break
+			:: RUNNING[j] == -1 ->
+				assert(empty(ipi_requests[j]));
+				num_idle_cpus++;
 			:: else ->
 				byte highest_pending;
 				get_highest_priority_in_ipi_requests(j,highest_pending);
@@ -79,6 +102,15 @@ inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
 			fi
 		}
 	}	
+
+	byte higher_priority_num = 0;
+	get_higher_priority_num_in_queue(ret_task,higher_priority_num);
+	if
+	:: higher_priority_num < num_idle_cpus ->
+		ret_task = -1;
+		ret_cpu_id = -1;
+	:: else
+	fi
 }
 
 inline set_need_preemption(tid,task) {
