@@ -440,7 +440,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	
 	atomic {
 		assert(RUNNING[cpu_id(tid)] == task);
-		printf("RUNNING[cpu_id(tid)] = -1: cpu_id = %d",cpu_id(tid));
+		printf("RUNNING[cpu_id(tid)] = -1: cpu_id = %d\n",cpu_id(tid));
 		RUNNING[cpu_id(tid)] = - 1;
 	}
 	
