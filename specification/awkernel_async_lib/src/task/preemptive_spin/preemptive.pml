@@ -398,7 +398,8 @@ inline yield_and_pool(cur_task,cur_tid,next_tid) {
 	re_schedule(cur_tid)
 }
 
-proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted) {
+proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !workers[tid].interrupted && !wait_for_weak_fairness[tid]) {
+	printf("proc %d (run_main), tid = %d\n", _pid, tid);
 	if
 	:: tid >= CPU_NUM -> re_schedule(tid);// thread_entry();
 	:: else
@@ -407,6 +408,17 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	mtype poll_result;
 	
 	start:
+	atomic {
+		consecutive_run_main_loop[tid]++;
+		if
+		:: consecutive_run_main_loop[tid] == MAX_CONSECUTIVE_RUN_MAIN_LOOP ->
+			printf("consecutive_run_main_loop[%d] == MAX_CONSECUTIVE_RUN_MAIN_LOOP\n",tid);
+			run wait_until_timeout(tid);
+			wait_for_weak_fairness[tid] = true;
+		:: else
+		fi
+	}
+
 	if
 	:: num_terminated == TASK_NUM -> goto end;
 	:: else
@@ -417,7 +429,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	
 	if
 	:: task == - 1 -> goto start;
-	:: else
+	:: atomic{else -> consecutive_run_main_loop[tid] = 0;}
 	fi
 	
 	// If the next task is a preempted task, then the current task will yield to the thread holding the next task.

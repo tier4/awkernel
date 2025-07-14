@@ -6,6 +6,16 @@ bool handling_interrupt[IR_HANDLER_NUM] = false
 short runnable_preempted_highest_priority = BYTE_MAX
 short running_lowest_priority = - BYTE_MAX
 
+#define MAX_CONSECUTIVE_RUN_MAIN_LOOP 5
+byte consecutive_run_main_loop[WORKER_NUM] = 0
+bool wait_for_weak_fairness[WORKER_NUM] = false
+
+proctype wait_until_timeout(byte tid) {
+	if
+	:: timeout -> atomic{wait_for_weak_fairness[tid] = false; consecutive_run_main_loop[tid] = 0;}
+	fi
+}
+
 inline update_runnable_preempted_highest_priority() {
 	atomic {
 		runnable_preempted_highest_priority = BYTE_MAX;
