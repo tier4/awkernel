@@ -1,7 +1,6 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{format, sync::Arc};
-use awkernel_lib::{delay::wait_microsec, paging::PAGESIZE, sync::rwlock::RwLock};
-use core::sync::atomic::{fence, Ordering};
+use awkernel_lib::{paging::PAGESIZE, sync::rwlock::RwLock};
 
 mod nvme_regs;
 use nvme_regs::*;
@@ -73,8 +72,6 @@ impl NvmeInner {
         let rdy_to = NVME_CAP_TO(cap);
         let mdts = MAXPHYS;
         let max_prpl = mdts / mps;
-
-        disable(&info, rdy_to)?;
 
         Ok(Self {
             info,
