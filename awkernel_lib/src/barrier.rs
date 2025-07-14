@@ -1,8 +1,4 @@
 //! Memory barrier abstractions for device drivers
-//!
-//! This module provides architecture-independent memory barrier functions
-//! that are essential for device driver development, particularly for MMIO operations.
-
 #[cfg(not(feature = "std"))]
 use crate::arch::ArchImpl;
 
