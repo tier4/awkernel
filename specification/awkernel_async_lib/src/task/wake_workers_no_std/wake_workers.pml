@@ -28,6 +28,8 @@ byte finished_tasks = 0
 
 bool polling[CPU_NUM - 1] = false
 
+bool unintentional_irq = true
+
 inline compare_exchange(target, current, new, prev)
 {
     d_step {
@@ -53,6 +55,12 @@ inline send_ipi(cpu_id) {
 
 inline interrupt_handler(cpu_id) {
     atomic {
+        if
+        :: IPI[cpu_id] == true || (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
+        :: else ->
+            goto return_interrupt_handler
+        fi
+
         // disable interrupts
         if
         :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true
@@ -80,7 +88,7 @@ inline interrupt_handler(cpu_id) {
     // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
     // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
     if
-    :: CPU_SLEEP_TAG[cpu_id] == Waiting -> timer_reset(cpu_id)
+    :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
     :: else
     fi
 
@@ -96,15 +104,6 @@ inline wait_interrupt(cpu_id) {
         timer_interrupt[cpu_id] = false
     }
     :: d_step { IPI[cpu_id] -> IPI[cpu_id] = false }
-    fi
-}
-
-inline rnd4(rnd) {
-    if
-    :: rnd = 0
-    :: rnd = 1
-    :: rnd = 2
-    :: rnd = 3
     fi
 }
 
@@ -127,14 +126,12 @@ inline sleep(cpu_id, tout) {
     d_step {
         // enable interrupts and halt until IPI arrives
         interrupt_mask[cpu_id] = false
-        rnd4(rnd)
     }
 
     // receive interrupts
-    if
-    :: rnd == 0 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+#if IRQ_POS == 0
+    invoke_unintentional_irq(cpu_id)
+#endif
 
     // mark waiting before halt
     mtype prev_val
@@ -147,10 +144,9 @@ inline sleep(cpu_id, tout) {
     fi
 
     // receive interrupts
-    if
-    :: rnd == 1 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+#if IRQ_POS == 1
+    invoke_unintentional_irq(cpu_id)
+#endif
 
     // Because x86 APIC timers are edge-triggered interrupts,
     // timer interrupts that occur during interrupt handlers (when interrupts are disabled)
@@ -174,10 +170,9 @@ inline sleep(cpu_id, tout) {
     wake_up(cpu_id, 0, tmp)
 
     // receive interrupts
-    if
-    :: rnd == 2 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+#if IRQ_POS == 2
+    invoke_unintentional_irq(cpu_id)
+#endif
 
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val)
 
@@ -194,10 +189,9 @@ inline sleep(cpu_id, tout) {
     //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
     // receive interrupts
-    if
-    :: rnd == 3 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+#if IRQ_POS == 3
+    invoke_unintentional_irq(cpu_id)
+#endif
 
     wait_interrupt(cpu_id)
 
@@ -212,6 +206,17 @@ return_sleep2:
 
 return_sleep3:
     timer_disable(cpu_id)
+}
+
+inline invoke_unintentional_irq(cpu_id) {
+    if
+    :: d_step { unintentional_irq == true ->
+        unintentional_irq = false
+        printf("unintentional_irq: %d\n", unintentional_irq)
+    }
+        interrupt_handler(cpu_id)
+    :: else
+    fi
 }
 
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
