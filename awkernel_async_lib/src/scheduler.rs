@@ -70,7 +70,6 @@ pub enum SchedulerType {
     GEDF(u64), // relative deadline
     FIFO,
     PrioritizedFIFO(u8),
-    RR,
     PriorityBasedRR(u8),
     Panicked,
 }
@@ -85,7 +84,6 @@ impl SchedulerType {
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
                 )
-                | (SchedulerType::RR, SchedulerType::RR)
                 | (
                     SchedulerType::PriorityBasedRR(_),
                     SchedulerType::PriorityBasedRR(_)
@@ -109,12 +107,11 @@ impl SchedulerType {
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 6] = [
+static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::FIFO,
     SchedulerType::PriorityBasedRR(0),
-    SchedulerType::RR,
     SchedulerType::Panicked,
 ];
 
@@ -152,7 +149,6 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
     match sched_type {
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
-        SchedulerType::RR => &rr::SCHEDULER,
         SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
@@ -256,7 +252,6 @@ pub fn wake_task() -> Option<Duration> {
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
             match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
                 Some(SchedulerType::PriorityBasedRR(_)) => {
                     priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
                 }
