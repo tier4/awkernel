@@ -3,12 +3,12 @@
 This is a model of the fully-preemptive `PrioritizedFIFOScheduler` to verify that priority inversion does not occur.
 Note that this does not consider inter-scheduler preemption.
 We have prepared an environment that could cause the priority inversion presented in [this comments](https://github.com/tier4/awkernel/pull/255#issuecomment-2556669740).
-There are two CPUs and four tasks, and the smaller the task index, the higher the priority.
+There are two CPUs and five tasks, and the smaller the task index, the higher the priority.
 Tasks are executed as follows:
 
-1. init: wake task 3
-2. (CPU 0) worker thread 0: execute task 3, wake task 2, and block.
-3. (CPU 1) worker thread 1: execute task 2, wake tasks 1,0, send IPI for preemption, and block.
+1. init: wake task 4
+2. (CPU 0) worker thread 0: execute task 4, wake task 3, and block.
+3. (CPU 1) worker thread 1: execute task 3, wake tasks 0,1,2, send IPI for preemption, and block.
 4. interrupt_handler: handling IPI and occur preemption.
 5. ...
 
