@@ -11,24 +11,16 @@ pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
 pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 
 pub trait Barrier {
-    /// Enter critical section memory barrier
     fn membar_enter();
 
-    /// Exit critical section memory barrier
     fn membar_exit();
 
-    /// Producer memory barrier - ensures all stores before the barrier complete
-    /// before any stores after the barrier.
     fn membar_producer();
 
-    /// Consumer memory barrier - ensures all loads before the barrier complete
-    /// before any loads after the barrier.
     fn membar_consumer();
 
-    /// Full memory synchronization barrier
     fn membar_sync();
 
-    /// Bus space barrier - ensures ordering of MMIO operations
     fn bus_space_barrier(flags: u32);
 }
 
