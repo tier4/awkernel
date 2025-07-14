@@ -239,7 +239,7 @@ inline wake_up(my_id, target_cpu_id, result) {
         // CPU not yet sleeping: schedule wake-up
         CPU_SLEEP_TAG[target_cpu_id] = Continue
         result = false
-        printf("Active -> Waking: CPU#{%d}", target_cpu_id)
+        printf("Active -> Continue: CPU#{%d}", target_cpu_id)
     }
     :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
          // CPU is halted: send IPI
@@ -254,7 +254,11 @@ inline wake_up(my_id, target_cpu_id, result) {
         result = false
     }
         send_ipi(target_cpu_id)
-    :: else
+    ::  d_step { CPU_SLEEP_TAG[target_cpu_id] == Continue ->
+        // already in continue state, no action needed
+        result = false
+        printf("already continue: CPU#{%d}", target_cpu_id)
+    }
     fi
 
 return_wake_up:
