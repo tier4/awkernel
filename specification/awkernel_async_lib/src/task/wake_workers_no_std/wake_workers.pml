@@ -171,7 +171,7 @@ inline sleep(cpu_id, tout) {
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
     byte tmp
-    // wake_up(cpu_id, 0, tmp)
+    wake_up(cpu_id, 0, tmp)
 
     // receive interrupts
     if
