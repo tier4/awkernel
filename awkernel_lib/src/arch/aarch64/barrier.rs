@@ -1,8 +1,4 @@
 //! Memory barrier implementations for AArch64 architecture
-//!
-//! This module provides memory barrier functions compatible with OpenBSD's
-//! membar_* and bus_space_barrier functions.
-
 use awkernel_aarch64::{dmb_ld, dmb_st, dmb_sy, dsb_ld, dsb_st, dsb_sy};
 
 pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
