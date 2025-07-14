@@ -1,5 +1,5 @@
 //! Memory barrier implementations for AArch64 architecture
-use awkernel_aarch64::{dmb_ld, dmb_st, dmb_sy, dsb_ld, dsb_st, dsb_sy};
+use awkernel_aarch64::{dmb_ld, dmb_st, dmb_sy};
 
 pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
 pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;

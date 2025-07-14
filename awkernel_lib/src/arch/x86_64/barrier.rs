@@ -10,6 +10,7 @@ pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 /// before any loads after the barrier.
 #[inline(always)]
 pub fn membar_consumer() {
+    // It must be suffecient with Acquire ordering for producer barriers, but we use SeqCst following the OpenBSD implementation.
     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
@@ -17,7 +18,8 @@ pub fn membar_consumer() {
 /// before any stores after the barrier.
 #[inline(always)]
 pub fn membar_producer() {
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+    // It must be suffecient with Release ordering for producer barriers, but we use SeqCst following the OpenBSD implementation.
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Enter critical section memory barrier

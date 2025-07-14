@@ -9,7 +9,7 @@ pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 #[inline(always)]
 pub fn membar_consumer() {
     unsafe {
-        asm!("fence r,rw", options(nostack));
+        asm!("fence r,r" ::: "memory" : "volatile");
     }
 }
 
@@ -18,7 +18,7 @@ pub fn membar_consumer() {
 #[inline(always)]
 pub fn membar_producer() {
     unsafe {
-        asm!("fence rw,w", options(nostack));
+        asm!("fence w,w" ::: "memory" : "volatile");
     }
 }
 
@@ -26,7 +26,7 @@ pub fn membar_producer() {
 #[inline(always)]
 pub fn membar_enter() {
     unsafe {
-        asm!("fence rw,rw", options(nostack));
+        asm!("fence w,rw" ::: "memory" : "volatile");
     }
 }
 
@@ -34,7 +34,7 @@ pub fn membar_enter() {
 #[inline(always)]
 pub fn membar_exit() {
     unsafe {
-        asm!("fence rw,rw", options(nostack));
+        asm!("fence rw,w" ::: "memory" : "volatile");
     }
 }
 
@@ -42,7 +42,7 @@ pub fn membar_exit() {
 #[inline(always)]
 pub fn membar_sync() {
     unsafe {
-        asm!("fence iorw,iorw", options(nostack));
+        asm!("fence rw,rw" ::: "memory" : "volatile");
     }
 }
 
@@ -50,6 +50,6 @@ pub fn membar_sync() {
 #[inline(always)]
 pub fn bus_space_barrier(_flags: u32) {
     unsafe {
-        asm!("fence iorw,iorw", options(nostack));
+        asm!("fence iorw,iorw" ::: "memory" : "volatile");
     }
 }
