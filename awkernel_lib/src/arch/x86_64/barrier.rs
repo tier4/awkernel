@@ -14,11 +14,15 @@ pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 /// before any loads after the barrier.
 /// 
 /// Reference: https://github.com/openbsd/src/blob/master/sys/arch/amd64/include/atomic.h
-/// On x86_64, membar_consumer() is defined as __membar("") which is just a compiler barrier
+/// On x86_64, membar_consumer() is defined as __membar("") which expands to:
+/// __asm volatile("" ::: "memory")
 /// This is sufficient because x86 has Total Store Order (TSO) - loads are never reordered
 #[inline(always)]
 pub fn membar_consumer() {
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Acquire);
+    // Direct translation of OpenBSD's __membar("")
+    // In Rust, we need to use compiler_fence to get the same "memory" clobber effect
+    // as __asm volatile("" ::: "memory") in C
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Producer memory barrier - ensures all stores before the barrier complete
