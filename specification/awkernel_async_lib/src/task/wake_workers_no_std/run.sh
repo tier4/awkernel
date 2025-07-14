@@ -12,7 +12,7 @@ for i in $(seq 0 3); do
     make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU1 TIMER=TIMER_EDGE run | tee cpu_waking_to_active_cpu1_edge_irq$i.out
 
     make clean
-    make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_EDGE run | tee eventually_execute_edge.out
+    make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_EDGE run | tee eventually_execute_edge_irq$i.out
 
     # Level-triggered timer
     make clean

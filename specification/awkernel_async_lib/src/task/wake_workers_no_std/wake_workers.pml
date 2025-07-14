@@ -129,7 +129,7 @@ inline sleep(cpu_id, tout) {
     }
 
     // receive interrupts
-#if IRQ_POS == 0
+#if IRQ_POS == 3
     invoke_unintentional_irq(cpu_id)
 #endif
 
@@ -145,7 +145,7 @@ inline sleep(cpu_id, tout) {
     fi
 
     // receive interrupts
-#if IRQ_POS == 1
+#if IRQ_POS == 2
     invoke_unintentional_irq(cpu_id)
 #endif
 
@@ -171,7 +171,7 @@ inline sleep(cpu_id, tout) {
     wake_up(cpu_id, 0, tmp)
 
     // receive interrupts
-#if IRQ_POS == 2
+#if IRQ_POS == 1
     invoke_unintentional_irq(cpu_id)
 #endif
 
@@ -192,7 +192,7 @@ inline sleep(cpu_id, tout) {
     //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
     // receive interrupts
-#if IRQ_POS == 3
+#if IRQ_POS == 0
     invoke_unintentional_irq(cpu_id)
 #endif
 
