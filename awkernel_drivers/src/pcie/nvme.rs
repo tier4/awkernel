@@ -1,6 +1,7 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{format, sync::Arc};
-use awkernel_lib::{paging::PAGESIZE, sync::rwlock::RwLock};
+use awkernel_lib::{delay::wait_microsec, paging::PAGESIZE, sync::rwlock::RwLock};
+use core::sync::atomic::{fence, Ordering};
 
 mod nvme_regs;
 use nvme_regs::*;
@@ -73,6 +74,8 @@ impl NvmeInner {
         let mdts = MAXPHYS;
         let max_prpl = mdts / mps;
 
+        disable(&info, rdy_to)?;
+
         Ok(Self {
             info,
             _dstrd: dstrd,
@@ -82,6 +85,40 @@ impl NvmeInner {
             _max_prpl: max_prpl,
         })
     }
+}
+
+fn disable(info: &PCIeInfo, rdy_to: u32) -> Result<(), NvmeDriverErr> {
+    let mut cc = read_reg(info, NVME_CC)?;
+
+    if cc & NVME_CC_EN != 0 {
+        let csts = read_reg(info, NVME_CSTS)?;
+        if csts & NVME_CSTS_CFS == 0 {
+            ready(info, NVME_CSTS_RDY, rdy_to)?;
+        }
+    }
+
+    cc &= !NVME_CC_EN;
+
+    write_reg(info, NVME_CC, cc)?;
+    fence(Ordering::SeqCst);
+
+    ready(info, 0, rdy_to)
+}
+
+fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
+    let mut i: u32 = 0;
+
+    while (read_reg(info, NVME_CSTS)? & NVME_CSTS_RDY) != rdy {
+        if i > rdy_to {
+            return Err(NvmeDriverErr::NotReady);
+        }
+        i += 1;
+
+        wait_microsec(1000);
+        fence(Ordering::SeqCst);
+    }
+
+    Ok(())
 }
 
 struct Nvme {
