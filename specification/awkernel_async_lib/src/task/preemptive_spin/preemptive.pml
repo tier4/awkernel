@@ -420,6 +420,18 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	}
 
 	if
+	:: RUNNING[cpu_id(tid)] == - 1 -> 
+		byte pending_task;
+		do
+		:: atomic {ipi_requests[cpu_id(tid)]?[pending_task] -> ipi_requests[cpu_id(tid)]?pending_task;
+			waking[pending_task]++;}
+			wake_task(tid,pending_task)
+		:: atomic{else -> break}
+		od
+	:: else
+	fi
+
+	if
 	:: num_terminated == TASK_NUM -> goto end;
 	:: else
 	fi
