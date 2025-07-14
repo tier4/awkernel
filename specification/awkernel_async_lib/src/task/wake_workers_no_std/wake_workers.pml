@@ -6,7 +6,7 @@
 #define TASK_ID_NONE false
 #define TASK_ID_SOME true
 
-mtype = { Active, Waiting, Waking }
+mtype = { Active, Waiting, Waking, Continue }
 mtype CPU_SLEEP_TAG[CPU_NUM]
 
 byte cnt_scheduling_event = 0
@@ -118,7 +118,7 @@ inline sleep(cpu_id, tout) {
 
     // if wake-up already pending, consume and return
     if
-    :: CPU_SLEEP_TAG[cpu_id] == Waking -> goto return_sleep2
+    :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep2
     :: else
     fi
 
@@ -140,6 +140,7 @@ inline sleep(cpu_id, tout) {
     if
     :: prev_val == Active
     :: prev_val == Waking -> goto return_sleep1
+    :: prev_val == Continue -> goto return_sleep1
     :: else -> assert(prev_val != Waiting) // unreachable!()
     fi
 
@@ -180,7 +181,9 @@ inline sleep(cpu_id, tout) {
     :: prev_val == Waking ->
         interrupt_mask[cpu_id] = true
         goto return_sleep3
-    :: prev_val == Waiting
+    :: d_step { prev_val == Waiting ->
+        printf("CPU#{%d}: sleeping, prev_val = %d, TAG = %d\n", cpu_id, prev_val, CPU_SLEEP_TAG[cpu_id])
+    }
     :: else -> assert(false) // unreachable!()
     fi
 
@@ -212,7 +215,7 @@ inline invoke_unintentional_irq(cpu_id) {
     if
     :: d_step { unintentional_irq == true ->
         unintentional_irq = false
-        printf("unintentional_irq: %d\n", unintentional_irq)
+        printf("CPU#{%d}: unintentional IRQ, TAG = %d\n", cpu_id, CPU_SLEEP_TAG[cpu_id])
     }
         interrupt_handler(cpu_id)
     :: else
@@ -232,25 +235,26 @@ inline wake_up(my_id, target_cpu_id, result) {
 
     // attempt state transitions until success or redundant
     if
-    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Active ->
+    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Active ->
         // CPU not yet sleeping: schedule wake-up
-        CPU_SLEEP_TAG[target_cpu_id] = Waking
+        CPU_SLEEP_TAG[target_cpu_id] = Continue
         result = false
         printf("Active -> Waking: CPU#{%d}", target_cpu_id)
     }
-    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
+    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
          // CPU is halted: send IPI
         CPU_SLEEP_TAG[target_cpu_id] = Waking
         result = true
         printf("Waiting -> Waking: CPU#{%d}", target_cpu_id)
     }
         send_ipi(target_cpu_id)
-    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
+    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
         // wake-up already pending
         printf("already waking: CPU#{%d}", target_cpu_id)
         result = false
     }
         send_ipi(target_cpu_id)
+    :: else
     fi
 
 return_wake_up:
