@@ -250,11 +250,9 @@ pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
-            match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::PriorityBasedRR(_)) => {
-                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
-                }
-                _ => (),
+            if let Some(SchedulerType::PriorityBasedRR(_)) = get_scheduler_type_by_task_id(task_id)
+            {
+                priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
             }
         }
     }
