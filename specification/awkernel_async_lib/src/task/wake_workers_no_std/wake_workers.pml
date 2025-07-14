@@ -1,5 +1,5 @@
 #define WORKERS 2
-#define TASK_NUM (WORKERS + 1)
+#define TASK_NUM WORKERS
 #define CPU_NUM (WORKERS + 1)
 #define TIMEOUT_NONE false
 #define TIMEOUT_SOME true
@@ -87,10 +87,12 @@ inline interrupt_handler(cpu_id) {
     // Enable timer.
     // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
     // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
-    if
-    :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
-    :: else
-    fi
+    d_step {
+        if
+        :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
+        :: else
+        fi
+    }
 
     // enable interrupts
     interrupt_mask[cpu_id] = false
@@ -109,24 +111,23 @@ inline wait_interrupt(cpu_id) {
 
 // `SleepCpuNoStd::sleep()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
 inline sleep(cpu_id, tout) {
-    if
-    :: tout != TIMEOUT_NONE ->
-        // enable timer
-        timer_reset(cpu_id)
-    :: else
-    fi
+    atomic {
+        if
+        :: tout != TIMEOUT_NONE ->
+            // enable timer
+            timer_reset(cpu_id)
+        :: else
+        fi
 
-    // if wake-up already pending, consume and return
-    if
-    :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep2
-    :: else
-    fi
-
-    byte rnd // chose the position interrupts occur
-    d_step {
-        // enable interrupts and halt until IPI arrives
-        interrupt_mask[cpu_id] = false
+        // if wake-up already pending, consume and return
+        if
+        :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep2
+        :: else
+        fi
     }
+
+    // enable interrupts and halt until IPI arrives
+    interrupt_mask[cpu_id] = false
 
     // receive interrupts
 #if IRQ_POS == 3
@@ -137,12 +138,13 @@ inline sleep(cpu_id, tout) {
     mtype prev_val
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Active, Waiting, prev_val)
 
-    if
-    :: prev_val == Active
-    :: prev_val == Waking -> goto return_sleep1
-    :: prev_val == Continue -> goto return_sleep1
-    :: else -> assert(prev_val != Waiting) // unreachable!()
-    fi
+    atomic {
+        if
+        :: prev_val == Active
+        :: prev_val == Waking || prev_val == Continue -> goto return_sleep1
+        :: else -> assert(prev_val != Waiting) // unreachable!()
+        fi
+    }
 
     // receive interrupts
 #if IRQ_POS == 2
@@ -153,17 +155,19 @@ inline sleep(cpu_id, tout) {
     // timer interrupts that occur during interrupt handlers (when interrupts are disabled)
     // will be lost.
     // Therefore, the timeout is checked here.
-    if
-    :: tout != TIMEOUT_NONE ->
+    atomic {
         if
-        :: true ->
-            // timeout <= elapsed
-            CPU_SLEEP_TAG[cpu_id] = Active
-            goto return_sleep3
-        :: true
+        :: tout != TIMEOUT_NONE ->
+            if
+            :: true ->
+                // timeout <= elapsed
+                CPU_SLEEP_TAG[cpu_id] = Active
+                goto return_sleep3
+            :: true
+            fi
+        :: else
         fi
-    :: else
-    fi
+    }
 
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
@@ -323,7 +327,7 @@ inline task_poll() {
         created_task++
     }
         spawn_task()
-    :: break
+    :: else -> break
     od
 
 #ifdef EVENTUALLY_EXECUTE

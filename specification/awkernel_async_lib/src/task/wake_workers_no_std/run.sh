@@ -1,5 +1,5 @@
 for i in $(seq 0 3); do
-    echo "$i"
+    echo "IRQ_POS$i"
 
     # Edge-triggered timer
     make clean
