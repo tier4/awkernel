@@ -41,6 +41,7 @@ const VIRTIO_NET_ID: u16 = 0x1041;
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
+const VIRTIO_NET_F_CTRL_VQ: u64 = 1 << 17;
 const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
@@ -482,6 +483,15 @@ impl Virtq {
             self.vio_tx_dequeue();
         }
     }
+
+    fn vio_ctrleof(&mut self) {
+        while let Some((slot, _)) = self.virtio_dequeue() {
+            self.virtio_dequeue_commit(slot);
+            if !self.virtio_start_vq_intr() {
+                break;
+            }
+        }
+    }
 }
 
 /// Packet header structure
@@ -549,6 +559,7 @@ struct VirtioNetInner {
     flags: NetFlags,
     capabilities: NetCapabilities,
     virtqueues: Vec<Queue>,
+    ctrl_vq: Option<Mutex<Virtq>>,
     irq_to_type: BTreeMap<u16, IRQType>,
     pcie_int: PCIeInt,
 }
@@ -567,6 +578,7 @@ impl VirtioNetInner {
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
             virtqueues: Vec::new(),
+            ctrl_vq: None,
             irq_to_type: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         }
@@ -616,6 +628,7 @@ impl VirtioNetInner {
         self.driver_features |= VIRTIO_NET_F_MAC;
         self.driver_features |= VIRTIO_NET_F_MRG_RXBUF;
         self.driver_features |= VIRTIO_NET_F_STATUS;
+        self.driver_features |= VIRTIO_NET_F_CTRL_VQ;
         self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
         self.virtio_pci_negotiate_features()?;
@@ -647,6 +660,15 @@ impl VirtioNetInner {
                 rx: Mutex::new(rx),
                 tx: Mutex::new(tx),
             });
+        }
+
+        if self.virtio_has_feature(VIRTIO_NET_F_CTRL_VQ) {
+            let vq_index = 2; // NOTE: when VIRTIO_NET_F_CTRL_VQ is negotiated, vq_index changes.
+            let mut vq = self.virtio_alloc_vq(vq_index)?;
+            vq.vq_intr_vec = 1;
+            vq.virtio_start_vq_intr();
+
+            self.ctrl_vq = Some(Mutex::new(vq));
         }
 
         {
@@ -1033,7 +1055,15 @@ impl VirtioNetInner {
             }
         }
 
-        self.virtio_reinit_end()
+        if let Some(ctrl_vq) = &self.ctrl_vq {
+            let mut node = MCSNode::new();
+            let mut ctrl_vq = ctrl_vq.lock(&mut node);
+            ctrl_vq.virtio_start_vq_intr();
+        }
+
+        self.virtio_reinit_end()?;
+
+        Ok(())
     }
 }
 
@@ -1199,7 +1229,20 @@ impl NetDevice for VirtioNet {
 
         match irq_type {
             IRQType::Config => Ok(()),
-            IRQType::Control => Ok(()),
+            IRQType::Control => {
+                drop(inner);
+                let mut inner = self.inner.write();
+
+                if let Some(ctrl_vq) = &mut inner.ctrl_vq {
+                    let mut node = MCSNode::new();
+                    let mut ctrl_vq = ctrl_vq.lock(&mut node);
+                    if ctrl_vq.vq_used_idx != ctrl_vq.vq_dma.as_ref().used.idx {
+                        ctrl_vq.vio_ctrleof();
+                    }
+                }
+
+                Ok(())
+            }
             IRQType::Queue(idx) => {
                 let should_notify = {
                     let mut node = MCSNode::new();
