@@ -1,6 +1,7 @@
 # Preemptive fixed-priority scheduler that ensures priorities
 
 This is a model of the fully-preemptive `PrioritizedFIFOScheduler` to verify that priority inversion does not occur.
+Note that this does not consider inter-scheduler preemption.
 We have prepared an environment that could cause the priority inversion presented in [this comments](https://github.com/tier4/awkernel/pull/255#issuecomment-2556669740).
 There are two CPUs and four tasks, and the smaller the task index, the higher the priority.
 Tasks are executed as follows:
