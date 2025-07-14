@@ -1,7 +1,11 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{format, sync::Arc};
-use awkernel_lib::{delay::wait_microsec, paging::PAGESIZE, sync::rwlock::RwLock};
-use core::sync::atomic::{fence, Ordering};
+use awkernel_lib::{
+    barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
+    delay::wait_microsec,
+    paging::PAGESIZE,
+    sync::rwlock::RwLock,
+};
 
 mod nvme_regs;
 use nvme_regs::*;
@@ -100,7 +104,7 @@ fn disable(info: &PCIeInfo, rdy_to: u32) -> Result<(), NvmeDriverErr> {
     cc &= !NVME_CC_EN;
 
     write_reg(info, NVME_CC, cc)?;
-    fence(Ordering::SeqCst);
+    bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
 
     ready(info, 0, rdy_to)
 }
@@ -115,7 +119,7 @@ fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
         i += 1;
 
         wait_microsec(1000);
-        fence(Ordering::SeqCst);
+        bus_space_barrier(BUS_SPACE_BARRIER_READ);
     }
 
     Ok(())
