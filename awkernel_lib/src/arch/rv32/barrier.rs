@@ -4,24 +4,6 @@ use core::arch::asm;
 pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
 pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 
-/// Consumer memory barrier - ensures all loads before the barrier complete
-/// before any loads after the barrier.
-#[inline(always)]
-pub fn membar_consumer() {
-    unsafe {
-        asm!("fence r,r");
-    }
-}
-
-/// Producer memory barrier - ensures all stores before the barrier complete
-/// before any stores after the barrier.
-#[inline(always)]
-pub fn membar_producer() {
-    unsafe {
-        asm!("fence w,w");
-    }
-}
-
 /// Enter critical section memory barrier
 #[inline(always)]
 pub fn membar_enter() {
@@ -35,6 +17,24 @@ pub fn membar_enter() {
 pub fn membar_exit() {
     unsafe {
         asm!("fence rw,w");
+    }
+}
+
+/// Producer memory barrier - ensures all stores before the barrier complete
+/// before any stores after the barrier.
+#[inline(always)]
+pub fn membar_producer() {
+    unsafe {
+        asm!("fence w,w");
+    }
+}
+
+/// Consumer memory barrier - ensures all loads before the barrier complete
+/// before any loads after the barrier.
+#[inline(always)]
+pub fn membar_consumer() {
+    unsafe {
+        asm!("fence r,r");
     }
 }
 

@@ -4,20 +4,6 @@ use awkernel_aarch64::{dmb_ld, dmb_st, dmb_sy};
 pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
 pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 
-/// Consumer memory barrier - ensures all loads before the barrier complete
-/// before any loads after the barrier.
-#[inline(always)]
-pub fn membar_consumer() {
-    dmb_ld();
-}
-
-/// Producer memory barrier - ensures all stores before the barrier complete
-/// before any stores after the barrier.
-#[inline(always)]
-pub fn membar_producer() {
-    dmb_st();
-}
-
 /// Enter critical section memory barrier
 #[inline(always)]
 pub fn membar_enter() {
@@ -28,6 +14,20 @@ pub fn membar_enter() {
 #[inline(always)]
 pub fn membar_exit() {
     dmb_sy();
+}
+
+/// Producer memory barrier - ensures all stores before the barrier complete
+/// before any stores after the barrier.
+#[inline(always)]
+pub fn membar_producer() {
+    dmb_st();
+}
+
+/// Consumer memory barrier - ensures all loads before the barrier complete
+/// before any loads after the barrier.
+#[inline(always)]
+pub fn membar_consumer() {
+    dmb_ld();
 }
 
 /// Full memory synchronization barrier
