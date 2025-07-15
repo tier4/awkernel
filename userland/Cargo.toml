@@ -38,8 +38,8 @@ optional = true
 path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
-[dependencies.test_priority_based_rr]
-path = "../applications/tests/test_priority_based_rr"
+[dependencies.test_prioritized_rr]
+path = "../applications/tests/test_prioritized_rr"
 optional = true
 
 [dependencies.test_async_mutex]
@@ -87,7 +87,7 @@ test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
-test_priority_based_rr = ["dep:test_priority_based_rr"]
+test_prioritized_rr = ["dep:test_prioritized_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
 test_measure_channel = ["dep:test_measure_channel"]

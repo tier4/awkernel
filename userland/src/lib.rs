@@ -25,8 +25,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_prioritized_fifo")]
     test_prioritized_fifo::run().await; // test for prioritized_fifo
 
-    #[cfg(feature = "test_priority_based_rr")]
-    test_priority_based_rr::run().await; // test for priority_based_rr
+    #[cfg(feature = "test_prioritized_rr")]
+    test_prioritized_rr::run().await; // test for prioritized_rr
 
     #[cfg(feature = "test_async_mutex")]
     test_async_mutex::run().await; // test for async_mutex
