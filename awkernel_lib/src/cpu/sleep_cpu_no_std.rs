@@ -216,7 +216,9 @@ pub(super) fn wait_init() {
 pub fn reset_wakeup_timer() {
     let cpu_id = crate::cpu::cpu_id();
 
-    if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
+    let state = CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed);
+
+    if state == SleepTag::Waiting as u32 || state == SleepTag::Waking as u32 {
         crate::timer::reset(core::time::Duration::from_micros(100));
     }
 }
