@@ -17,7 +17,7 @@ pub async fn run() {
                     wait_millisec(100);
                 }
             },
-            SchedulerType::RR,
+            SchedulerType::PriorityBasedRR(31),
         )
         .await;
     }
