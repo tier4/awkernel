@@ -67,24 +67,26 @@ inline interrupt_handler(cpu_id) {
         :: else -> goto return_interrupt_handler
         fi
 
-        // handle IPI
-        if
-        :: IPI[cpu_id] == true ->
-            IPI[cpu_id] = false
-            printf("CPU#{%d}: handle IPI\n", cpu_id)
-        :: else
-        fi
+        d_step {
+            // handle IPI
+            if
+            :: IPI[cpu_id] == true ->
+                IPI[cpu_id] = false
+                printf("CPU#{%d}: handle IPI\n", cpu_id)
+            :: else
+            fi
 
-        // handle timer interrupt
-        if
-        :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
-            timer_interrupt[cpu_id] = false
+            // handle timer interrupt
+            if
+            :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
+                timer_interrupt[cpu_id] = false
 #ifdef TIMER_LEVEL
-            timer_enable[cpu_id] = false // AArch64 timer is one-shot
+                timer_enable[cpu_id] = false // AArch64 timer is one-shot
 #endif
-            printf("CPU#{%d}: handle timer interrupt\n", cpu_id)
-        :: else
-        fi
+                printf("CPU#{%d}: handle timer interrupt\n", cpu_id)
+            :: else
+            fi
+        }
     }
 
     // Enable timer.
