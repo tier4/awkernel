@@ -12,12 +12,12 @@ bool wait_for_weak_fairness[WORKER_NUM] = false
 
 proctype wait_until_timeout(byte tid) {
 	if
-	:: timeout -> atomic{wait_for_weak_fairness[tid] = false; consecutive_run_main_loop[tid] = 0;}
+	:: timeout -> d_step{wait_for_weak_fairness[tid] = false; consecutive_run_main_loop[tid] = 0;}
 	fi
 }
 
 inline update_runnable_preempted_highest_priority() {
-	atomic {
+	d_step {
 		runnable_preempted_highest_priority = BYTE_MAX;
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
@@ -31,7 +31,7 @@ inline update_runnable_preempted_highest_priority() {
 }
 
 inline update_running_lowest_priority() {
-	atomic {
+	d_step {
 		running_lowest_priority = - BYTE_MAX;
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
