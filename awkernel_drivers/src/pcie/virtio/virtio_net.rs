@@ -21,8 +21,12 @@ use awkernel_lib::{
     addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
-    net::net_device::{
-        EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+    net::{
+        multicast::MulticastAddrs,
+        net_device::{
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags,
+        },
     },
     paging::PAGESIZE,
     sync::{
@@ -558,6 +562,7 @@ struct VirtioNetInner {
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    multicast_addrs: MulticastAddrs,
     virtqueues: Vec<Queue>,
     ctrl_vq: Option<Mutex<Virtq>>,
     irq_to_type: BTreeMap<u16, IRQType>,
@@ -577,6 +582,7 @@ impl VirtioNetInner {
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            multicast_addrs: MulticastAddrs::new(),
             virtqueues: Vec::new(),
             ctrl_vq: None,
             irq_to_type: BTreeMap::new(),
@@ -1004,7 +1010,7 @@ impl VirtioNetInner {
     }
 
     fn vio_iff(&mut self) {
-        self.flags.insert(NetFlags::MULTICAST);
+        self.flags.insert(NetFlags::ALLMULTI);
         self.flags.insert(NetFlags::PROMISC);
     }
 
@@ -1300,12 +1306,18 @@ impl NetDevice for VirtioNet {
         None
     }
 
-    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
+        inner.vio_iff();
+        Ok(())
     }
 
-    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
+        inner.vio_iff();
+        Ok(())
     }
 
     fn poll_in_service(&self) -> Result<(), NetDevError> {
