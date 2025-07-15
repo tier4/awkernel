@@ -280,7 +280,7 @@ impl Tasks {
                 // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
                 let task_priority = match scheduler_type {
                     SchedulerType::PrioritizedFIFO(priority)
-                    | SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    | SchedulerType::PrioritizedRR(priority) => priority as u64,
                     _ => MAX_TASK_PRIORITY,
                 };
 

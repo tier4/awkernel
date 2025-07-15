@@ -1,5 +1,5 @@
 [package]
-name = "test_priority_based_rr"
+name = "test_prioritized_rr"
 version = "0.1.0"
 edition = "2021"
 

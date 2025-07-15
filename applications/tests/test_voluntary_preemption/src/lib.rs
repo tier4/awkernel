@@ -28,7 +28,7 @@ pub async fn run() {
                     wait_millisec(1000);
                 }
             },
-            SchedulerType::PriorityBasedRR(31),
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
     }
@@ -44,7 +44,7 @@ pub async fn run() {
                     awkernel_async_lib::r#yield().await;
                 }
             },
-            SchedulerType::PriorityBasedRR(31),
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
     }
