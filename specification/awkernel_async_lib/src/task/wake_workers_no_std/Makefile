@@ -12,14 +12,14 @@ pan.c: wake_workers.pml
 	spin -a -D$(TARGET) -D$(TIMER) -DIRQ_POS=$(IRQ_POS) $<
 
 pan: pan.c
-	gcc -O3 -DCOLLAPSE -DMEMLIM=57344 -DNOW -o $@ $<
+	gcc -O3 -DCOLLAPSE -DMEMLIM=57344 -o $@ $<
 
 run: pan
 	rm -f *.trail
 	./pan -a -n
 
 trail:
-	spin -D$(TARGET) -D$(TIMER) -DIRQ_POS=$(IRQ_POS) -plgrc -t wake_workers.pml
+	time spin -D$(TARGET) -D$(TIMER) -DIRQ_POS=$(IRQ_POS) -plgrc -t wake_workers.pml
 
 clean:
 	rm -f pan.* *.trail pan *.tmp
