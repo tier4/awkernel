@@ -748,6 +748,21 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC>
             })
             .clone()
     }
+
+    /// Clean up metadata cache entry if it's no longer referenced by any file handles
+    pub(crate) fn cleanup_metadata_if_unused(&self, entry_pos: u64) {
+        let mut node = MCSNode::new();
+        let mut cache = self.metadata_cache.lock(&mut node);
+        
+        // Check if the entry exists and if we're the only one holding a reference
+        // Arc::strong_count == 2 means only the cache and the caller hold references
+        if let Some(metadata_arc) = cache.get(&entry_pos) {
+            if Arc::strong_count(metadata_arc) <= 2 {
+                // Remove from cache since no other file handles are using it
+                cache.remove(&entry_pos);
+            }
+        }
+    }
 }
 
 impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC: OemCpConverter>

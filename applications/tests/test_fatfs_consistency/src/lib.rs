@@ -38,6 +38,16 @@ pub async fn run() {
     .await
     .join()
     .await;
+    
+    // Run metadata cache cleanup test
+    awkernel_async_lib::spawn(
+        "metadata cache cleanup test".into(),
+        metadata_cache_cleanup_test(),
+        SchedulerType::FIFO,
+    )
+    .await
+    .join()
+    .await;
 }
 
 async fn writer_task(id: usize) -> usize {
@@ -476,4 +486,56 @@ async fn concurrent_truncation_test() {
     let _ = truncation_handle.join().await;
     
     info!("Concurrent truncation test completed");
+}
+
+// Test metadata cache cleanup
+async fn metadata_cache_cleanup_test() {
+    info!("Starting metadata cache cleanup test");
+    
+    let root_path = AsyncVfsPath::new_in_memory_fatfs();
+    let file_path = root_path.join("cache_test.txt").unwrap();
+    
+    // Create and drop multiple file handles to test cache cleanup
+    for i in 0..5 {
+        // Create a file
+        let mut file = match file_path.create_file().await {
+            Ok(f) => f,
+            Err(e) => {
+                info!("Failed to create file in iteration {}: {:?}", i, e);
+                continue;
+            }
+        };
+        
+        // Write some data
+        let data = format!("Test data for iteration {}\n", i);
+        if let Err(e) = file.write(data.as_bytes()).await {
+            info!("Failed to write in iteration {}: {:?}", i, e);
+        }
+        
+        // Open the same file multiple times to test shared metadata
+        let _file2 = file_path.open_file().await.ok();
+        let _file3 = file_path.open_file().await.ok();
+        
+        // All handles will be dropped here, should clean up cache
+    }
+    
+    // Open the file again to verify it still works
+    match file_path.open_file().await {
+        Ok(mut file) => {
+            let mut buffer = vec![0u8; 100];
+            match file.read(&mut buffer).await {
+                Ok(bytes_read) => {
+                    info!("Successfully read {} bytes after cache cleanup", bytes_read);
+                }
+                Err(e) => {
+                    info!("Failed to read after cache cleanup: {:?}", e);
+                }
+            }
+        }
+        Err(e) => {
+            info!("Failed to open file after cache cleanup: {:?}", e);
+        }
+    }
+    
+    info!("Metadata cache cleanup test completed");
 }

@@ -271,6 +271,15 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for File<IO, TP, OCC> {
         if let Err(err) = self.flush() {
             log::error!("flush failed {err:?}");
         }
+        
+        // Clean up metadata cache if this is the last reference
+        if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let metadata = metadata_arc.lock(&mut node);
+            let entry_pos = metadata.pos;
+            drop(metadata);  // Release the lock before calling cleanup
+            self.fs.cleanup_metadata_if_unused(entry_pos);
+        }
     }
 }
 

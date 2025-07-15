@@ -468,7 +468,7 @@ impl DirEntryData {
 #[derive(Clone, Debug)]
 pub(crate) struct DirEntryEditor {
     data: DirFileEntryData,
-    pos: u64,
+    pub(crate) pos: u64,
     dirty: bool,
 }
 
