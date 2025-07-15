@@ -106,10 +106,10 @@ fn disable(info: &PCIeInfo, rdy_to: u32) -> Result<(), NvmeDriverErr> {
     write_reg(info, NVME_CC, cc)?;
     bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
 
-    ready(info, 0, rdy_to)
+    ready(info, rdy_to, 0)
 }
 
-fn ready(info: &PCIeInfo, rdy: u32, rdy_to: u32) -> Result<(), NvmeDriverErr> {
+fn ready(info: &PCIeInfo, rdy_to: u32, rdy: u32) -> Result<(), NvmeDriverErr> {
     let mut i: u32 = 0;
 
     while (read_reg(info, NVME_CSTS)? & NVME_CSTS_RDY) != rdy {
