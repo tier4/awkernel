@@ -8,11 +8,9 @@ use super::error::Error;
 use super::fs::{FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
 
-use awkernel_sync::mcs::MCSNode;
-use awkernel_sync::mutex::Mutex;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
-
 
 /// A FAT filesystem file object used for reading and writing data.
 ///
@@ -271,13 +269,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for File<IO, TP, OCC> {
         if let Err(err) = self.flush() {
             log::error!("flush failed {err:?}");
         }
-        
-        // Clean up metadata cache if this is the last reference
+
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
             let entry_pos = metadata.pos;
-            drop(metadata);  // Release the lock before calling cleanup
+            drop(metadata);
             self.fs.cleanup_metadata_if_unused(entry_pos);
         }
     }

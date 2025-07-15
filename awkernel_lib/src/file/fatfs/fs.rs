@@ -1,6 +1,6 @@
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::collections::BTreeMap;
 use core::borrow::BorrowMut;
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -9,7 +9,7 @@ use core::marker::PhantomData;
 use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
-use super::dir_entry::{DirFileEntryData, DirEntryEditor, FileAttributes, SFN_PADDING, SFN_SIZE};
+use super::dir_entry::{DirEntryEditor, DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
 use super::error::Error;
 use super::file::File;
 use super::table::{
@@ -704,10 +704,7 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
                     &fs.bpb,
                     FsIoAdapter { fs: Arc::clone(fs) },
                 )),
-                FatType::Fat32 => DirRawStream::File(File::new(
-                    None,
-                    Arc::clone(fs),
-                )),
+                FatType::Fat32 => DirRawStream::File(File::new(None, Arc::clone(fs))),
             }
         };
         Dir::new(root_rdr, Arc::clone(fs))
@@ -729,10 +726,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> FileSystem<IO, T
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC>
-    FileSystem<IO, TP, OCC>
-{
-    /// Get or create shared metadata for a file
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
     pub(crate) fn get_or_create_metadata(
         &self,
         entry_pos: u64,
@@ -741,24 +735,19 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC>
     ) -> Arc<Mutex<DirEntryEditor>> {
         let mut node = MCSNode::new();
         let mut cache = self.metadata_cache.lock(&mut node);
-        
-        cache.entry(entry_pos)
-            .or_insert_with(|| {
-                Arc::new(Mutex::new(DirEntryEditor::new(entry_data, entry_pos)))
-            })
+
+        cache
+            .entry(entry_pos)
+            .or_insert_with(|| Arc::new(Mutex::new(DirEntryEditor::new(entry_data, entry_pos))))
             .clone()
     }
 
-    /// Clean up metadata cache entry if it's no longer referenced by any file handles
     pub(crate) fn cleanup_metadata_if_unused(&self, entry_pos: u64) {
         let mut node = MCSNode::new();
         let mut cache = self.metadata_cache.lock(&mut node);
-        
-        // Check if the entry exists and if we're the only one holding a reference
-        // Arc::strong_count == 2 means only the cache and the caller hold references
+
         if let Some(metadata_arc) = cache.get(&entry_pos) {
             if Arc::strong_count(metadata_arc) <= 2 {
-                // Remove from cache since no other file handles are using it
                 cache.remove(&entry_pos);
             }
         }
