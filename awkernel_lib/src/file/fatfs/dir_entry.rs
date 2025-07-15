@@ -470,7 +470,6 @@ pub(crate) struct DirEntryEditor {
     data: DirFileEntryData,
     pos: u64,
     dirty: bool,
-    generation: u64,
 }
 
 impl DirEntryEditor {
@@ -479,12 +478,7 @@ impl DirEntryEditor {
             data,
             pos,
             dirty: false,
-            generation: 0,
         }
-    }
-
-    pub(crate) fn generation(&self) -> u64 {
-        self.generation
     }
 
     pub(crate) fn inner(&self) -> &DirFileEntryData {
@@ -495,7 +489,6 @@ impl DirEntryEditor {
         if first_cluster != self.data.first_cluster(fat_type) {
             self.data.set_first_cluster(first_cluster, fat_type);
             self.dirty = true;
-            self.generation += 1;
         }
     }
 
@@ -504,7 +497,6 @@ impl DirEntryEditor {
             Some(n) if size != n => {
                 self.data.set_size(size);
                 self.dirty = true;
-                self.generation += 1;
             }
             _ => {}
         }
