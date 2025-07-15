@@ -30,14 +30,10 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 
 ```rust
 pub enum SchedulerType {
+    GEDF(u64), // relative deadline
     FIFO,
-
     PrioritizedFIFO(u8),
-
-    RR,
-
-    PriorityBasedRR,
-
+    PrioritizedRR(u8),
     Panicked,
 }
 ```
@@ -67,7 +63,7 @@ Some schedulers are implemented under the folder [awkernel_async_lib/src/schedul
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
-> fifo.rs  panicked.rs  prioritized_fifo.rs  rr.rs
+> fifo.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 ```
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
