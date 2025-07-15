@@ -56,7 +56,7 @@ const VIRTIO_CONFIG_DEVICE_STATUS_ACK: u8 = 1;
 const VIRTIO_CONFIG_DEVICE_STATUS_DRIVER: u8 = 2;
 const VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK: u8 = 4;
 const VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK: u8 = 8;
-const _VIRTIO_CONFIG_DEVICE_STATUS_DEVICE_NEEDS_RESET: u8 = 64;
+const VIRTIO_CONFIG_DEVICE_STATUS_DEVICE_NEEDS_RESET: u8 = 64;
 const VIRTIO_CONFIG_DEVICE_STATUS_FAILED: u8 = 128;
 
 // Virtio Structure PCI Capabilities cfg_type
@@ -97,6 +97,46 @@ pub enum IRQType {
 enum PCIeInt {
     None,
     MsiX(Vec<(IRQ, IRQType)>),
+}
+
+enum CtrlState {
+    Free,
+    Reset,
+    SetRxFilter,
+    CtrlRxALLMulti,
+}
+
+const VIRTIO_NET_OK: u8 = 0;
+const VIRTIO_NET_CTRL_MAC: u8 = 1;
+const VIRTIO_NET_CTRL_MAC_TABLE_SET: u8 = 0;
+const VIRTIO_NET_CTRL_RX: u8 = 0;
+const VIRTIO_NET_CTRL_RX_PROMISC: u8 = 0;
+const VIRTIO_NET_CTRL_RX_ALLMULTI: u8 = 1;
+
+const MAX_N_ENTRIES: usize = 8; // To Be Determined
+
+#[repr(C, packed)]
+struct VirtioNetCtrlMac {
+    entries: u32,
+    macs: [[u8; 6]; MAX_N_ENTRIES],
+}
+
+#[repr(C, packed)]
+struct VirtioNetCtrlCmd {
+    class: u8,
+    cmd: u8,
+}
+
+#[repr(C, packed)]
+struct VirtioNetCtrlStatus {
+    ack: u8,
+}
+
+#[repr(C, packed)]
+struct VirtioNetCtrl {
+    cmd: VirtioNetCtrlCmd,
+    mac: VirtioNetCtrlMac,
+    status: VirtioNetCtrlStatus,
 }
 
 #[derive(Copy, Clone)]
@@ -164,6 +204,7 @@ struct Virtq {
     data_buf: DMAPool<RxTxBuffer>,
     rx_buffer: RingQ<EtherFrameBuf>,
     tx_hdrs: DMAPool<[VirtioNetHdr; MAX_VQ_SIZE]>,
+    ctrl_buf: DMAPool<VirtioNetCtrl>,
 }
 
 impl Virtq {
@@ -560,6 +601,7 @@ struct VirtioNetInner {
     capabilities: NetCapabilities,
     virtqueues: Vec<Queue>,
     ctrl_vq: Option<Mutex<Virtq>>,
+    ctrl_state: CtrlState,
     irq_to_type: BTreeMap<u16, IRQType>,
     pcie_int: PCIeInt,
 }
@@ -579,6 +621,7 @@ impl VirtioNetInner {
             capabilities: NetCapabilities::empty(),
             virtqueues: Vec::new(),
             ctrl_vq: None,
+            ctrl_state: CtrlState::Free,
             irq_to_type: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         }
@@ -953,6 +996,10 @@ impl VirtioNetInner {
         debug_assert!(allocsize <= PAGESIZE);
         let tx_hdrs = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
 
+        let allocsize = core::mem::size_of::<VirtioNetCtrl>();
+        debug_assert!(allocsize <= PAGESIZE);
+        let ctrl_buf = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+
         let mut vq = Virtq {
             vq_dma,
             vq_entries: [VirtqueueEnrty { index: 0, next: -1 }; MAX_VQ_SIZE],
@@ -967,6 +1014,7 @@ impl VirtioNetInner {
             data_buf,
             rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
             tx_hdrs,
+            ctrl_buf,
         };
 
         vq.init();
@@ -1004,8 +1052,21 @@ impl VirtioNetInner {
     }
 
     fn vio_iff(&mut self) {
-        self.flags.insert(NetFlags::MULTICAST);
-        self.flags.insert(NetFlags::PROMISC);
+        self.flags.remove(NetFlags::MULTICAST);
+
+        if !self.virtio_has_feature(VIRTIO_NET_F_CTRL_VQ) {
+            self.flags.insert(NetFlags::ALLMULTI);
+            self.flags.insert(NetFlags::PROMISC);
+            return;
+        }
+
+        let mut rx_filter = false;
+
+        if self.flags.contains(NetFlags::PROMISC) {
+            self.flags.insert(NetFlags::ALLMULTI);
+        } else {
+            rx_filter = true;
+        }
     }
 
     fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
@@ -1063,6 +1124,80 @@ impl VirtioNetInner {
 
         self.virtio_reinit_end()?;
 
+        Ok(())
+    }
+
+    fn vio_needs_reset(&self) -> Result<bool, VirtioDriverErr> {
+        let status = self.net_cfg.virtio_get_status()?;
+        if status & VIRTIO_CONFIG_DEVICE_STATUS_DEVICE_NEEDS_RESET {
+            self.ctrl_status = CtrlState::Reset;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// If this function succeeds, the caller must also call either
+    /// vio_ctrl_submit() or virtio_enqueue_abort(),
+    fn vio_ctrl_start(&mut self, class: u8, cmd: u8, nslots: usize) -> Result<(), VirtioDriverErr> {
+        if self.ctrl_state == CtrlState::Reset || self.vio_needs_reset()? {
+            return Err(VirtioDriverErr::NeedReset);
+        }
+
+        let mut node = MCSNode::new();
+        let mut ctrl_vq = self.ctrl_vq.as_mut().unwrap().lock(&mut node);
+
+        let slot = ctrl_vq.virtio_enqueue_prep().ok_or(VirtioDriverErr::NoSlot)?;
+
+        // +2 for vio_ctrl_start and vio_ctrl_submit
+        ctrl_vq.virtio_enqueue_reserve(slot, nslots + 2)?;
+
+        ctrl_vq.ctrl_buf.as_mut().class = class;
+        ctrl_vq.ctrl_buf.as_mut().cmd = cmd;
+        let phy_addr = ctrl_vq.ctrl_buf.as_mut().as_ptr() as usize;
+        ctrl_vq.virtio_enqueue_p(slot, phy_addr, 2, true);
+
+        Ok(())
+    }
+
+    fn vio_ctrl_submit(&mut self, slot: usize) -> Result<(), VirtioDriverErr> {
+        let mut node = MCSNode::new();
+        let mut ctrl_vq = self.ctrl_vq.as_mut().unwrap().lock(&mut node);
+
+        let phy_addr = ctrl_vq.ctrl_buf.as_mut().as_ptr() as usize + 2;
+        ctrl_vq.virtio_enqueue_p(slot, phy_addr, 1, false);
+
+        ctrl_vq.virtio_enqueue_commit(slot);
+
+        self.virtio_notify(ctrl_vq.vq_index)?;
+
+        Ok(())
+    }
+
+    /// issue VIRTIO_NET_CTRL_MAC_TABLE_SET command
+    fn vio_set_rx_filter(&mut self) -> Result<(), VirtioDriverErr> {
+        self.vio_ctrl_start(VIRTIO_NET_CTRL_MAC, VIRTIO_NET_CTRL_MAC_TABLE_SET, 2)?;
+
+        // TODO enqueue_p
+
+        self.vio_ctrl_submit(slot);
+
+        self.ctrl_state = CtrlState::SetRxFilter;
+        Ok(())
+    }
+
+    /// issue a VIRTIO_NET_CTRL_RX class command
+    fn vio_ctrl_rx(&mut self, cmd: u8, nslots: usize) -> Result<(), VirtioDriverErr> {
+        self.vio_ctrl_start(VIRTIO_NET_CTRL_RX, cmd, 1)?;
+
+        let mut node = MCSNode::new();
+        let mut ctrl_vq = self.ctrl_vq.as_mut().unwrap().lock(&mut node);
+
+        // TODO enqueue_p
+
+        self.vio_ctrl_submit(slot);
+
+        self.ctrl_state = CtrlState::CtrlRxALLMulti;
         Ok(())
     }
 }
@@ -1238,6 +1373,34 @@ impl NetDevice for VirtioNet {
                     let mut ctrl_vq = ctrl_vq.lock(&mut node);
                     if ctrl_vq.vq_used_idx != ctrl_vq.vq_dma.as_ref().used.idx {
                         ctrl_vq.vio_ctrleof();
+                    }
+
+                    let eio = ctrl_vq.ctrl_buf.as_ref().ack != VIRTIO_NET_OK;
+
+                    match inner.ctrl_state {
+                        CtrlState::Free => {
+                        }
+                        CtrlState::Reset => {
+                        }
+                        CtrlState::SetRxFilter => {
+                            if eio {
+                                self.vio_ctrl_rx(VIRTIO_NET_CTRL_RX_ALLMULTI, 1).or(Err(NetDevError::DeviceError))?;
+                                inner.ctrl_state = CtrlState::CtrlRxALLMulti;
+                            } else {
+                                inner.ctrl_state = CtrlState::Free;
+                            }
+                        }
+                        CtrlState::CtrlRxALLMulti => {
+                            if eio {
+                                self.vio_ctrl_rx(VIRTIO_NET_CTRL_RX_PROMISC, 1).or(Err(NetDevError::DeviceError))?;
+                                inner.ctrl_state = CtrlState::CtrlRxPROMISC;
+                            } else {
+                                inner.ctrl_state = CtrlState::Free;
+                            }
+                        }
+                        CtrlState::CtrlRxPROMISC => {
+                            inner.ctrl_state = CtrlState::Free;
+                        }
                     }
                 }
 

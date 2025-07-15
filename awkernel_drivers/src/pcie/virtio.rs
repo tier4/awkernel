@@ -34,6 +34,7 @@ pub enum VirtioDriverErr {
     InvalidQueueSize,
     DMAPool,
     NoSlot,
+    NeedReset,
 }
 
 impl From<VirtioDriverErr> for PCIeDeviceErr {
@@ -48,6 +49,7 @@ impl From<VirtioDriverErr> for PCIeDeviceErr {
             VirtioDriverErr::InvalidQueueSize => PCIeDeviceErr::InitFailure,
             VirtioDriverErr::DMAPool => PCIeDeviceErr::InitFailure,
             VirtioDriverErr::NoSlot => PCIeDeviceErr::InitFailure,
+            VirtioDriverErr::NeedReset => PCIeDeviceErr::InitFailure,
         }
     }
 }
