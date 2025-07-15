@@ -234,6 +234,17 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
     }
 
+    /// Get the cluster that contains the current file position.
+    /// 
+    /// Returns the cluster number that contains the byte at the current offset.
+    /// Special case: when offset is at a cluster boundary (offset % cluster_size == 0),
+    /// this returns the PREVIOUS cluster, not the next one. This matches the original
+    /// FatFS semantics where current_cluster represents "the last accessed cluster".
+    /// 
+    /// Returns:
+    /// - Ok(Some(cluster)) - The cluster containing the current position
+    /// - Ok(None) - When offset is 0 or beyond the file's cluster chain
+    /// - Err - On I/O errors during cluster chain traversal
     fn get_current_cluster(&self) -> Result<Option<u32>, Error<IO::Error>> {
         if self.offset == 0 {
             return Ok(None);
@@ -334,8 +345,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                     Some(Ok(n)) => Some(n),
                     None => None,
                 }
-            } else {
+            } else if self.offset == 0 {
+                // at offset 0, use first cluster
                 self.first_cluster()
+            } else {
+                // beyond end of file
+                None
             }
         } else {
             self.get_current_cluster()?
@@ -403,8 +418,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                     Some(Ok(n)) => Some(n),
                     None => None,
                 }
-            } else {
+            } else if self.offset == 0 {
+                // at offset 0, use first cluster
                 self.first_cluster()
+            } else {
+                // beyond end of file - need to allocate
+                None
             };
             
             if let Some(n) = next_cluster {
