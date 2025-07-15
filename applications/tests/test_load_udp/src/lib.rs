@@ -23,7 +23,7 @@ pub async fn run() {
             let hdl = awkernel_async_lib::spawn(
                 "test udp".into(),
                 udp_server(port),
-                awkernel_async_lib::scheduler::SchedulerType::RR,
+                awkernel_async_lib::scheduler::SchedulerType::PriorityBasedRR(31),
             )
             .await;
 
