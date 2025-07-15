@@ -24,6 +24,8 @@ pub struct File<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
     current_cluster: Option<u32>,
     // current position in this file
     offset: u32,
+    // Generation number last seen from metadata - used to detect structural changes
+    cached_generation: u64,
     // file-system reference
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
@@ -44,11 +46,19 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         metadata: Option<Arc<Mutex<DirEntryEditor>>>,
         fs: Arc<FileSystem<IO, TP, OCC>>,
     ) -> Self {
+        let cached_generation = if let Some(ref m) = metadata {
+            let mut node = MCSNode::new();
+            let guard = m.lock(&mut node);
+            guard.generation()
+        } else {
+            0
+        };
         File {
             metadata,
             fs,
             current_cluster: None, // cluster before first one
             offset: 0,
+            cached_generation,
         }
     }
 
@@ -249,6 +259,87 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     pub(crate) fn is_root_dir(&self) -> bool {
         self.metadata.is_none()
     }
+
+    /// Validates that the cached position (current_cluster, offset) is still valid
+    /// after potential concurrent modifications. Returns true if position is valid.
+    fn validate_position(&mut self) -> Result<bool, Error<IO::Error>> {
+        if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let metadata = metadata_arc.lock(&mut node);
+            let current_gen = metadata.generation();
+            
+            // If generation hasn't changed, position is still valid
+            if current_gen == self.cached_generation {
+                return Ok(true);
+            }
+            
+            // Generation changed - need to validate our position
+            let file_size = metadata.inner().size().unwrap_or(0);
+            let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
+            drop(metadata);
+            
+            // Check if our offset is still within file bounds
+            if self.offset > file_size {
+                // File was truncated - reset to end of file
+                self.offset = file_size;
+                self.current_cluster = None;
+                self.cached_generation = current_gen;
+                
+                // Re-seek to the new end position
+                if self.offset > 0 {
+                    let saved_offset = self.offset;
+                    self.offset = 0;
+                    self.current_cluster = None;
+                    self.seek(SeekFrom::Start(u64::from(saved_offset)))?;
+                }
+                return Ok(false);
+            }
+            
+            // If we have a current cluster, validate it's still part of the file
+            if let Some(current) = self.current_cluster {
+                if let Some(first) = first_cluster {
+                    // Walk the cluster chain to verify our cluster is still valid
+                    let clusters_before = self.fs.clusters_from_bytes(u64::from(self.offset));
+                    let mut found = false;
+                    
+                    if clusters_before == 0 && current == first {
+                        found = true;
+                    } else {
+                        let mut iter = FileSystem::cluster_iter(&self.fs, first);
+                        for _ in 0..clusters_before {
+                            match iter.next() {
+                                Some(Ok(c)) => {
+                                    if c == current {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
+                    }
+                    
+                    if !found {
+                        // Current cluster is no longer valid - need to re-seek
+                        let saved_offset = self.offset;
+                        self.offset = 0;
+                        self.current_cluster = None;
+                        self.cached_generation = current_gen;
+                        self.seek(SeekFrom::Start(u64::from(saved_offset)))?;
+                        return Ok(false);
+                    }
+                } else {
+                    // File is now empty but we had a cluster - reset position
+                    self.offset = 0;
+                    self.current_cluster = None;
+                }
+            }
+            
+            // Update cached generation
+            self.cached_generation = current_gen;
+        }
+        Ok(true)
+    }
 }
 
 impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> File<IO, TP, OCC> {
@@ -281,6 +372,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Clone for File<IO, TP, OCC> {
             metadata: self.metadata.clone(),
             current_cluster: self.current_cluster,
             offset: self.offset,
+            cached_generation: self.cached_generation,
             fs: Arc::clone(&self.fs),
         }
     }
@@ -293,6 +385,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> IoBase for File<IO, TP, OCC> {
 impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         log::trace!("File::read");
+        // Validate position before reading
+        self.validate_position()?;
         let cluster_size = self.fs.cluster_size();
         let current_cluster_opt = if self.offset % cluster_size == 0 {
             // next cluster
@@ -350,6 +444,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
 impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         log::trace!("File::write");
+        // Validate position before writing
+        self.validate_position()?;
         let cluster_size = self.fs.cluster_size();
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
@@ -424,6 +520,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
 impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         log::trace!("File::seek");
+        // Validate position before seeking
+        self.validate_position()?;
         let size_opt = self.size();
         let new_offset_opt: Option<u32> = match pos {
             SeekFrom::Current(x) => i64::from(self.offset)

@@ -255,4 +255,225 @@ async fn consistency_test() {
     } else {
         info!("FatFS consistency test FAILED!");
     }
+    
+    // Run concurrent truncation test
+    concurrent_truncation_test().await;
+}
+
+async fn truncation_writer_task(id: usize) -> usize {
+    info!("Truncation writer {} starting", id);
+    let root_path = AsyncVfsPath::new_in_memory_fatfs();
+    let file_path = root_path.join("truncation_test.txt").unwrap();
+    
+    let mut lines_written = 0;
+    
+    for i in 0..5 {
+        // Open file for each iteration to get fresh handle
+        let mut file = match file_path.create_file().await {
+            Ok(f) => f,
+            Err(e) => {
+                info!("Truncation writer {} failed to open file: {:?}", id, e);
+                continue;
+            }
+        };
+        
+        // Write some data
+        let data = format!("Truncation writer {} iteration {} - this is a longer line to test cluster allocation\n", id, i);
+        
+        // Seek to end to append
+        use awkernel_lib::file::io::SeekFrom;
+        if let Err(e) = file.seek(SeekFrom::End(0)).await {
+            info!("Truncation writer {} failed to seek: {:?}", id, e);
+            continue;
+        }
+        
+        match file.write(data.as_bytes()).await {
+            Ok(_) => {
+                lines_written += 1;
+                info!("Truncation writer {} wrote iteration {}", id, i);
+            }
+            Err(e) => {
+                info!("Truncation writer {} failed to write: {:?}", id, e);
+            }
+        }
+        
+        // Yield to allow truncation
+        for _ in 0..5 {
+            awkernel_async_lib::r#yield().await;
+        }
+    }
+    
+    info!("Truncation writer {} finished, wrote {} lines", id, lines_written);
+    lines_written
+}
+
+async fn truncation_task() {
+    info!("Truncation task starting");
+    let root_path = AsyncVfsPath::new_in_memory_fatfs();
+    let file_path = root_path.join("truncation_test.txt").unwrap();
+    
+    // Wait for writers to write some data
+    for _ in 0..10 {
+        awkernel_async_lib::r#yield().await;
+    }
+    
+    for i in 0..3 {
+        match file_path.open_file().await {
+            Ok(mut file) => {
+                // Read current size
+                use awkernel_lib::file::io::SeekFrom;
+                let size = match file.seek(SeekFrom::End(0)).await {
+                    Ok(pos) => pos as u32,
+                    Err(e) => {
+                        info!("Truncation task: Failed to seek: {:?}", e);
+                        continue;
+                    }
+                };
+                
+                if size > 100 {
+                    // Truncate to smaller size
+                    let new_size = size / 2;
+                    if let Err(e) = file.seek(SeekFrom::Start(new_size as u64)).await {
+                        info!("Truncation task: Failed to seek for truncate: {:?}", e);
+                        continue;
+                    }
+                    
+                    // Truncate is not available on async file interface, simulate by writing
+                    // For now just log that we would truncate
+                    info!("Truncation task: Would truncate file from {} to {} bytes", size, new_size);
+                }
+            }
+            Err(e) => {
+                info!("Truncation task: Failed to open file: {:?}", e);
+            }
+        }
+        
+        // Wait before next truncation
+        for _ in 0..20 {
+            awkernel_async_lib::r#yield().await;
+        }
+    }
+    
+    info!("Truncation task finished");
+}
+
+async fn reader_with_position_task(id: usize) {
+    info!("Position reader {} starting", id);
+    let root_path = AsyncVfsPath::new_in_memory_fatfs();
+    let file_path = root_path.join("truncation_test.txt").unwrap();
+    
+    // Wait for file to be created
+    for _ in 0..5 {
+        awkernel_async_lib::r#yield().await;
+    }
+    
+    // Open file once and keep reading
+    let mut file = match file_path.open_file().await {
+        Ok(f) => f,
+        Err(e) => {
+            info!("Position reader {} failed to open file: {:?}", id, e);
+            return;
+        }
+    };
+    
+    let mut last_pos = 0u64;
+    
+    for i in 0..10 {
+        // Try to read from current position
+        let mut buffer = vec![0u8; 256];
+        match file.read(&mut buffer).await {
+            Ok(bytes_read) => {
+                use awkernel_lib::file::io::SeekFrom;
+                let current_pos = file.seek(SeekFrom::Current(0)).await.unwrap_or(0);
+                info!("Position reader {}: iteration {}, read {} bytes, position {} -> {}", 
+                      id, i, bytes_read, last_pos, current_pos);
+                last_pos = current_pos;
+            }
+            Err(e) => {
+                info!("Position reader {}: Failed to read at iteration {}: {:?}", id, i, e);
+                // Try to recover by seeking to start
+                use awkernel_lib::file::io::SeekFrom;
+                if let Ok(pos) = file.seek(SeekFrom::Start(0)).await {
+                    info!("Position reader {}: Recovered by seeking to start ({})", id, pos);
+                    last_pos = pos;
+                }
+            }
+        }
+        
+        // Yield to allow truncation/writing
+        for _ in 0..3 {
+            awkernel_async_lib::r#yield().await;
+        }
+    }
+    
+    info!("Position reader {} finished", id);
+}
+
+async fn concurrent_truncation_test() {
+    info!("Starting concurrent truncation test");
+    
+    // Create initial file
+    {
+        let root_path = AsyncVfsPath::new_in_memory_fatfs();
+        let file_path = root_path.join("truncation_test.txt").unwrap();
+        match file_path.create_file().await {
+            Ok(mut f) => {
+                f.write(b"Initial content for truncation test\n")
+                    .await
+                    .expect("Initial write failed");
+                info!("Truncation test: Initial file created");
+            }
+            Err(e) => {
+                info!("Truncation test: Failed to create initial file: {:?}", e);
+                return;
+            }
+        }
+    }
+    
+    // Spawn writers, truncator, and readers
+    let mut writer_handles = Vec::new();
+    let mut reader_handles = Vec::new();
+    
+    // Spawn writers
+    for i in 0..2 {
+        let handle = awkernel_async_lib::spawn(
+            Cow::Owned(format!("truncation_writer_{}", i)),
+            truncation_writer_task(i),
+            SchedulerType::FIFO,
+        )
+        .await;
+        writer_handles.push(handle);
+    }
+    
+    // Spawn truncation task
+    let truncation_handle = awkernel_async_lib::spawn(
+        "truncation_task".into(),
+        truncation_task(),
+        SchedulerType::FIFO,
+    )
+    .await;
+    
+    // Spawn readers
+    for i in 0..2 {
+        let handle = awkernel_async_lib::spawn(
+            Cow::Owned(format!("position_reader_{}", i)),
+            reader_with_position_task(i),
+            SchedulerType::FIFO,
+        )
+        .await;
+        reader_handles.push(handle);
+    }
+    
+    // Wait for all writer tasks to complete
+    for handle in writer_handles {
+        let _ = handle.join().await;
+    }
+    
+    // Wait for all reader tasks to complete
+    for handle in reader_handles {
+        let _ = handle.join().await;
+    }
+    let _ = truncation_handle.join().await;
+    
+    info!("Concurrent truncation test completed");
 }
