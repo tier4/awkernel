@@ -27,7 +27,6 @@ nanoseconds = []
 
 # Scheduler Type
 fifo = []
-rr = []
 
 # For test
 std = ["awkernel_lib/std", "awkernel_async_lib/std"]

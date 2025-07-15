@@ -116,7 +116,7 @@ async fn measure_task(num_heavy: usize) -> (MeasureResult, MeasureResult) {
                     }
                 }
             },
-            SchedulerType::RR,
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
 
@@ -131,7 +131,7 @@ async fn measure_task(num_heavy: usize) -> (MeasureResult, MeasureResult) {
                 barrier2.wait().await;
                 client_task(tx1, rx2, is_heavy, is_finished, barrier_end).await
             },
-            SchedulerType::RR,
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
 

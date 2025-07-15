@@ -21,8 +21,7 @@ mod fifo;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
-mod priority_based_rr;
-mod rr;
+mod prioritized_rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
@@ -70,8 +69,7 @@ pub enum SchedulerType {
     GEDF(u64), // relative deadline
     FIFO,
     PrioritizedFIFO(u8),
-    RR,
-    PriorityBasedRR(u8),
+    PrioritizedRR(u8),
     Panicked,
 }
 
@@ -85,10 +83,9 @@ impl SchedulerType {
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
                 )
-                | (SchedulerType::RR, SchedulerType::RR)
                 | (
-                    SchedulerType::PriorityBasedRR(_),
-                    SchedulerType::PriorityBasedRR(_)
+                    SchedulerType::PrioritizedRR(_),
+                    SchedulerType::PrioritizedRR(_)
                 )
                 | (SchedulerType::Panicked, SchedulerType::Panicked)
         )
@@ -109,12 +106,11 @@ impl SchedulerType {
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 6] = [
+static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::FIFO,
-    SchedulerType::PriorityBasedRR(0),
-    SchedulerType::RR,
+    SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
 ];
 
@@ -152,8 +148,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
     match sched_type {
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
-        SchedulerType::RR => &rr::SCHEDULER,
-        SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
+        SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
@@ -255,12 +250,8 @@ pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
-            match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
-                Some(SchedulerType::PriorityBasedRR(_)) => {
-                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
-                }
-                _ => (),
+            if let Some(SchedulerType::PrioritizedRR(_)) = get_scheduler_type_by_task_id(task_id) {
+                prioritized_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
             }
         }
     }
