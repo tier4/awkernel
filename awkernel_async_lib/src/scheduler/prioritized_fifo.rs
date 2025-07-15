@@ -41,18 +41,20 @@ impl Scheduler for PrioritizedFIFOScheduler {
         // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
         // within the scheduler's get_next().
         let mut data = self.data.lock(&mut node);
+        let internal_data = data.get_or_insert_with(PrioritizedFIFOData::new);
+        let priority = {
+            let mut node_inner = MCSNode::new();
+            let info = task.info.lock(&mut node_inner);
+            match info.scheduler_type {
+                SchedulerType::PrioritizedFIFO(p) => p,
+                _ => unreachable!(),
+            }
+        };
 
-        if !self.invoke_preemption(task.clone()) {
-            let priority = {
-                let mut node_inner = MCSNode::new();
-                let info = task.info.lock(&mut node_inner);
-                match info.scheduler_type {
-                    SchedulerType::PrioritizedFIFO(p) => p,
-                    _ => unreachable!(),
-                }
-            };
-
-            let internal_data = data.get_or_insert_with(PrioritizedFIFOData::new);
+        if !self.invoke_preemption(
+            internal_data.queue.count_higher_priority(priority),
+            task.clone(),
+        ) {
             internal_data.queue.push(
                 priority as u32,
                 PrioritizedFIFOTask {
@@ -107,14 +109,15 @@ impl Scheduler for PrioritizedFIFOScheduler {
 }
 
 impl PrioritizedFIFOScheduler {
-    fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+    fn invoke_preemption(&self, num_hp_tasks_in_queue: usize, task: Arc<Task>) -> bool {
         let tasks_running = get_tasks_running()
             .into_iter()
             .filter(|rt| rt.task_id != 0)
             .collect::<Vec<_>>();
 
-        // If the number of running tasks is less than the number of non-primary CPUs or the task has already been running, preempt is not required.
-        if tasks_running.len() < num_cpu() - 1
+        // If there are sufficient idle CPUs or the task has already been running, preempt is not required.
+        let num_idle_cpus = num_cpu() - 1 - tasks_running.len();
+        if num_hp_tasks_in_queue < num_idle_cpus
             || tasks_running.iter().any(|rt| rt.task_id == task.id)
         {
             return false;
