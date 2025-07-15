@@ -38,7 +38,7 @@ pub(super) fn attach(
 struct NvmeInner {
     info: PCIeInfo,
     _dstrd: u32,
-    _rdy_to: u32,
+    rdy_to: u32,
     _mps: usize,
     _mdts: usize,
     _max_prpl: usize,
@@ -78,51 +78,49 @@ impl NvmeInner {
         let mdts = MAXPHYS;
         let max_prpl = mdts / mps;
 
-        disable(&info, rdy_to)?;
-
         Ok(Self {
             info,
             _dstrd: dstrd,
-            _rdy_to: rdy_to,
+            rdy_to,
             _mps: mps,
             _mdts: mdts,
             _max_prpl: max_prpl,
         })
     }
-}
 
-fn disable(info: &PCIeInfo, rdy_to: u32) -> Result<(), NvmeDriverErr> {
-    let mut cc = read_reg(info, NVME_CC)?;
+    fn disable(&self) -> Result<(), NvmeDriverErr> {
+        let mut cc = read_reg(&self.info, NVME_CC)?;
 
-    if cc & NVME_CC_EN != 0 {
-        let csts = read_reg(info, NVME_CSTS)?;
-        if csts & NVME_CSTS_CFS == 0 {
-            ready(info, NVME_CSTS_RDY, rdy_to)?;
+        if cc & NVME_CC_EN != 0 {
+            let csts = read_reg(&self.info, NVME_CSTS)?;
+            if csts & NVME_CSTS_CFS == 0 {
+                self.ready(NVME_CSTS_RDY)?;
+            }
         }
+
+        cc &= !NVME_CC_EN;
+
+        write_reg(&self.info, NVME_CC, cc)?;
+        bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
+
+        self.ready(0)
     }
 
-    cc &= !NVME_CC_EN;
+    fn ready(&self, rdy: u32) -> Result<(), NvmeDriverErr> {
+        let mut i: u32 = 0;
 
-    write_reg(info, NVME_CC, cc)?;
-    bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
+        while (read_reg(&self.info, NVME_CSTS)? & NVME_CSTS_RDY) != rdy {
+            if i > self.rdy_to {
+                return Err(NvmeDriverErr::NotReady);
+            }
+            i += 1;
 
-    ready(info, rdy_to, 0)
-}
-
-fn ready(info: &PCIeInfo, rdy_to: u32, rdy: u32) -> Result<(), NvmeDriverErr> {
-    let mut i: u32 = 0;
-
-    while (read_reg(info, NVME_CSTS)? & NVME_CSTS_RDY) != rdy {
-        if i > rdy_to {
-            return Err(NvmeDriverErr::NotReady);
+            wait_microsec(1000);
+            bus_space_barrier(BUS_SPACE_BARRIER_READ);
         }
-        i += 1;
 
-        wait_microsec(1000);
-        bus_space_barrier(BUS_SPACE_BARRIER_READ);
+        Ok(())
     }
-
-    Ok(())
 }
 
 struct Nvme {
@@ -131,6 +129,8 @@ struct Nvme {
 impl Nvme {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let inner = NvmeInner::new(info)?;
+
+        inner.disable()?;
 
         let nvme = Self {
             inner: RwLock::new(inner),
