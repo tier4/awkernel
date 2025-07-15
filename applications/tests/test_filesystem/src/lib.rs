@@ -50,37 +50,6 @@ async fn fatfs_test() {
             return;
         }
     };
-    
-    // Check file metadata to verify timestamps
-    log::info!("Checking file metadata and timestamps...");
-    match file_path.metadata().await {
-        Ok(metadata) => {
-            log::info!("File metadata:");
-            log::info!("  - File type: {:?}", metadata.file_type);
-            log::info!("  - Size: {} bytes", metadata.len);
-            
-            if let Some(created) = metadata.created {
-                log::info!("  - Created time: {} ns since boot", created.uptime().as_nanos());
-            } else {
-                log::warn!("  - Created time: Not available");
-            }
-            
-            if let Some(modified) = metadata.modified {
-                log::info!("  - Modified time: {} ns since boot", modified.uptime().as_nanos());
-            } else {
-                log::warn!("  - Modified time: Not available");
-            }
-            
-            if let Some(accessed) = metadata.accessed {
-                log::info!("  - Accessed time: {} ns since boot", accessed.uptime().as_nanos());
-            } else {
-                log::warn!("  - Accessed time: Not available");
-            }
-        }
-        Err(e) => {
-            log::error!("Failed to get file metadata: {e:?}");
-        }
-    }
 
     log::info!("Attempting to open and read from file '{file_name}'");
     if bytes_written == 0 {

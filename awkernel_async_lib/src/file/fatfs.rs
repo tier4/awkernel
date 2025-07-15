@@ -13,7 +13,7 @@ use awkernel_lib::{
             file::File,
             fs::{FileSystem, LossyOemCpConverter, OemCpConverter, ReadWriteSeek},
             get_memory_fatfs,
-            time::{AwkernelTimeProvider, Date, DateTime, TimeProvider},
+            time::{Date, DateTime, NullTimeProvider, TimeProvider},
         },
         io::{Read, Seek, SeekFrom, Write},
         memfs::InMemoryDisk,
@@ -132,7 +132,7 @@ where
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl AsyncFatFs<InMemoryDisk, AwkernelTimeProvider, LossyOemCpConverter> {
+impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
     pub fn new_in_memory() -> Self {
         Self {
             fs: get_memory_fatfs(),
@@ -282,61 +282,4 @@ where
     async fn remove_dir(&self, path: &str) -> VfsResult<()> {
         self.remove_file(path).await
     }
-}
-
-fn to_vfs_datetime(date_time: DateTime) -> Option<Time> {
-    // Calculate the number of nanoseconds since the AWKernel base epoch (2024-01-01)
-    // First, calculate days since base epoch
-    let mut total_days: u32 = 0;
-    
-    // Add days for complete years
-    for year in 2024..date_time.date.year {
-        if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
-            total_days += 366; // Leap year
-        } else {
-            total_days += 365;
-        }
-    }
-    
-    // Add days for complete months in the current year
-    for month in 1..date_time.date.month {
-        total_days += match month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 => {
-                if (date_time.date.year % 4 == 0 && date_time.date.year % 100 != 0) 
-                    || (date_time.date.year % 400 == 0) {
-                    29
-                } else {
-                    28
-                }
-            }
-            _ => 0,
-        } as u32;
-    }
-    
-    // Add remaining days
-    total_days += (date_time.date.day - 1) as u32;
-    
-    // Convert to nanoseconds
-    let nanos_from_days = total_days as u128 * 24 * 60 * 60 * 1_000_000_000;
-    let nanos_from_time = date_time.time.hour as u128 * 60 * 60 * 1_000_000_000
-        + date_time.time.min as u128 * 60 * 1_000_000_000
-        + date_time.time.sec as u128 * 1_000_000_000
-        + date_time.time.millis as u128 * 1_000_000;
-    
-    let total_nanos = nanos_from_days + nanos_from_time;
-    
-    // Create a Time struct representing this absolute time
-    // Since AWKernel Time represents uptime, we return a Time with the calculated uptime
-    Some(Time::zero() + core::time::Duration::from_nanos(total_nanos as u64))
-}
-
-fn to_vfs_date(date: Date) -> Option<Time> {
-    // Convert Date to DateTime with time 00:00:00.000
-    let date_time = DateTime::new(
-        date,
-        awkernel_lib::file::fatfs::time::Time::new(0, 0, 0, 0),
-    );
-    to_vfs_datetime(date_time)
 }

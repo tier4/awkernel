@@ -865,7 +865,6 @@ pub(crate) fn format_boot_sector<E: IoError>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::{format, vec::Vec};
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
