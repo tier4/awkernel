@@ -18,13 +18,7 @@ use build_dag::build_dag;
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::FIFO`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    if cfg!(feature = "fifo") {
-        SchedulerType::FIFO
-    } else if cfg!(feature = "rr") {
-        SchedulerType::RR
-    } else {
-        SchedulerType::FIFO
-    }
+    SchedulerType::FIFO
 }
 
 pub async fn run() {
