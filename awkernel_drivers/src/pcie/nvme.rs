@@ -3,8 +3,9 @@ use alloc::{format, sync::Arc};
 use awkernel_lib::{
     barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
     delay::wait_microsec,
+    dma_pool::DMAPool,
     paging::PAGESIZE,
-    sync::rwlock::RwLock,
+    sync::{mutex::Mutex, rwlock::RwLock},
 };
 
 mod nvme_regs;
@@ -16,6 +17,13 @@ const _DEVICE_SHORT_NAME: &str = "nvme";
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
 // TODO - to be considered.
+
+struct Queue {
+    _subq: Mutex<SubQueue>,
+    _comq: Mutex<ComQueue>,
+    _id: u16,
+    _entries: u32,
+}
 
 pub(super) fn attach(
     mut info: PCIeInfo,
@@ -37,7 +45,7 @@ pub(super) fn attach(
 }
 struct NvmeInner {
     info: PCIeInfo,
-    _dstrd: u32,
+    dstrd: u32,
     rdy_to: u32,
     _mps: usize,
     _mdts: usize,
@@ -80,7 +88,7 @@ impl NvmeInner {
 
         Ok(Self {
             info,
-            _dstrd: dstrd,
+            dstrd,
             rdy_to,
             _mps: mps,
             _mdts: mdts,
@@ -121,6 +129,42 @@ impl NvmeInner {
 
         Ok(())
     }
+
+    fn allocate_queue(&self, id: u16) -> Result<Queue, NvmeDriverErr> {
+        let subq_size = core::mem::size_of::<SubRing>();
+        let sub_ring_pages = subq_size.div_ceil(PAGESIZE);
+        let sub_ring = DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
+            .ok_or(NvmeDriverErr::DMAPool)?;
+        let sqtdbl = NVME_SQTDBL(id, self.dstrd);
+
+        let subq = SubQueue {
+            _sub_ring: sub_ring,
+            _sqtdbl: sqtdbl as usize,
+            _tail: 0,
+        };
+
+        let comq_size = core::mem::size_of::<ComRing>();
+        let com_ring_pages = comq_size.div_ceil(PAGESIZE);
+        let com_ring = DMAPool::new(self.info.segment_group as usize, com_ring_pages)
+            .ok_or(NvmeDriverErr::DMAPool)?;
+        let cqhdbl = NVME_CQHDBL(id, self.dstrd);
+
+        let comq = ComQueue {
+            _com_ring: com_ring,
+            _cqhdbl: cqhdbl as usize,
+            _head: 0,
+            _phase: NVME_CQE_PHASE,
+        };
+
+        let que = Queue {
+            _subq: Mutex::new(subq),
+            _comq: Mutex::new(comq),
+            _id: id,
+            _entries: SUB_QUEUE_SIZE as u32,
+        };
+
+        Ok(que)
+    }
 }
 
 struct Nvme {
@@ -131,6 +175,8 @@ impl Nvme {
         let inner = NvmeInner::new(info)?;
 
         inner.disable()?;
+
+        let _admin_q = inner.allocate_queue(NVME_ADMIN_Q)?;
 
         let nvme = Self {
             inner: RwLock::new(inner),
