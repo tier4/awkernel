@@ -187,15 +187,16 @@ inline sleep(cpu_id, tout) {
 
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val)
 
-    if
-    :: prev_val == Waking ->
-        interrupt_mask[cpu_id] = true
-        goto return_sleep3
-    :: d_step { prev_val == Waiting ->
-        printf("CPU#{%d}: sleeping, prev_val = %d, TAG = %d\n", cpu_id, prev_val, CPU_SLEEP_TAG[cpu_id])
+    atomic {
+        if
+        :: prev_val == Waking ->
+            interrupt_mask[cpu_id] = true
+            goto return_sleep3
+        :: prev_val == Waiting ->
+            printf("CPU#{%d}: sleeping, prev_val = %d, TAG = %d\n", cpu_id, prev_val, CPU_SLEEP_TAG[cpu_id])
+        :: else -> assert(false) // unreachable!()
+        fi
     }
-    :: else -> assert(false) // unreachable!()
-    fi
 
     // Rare Case:
     //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
