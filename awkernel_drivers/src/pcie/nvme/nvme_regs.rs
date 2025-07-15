@@ -91,7 +91,6 @@ pub struct ComQueue {
     pub _phase: u16,
 }
 
-pub const SUB_QUEUE_SIZE: usize = 128;
-pub const COM_QUEUE_SIZE: usize = 128;
-pub type SubRing = [SubQueueEntry; SUB_QUEUE_SIZE];
-pub type ComRing = [ComQueueEntry; COM_QUEUE_SIZE];
+pub const QUEUE_SIZE: usize = 128;
+pub type SubRing = [SubQueueEntry; QUEUE_SIZE];
+pub type ComRing = [ComQueueEntry; QUEUE_SIZE];

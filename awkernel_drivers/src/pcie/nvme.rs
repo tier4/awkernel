@@ -130,12 +130,12 @@ impl NvmeInner {
         Ok(())
     }
 
-    fn allocate_queue(&self, id: u16) -> Result<Queue, NvmeDriverErr> {
+    fn allocate_queue(&self, id: u16, entries: u32, dstrd: u32) -> Result<Queue, NvmeDriverErr> {
         let subq_size = core::mem::size_of::<SubRing>();
         let sub_ring_pages = subq_size.div_ceil(PAGESIZE);
         let sub_ring = DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
             .ok_or(NvmeDriverErr::DMAPool)?;
-        let sqtdbl = NVME_SQTDBL(id, self.dstrd);
+        let sqtdbl = NVME_SQTDBL(id, dstrd);
 
         let subq = SubQueue {
             _sub_ring: sub_ring,
@@ -147,7 +147,7 @@ impl NvmeInner {
         let com_ring_pages = comq_size.div_ceil(PAGESIZE);
         let com_ring = DMAPool::new(self.info.segment_group as usize, com_ring_pages)
             .ok_or(NvmeDriverErr::DMAPool)?;
-        let cqhdbl = NVME_CQHDBL(id, self.dstrd);
+        let cqhdbl = NVME_CQHDBL(id, dstrd);
 
         let comq = ComQueue {
             _com_ring: com_ring,
@@ -160,7 +160,7 @@ impl NvmeInner {
             _subq: Mutex::new(subq),
             _comq: Mutex::new(comq),
             _id: id,
-            _entries: SUB_QUEUE_SIZE as u32,
+            _entries: entries,
         };
 
         Ok(que)
@@ -176,7 +176,7 @@ impl Nvme {
 
         inner.disable()?;
 
-        let _admin_q = inner.allocate_queue(NVME_ADMIN_Q)?;
+        let _admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
 
         let nvme = Self {
             inner: RwLock::new(inner),
