@@ -265,6 +265,128 @@ impl TimeProvider for NullTimeProvider {
     }
 }
 
+/// `TimeProvider` implementation that uses AWKernel's uptime to calculate dates.
+/// Since AWKernel doesn't have RTC, we use a base epoch and add uptime to it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AwkernelTimeProvider {
+    _dummy: (),
+}
+
+impl AwkernelTimeProvider {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { _dummy: () }
+    }
+
+    /// Base epoch: January 1, 2024, 00:00:00
+    const BASE_YEAR: u16 = 2024;
+    const BASE_MONTH: u16 = 1;
+    const BASE_DAY: u16 = 1;
+
+    /// Calculate days in a month (accounting for leap years)
+    fn days_in_month(year: u16, month: u16) -> u16 {
+        match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => {
+                if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+                    29
+                } else {
+                    28
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    /// Add days to a date
+    fn add_days_to_date(
+        mut year: u16,
+        mut month: u16,
+        mut day: u16,
+        days_to_add: u32,
+    ) -> (u16, u16, u16) {
+        let mut remaining_days = days_to_add;
+
+        while remaining_days > 0 {
+            let days_in_current_month = Self::days_in_month(year, month);
+            let days_until_month_end = days_in_current_month - day + 1;
+
+            if remaining_days >= days_until_month_end as u32 {
+                remaining_days -= days_until_month_end as u32;
+                day = 1;
+                month += 1;
+                if month > 12 {
+                    month = 1;
+                    year += 1;
+                    if year > MAX_YEAR {
+                        // Clamp to max year
+                        return (MAX_YEAR, 12, 31);
+                    }
+                }
+            } else {
+                day += remaining_days as u16;
+                remaining_days = 0;
+            }
+        }
+
+        (year, month, day)
+    }
+}
+
+impl TimeProvider for AwkernelTimeProvider {
+    fn get_current_date(&self) -> Date {
+        // Get uptime in nanoseconds
+        let uptime_ns = crate::time::Time::now().uptime().as_nanos();
+
+        // Convert to seconds
+        let uptime_secs = uptime_ns / 1_000_000_000;
+
+        // Calculate days since boot
+        let days_since_boot = (uptime_secs / 86400) as u32;
+
+        // Add days to base date
+        let (year, month, day) = Self::add_days_to_date(
+            Self::BASE_YEAR,
+            Self::BASE_MONTH,
+            Self::BASE_DAY,
+            days_since_boot,
+        );
+
+        Date::new(year, month, day)
+    }
+
+    fn get_current_date_time(&self) -> DateTime {
+        // Get uptime in nanoseconds
+        let uptime_ns = crate::time::Time::now().uptime().as_nanos();
+
+        // Convert to seconds
+        let uptime_secs = uptime_ns / 1_000_000_000;
+
+        // Calculate days and time components
+        let days_since_boot = (uptime_secs / 86400) as u32;
+        let seconds_today = (uptime_secs % 86400) as u32;
+
+        let hour = (seconds_today / 3600) as u16;
+        let min = ((seconds_today % 3600) / 60) as u16;
+        let sec = (seconds_today % 60) as u16;
+        let millis = ((uptime_ns % 1_000_000_000) / 1_000_000) as u16;
+
+        // Calculate date
+        let (year, month, day) = Self::add_days_to_date(
+            Self::BASE_YEAR,
+            Self::BASE_MONTH,
+            Self::BASE_DAY,
+            days_since_boot,
+        );
+
+        DateTime::new(
+            Date::new(year, month, day),
+            Time::new(hour, min, sec, millis),
+        )
+    }
+}
+
 /// Default time provider implementation.
 ///
 /// Defined as `ChronoTimeProvider` if `chrono` feature is enabled. Otherwise defined as `NullTimeProvider`.
