@@ -56,7 +56,7 @@ inline send_ipi(cpu_id) {
 inline interrupt_handler(cpu_id) {
     atomic {
         if
-        :: IPI[cpu_id] == true || (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
+        :: IPI[cpu_id] == true || timer_interrupt[cpu_id] == true
         :: else ->
             goto return_interrupt_handler
         fi
@@ -79,6 +79,9 @@ inline interrupt_handler(cpu_id) {
         if
         :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
             timer_interrupt[cpu_id] = false
+#ifdef TIMER_LEVEL
+            timer_enable[cpu_id] = false // AArch64 timer is one-shot
+#endif
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id)
         :: else
         fi
@@ -430,7 +433,7 @@ proctype primary_main() {
 
 proctype timer(byte cpu_id) {
     do
-    :: d_step {
+    :: atomic {
 #ifdef TIMER_EDGE // edge-triggered timer interrupt
         interrupt_mask[cpu_id] == false &&
 #endif
