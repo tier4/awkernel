@@ -7,26 +7,6 @@
 #include "for_verification.pml"
 #include "future_mock.pml"
 
-inline get_highest_priority_in_ipi_requests(cpu_id,ret_task) {
-	d_step {
-		byte k = 0;
-		ret_task = BYTE_MAX;
-
-		do
-		:: k < len(ipi_requests[cpu_id]) ->
-			byte ipi_pending_task;
-			ipi_requests[cpu_id]?ipi_pending_task; ipi_requests[cpu_id]!ipi_pending_task;
-			if
-			:: ipi_pending_task < ret_task -> 
-				ret_task = ipi_pending_task;
-			:: else
-			fi
-			k++;
-		:: else -> break
-		od
-	}
-}
-
 inline min(a,b,ret) {
 	atomic {
 		if
@@ -89,9 +69,13 @@ inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
 				num_idle_cpus++;
 			:: else ->
 				byte highest_pending;
-				get_highest_priority_in_ipi_requests(j,highest_pending);
 				byte min_ret;
-				min(RUNNING[j],highest_pending,min_ret);
+				if
+				:: ipi_requests[j]?[highest_pending] -> 
+					ipi_requests[j]?<highest_pending>;
+					min(RUNNING[j],highest_pending,min_ret);
+				:: else -> min_ret = RUNNING[j];
+				fi
 
 				if
 				:: min_ret > ret_task -> 
@@ -128,7 +112,7 @@ inline invoke_preemption(tid,task,ret) {
 		set_need_preemption(tid,lp_task);
 		atomic{
 			printf("invoke_preemption() send IPI: hp_task = %d,lp_task = %d,lp_cpu_id = %d,interrupt_enabled[lp_cpu_id] = %d\n",task,lp_task,lp_cpu_id,interrupt_enabled[lp_cpu_id]);
-			ipi_requests[lp_cpu_id]!task
+			ipi_requests[lp_cpu_id]!!task
 		}
 		ret = true;
 	:: else -> 
