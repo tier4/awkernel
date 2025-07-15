@@ -7,14 +7,14 @@
 #define TASK_ID_SOME true
 
 mtype = { Active, Waiting, Waking, Continue }
-mtype CPU_SLEEP_TAG[CPU_NUM]
+mtype CPU_SLEEP_TAG[CPU_NUM] = Active
 
 byte cnt_scheduling_event = 0
 
-bool interrupt_mask[CPU_NUM]
-bool IPI[CPU_NUM]             // edge-trigger interrupt
-bool timer_enable[CPU_NUM]
-bool timer_interrupt[CPU_NUM] // level-sensitive interrupt for AArch64, edge-trigger for x86
+bool interrupt_mask[CPU_NUM] = true
+bool IPI[CPU_NUM] = false             // edge-trigger interrupt
+bool timer_enable[CPU_NUM] = false
+bool timer_interrupt[CPU_NUM] = false // level-sensitive interrupt for AArch64, edge-trigger for x86
 
 byte run_queue = 0
 
@@ -97,21 +97,22 @@ inline interrupt_handler(cpu_id) {
         :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
         :: else
         fi
-    }
 
-    // enable interrupts
-    interrupt_mask[cpu_id] = false
+        // enable interrupts
+        interrupt_mask[cpu_id] = false
+    }
 return_interrupt_handler:
 }
 
 inline wait_interrupt(cpu_id) {
-    assert(interrupt_mask[cpu_id] == false)
-    if
-    :: d_step { timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
-        timer_interrupt[cpu_id] = false
+    // assert(interrupt_mask[cpu_id] == false)
+    atomic {
+        if
+        :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
+            timer_interrupt[cpu_id] = false
+        :: IPI[cpu_id] -> IPI[cpu_id] = false
+        fi
     }
-    :: d_step { IPI[cpu_id] -> IPI[cpu_id] = false }
-    fi
 }
 
 // `SleepCpuNoStd::sleep()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
@@ -129,10 +130,10 @@ inline sleep(cpu_id, tout) {
         :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep2
         :: else
         fi
-    }
 
-    // enable interrupts and halt until IPI arrives
-    interrupt_mask[cpu_id] = false
+        // enable interrupts and halt until IPI arrives
+        interrupt_mask[cpu_id] = false
+    }
 
     // receive interrupts
 #if IRQ_POS == 3
@@ -240,35 +241,34 @@ inline wake_up(my_id, target_cpu_id, result) {
             goto return_wake_up
         :: else
         fi
-    }
 
-    // attempt state transitions until success or redundant
-    if
-    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Active ->
-        // CPU not yet sleeping: schedule wake-up
-        CPU_SLEEP_TAG[target_cpu_id] = Continue
-        result = false
-        printf("Active -> Continue: CPU#{%d}", target_cpu_id)
+        // attempt state transitions until success or redundant
+        d_step {
+            if
+            :: CPU_SLEEP_TAG[target_cpu_id] == Active ->
+                // CPU not yet sleeping: schedule wake-up
+                CPU_SLEEP_TAG[target_cpu_id] = Continue
+                result = false
+                printf("Active -> Continue: CPU#{%d}", target_cpu_id)
+            :: CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
+                // CPU is halted: send IPI
+                CPU_SLEEP_TAG[target_cpu_id] = Waking
+                result = true
+                printf("Waiting -> Waking: CPU#{%d}", target_cpu_id)
+                send_ipi(target_cpu_id)
+            :: CPU_SLEEP_TAG[target_cpu_id] == Waking ->
+                // wake-up already pending
+                printf("already waking: CPU#{%d}", target_cpu_id)
+                result = false
+                send_ipi(target_cpu_id)
+            :: CPU_SLEEP_TAG[target_cpu_id] == Continue ->
+                // already in continue state, no action needed
+                result = false
+                printf("already continue: CPU#{%d}", target_cpu_id)
+            :: else -> assert(false) // unreachable!()
+            fi
+        }
     }
-    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
-         // CPU is halted: send IPI
-        CPU_SLEEP_TAG[target_cpu_id] = Waking
-        result = true
-        printf("Waiting -> Waking: CPU#{%d}", target_cpu_id)
-    }
-        send_ipi(target_cpu_id)
-    :: d_step { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
-        // wake-up already pending
-        printf("already waking: CPU#{%d}", target_cpu_id)
-        result = false
-    }
-        send_ipi(target_cpu_id)
-    ::  d_step { CPU_SLEEP_TAG[target_cpu_id] == Continue ->
-        // already in continue state, no action needed
-        result = false
-        printf("already continue: CPU#{%d}", target_cpu_id)
-    }
-    fi
 
 return_wake_up:
 }
@@ -447,14 +447,6 @@ proctype timer(byte cpu_id) {
 
 init {
     byte i
-
-    for (i: 0 .. CPU_NUM - 1) {
-        CPU_SLEEP_TAG[i] = Active
-        interrupt_mask[i] = true
-        IPI[i] = false
-        timer_enable[i] = false
-        timer_interrupt[i] = false
-    }
 
     created_task++
     spawn_task()
