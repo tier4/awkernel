@@ -9,9 +9,9 @@ use core::marker::PhantomData;
 use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
-use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
+use super::dir_entry::{DirFileEntryData, DirEntryEditor, FileAttributes, SFN_PADDING, SFN_SIZE};
 use super::error::Error;
-use super::file::{File, FileMetadata};
+use super::file::File;
 use super::table::{
     alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator,
     RESERVED_FAT_ENTRIES,
@@ -344,7 +344,7 @@ pub struct FileSystem<
     fs_info: Mutex<FsInfoSector>,
     current_status_flags: Mutex<FsStatusFlags>,
     // Metadata cache for open files - maps entry position to shared metadata
-    pub(crate) metadata_cache: Mutex<BTreeMap<u64, Arc<Mutex<FileMetadata>>>>,
+    pub(crate) metadata_cache: Mutex<BTreeMap<u64, Arc<Mutex<DirEntryEditor>>>>,
 }
 
 impl<IO, TP, OCC> Debug for FileSystem<IO, TP, OCC>
@@ -737,14 +737,14 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC>
         &self,
         entry_pos: u64,
         entry_data: DirFileEntryData,
-        first_cluster: Option<u32>,
-    ) -> Arc<Mutex<FileMetadata>> {
+        _first_cluster: Option<u32>,
+    ) -> Arc<Mutex<DirEntryEditor>> {
         let mut node = MCSNode::new();
         let mut cache = self.metadata_cache.lock(&mut node);
         
         cache.entry(entry_pos)
             .or_insert_with(|| {
-                Arc::new(Mutex::new(FileMetadata::new(first_cluster, entry_data, entry_pos)))
+                Arc::new(Mutex::new(DirEntryEditor::new(entry_data, entry_pos)))
             })
             .clone()
     }

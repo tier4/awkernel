@@ -473,7 +473,7 @@ pub(crate) struct DirEntryEditor {
 }
 
 impl DirEntryEditor {
-    fn new(data: DirFileEntryData, pos: u64) -> Self {
+    pub(crate) fn new(data: DirFileEntryData, pos: u64) -> Self {
         Self {
             data,
             pos,
@@ -626,10 +626,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
 
     pub(crate) fn first_cluster(&self) -> Option<u32> {
         self.data.first_cluster(self.fs.fat_type())
-    }
-
-    fn editor(&self) -> DirEntryEditor {
-        DirEntryEditor::new(self.data.clone(), self.entry_pos)
     }
 
     pub(crate) fn is_same_entry(&self, other: &DirEntry<IO, TP, OCC>) -> bool {

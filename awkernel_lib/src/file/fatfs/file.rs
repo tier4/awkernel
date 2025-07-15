@@ -3,9 +3,9 @@ use core::convert::TryFrom;
 use core::fmt::Debug;
 
 use super::super::io::{IoBase, Read, Seek, SeekFrom, Write};
-use super::dir_entry::DirFileEntryData;
+use super::dir_entry::DirEntryEditor;
 use super::error::Error;
-use super::fs::{FatType, FileSystem, ReadWriteSeek};
+use super::fs::{FileSystem, ReadWriteSeek};
 use super::time::{Date, DateTime, TimeProvider};
 
 use awkernel_sync::mcs::MCSNode;
@@ -13,92 +13,13 @@ use awkernel_sync::mutex::Mutex;
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
 
-/// Shared file metadata that is consistent across all file handles
-#[derive(Debug)]
-pub(crate) struct FileMetadata {
-    // Core file information
-    pub(crate) first_cluster: Option<u32>,
-    pub(crate) entry_data: DirFileEntryData,
-    pub(crate) entry_pos: u64,
-    pub(crate) size: u32,
-    pub(crate) dirty: bool,
-}
-
-impl FileMetadata {
-    pub(crate) fn new(
-        first_cluster: Option<u32>,
-        entry_data: DirFileEntryData,
-        entry_pos: u64,
-    ) -> Self {
-        let size = entry_data.size().unwrap_or(0);
-        Self {
-            first_cluster,
-            entry_data,
-            entry_pos,
-            size,
-            dirty: false,
-        }
-    }
-
-    pub(crate) fn size(&self) -> Option<u32> {
-        if self.entry_data.is_dir() {
-            None
-        } else {
-            Some(self.size)
-        }
-    }
-
-    pub(crate) fn set_size(&mut self, size: u32) {
-        if self.size != size {
-            self.size = size;
-            self.dirty = true;
-        }
-    }
-
-    pub(crate) fn set_first_cluster(&mut self, cluster: Option<u32>, fat_type: FatType) {
-        if cluster != self.first_cluster {
-            self.first_cluster = cluster;
-            self.entry_data.set_first_cluster(cluster, fat_type);
-            self.dirty = true;
-        }
-    }
-
-    pub(crate) fn set_created(&mut self, date_time: DateTime) {
-        self.entry_data.set_created(date_time);
-        self.dirty = true;
-    }
-
-    pub(crate) fn set_modified(&mut self, date_time: DateTime) {
-        self.entry_data.set_modified(date_time);
-        self.dirty = true;
-    }
-
-    pub(crate) fn set_accessed(&mut self, date: Date) {
-        self.entry_data.set_accessed(date);
-        self.dirty = true;
-    }
-
-    pub(crate) fn flush<IO: ReadWriteSeek + Send + Debug>(
-        &mut self,
-        disk: &mut IO,
-    ) -> Result<(), IO::Error> {
-        if self.dirty {
-            // Update size before serializing
-            self.entry_data.set_size(self.size);
-            disk.seek(SeekFrom::Start(self.entry_pos))?;
-            self.entry_data.serialize(disk)?;
-            self.dirty = false;
-        }
-        Ok(())
-    }
-}
 
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
 pub struct File<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
     // Shared metadata for this file (None for root dir)
-    metadata: Option<Arc<Mutex<FileMetadata>>>,
+    metadata: Option<Arc<Mutex<DirEntryEditor>>>,
     // Note: if offset points between clusters current_cluster is the previous cluster
     current_cluster: Option<u32>,
     // current position in this file
@@ -120,7 +41,7 @@ pub struct Extent {
 
 impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     pub(crate) fn new(
-        metadata: Option<Arc<Mutex<FileMetadata>>>,
+        metadata: Option<Arc<Mutex<DirEntryEditor>>>,
         fs: Arc<FileSystem<IO, TP, OCC>>,
     ) -> Self {
         File {
@@ -149,7 +70,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
             if self.offset == 0 {
                 metadata.set_first_cluster(None, self.fs.fat_type());
             }
-            let first_cluster = metadata.first_cluster;
+            let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
             drop(metadata);
 
             if let Some(current_cluster) = self.current_cluster {
@@ -181,7 +102,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         let first_cluster = if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
-            metadata.first_cluster
+            metadata.inner().first_cluster(self.fs.fat_type())
         } else {
             None
         };
@@ -233,9 +154,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
-            let mut disk_node = MCSNode::new();
-            let mut disk = self.fs.disk.lock(&mut disk_node);
-            metadata.flush(&mut *disk)?;
+            metadata.flush(&self.fs)?;
         }
         Ok(())
     }
@@ -280,7 +199,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
-            metadata.size()
+            metadata.inner().size()
         } else {
             None
         }
@@ -290,7 +209,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
-            metadata.entry_data.is_dir()
+            metadata.inner().is_dir()
         } else {
             true // root directory
         }
@@ -313,7 +232,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
-            metadata.first_cluster
+            metadata.inner().first_cluster(self.fs.fat_type())
         } else {
             None
         }
@@ -340,7 +259,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> File<IO, TP, OCC> 
             let mut metadata = metadata_arc.lock(&mut node);
             let now = self.fs.options.time_provider.get_current_date_time();
             metadata.set_modified(now);
-            if metadata.size().is_some_and(|s| offset > s) {
+            if metadata.inner().size().is_some_and(|s| offset > s) {
                 metadata.set_size(offset);
             }
         }
