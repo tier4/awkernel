@@ -38,10 +38,6 @@ optional = true
 path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
-[dependencies.test_rr]
-path = "../applications/tests/test_rr"
-optional = true
-
 [dependencies.test_priority_based_rr]
 path = "../applications/tests/test_priority_based_rr"
 optional = true
@@ -83,7 +79,7 @@ path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
 [features]
-default = []
+default = ["test_rr"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -95,7 +91,6 @@ test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
-test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
