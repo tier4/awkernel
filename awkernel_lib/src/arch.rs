@@ -36,6 +36,7 @@ trait Arch:
     + super::cpu::CPU
     + super::paging::Mapper
     + super::dvfs::Dvfs
+    + super::barrier::Barrier
 {
 }
 
