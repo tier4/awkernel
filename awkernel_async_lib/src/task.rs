@@ -9,9 +9,7 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::scheduler::{
-    self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType, LOWEST_PRIORITY,
-};
+use crate::scheduler::{self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -20,6 +18,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
+    priority_queue::LOWEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };

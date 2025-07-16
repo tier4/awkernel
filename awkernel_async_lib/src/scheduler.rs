@@ -61,9 +61,6 @@ pub fn pop_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
     pending_tasks.get_mut(&cpu_id).and_then(|heap| heap.pop())
 }
 
-/// This depends on the PriorityQueue implementation (awkernel_lib/src/priority_queue.rs).
-pub const LOWEST_PRIORITY: u8 = 31;
-
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
 /// 0 is the highest priority and 31 is the lowest priority.
