@@ -1,4 +1,4 @@
-#define TASK_NUM 5
+#define TASK_NUM 4
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
 #define CPU_NUM 2
@@ -531,7 +531,7 @@ init {
 		tasks[i].id = i;
 	}
 	
-	wake(0,4);
+	wake(0,3);
 
 	for (i: 0 .. IR_HANDLER_NUM - 1) {
 		run interrupt_handler(i);
