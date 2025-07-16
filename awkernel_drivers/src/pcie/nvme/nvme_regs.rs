@@ -9,11 +9,34 @@ pub const NVME_CAP_TO: fn(u64) -> u32 = |r| 500 * ((r >> 24) & 0xff) as u32; /* 
 pub const NVME_VS: usize = 0x0008; /* Version */
 
 pub const NVME_CC: usize = 0x0014; /* Controller Configuration */
+pub const NVME_CC_IOCQES: fn(u32) -> u32 = |_v| (((_v) & 0xf) << 20);
+pub const NVME_CC_IOCQES_MASK: u32 = 0xf << 20;
+pub const NVME_CC_IOSQES: fn(u32) -> u32 = |_v| (((_v) & 0xf) << 16);
+pub const NVME_CC_IOSQES_MASK: u32 = 0xf << 16;
+pub const NVME_CC_SHN: fn(u32) -> u32 = |_v| (((_v) & 0x3) << 14);
+pub const NVME_CC_SHN_MASK: u32 = 0x3 << 14;
+pub const NVME_CC_SHN_NONE: u32 = 0;
+pub const NVME_CC_AMS: fn(u32) -> u32 = |_v| (((_v) & 0x7) << 11);
+pub const NVME_CC_AMS_MASK: u32 = 0x7 << 11;
+pub const NVME_CC_AMS_RR: u32 = 0; /* round-robin */
+pub const NVME_CC_MPS: fn(u32) -> u32 = |_v| ((((_v) - 12) & 0xf) << 7);
+pub const NVME_CC_MPS_MASK: u32 = 0xf << 7;
+pub const NVME_CC_CSS: fn(u32) -> u32 = |_v| (((_v) & 0x7) << 4);
+pub const NVME_CC_CSS_MASK: u32 = 0x7 << 4;
+pub const NVME_CC_CSS_NVM: u32 = 0;
 pub const NVME_CC_EN: u32 = 1 << 0;
 
 pub const NVME_CSTS: usize = 0x001c; /* Controller Status */
 pub const NVME_CSTS_CFS: u32 = 1 << 1;
 pub const NVME_CSTS_RDY: u32 = 1 << 0;
+
+pub const NVME_AQA: usize = 0x0024; /* Admin Queue Attributes */
+/* Admin Completion Queue Size */
+pub const NVME_AQA_ACQS: fn(u32) -> u32 = |_v| (((_v) - 1) << 16);
+/* Admin Submission Queue Size */
+pub const NVME_AQA_ASQS: fn(u32) -> u32 = |_v| (_v) - 1;
+pub const NVME_ASQ: usize = 0x0028; /* Admin Submission Queue Base Address */
+pub const NVME_ACQ: usize = 0x0030; /* Admin Completion Queue Base Address */
 
 pub const NVME_ADMIN_Q: u16 = 0;
 /* Submission Queue Tail Doorbell */

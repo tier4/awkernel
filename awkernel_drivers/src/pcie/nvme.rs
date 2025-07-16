@@ -19,10 +19,10 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
 // TODO - to be considered.
 
 struct Queue {
-    _subq: Mutex<SubQueue>,
-    _comq: Mutex<ComQueue>,
-    _id: u16,
-    _entries: u32,
+    subq: Mutex<SubQueue>,
+    comq: Mutex<ComQueue>,
+    id: u16,
+    entries: u32,
 }
 
 pub(super) fn attach(
@@ -47,7 +47,7 @@ struct NvmeInner {
     info: PCIeInfo,
     dstrd: u32,
     rdy_to: u32,
-    _mps: usize,
+    mps: usize,
     _mdts: usize,
     _max_prpl: usize,
 }
@@ -90,10 +90,67 @@ impl NvmeInner {
             info,
             dstrd,
             rdy_to,
-            _mps: mps,
+            mps,
             _mdts: mdts,
             _max_prpl: max_prpl,
         })
+    }
+
+    fn enable(&self, que: &Queue) -> Result<(), NvmeDriverErr> {
+        let mut cc = read_reg(&self.info, NVME_CC)?;
+
+        if cc & NVME_CC_EN != 0 {
+            return ready(&self.info, NVME_CSTS_RDY, self.rdy_to);
+        }
+
+        //if (sc->sc_ops->op_enable != NULL)
+        //sc->sc_ops->op_enable(sc);
+
+        write_reg(
+            &self.info,
+            NVME_AQA,
+            NVME_AQA_ACQS(que.entries) | NVME_AQA_ASQS(que.entries),
+        )?;
+        fence(Ordering::SeqCst);
+
+        let subq_phy_addr;
+        {
+            let mut node = MCSNode::new();
+            let subq = que.subq.lock(&mut node);
+            subq_phy_addr = subq.sub_ring.get_phy_addr().as_usize();
+        }
+        write_reg(&self.info, NVME_ASQ, subq_phy_addr as u32)?;
+        write_reg(&self.info, NVME_ASQ + 4, (subq_phy_addr >> 32) as u32)?;
+        fence(Ordering::SeqCst);
+
+        let comq_phy_addr;
+        {
+            let mut node = MCSNode::new();
+            let comq = que.comq.lock(&mut node);
+            comq_phy_addr = comq.com_ring.get_phy_addr().as_usize();
+        }
+        write_reg(&self.info, NVME_ACQ, comq_phy_addr as u32)?;
+        write_reg(&self.info, NVME_ACQ + 4, (comq_phy_addr >> 32) as u32)?;
+        fence(Ordering::SeqCst);
+
+        cc &= !(NVME_CC_IOCQES_MASK
+            | NVME_CC_IOSQES_MASK
+            | NVME_CC_SHN_MASK
+            | NVME_CC_AMS_MASK
+            | NVME_CC_MPS_MASK
+            | NVME_CC_CSS_MASK);
+        cc |= NVME_CC_IOSQES(6); /* Submission queue entry size == 2**6 (64) */
+        cc |= NVME_CC_IOCQES(4); /* Completion queue entry size == 2**4 (16) */
+        cc |= NVME_CC_SHN(NVME_CC_SHN_NONE);
+        cc |= NVME_CC_CSS(NVME_CC_CSS_NVM);
+        cc |= NVME_CC_AMS(NVME_CC_AMS_RR);
+        cc |= NVME_CC_MPS(self.mps.trailing_zeros());
+        cc |= NVME_CC_EN;
+
+        write_reg(&self.info, NVME_CC, cc)?;
+        fence(Ordering::SeqCst);
+
+        ready(&self.info, NVME_CSTS_RDY, self.rdy_to)
     }
 
     fn disable(&self) -> Result<(), NvmeDriverErr> {
@@ -157,10 +214,10 @@ impl NvmeInner {
         };
 
         let que = Queue {
-            _subq: Mutex::new(subq),
-            _comq: Mutex::new(comq),
-            _id: id,
-            _entries: entries,
+            subq: Mutex::new(subq),
+            comq: Mutex::new(comq),
+            id,
+            entries,
         };
 
         Ok(que)
