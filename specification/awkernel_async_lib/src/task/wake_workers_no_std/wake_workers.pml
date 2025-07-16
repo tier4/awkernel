@@ -61,6 +61,8 @@ inline interrupt_handler(cpu_id) {
             goto return_interrupt_handler
         fi
 
+        cnt_scheduling_event++
+
         // disable interrupts
         if
         :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true
@@ -93,6 +95,8 @@ inline interrupt_handler(cpu_id) {
     // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
     // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
     d_step {
+        cnt_scheduling_event--
+
         if
         :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
         :: else
