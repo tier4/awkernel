@@ -8,13 +8,10 @@
 //!
 //! ## Known Limitations:
 //! 
-//! 1. **Reader-Truncate Race**: A reader may access clusters that are being freed by a
-//!    concurrent truncate operation. This can lead to reading stale or corrupted data.
-//!
-//! 2. **Byte-Level Write Interleaving**: Multiple concurrent writers to the same file
+//! 1. **Byte-Level Write Interleaving**: Multiple concurrent writers to the same file
 //!    may have their writes interleaved at the byte level within a cluster.
 //!
-//! 3. **No Transactional Guarantees**: Operations like file extension (allocating new
+//! 2. **No Transactional Guarantees**: Operations like file extension (allocating new
 //!    clusters and updating size) are not fully transactional. A crash or error during
 //!    these operations may leave the file in an inconsistent state.
 //!
@@ -29,11 +26,14 @@
 //! 3. **Shared Metadata**: Multiple file handles to the same file share the same metadata
 //!    (size, timestamps, first cluster), ensuring a consistent view.
 //!
+//! 4. **Reader-Truncate Protection**: Read operations hold the metadata lock during cluster
+//!    chain traversal, preventing concurrent truncate operations from freeing clusters
+//!    while they're being read.
+//!
 //! ## Recommendations:
 //!
 //! For applications requiring strong consistency guarantees:
 //! - Use file-level locking (e.g., flock) to coordinate access
-//! - Avoid concurrent reads during file truncation
 //! - Design applications with single-writer, multiple-reader patterns
 //! - Use fsync() to ensure data is written to disk before critical operations
 
