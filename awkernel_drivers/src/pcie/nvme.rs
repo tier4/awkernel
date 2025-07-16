@@ -246,6 +246,7 @@ impl Nvme {
         inner.enable(&admin_q)?;
 
         let nvme = Self {
+            admin_q,
             inner: RwLock::new(inner),
         };
 
