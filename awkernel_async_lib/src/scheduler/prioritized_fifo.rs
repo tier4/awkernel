@@ -56,7 +56,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
             task.clone(),
         ) {
             internal_data.queue.push(
-                priority as u32,
+                priority,
                 PrioritizedFIFOTask {
                     task: task.clone(),
                     _priority: priority,
