@@ -96,11 +96,10 @@ impl NvmeInner {
         })
     }
 
-    fn enable(&self, que: &Queue) -> Result<(), NvmeDriverErr> {
+    fn enable(&self, admin_q: &Queue) -> Result<(), NvmeDriverErr> {
         let mut cc = read_reg(&self.info, NVME_CC)?;
-
         if cc & NVME_CC_EN != 0 {
-            return ready(&self.info, NVME_CSTS_RDY, self.rdy_to);
+            return ready(&self.info, NVME_CSTS_RDY);
         }
 
         //if (sc->sc_ops->op_enable != NULL)
@@ -109,29 +108,29 @@ impl NvmeInner {
         write_reg(
             &self.info,
             NVME_AQA,
-            NVME_AQA_ACQS(que.entries) | NVME_AQA_ASQS(que.entries),
+            NVME_AQA_ACQS(admin_q.entries) | NVME_AQA_ASQS(admin_q.entries),
         )?;
-        fence(Ordering::SeqCst);
+        bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
         let subq_phy_addr;
         {
             let mut node = MCSNode::new();
-            let subq = que.subq.lock(&mut node);
+            let subq = admin_q.que.subq.lock(&mut node);
             subq_phy_addr = subq.sub_ring.get_phy_addr().as_usize();
         }
         write_reg(&self.info, NVME_ASQ, subq_phy_addr as u32)?;
         write_reg(&self.info, NVME_ASQ + 4, (subq_phy_addr >> 32) as u32)?;
-        fence(Ordering::SeqCst);
+        bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
         let comq_phy_addr;
         {
             let mut node = MCSNode::new();
-            let comq = que.comq.lock(&mut node);
+            let comq = admin_q.que.comq.lock(&mut node);
             comq_phy_addr = comq.com_ring.get_phy_addr().as_usize();
         }
         write_reg(&self.info, NVME_ACQ, comq_phy_addr as u32)?;
         write_reg(&self.info, NVME_ACQ + 4, (comq_phy_addr >> 32) as u32)?;
-        fence(Ordering::SeqCst);
+        bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
         cc &= !(NVME_CC_IOCQES_MASK
             | NVME_CC_IOSQES_MASK
@@ -148,9 +147,9 @@ impl NvmeInner {
         cc |= NVME_CC_EN;
 
         write_reg(&self.info, NVME_CC, cc)?;
-        fence(Ordering::SeqCst);
+        bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
 
-        ready(&self.info, NVME_CSTS_RDY, self.rdy_to)
+        ready(&self.info, NVME_CSTS_RDY)
     }
 
     fn disable(&self) -> Result<(), NvmeDriverErr> {
@@ -225,6 +224,15 @@ impl NvmeInner {
 }
 
 struct Nvme {
+    // The order of lock acquisition must be as follows:
+    //
+    // 1. `NvmeInner`'s lock
+    // 2. `Queue`'s lock
+    // 3. `Queue`'s unlock
+    // 4. `NvmeInner`'s unlock
+    //
+    // Otherwise, a deadlock will occur.
+    admin_q: Queue,
     inner: RwLock<NvmeInner>,
 }
 impl Nvme {
@@ -233,7 +241,9 @@ impl Nvme {
 
         inner.disable()?;
 
-        let _admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
+        let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
+
+        inner.enable(&admin_q)?;
 
         let nvme = Self {
             inner: RwLock::new(inner),
