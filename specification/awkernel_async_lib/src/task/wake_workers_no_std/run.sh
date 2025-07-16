@@ -1,4 +1,4 @@
-rm -f result.txt
+rm -f result.txt *.out
 
 for i in $(seq 0 3); do
     echo "IRQ_POS$i"

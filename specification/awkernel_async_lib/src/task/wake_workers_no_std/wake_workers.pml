@@ -61,8 +61,6 @@ inline interrupt_handler(cpu_id) {
             goto return_interrupt_handler
         fi
 
-        cnt_scheduling_event++
-
         // disable interrupts
         if
         :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true
@@ -89,21 +87,19 @@ inline interrupt_handler(cpu_id) {
             :: else
             fi
         }
-    }
 
-    // Enable timer.
-    // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
-    // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
-    d_step {
-        cnt_scheduling_event--
+        // Enable timer.
+        // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
+        // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
+        d_step {
+            if
+            :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
+            :: else
+            fi
 
-        if
-        :: CPU_SLEEP_TAG[cpu_id] == Waiting || CPU_SLEEP_TAG[cpu_id] == Waking -> timer_reset(cpu_id)
-        :: else
-        fi
-
-        // enable interrupts
-        interrupt_mask[cpu_id] = false
+            // enable interrupts
+            interrupt_mask[cpu_id] = false
+        }
     }
 return_interrupt_handler:
 }
@@ -130,7 +126,7 @@ inline sleep(cpu_id, tout) {
 
         // if wake-up already pending, consume and return
         if
-        :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep2
+        :: CPU_SLEEP_TAG[cpu_id] == Continue -> goto return_sleep
         :: else
         fi
 
@@ -150,7 +146,7 @@ inline sleep(cpu_id, tout) {
 
         if
         :: prev_val == Active
-        :: prev_val == Waking || prev_val == Continue -> goto return_sleep1
+        :: prev_val == Waking || prev_val == Continue -> goto return_sleep
         :: else -> assert(prev_val != Waiting) // unreachable!()
         fi
     }
@@ -171,7 +167,7 @@ inline sleep(cpu_id, tout) {
             :: true ->
                 // timeout <= elapsed
                 CPU_SLEEP_TAG[cpu_id] = Active
-                goto return_sleep3
+                goto return_sleep
             :: true
             fi
         :: else
@@ -192,9 +188,7 @@ inline sleep(cpu_id, tout) {
         compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val)
 
         if
-        :: prev_val == Waking ->
-            interrupt_mask[cpu_id] = true
-            goto return_sleep3
+        :: prev_val == Waking -> goto return_sleep
         :: prev_val == Waiting ->
             printf("CPU#{%d}: sleeping, prev_val = %d, TAG = %d\n", cpu_id, prev_val, CPU_SLEEP_TAG[cpu_id])
         :: else -> assert(false) // unreachable!()
@@ -214,15 +208,13 @@ inline sleep(cpu_id, tout) {
 
     interrupt_handler(cpu_id)
 
-return_sleep1:
-    // disable interrupts
-    interrupt_mask[cpu_id] = true
-
-return_sleep2:
-    CPU_SLEEP_TAG[cpu_id] = Active
-
-return_sleep3:
-    timer_disable(cpu_id)
+return_sleep:
+    d_step {
+        // disable interrupts
+        interrupt_mask[cpu_id] = true
+        CPU_SLEEP_TAG[cpu_id] = Active
+        timer_disable(cpu_id)
+    }
 }
 
 inline invoke_unintentional_irq(cpu_id) {

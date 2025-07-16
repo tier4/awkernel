@@ -12,7 +12,7 @@ pan.c: wake_workers.pml
 	spin -a -D$(TARGET) -D$(TIMER) -DIRQ_POS=$(IRQ_POS) $<
 
 pan: pan.c
-	gcc -O3 -DCOLLAPSE -DMEMLIM=58368 -o $@ $<
+	gcc -O3 -DCOLLAPSE -DMEMLIM=55000 -o $@ $<
 
 run: pan
 	rm -f *.trail
