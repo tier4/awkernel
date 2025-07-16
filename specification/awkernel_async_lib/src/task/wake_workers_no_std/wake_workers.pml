@@ -109,7 +109,6 @@ return_interrupt_handler:
 }
 
 inline wait_interrupt(cpu_id) {
-    // assert(interrupt_mask[cpu_id] == false)
     atomic {
         if
         :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
@@ -182,7 +181,7 @@ inline sleep(cpu_id, tout) {
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
     byte tmp
-    wake_up(cpu_id, 0, tmp)
+    wake_up(cpu_id, 0, tmp, false, false)
 
     // receive interrupts
 #if IRQ_POS == 1
@@ -238,7 +237,7 @@ inline invoke_unintentional_irq(cpu_id) {
 }
 
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
-inline wake_up(my_id, target_cpu_id, result) {
+inline wake_up(my_id, target_cpu_id, result, dec_cnt, polling_false) {
     atomic {
         if
         :: my_id == target_cpu_id ->
@@ -272,6 +271,16 @@ inline wake_up(my_id, target_cpu_id, result) {
                 printf("already continue: CPU#{%d}", target_cpu_id)
             :: else -> assert(false) // unreachable!()
             fi
+
+            if
+            :: dec_cnt -> cnt_scheduling_event--
+            :: else -> skip
+            fi
+
+            if
+            :: polling_false -> polling[my_id - 1] = false
+            :: else -> skip
+            fi
         }
     }
 
@@ -288,7 +297,7 @@ inline wake_workers(cpu_id) {
         if
         :: num_tasks == 0 -> break
         :: else ->
-            wake_up(cpu_id, i, result)
+            wake_up(cpu_id, i, result, false, false)
 
             if
             :: d_step { result == true ->
@@ -322,8 +331,7 @@ inline spawn_task() {
         run_queue++
         printf("spawn_task: run_queue = %d\n", run_queue)
     }
-    wake_up(CPU_NUM, 0, tmp)
-    cnt_scheduling_event--
+    wake_up(CPU_NUM, 0, tmp, true, false)
 }
 
 // Simulate tasks
@@ -367,9 +375,7 @@ inline task_poll() {
 
         printf("sleep: delta_list = %d, cpu_id = %d\n", delta_list, cpu_id)
     }
-        wake_up(cpu_id, 0, result)
-
-        polling[cpu_id - 1] = false
+        wake_up(cpu_id, 0, result, false, true)
     :: else -> d_step {
         finished_tasks++
         printf("task_poll: finished_tasks = %d\n", finished_tasks)
