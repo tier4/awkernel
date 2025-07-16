@@ -341,9 +341,7 @@ pub fn spawn(
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
         if p > LOWEST_PRIORITY {
             log::warn!(
-                "Task priority should be between 0 and {}. It is addressed as {}.",
-                LOWEST_PRIORITY,
-                LOWEST_PRIORITY
+                "Task priority should be between 0 and {LOWEST_PRIORITY}. It is addressed as {LOWEST_PRIORITY}."
             );
         }
     }
