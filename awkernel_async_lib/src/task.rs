@@ -9,7 +9,9 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::scheduler::{self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType};
+use crate::scheduler::{
+    self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType, LOWEST_PRIORITY,
+};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -337,6 +339,16 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > LOWEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {}. It is addressed as {}.",
+                LOWEST_PRIORITY,
+                LOWEST_PRIORITY
+            );
+        }
+    }
+
     let future = future.boxed();
 
     let scheduler = get_scheduler(sched_type);
