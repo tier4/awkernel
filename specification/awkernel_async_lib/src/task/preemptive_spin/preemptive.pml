@@ -429,7 +429,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 		if
 		:: consecutive_run_main_loop[tid] == MAX_CONSECUTIVE_RUN_MAIN_LOOP ->
 			printf("consecutive_run_main_loop[%d] == MAX_CONSECUTIVE_RUN_MAIN_LOOP\n",tid);
-			run wait_until_timeout(tid);
+			resume_requests!tid;
 			wait_for_weak_fairness[tid] = true;
 		:: else
 		fi

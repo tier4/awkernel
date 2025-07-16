@@ -9,11 +9,24 @@ short running_lowest_priority = - BYTE_MAX
 #define MAX_CONSECUTIVE_RUN_MAIN_LOOP 5
 byte consecutive_run_main_loop[WORKER_NUM] = 0
 bool wait_for_weak_fairness[WORKER_NUM] = false
+chan resume_requests = [WORKER_NUM] of {byte}
 
-proctype wait_until_timeout(byte tid) {
-	if
-	:: timeout -> d_step{wait_for_weak_fairness[tid] = false; consecutive_run_main_loop[tid] = 0;}
-	fi
+active proctype timeout_handler() {
+	xr resume_requests;
+	byte tid;
+	
+	do
+	:: timeout ->
+		if
+		:: num_terminated == TASK_NUM -> break
+		:: atomic{else ->
+			assert(nempty(resume_requests));
+			resume_requests?tid;
+			wait_for_weak_fairness[tid] = false;
+			consecutive_run_main_loop[tid] = 0;
+		}
+		fi
+	od
 }
 
 inline update_runnable_preempted_highest_priority() {
