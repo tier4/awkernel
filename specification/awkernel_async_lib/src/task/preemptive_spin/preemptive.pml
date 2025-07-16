@@ -1,7 +1,9 @@
 #define TASK_NUM 4
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
+#ifndef CPU_NUM
 #define CPU_NUM 2
+#endif
 
 #include "data_structure.pml"
 #include "for_verification.pml"
