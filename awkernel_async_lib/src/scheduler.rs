@@ -63,7 +63,7 @@ pub fn pop_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
-/// 0 is the highest priority and 99 is the lowest priority.
+/// 0 is the highest priority and 31 is the lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
