@@ -307,11 +307,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for File<IO, TP, OCC> {
             log::error!("flush failed {err:?}");
         }
 
-        if let Some(ref metadata_arc) = self.metadata {
+        if let Some(metadata_arc) = self.metadata.take() {
             let mut node = MCSNode::new();
             let metadata = metadata_arc.lock(&mut node);
             let entry_pos = metadata.pos;
             drop(metadata);
+            drop(metadata_arc);  // Drop our Arc reference
             self.fs.cleanup_metadata_if_unused(entry_pos);
         }
     }

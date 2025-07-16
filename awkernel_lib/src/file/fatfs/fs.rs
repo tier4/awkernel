@@ -747,7 +747,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut cache = self.metadata_cache.lock(&mut node);
 
         if let Some(metadata_arc) = cache.get(&entry_pos) {
-            if Arc::strong_count(metadata_arc) <= 2 {
+            // Only the cache holds a reference - safe to remove
+            if Arc::strong_count(metadata_arc) == 1 {
                 cache.remove(&entry_pos);
             }
         }
