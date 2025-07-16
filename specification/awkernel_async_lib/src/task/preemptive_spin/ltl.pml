@@ -26,6 +26,6 @@ ltl ensure_priority {
 			#if CPU_NUM >= 4
 				len(ipi_requests[3]) == 0 && RUNNING[3] != -1 && RUNNING[3] != runnable_preempted_highest_priority &&
 			#endif
-			!handling_interrupt[0] && !handling_interrupt[1] && !handling_interrupt[2] && !handling_interrupt[3] && !handling_interrupt[4]
+			!handling_interrupt[0] && !handling_interrupt[1] && !handling_interrupt[2] && !handling_interrupt[3]
 		) -> (running_lowest_priority < runnable_preempted_highest_priority))
 }
