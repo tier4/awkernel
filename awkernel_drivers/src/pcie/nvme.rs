@@ -5,7 +5,7 @@ use awkernel_lib::{
     delay::wait_microsec,
     dma_pool::DMAPool,
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 
 mod nvme_regs;
@@ -99,7 +99,7 @@ impl NvmeInner {
     fn enable(&self, admin_q: &Queue) -> Result<(), NvmeDriverErr> {
         let mut cc = read_reg(&self.info, NVME_CC)?;
         if cc & NVME_CC_EN != 0 {
-            return ready(&self.info, NVME_CSTS_RDY);
+            return self.ready(NVME_CSTS_RDY);
         }
 
         //if (sc->sc_ops->op_enable != NULL)
@@ -149,7 +149,7 @@ impl NvmeInner {
         write_reg(&self.info, NVME_CC, cc)?;
         bus_space_barrier(BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
 
-        ready(&self.info, NVME_CSTS_RDY)
+        self.ready(NVME_CSTS_RDY)
     }
 
     fn disable(&self) -> Result<(), NvmeDriverErr> {
@@ -194,9 +194,9 @@ impl NvmeInner {
         let sqtdbl = NVME_SQTDBL(id, dstrd);
 
         let subq = SubQueue {
-            _sub_ring: sub_ring,
-            _sqtdbl: sqtdbl as usize,
-            _tail: 0,
+            sub_ring,
+            sqtdbl: sqtdbl as usize,
+            tail: 0,
         };
 
         let comq_size = core::mem::size_of::<ComRing>();
@@ -206,10 +206,10 @@ impl NvmeInner {
         let cqhdbl = NVME_CQHDBL(id, dstrd);
 
         let comq = ComQueue {
-            _com_ring: com_ring,
-            _cqhdbl: cqhdbl as usize,
-            _head: 0,
-            _phase: NVME_CQE_PHASE,
+            com_ring,
+            cqhdbl: cqhdbl as usize,
+            head: 0,
+            phase: NVME_CQE_PHASE,
         };
 
         let que = Queue {

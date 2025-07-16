@@ -92,9 +92,9 @@ pub struct SubQueueEntry {
 }
 
 pub struct SubQueue {
-    pub _sub_ring: DMAPool<SubRing>,
-    pub _sqtdbl: usize,
-    pub _tail: u32,
+    pub sub_ring: DMAPool<SubRing>,
+    pub sqtdbl: usize,
+    pub tail: u32,
 }
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -108,10 +108,10 @@ pub struct ComQueueEntry {
 }
 
 pub struct ComQueue {
-    pub _com_ring: DMAPool<ComRing>,
-    pub _cqhdbl: usize,
-    pub _head: u32,
-    pub _phase: u16,
+    pub com_ring: DMAPool<ComRing>,
+    pub cqhdbl: usize,
+    pub head: u32,
+    pub phase: u16,
 }
 
 pub const QUEUE_SIZE: usize = 128;
