@@ -1,6 +1,7 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{format, sync::Arc};
 use awkernel_lib::{
+    addr::Addr,
     barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
     delay::wait_microsec,
     dma_pool::DMAPool,
@@ -21,7 +22,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
 struct Queue {
     subq: Mutex<SubQueue>,
     comq: Mutex<ComQueue>,
-    id: u16,
+    _id: u16,
     entries: u32,
 }
 
@@ -195,8 +196,8 @@ impl NvmeInner {
 
         let subq = SubQueue {
             sub_ring,
-            sqtdbl: sqtdbl as usize,
-            tail: 0,
+            _sqtdbl: sqtdbl as usize,
+            _tail: 0,
         };
 
         let comq_size = core::mem::size_of::<ComRing>();
@@ -207,15 +208,15 @@ impl NvmeInner {
 
         let comq = ComQueue {
             com_ring,
-            cqhdbl: cqhdbl as usize,
-            head: 0,
-            phase: NVME_CQE_PHASE,
+            _cqhdbl: cqhdbl as usize,
+            _head: 0,
+            _phase: NVME_CQE_PHASE,
         };
 
         let que = Queue {
             subq: Mutex::new(subq),
             comq: Mutex::new(comq),
-            id,
+            _id: id,
             entries,
         };
 
@@ -232,7 +233,7 @@ struct Nvme {
     // 4. `NvmeInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    admin_q: Queue,
+    _admin_q: Queue,
     inner: RwLock<NvmeInner>,
 }
 impl Nvme {
@@ -246,7 +247,7 @@ impl Nvme {
         inner.enable(&admin_q)?;
 
         let nvme = Self {
-            admin_q,
+            _admin_q: admin_q,
             inner: RwLock::new(inner),
         };
 
