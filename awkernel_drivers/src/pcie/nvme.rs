@@ -115,7 +115,7 @@ impl NvmeInner {
         let subq_phy_addr;
         {
             let mut node = MCSNode::new();
-            let subq = admin_q.que.subq.lock(&mut node);
+            let subq = admin_q.subq.lock(&mut node);
             subq_phy_addr = subq.sub_ring.get_phy_addr().as_usize();
         }
         write_reg(&self.info, NVME_ASQ, subq_phy_addr as u32)?;
@@ -125,7 +125,7 @@ impl NvmeInner {
         let comq_phy_addr;
         {
             let mut node = MCSNode::new();
-            let comq = admin_q.que.comq.lock(&mut node);
+            let comq = admin_q.comq.lock(&mut node);
             comq_phy_addr = comq.com_ring.get_phy_addr().as_usize();
         }
         write_reg(&self.info, NVME_ACQ, comq_phy_addr as u32)?;
