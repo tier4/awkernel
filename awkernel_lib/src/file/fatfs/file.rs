@@ -1,3 +1,42 @@
+//! FAT filesystem file implementation.
+//!
+//! # Concurrency Limitations
+//!
+//! The FAT filesystem was not designed for concurrent access. While this implementation
+//! provides some consistency guarantees through shared metadata and atomic operations,
+//! there are inherent limitations:
+//!
+//! ## Known Limitations:
+//! 
+//! 1. **Reader-Truncate Race**: A reader may access clusters that are being freed by a
+//!    concurrent truncate operation. This can lead to reading stale or corrupted data.
+//!
+//! 2. **Byte-Level Write Interleaving**: Multiple concurrent writers to the same file
+//!    may have their writes interleaved at the byte level within a cluster.
+//!
+//! 3. **No Transactional Guarantees**: Operations like file extension (allocating new
+//!    clusters and updating size) are not fully transactional. A crash or error during
+//!    these operations may leave the file in an inconsistent state.
+//!
+//! ## Consistency Guarantees:
+//!
+//! 1. **Atomic Truncation**: The truncate operation holds the metadata lock while updating
+//!    size and freeing clusters, preventing truncate-truncate races.
+//!
+//! 2. **Atomic First Cluster Allocation**: The first write to an empty file atomically
+//!    allocates and sets the first cluster, preventing lost cluster allocations.
+//!
+//! 3. **Shared Metadata**: Multiple file handles to the same file share the same metadata
+//!    (size, timestamps, first cluster), ensuring a consistent view.
+//!
+//! ## Recommendations:
+//!
+//! For applications requiring strong consistency guarantees:
+//! - Use file-level locking (e.g., flock) to coordinate access
+//! - Avoid concurrent reads during file truncation
+//! - Design applications with single-writer, multiple-reader patterns
+//! - Use fsync() to ensure data is written to disk before critical operations
+
 use alloc::sync::Arc;
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -49,6 +88,11 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
 
     /// Truncate file in current position.
     ///
+    /// This operation is atomic - it holds the metadata lock while updating
+    /// size and freeing clusters, preventing truncate-truncate races.
+    /// 
+    /// Lock ordering: metadata → disk (via FAT operations)
+    ///
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
@@ -59,16 +103,30 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     pub fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
         log::trace!("File::truncate");
         if let Some(ref metadata_arc) = self.metadata {
+            // IMPORTANT: We hold the metadata lock during the entire truncate operation
+            // to ensure atomicity. This follows the lock ordering: metadata → disk
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
+            
+            // Update metadata
             metadata.set_size(self.offset);
             if self.offset == 0 {
                 metadata.set_first_cluster(None, self.fs.fat_type());
             }
+            
+            // Get cluster info while holding lock
             let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
-            drop(metadata);
-
-            let current_cluster = self.get_current_cluster()?;
+            
+            // Calculate current cluster while still holding metadata lock
+            // This ensures consistent view of the file state
+            let current_cluster = if self.offset == 0 {
+                None
+            } else {
+                self.get_current_cluster_with_metadata(&metadata)?
+            };
+            
+            // Free clusters while still holding metadata lock
+            // Metadata lock released here when metadata goes out of scope
             if let Some(cluster) = current_cluster {
                 // current cluster is none only if offset is 0
                 debug_assert!(self.offset > 0);
@@ -216,13 +274,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         self.size().map(|s| (s - self.offset) as usize)
     }
 
-    fn set_first_cluster(&mut self, cluster: u32) {
-        if let Some(ref metadata_arc) = self.metadata {
-            let mut node = MCSNode::new();
-            let mut metadata = metadata_arc.lock(&mut node);
-            metadata.set_first_cluster(Some(cluster), self.fs.fat_type());
-        }
-    }
 
     pub(crate) fn first_cluster(&self) -> Option<u32> {
         if let Some(ref metadata_arc) = self.metadata {
@@ -234,23 +285,18 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
     }
 
-    /// Get the cluster that contains the current file position.
-    /// 
-    /// Returns the cluster number that contains the byte at the current offset.
-    /// Special case: when offset is at a cluster boundary (offset % cluster_size == 0),
-    /// this returns the PREVIOUS cluster, not the next one. This matches the original
-    /// FatFS semantics where current_cluster represents "the last accessed cluster".
-    /// 
-    /// Returns:
-    /// - Ok(Some(cluster)) - The cluster containing the current position
-    /// - Ok(None) - When offset is 0 or beyond the file's cluster chain
-    /// - Err - On I/O errors during cluster chain traversal
-    fn get_current_cluster(&self) -> Result<Option<u32>, Error<IO::Error>> {
+    /// Calculate current cluster with an existing metadata lock held.
+    /// This avoids code duplication between get_current_cluster() and operations
+    /// that need to hold the metadata lock for consistency.
+    fn get_current_cluster_with_metadata(
+        &self,
+        metadata: &impl core::ops::Deref<Target = DirEntryEditor>
+    ) -> Result<Option<u32>, Error<IO::Error>> {
         if self.offset == 0 {
             return Ok(None);
         }
         
-        let Some(first_cluster) = self.first_cluster() else {
+        let Some(first_cluster) = metadata.inner().first_cluster(self.fs.fat_type()) else {
             return Ok(None); // empty file
         };
         
@@ -271,6 +317,31 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
         
         Ok(Some(cluster))
+    }
+
+    /// Get the cluster that contains the current file position.
+    /// 
+    /// Returns the cluster number that contains the byte at the current offset.
+    /// Special case: when offset is at a cluster boundary (offset % cluster_size == 0),
+    /// this returns the PREVIOUS cluster, not the next one. This matches the original
+    /// FatFS semantics where current_cluster represents "the last accessed cluster".
+    /// 
+    /// Returns:
+    /// - Ok(Some(cluster)) - The cluster containing the current position
+    /// - Ok(None) - When offset is 0 or beyond the file's cluster chain
+    /// - Err - On I/O errors during cluster chain traversal
+    fn get_current_cluster(&self) -> Result<Option<u32>, Error<IO::Error>> {
+        if self.offset == 0 {
+            return Ok(None);
+        }
+        
+        if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let metadata = metadata_arc.lock(&mut node);
+            self.get_current_cluster_with_metadata(&metadata)
+        } else {
+            Ok(None)
+        }
     }
 
     fn flush(&mut self) -> Result<(), Error<IO::Error>> {
@@ -337,58 +408,127 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         log::trace!("File::read");
         let cluster_size = self.fs.cluster_size();
-        let current_cluster_opt = if self.offset % cluster_size == 0 {
-            // at cluster boundary - get next cluster
-            if let Some(current) = self.get_current_cluster()? {
-                let r = FileSystem::cluster_iter(&self.fs, current).next();
-                match r {
-                    Some(Err(err)) => return Err(err),
-                    Some(Ok(n)) => Some(n),
-                    None => None,
-                }
-            } else if self.offset == 0 {
-                // at offset 0, use first cluster
-                self.first_cluster()
-            } else {
-                // beyond end of file
-                None
-            }
-        } else {
-            self.get_current_cluster()?
-        };
-        let Some(current_cluster) = current_cluster_opt else {
-            return Ok(0);
-        };
-        let offset_in_cluster = self.offset % cluster_size;
-        let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
-        let bytes_left_in_file = self.bytes_left_in_file().unwrap_or(bytes_left_in_cluster);
-        let read_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_in_file);
-        if read_size == 0 {
-            return Ok(0);
-        }
-        log::trace!("read {read_size} bytes in cluster {current_cluster}");
-        let offset_in_fs =
-            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
-        let read_bytes = {
-            let mut node = MCSNode::new();
-            let mut disk_guard = self.fs.disk.lock(&mut node);
-            disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
-            disk_guard.read(&mut buf[..read_size])?
-        };
-        if read_bytes == 0 {
-            return Ok(0);
-        }
-        self.offset += read_bytes as u32;
-
+        
+        // Hold metadata lock during entire read operation to prevent truncate races
+        // Lock ordering: metadata → disk (allowed)
         if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let mut metadata = metadata_arc.lock(&mut node);
+            
+            // Check file size under lock
+            let size = metadata.inner().size();
+            if let Some(s) = size {
+                if self.offset >= s {
+                    return Ok(0);
+                }
+            }
+            
+            // Calculate current cluster under lock
+            let current_cluster_opt = if self.offset % cluster_size == 0 {
+                // at cluster boundary - get next cluster
+                if let Some(current) = self.get_current_cluster_with_metadata(&metadata)? {
+                    let r = FileSystem::cluster_iter(&self.fs, current).next();
+                    match r {
+                        Some(Err(err)) => return Err(err),
+                        Some(Ok(n)) => Some(n),
+                        None => None,
+                    }
+                } else if self.offset == 0 {
+                    metadata.inner().first_cluster(self.fs.fat_type())
+                } else {
+                    None
+                }
+            } else {
+                self.get_current_cluster_with_metadata(&metadata)?
+            };
+            
+            let Some(current_cluster) = current_cluster_opt else {
+                return Ok(0);
+            };
+            
+            // Calculate read parameters
+            let offset_in_cluster = self.offset % cluster_size;
+            let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
+            let bytes_left_in_file = size.map(|s| ((s - self.offset) as usize).min(bytes_left_in_cluster))
+                .unwrap_or(bytes_left_in_cluster);
+            let read_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_in_file);
+            if read_size == 0 {
+                return Ok(0);
+            }
+            
+            log::trace!("read {read_size} bytes in cluster {current_cluster}");
+            let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+            
+            // Perform I/O while holding metadata lock
+            // This is lock ordering: metadata → disk (allowed)
+            let read_bytes = {
+                let mut node_disk = MCSNode::new();
+                let mut disk_guard = self.fs.disk.lock(&mut node_disk);
+                disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
+                disk_guard.read(&mut buf[..read_size])?
+            };
+            
+            if read_bytes == 0 {
+                return Ok(0);
+            }
+            
+            self.offset += read_bytes as u32;
+            
+            // Update accessed date while still holding metadata lock
             if self.fs.options.update_accessed_date {
-                let mut node = MCSNode::new();
-                let mut metadata = metadata_arc.lock(&mut node);
                 let now = self.fs.options.time_provider.get_current_date();
                 metadata.set_accessed(now);
             }
+            
+            Ok(read_bytes)
+        } else {
+            // Root directory has no metadata
+            // For root dir, we can proceed with the original logic since it can't be truncated
+            let current_cluster_opt = if self.offset % cluster_size == 0 {
+                if let Some(current) = self.get_current_cluster()? {
+                    let r = FileSystem::cluster_iter(&self.fs, current).next();
+                    match r {
+                        Some(Err(err)) => return Err(err),
+                        Some(Ok(n)) => Some(n),
+                        None => None,
+                    }
+                } else if self.offset == 0 {
+                    self.first_cluster()
+                } else {
+                    None
+                }
+            } else {
+                self.get_current_cluster()?
+            };
+            
+            let Some(current_cluster) = current_cluster_opt else {
+                return Ok(0);
+            };
+            
+            let offset_in_cluster = self.offset % cluster_size;
+            let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
+            let bytes_left_in_file = self.bytes_left_in_file().unwrap_or(bytes_left_in_cluster);
+            let read_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_in_file);
+            if read_size == 0 {
+                return Ok(0);
+            }
+            
+            log::trace!("read {read_size} bytes in cluster {current_cluster}");
+            let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+            let read_bytes = {
+                let mut node = MCSNode::new();
+                let mut disk_guard = self.fs.disk.lock(&mut node);
+                disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
+                disk_guard.read(&mut buf[..read_size])?
+            };
+            
+            if read_bytes == 0 {
+                return Ok(0);
+            }
+            
+            self.offset += read_bytes as u32;
+            Ok(read_bytes)
         }
-        Ok(read_bytes)
     }
 }
 
@@ -431,13 +571,35 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                 n
             } else {
                 // end of chain reached - allocate new cluster
-                let new_cluster =
-                    FileSystem::alloc_cluster(&self.fs, self.get_current_cluster()?, self.is_dir())?;
-                log::trace!("allocated cluster {new_cluster}");
+                // For first cluster allocation, we need to hold metadata lock to prevent races
                 if self.first_cluster().is_none() {
-                    self.set_first_cluster(new_cluster);
+                    if let Some(ref metadata_arc) = self.metadata {
+                        // IMPORTANT: Lock ordering - metadata → fs_info → disk (via alloc_cluster)
+                        // We must acquire metadata lock before calling alloc_cluster
+                        let mut node = MCSNode::new();
+                        let mut metadata = metadata_arc.lock(&mut node);
+                        
+                        // Double-check under lock in case another thread allocated first cluster
+                        if metadata.inner().first_cluster(self.fs.fat_type()).is_none() {
+                            let new_cluster = FileSystem::alloc_cluster(&self.fs, None, self.is_dir())?;
+                            log::trace!("allocated first cluster {new_cluster}");
+                            metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
+                            new_cluster
+                        } else {
+                            // Another thread allocated first cluster, try again
+                            drop(metadata);
+                            return self.write(buf);
+                        }
+                    } else {
+                        panic!("File without metadata trying to allocate cluster");
+                    }
+                } else {
+                    // Not first cluster, regular allocation
+                    let new_cluster =
+                        FileSystem::alloc_cluster(&self.fs, self.get_current_cluster()?, self.is_dir())?;
+                    log::trace!("allocated cluster {new_cluster}");
+                    new_cluster
                 }
-                new_cluster
             }
         } else {
             // within cluster - get current cluster
