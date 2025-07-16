@@ -146,9 +146,9 @@ inline sleep(cpu_id, tout) {
 
     // mark waiting before halt
     mtype prev_val
-    compare_exchange(CPU_SLEEP_TAG[cpu_id], Active, Waiting, prev_val)
-
     atomic {
+        compare_exchange(CPU_SLEEP_TAG[cpu_id], Active, Waiting, prev_val)
+
         if
         :: prev_val == Active
         :: prev_val == Waking || prev_val == Continue -> goto return_sleep1
@@ -189,9 +189,9 @@ inline sleep(cpu_id, tout) {
     invoke_unintentional_irq(cpu_id)
 #endif
 
-    compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val)
-
     atomic {
+        compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val)
+
         if
         :: prev_val == Waking ->
             interrupt_mask[cpu_id] = true
