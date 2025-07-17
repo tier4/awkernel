@@ -61,30 +61,32 @@ inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
 	atomic {
 		printf("get_lowest_priority_task(): tid = %d,task = %d\n",tid,task);
 		for (j : 0 .. CPU_NUM - 1) {
+			short reference_task = - 1;
 			if
 			:: RUNNING[j] == task ->// The task has already been running.
 				assert(empty(ipi_requests[j]));
 				ret_task = - 1;
 				break
 			:: RUNNING[j] == -1 ->
-				assert(empty(ipi_requests[j]));
-				num_idle_cpus++;
+				if
+				:: ipi_requests[j]?[reference_task] -> ipi_requests[j]?<reference_task>
+				:: else -> num_idle_cpus++;
+				fi
 			:: else ->
 				byte highest_pending;
-				byte min_ret;
 				if
 				:: ipi_requests[j]?[highest_pending] -> 
 					ipi_requests[j]?<highest_pending>;
-					min(RUNNING[j],highest_pending,min_ret);
-				:: else -> min_ret = RUNNING[j];
+					min(RUNNING[j],highest_pending,reference_task);
+				:: else -> reference_task = RUNNING[j];
 				fi
+			fi
 
-				if
-				:: min_ret > ret_task -> 
-					ret_task = min_ret;
-					ret_cpu_id = j;
-				:: else
-				fi
+			if
+			:: reference_task > ret_task -> 
+				ret_task = reference_task;
+				ret_cpu_id = j;
+			:: else
 			fi
 		}
 	}	
@@ -366,19 +368,24 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
-		atomic {
+		ipi_requests[cpu_id]?hp_task;
+		d_step {
 			printf("RUNNING[cpu_id] = hp_task: cpu_id = %d,hp_task = %d\n",cpu_id,hp_task);
 			RUNNING[cpu_id] = hp_task;
 		}
-		remove_from_ipi_requests(cpu_id,hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
-		do
-		:: atomic {ipi_requests[cpu_id]?[pending_lp_task] -> ipi_requests[cpu_id]?pending_lp_task;
-			waking[pending_lp_task]++;}
-			wake_task(tid,pending_lp_task)
-		:: atomic{else -> break}
-		od
+		byte loop_i;
+		byte original_len = len(ipi_requests[cpu_id]);
+		for (loop_i : 0 .. original_len - 1) {
+			if
+			:: atomic{ipi_requests[cpu_id]?[pending_lp_task] ->
+				ipi_requests[cpu_id]?pending_lp_task;
+				waking[pending_lp_task]++;}
+				wake_task(tid,pending_lp_task)
+			:: atomic{else -> break}
+			fi
+		}
 		
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
@@ -440,12 +447,17 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	if
 	:: RUNNING[cpu_id(tid)] == - 1 -> 
 		byte pending_task;
-		do
-		:: atomic {ipi_requests[cpu_id(tid)]?[pending_task] -> ipi_requests[cpu_id(tid)]?pending_task;
-			waking[pending_task]++;}
-			wake_task(tid,pending_task)
-		:: atomic{else -> break}
-		od
+		byte loop_i;
+		byte original_len = len(ipi_requests[cpu_id(tid)]);
+		for (loop_i : 0 .. original_len - 1) {
+			if
+			:: atomic{ipi_requests[cpu_id(tid)]?[pending_task] ->
+				ipi_requests[cpu_id(tid)]?pending_task;
+				waking[pending_task]++;}
+				wake_task(tid,pending_task)
+			:: atomic{else -> break}
+			fi
+		}
 	:: else
 	fi
 
