@@ -231,7 +231,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
 
         let Some(first_cluster) = metadata.inner().first_cluster(self.fs.fat_type()) else {
-            return Ok(None); // empty file
+            return Err(Error::CorruptedFileSystem);
         };
 
         let offset_in_clusters = self.fs.clusters_from_bytes(u64::from(self.offset));
@@ -346,11 +346,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                 // next cluster
                 match self.get_current_cluster_with_metadata(&metadata)? {
                     None => {
-                        if self.offset == 0 {
-                            metadata.inner().first_cluster(self.fs.fat_type())
-                        } else {
-                            None
-                        }
+                        // only if offset is 0
+                        metadata.inner().first_cluster(self.fs.fat_type())
                     }
                     Some(n) => {
                         let r = FileSystem::cluster_iter(&self.fs, n).next();
@@ -437,11 +434,8 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
             // next cluster
             let next_cluster = match self.get_current_cluster()? {
                 None => {
-                    if self.offset == 0 {
-                        self.first_cluster()
-                    } else {
-                        None
-                    }
+                    // only if offset is 0
+                    self.first_cluster()
                 }
                 Some(n) => {
                     let r = FileSystem::cluster_iter(&self.fs, n).next();
@@ -459,7 +453,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                 // end of chain reached - allocate new cluster
                 if self.first_cluster().is_none() {
                     if let Some(ref metadata_arc) = self.metadata {
-                        // IMPORTANT: Lock ordering - metadata held while calling alloc_cluster internally acquires: fs_info, disk (one each)
+                        // Lock ordering - metadata held while calling alloc_cluster internally acquires: fs_info, disk (one each)
                         let mut node = MCSNode::new();
                         let mut metadata = metadata_arc.lock(&mut node);
                         // Double-check under lock in case another task allocated first cluster
