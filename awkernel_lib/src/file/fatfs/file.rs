@@ -423,83 +423,90 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
             .len()
             .min(bytes_left_in_cluster)
             .min(bytes_left_until_max_file_size);
+        
         // Exit early if we are going to write no data
         if write_size == 0 {
             return Ok(0);
         }
+        
         // Mark the volume 'dirty'
         self.fs.set_dirty_flag(true)?;
-        // Get cluster for write possibly allocating new one
-        let current_cluster = if self.offset % cluster_size == 0 {
-            // next cluster
-            let next_cluster = match self.get_current_cluster()? {
-                None => {
-                    // only if offset is 0
-                    self.first_cluster()
-                }
-                Some(n) => {
-                    let r = FileSystem::cluster_iter(&self.fs, n).next();
-                    match r {
-                        Some(Err(err)) => return Err(err),
-                        Some(Ok(n)) => Some(n),
-                        None => None,
+        
+        // Hold metadata lock during cluster calculation and allocation
+        // Lock ordering: metadata → fs_info → disk
+        let current_cluster = if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let mut metadata = metadata_arc.lock(&mut node);
+            
+            if self.offset % cluster_size == 0 {
+                // At cluster boundary - need next cluster
+                let current_cluster_opt = self.get_current_cluster_with_metadata(&metadata)?;
+                
+                // Check if next cluster exists
+                let next_cluster = match current_cluster_opt {
+                    None => {
+                        // Only if offset is 0
+                        metadata.inner().first_cluster(self.fs.fat_type())
                     }
-                }
-            };
-
-            if let Some(n) = next_cluster {
-                n
-            } else {
-                // end of chain reached - allocate new cluster
-                if self.first_cluster().is_none() {
-                    if let Some(ref metadata_arc) = self.metadata {
-                        // Lock ordering - metadata held while calling alloc_cluster internally acquires: fs_info, disk (one each)
-                        let mut node = MCSNode::new();
-                        let mut metadata = metadata_arc.lock(&mut node);
-                        // Double-check under lock in case another task allocated first cluster
-                        if metadata.inner().first_cluster(self.fs.fat_type()).is_none() {
-                            let new_cluster =
-                                FileSystem::alloc_cluster(&self.fs, None, self.is_dir())?;
-                            log::trace!("allocated cluster {new_cluster}");
-                            metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
-                            new_cluster
-                        } else {
-                            // Another task allocated first cluster, try again
-                            drop(metadata);
-                            return self.write(buf);
+                    Some(n) => {
+                        let r = FileSystem::cluster_iter(&self.fs, n).next();
+                        match r {
+                            Some(Err(err)) => return Err(err),
+                            Some(Ok(n)) => Some(n),
+                            None => None,
                         }
-                    } else {
-                        unreachable!("Root directory should not be a file");
                     }
+                };
+                
+                if let Some(n) = next_cluster {
+                    n
                 } else {
-                    let new_cluster = FileSystem::alloc_cluster(
-                        &self.fs,
-                        self.get_current_cluster()?,
-                        self.is_dir(),
-                    )?;
-                    log::trace!("allocated cluster {new_cluster}");
-                    new_cluster
+                    // Need to allocate new cluster
+                    let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
+                    
+                    if first_cluster_opt.is_none() {
+                        // Allocate first cluster
+                        let new_cluster = FileSystem::alloc_cluster(&self.fs, None, self.is_dir())?;
+                        log::trace!("allocated first cluster {new_cluster}");
+                        metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
+                        new_cluster
+                    } else {
+                        // Allocate subsequent cluster  
+                        let new_cluster = FileSystem::alloc_cluster(
+                            &self.fs,
+                            current_cluster_opt,
+                            self.is_dir(),
+                        )?;
+                        log::trace!("allocated cluster {new_cluster}");
+                        new_cluster
+                    }
+                }
+            } else {
+                // Within cluster - get current cluster
+                match self.get_current_cluster_with_metadata(&metadata)? {
+                    Some(n) => n,
+                    None => return Err(Error::CorruptedFileSystem),
                 }
             }
         } else {
-            match self.get_current_cluster()? {
-                Some(n) => n,
-                None => return Err(Error::CorruptedFileSystem),
-            }
+            unreachable!("Root directory should not be a file");
         };
+        
         log::trace!("write {write_size} bytes in cluster {current_cluster}");
-        let offset_in_fs =
-            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        
         let written_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
             disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
             disk_guard.write(&buf[..write_size])?
         };
+        
         if written_bytes == 0 {
             return Ok(0);
         }
-        // some bytes were writter - update position and optionally size
+        
+        // Update position and optionally size
         self.offset += written_bytes as u32;
         self.update_dir_entry_after_write();
         Ok(written_bytes)
