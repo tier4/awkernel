@@ -112,22 +112,20 @@ impl NvmeInner {
         )?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
-        let subq_phy_addr;
-        {
+        let subq_phy_addr = {
             let mut node = MCSNode::new();
             let subq = admin_q.subq.lock(&mut node);
-            subq_phy_addr = subq.sub_ring.get_phy_addr().as_usize();
-        }
+            subq.sub_ring.get_phy_addr().as_usize()
+        };
         write_reg(&self.info, NVME_ASQ, (subq_phy_addr & 0xFFFFFFFF) as u32)?;
         write_reg(&self.info, NVME_ASQ + 4, (subq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
-        let comq_phy_addr;
-        {
+        let comq_phy_addr = {
             let mut node = MCSNode::new();
             let comq = admin_q.comq.lock(&mut node);
-            comq_phy_addr = comq.com_ring.get_phy_addr().as_usize();
-        }
+            comq.com_ring.get_phy_addr().as_usize()
+        };
         write_reg(&self.info, NVME_ACQ, (comq_phy_addr & 0xFFFFFFFF) as u32)?;
         write_reg(&self.info, NVME_ACQ + 4, (comq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
