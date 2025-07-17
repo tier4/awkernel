@@ -86,8 +86,16 @@ optional = true
 path = "../applications/tests/test_memfatfs"
 optional = true
 
+[dependencies.test_fatfs_consistency]
+path = "../applications/tests/test_fatfs_consistency"
+optional = true
+
+[dependencies.test_fatfs_simple_consistency]
+path = "../applications/tests/test_fatfs_simple_consistency"
+optional = true
+
 [features]
-default = ["test_memfatfs"]
+default = ["test_fatfs_consistency"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -110,3 +118,5 @@ test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
 test_memfatfs = ["dep:test_memfatfs"]
+test_fatfs_consistency = ["dep:test_fatfs_consistency"]
+test_fatfs_simple_consistency = ["dep:test_fatfs_simple_consistency"]

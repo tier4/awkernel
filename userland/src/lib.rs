@@ -61,5 +61,11 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_memfatfs")]
     test_memfatfs::run().await; // test for filesystem
 
+    #[cfg(feature = "test_fatfs_consistency")]
+    test_fatfs_consistency::run().await; // test for filesystem consistency
+
+    #[cfg(feature = "test_fatfs_simple_consistency")]
+    test_fatfs_simple_consistency::run().await; // test for simple filesystem consistency
+
     Ok(())
 }

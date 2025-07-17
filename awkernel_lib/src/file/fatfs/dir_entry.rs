@@ -131,16 +131,16 @@ impl ShortName {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DirFileEntryData {
     name: [u8; SFN_SIZE],
-    attrs: FileAttributes,
+    pub attrs: FileAttributes,
     reserved_0: u8,
     create_time_0: u8,
     create_time_1: u16,
     create_date: u16,
     access_date: u16,
-    first_cluster_hi: u16,
+    pub first_cluster_hi: u16,
     modify_time: u16,
     modify_date: u16,
-    first_cluster_lo: u16,
+    pub first_cluster_lo: u16,
     size: u32,
 }
 
@@ -149,6 +149,15 @@ impl DirFileEntryData {
         Self {
             name,
             attrs,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn new_for_rootdir(first_cluster: u32) -> Self {
+        Self {
+            attrs: FileAttributes::DIRECTORY,
+            first_cluster_hi: (first_cluster >> 16) as u16,
+            first_cluster_lo: (first_cluster & 0xFFFF) as u16,
             ..Self::default()
         }
     }
@@ -204,7 +213,7 @@ impl DirFileEntryData {
         }
     }
 
-    fn set_size(&mut self, size: u32) {
+    pub(crate) fn set_size(&mut self, size: u32) {
         self.size = size;
     }
 
@@ -224,15 +233,15 @@ impl DirFileEntryData {
         self.reserved_0 & (1 << 4) != 0
     }
 
-    fn created(&self) -> DateTime {
+    pub(crate) fn created(&self) -> DateTime {
         DateTime::decode(self.create_date, self.create_time_1, self.create_time_0)
     }
 
-    fn accessed(&self) -> Date {
+    pub(crate) fn accessed(&self) -> Date {
         Date::decode(self.access_date)
     }
 
-    fn modified(&self) -> DateTime {
+    pub(crate) fn modified(&self) -> DateTime {
         DateTime::decode(self.modify_date, self.modify_time, 0)
     }
 
@@ -468,12 +477,12 @@ impl DirEntryData {
 #[derive(Clone, Debug)]
 pub(crate) struct DirEntryEditor {
     data: DirFileEntryData,
-    pos: u64,
+    pub(crate) pos: u64,
     dirty: bool,
 }
 
 impl DirEntryEditor {
-    fn new(data: DirFileEntryData, pos: u64) -> Self {
+    pub(crate) fn new(data: DirFileEntryData, pos: u64) -> Self {
         Self {
             data,
             pos,
@@ -628,10 +637,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
         self.data.first_cluster(self.fs.fat_type())
     }
 
-    fn editor(&self) -> DirEntryEditor {
-        DirEntryEditor::new(self.data.clone(), self.entry_pos)
-    }
-
     pub(crate) fn is_same_entry(&self, other: &DirEntry<IO, TP, OCC>) -> bool {
         self.entry_pos == other.entry_pos
     }
@@ -644,7 +649,10 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     #[must_use]
     pub fn to_file(&self) -> File<IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new(self.first_cluster(), Some(self.editor()), self.fs.clone())
+        let metadata =
+            self.fs
+                .get_or_create_metadata(self.entry_pos, self.data.clone(), self.first_cluster());
+        File::new(Some(metadata), self.fs.clone())
     }
 
     /// Returns `Dir` struct for this entry.
@@ -656,8 +664,13 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     pub fn to_dir(&self) -> Dir<IO, TP, OCC> {
         assert!(self.is_dir(), "Not a directory entry");
         match self.first_cluster() {
-            Some(n) => {
-                let file = File::new(Some(n), Some(self.editor()), self.fs.clone());
+            Some(_) => {
+                let metadata = self.fs.get_or_create_metadata(
+                    self.entry_pos,
+                    self.data.clone(),
+                    self.first_cluster(),
+                );
+                let file = File::new(Some(metadata), self.fs.clone());
                 Dir::new(DirRawStream::File(file), self.fs.clone())
             }
             None => FileSystem::root_dir(&self.fs),
