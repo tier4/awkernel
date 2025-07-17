@@ -128,7 +128,7 @@ impl NvmeInner {
             let comq = admin_q.comq.lock(&mut node);
             comq_phy_addr = comq.com_ring.get_phy_addr().as_usize();
         }
-        write_reg(&self.info, NVME_ACQ, comq_phy_addr as u32)?;
+        write_reg(&self.info, NVME_ACQ, (comq_phy_addr & 0xFFFFFFFF) as u32)?;
         write_reg(&self.info, NVME_ACQ + 4, (comq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
