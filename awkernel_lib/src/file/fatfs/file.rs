@@ -260,7 +260,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
     }
 
-
     pub(crate) fn first_cluster(&self) -> Option<u32> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
@@ -392,13 +391,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
 
-            let size = metadata.inner().size();
-            if let Some(s) = size {
-                if self.offset >= s {
-                    return Ok(0);
-                }
-            }
-
             let current_cluster_opt = if self.offset % cluster_size == 0 {
                 // next cluster
                 match self.get_current_cluster_with_metadata(&metadata)? {
@@ -427,6 +419,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                 return Ok(0);
             };
 
+            let size = metadata.inner().size();
+            if let Some(s) = size {
+                if self.offset >= s {
+                    return Ok(0);
+                }
+            }
             let offset_in_cluster = self.offset % cluster_size;
             let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
             let bytes_left_in_file = size
@@ -540,7 +538,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                 }
             }
         } else {
-            // within cluster - get current cluster
             match self.get_current_cluster()? {
                 Some(n) => n,
                 None => panic!("Offset inside cluster but no cluster allocated"),
@@ -586,22 +583,20 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
             log::error!("Invalid seek offset");
             return Err(Error::InvalidInput);
         };
-        
-        // First, clamp to file size if known
+
         if let Some(size) = size_opt {
             if new_offset > size {
                 log::warn!("Seek beyond the end of the file");
                 new_offset = size;
             }
         }
-        
-        // Then, clamp to existing cluster chain to prevent write allocation bugs
+
         if new_offset > 0 {
             if let Some(ref metadata_arc) = self.metadata {
                 let mut node = MCSNode::new();
                 let metadata = metadata_arc.lock(&mut node);
                 let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
-                
+
                 if let Some(first) = first_cluster {
                     // Calculate how many clusters are needed for the target offset
                     let offset_in_clusters = self.fs.clusters_from_bytes(u64::from(new_offset));
@@ -609,37 +604,24 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
                         let clusters_to_skip = offset_in_clusters - 1;
                         let mut _cluster = first;
                         let mut iter = FileSystem::cluster_iter(&self.fs, first);
-                        
+
                         for i in 0..clusters_to_skip {
                             _cluster = if let Some(r) = iter.next() {
                                 r?
                             } else {
-                                // Cluster chain ends before the target position
-                                // Seek to the end of the last allocated cluster
+                                // Cluster chain ends before the new position seek to the end of the last cluster
                                 new_offset = self.fs.bytes_from_clusters(i + 1) as u32;
-                                log::warn!("Seek beyond allocated clusters, clamped to {}", new_offset);
                                 break;
                             };
                         }
                     }
                 } else {
-                    // No clusters allocated yet - can only seek to position 0
+                    // empty file - always seek to 0
                     new_offset = 0;
-                    log::warn!("Seek in empty file, clamped to 0");
                 }
             }
         }
-        
-        log::trace!(
-            "file seek {} -> {} - metadata {:?}",
-            self.offset,
-            new_offset,
-            self.metadata.is_some()
-        );
-        if new_offset == self.offset {
-            // position is the same - nothing to do
-            return Ok(u64::from(self.offset));
-        }
+
         self.offset = new_offset;
         Ok(u64::from(self.offset))
     }
