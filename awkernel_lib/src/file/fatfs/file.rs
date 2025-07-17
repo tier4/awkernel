@@ -55,8 +55,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     pub fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
         log::trace!("File::truncate");
         if let Some(ref metadata_arc) = self.metadata {
-            // IMPORTANT: We hold the metadata lock during the entire truncate operation
-            // to ensure atomicity. Lock ordering: metadata → disk
+            // Lock ordering: metadata → disk
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
 
@@ -66,13 +65,12 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
             }
 
             let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
+            let current_cluster_opt = self.get_current_cluster_with_metadata(&metadata)?;
 
-            let current_cluster = self.get_current_cluster_with_metadata(&metadata)?;
-
-            if let Some(cluster) = current_cluster {
+            if let Some(current_cluster) = current_cluster_opt {
                 // current cluster is none only if offset is 0
                 debug_assert!(self.offset > 0);
-                FileSystem::truncate_cluster_chain(&self.fs, cluster)
+                FileSystem::truncate_cluster_chain(&self.fs, current_cluster)
             } else {
                 debug_assert!(self.offset == 0);
                 if let Some(n) = first_cluster {
@@ -81,7 +79,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 Ok(())
             }
         } else {
-            unreachable!("Root directory should not be a file");
+            unreachable!("File must have metadata before it is dropped");
         }
     }
 
@@ -245,7 +243,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
             cluster = if let Some(r) = iter.next() {
                 r?
             } else {
-                // cluster chain ends before the current position
                 return Err(Error::CorruptedFileSystem);
             };
         }
@@ -365,7 +362,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
             let Some(current_cluster) = current_cluster_opt else {
                 return Ok(0);
             };
-
             let offset_in_cluster = self.offset % cluster_size;
             let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
             let size = metadata.inner().size();
@@ -381,11 +377,9 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
             if read_size == 0 {
                 return Ok(0);
             }
-
             log::trace!("read {read_size} bytes in cluster {current_cluster}");
             let offset_in_fs =
                 self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
-
             // lock ordering: metadata → disk
             let read_bytes = {
                 let mut node_disk = MCSNode::new();
@@ -393,21 +387,18 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                 disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
                 disk_guard.read(&mut buf[..read_size])?
             };
-
             if read_bytes == 0 {
                 return Ok(0);
             }
-
             self.offset += read_bytes as u32;
 
             if self.fs.options.update_accessed_date {
                 let now = self.fs.options.time_provider.get_current_date();
                 metadata.set_accessed(now);
             }
-
             Ok(read_bytes)
         } else {
-            unreachable!("Root directory should not be a file");
+            unreachable!("File must have metadata before it is dropped");
         }
     }
 }
@@ -473,7 +464,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                 }
             }
         } else {
-            unreachable!("Root directory should not be a file");
+            unreachable!("File must have metadata before it is dropped");
         };
 
         log::trace!("write {write_size} bytes in cluster {current_cluster}");

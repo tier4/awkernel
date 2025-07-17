@@ -131,16 +131,16 @@ impl ShortName {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DirFileEntryData {
     name: [u8; SFN_SIZE],
-    attrs: FileAttributes,
+    pub attrs: FileAttributes,
     reserved_0: u8,
     create_time_0: u8,
     create_time_1: u16,
     create_date: u16,
     access_date: u16,
-    first_cluster_hi: u16,
+    pub first_cluster_hi: u16,
     modify_time: u16,
     modify_date: u16,
-    first_cluster_lo: u16,
+    pub first_cluster_lo: u16,
     size: u32,
 }
 
@@ -149,6 +149,15 @@ impl DirFileEntryData {
         Self {
             name,
             attrs,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn new_for_rootdir(first_cluster: u32) -> Self {
+        Self {
+            attrs: FileAttributes::DIRECTORY,
+            first_cluster_hi: (first_cluster >> 16) as u16,
+            first_cluster_lo: (first_cluster & 0xFFFF) as u16,
             ..Self::default()
         }
     }
@@ -640,11 +649,9 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     #[must_use]
     pub fn to_file(&self) -> File<IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        let metadata = self.fs.get_or_create_metadata(
-            self.entry_pos,
-            self.data.clone(),
-            self.first_cluster(),
-        );
+        let metadata =
+            self.fs
+                .get_or_create_metadata(self.entry_pos, self.data.clone(), self.first_cluster());
         File::new(Some(metadata), self.fs.clone())
     }
 

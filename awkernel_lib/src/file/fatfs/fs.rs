@@ -23,7 +23,7 @@ use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 //   http://wiki.osdev.org/FAT
 //   https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html
 
-// ## Lock Ordering Hierarchy
+// Lock Ordering Hierarchy
 //
 // To prevent deadlocks, locks must be acquired in the following order:
 // 1. metadata lock → disk lock (via FAT operations)
@@ -715,7 +715,16 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
                     &fs.bpb,
                     FsIoAdapter { fs: Arc::clone(fs) },
                 )),
-                FatType::Fat32 => DirRawStream::File(File::new(None, Arc::clone(fs))),
+                FatType::Fat32 => {
+                    let metadata = DirEntryEditor::new(
+                        DirFileEntryData::new_for_rootdir(fs.bpb.root_dir_first_cluster),
+                        0,
+                    );
+                    DirRawStream::File(File::new(
+                        Some(Arc::new(Mutex::new(metadata))),
+                        Arc::clone(fs),
+                    ))
+                }
             }
         };
         Dir::new(root_rdr, Arc::clone(fs))
@@ -758,7 +767,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut cache = self.metadata_cache.lock(&mut node);
 
         if let Some(metadata_arc) = cache.get(&entry_pos) {
-            // Only the cache holds a reference - safe to remove
             if Arc::strong_count(metadata_arc) == 1 {
                 cache.remove(&entry_pos);
             }
