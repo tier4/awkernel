@@ -1,5 +1,5 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{format, sync::Arc};
+use alloc::{collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
@@ -18,6 +18,30 @@ const _DEVICE_SHORT_NAME: &str = "nvme";
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
 // TODO - to be considered.
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PollState {
+    _sqe: SubQueueEntry,
+    _cqe: ComQueueEntry,
+}
+
+struct Ccb {
+    _dmamap: Option<DMAPool<IdentifyController>>,
+
+    // The following two fields are the replacement for OpenBSD's `cookie`.
+    _cookie: Option<DMAPool<IdentifyController>>,
+    _state: PollState,
+
+    _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
+    _prpl_off: usize,
+    _prpl_dva: u64,
+    _prpl: Option<usize>,
+    _id: u16,
+}
+
+struct CcbList {
+    _free_list: VecDeque<u16>,
+}
 
 struct Queue {
     subq: Mutex<SubQueue>,
@@ -52,6 +76,8 @@ struct NvmeInner {
     mps: usize,
     _mdts: usize,
     _max_prpl: usize,
+    _ccb_list: Option<Mutex<CcbList>>,
+    _ccbs: Option<Vec<Ccb>>, /* Array of all CCBs - no mutex needed */
 }
 
 impl NvmeInner {
@@ -96,6 +122,8 @@ impl NvmeInner {
             mps,
             _mdts: mdts,
             _max_prpl: max_prpl,
+            _ccb_list: None,
+            _ccbs: None,
         })
     }
 
@@ -219,6 +247,48 @@ impl NvmeInner {
 
         Ok(que)
     }
+
+    fn ccbs_alloc(&mut self, nccbs: u16) -> Result<(), NvmeDriverErr> {
+        let mut ccbs = Vec::with_capacity(nccbs as usize);
+        let mut free_list = VecDeque::with_capacity(nccbs as usize);
+
+        for i in 0..nccbs {
+            let ccb = Ccb {
+                _dmamap: None,
+                _cookie: None,
+                _state: Default::default(),
+                _done: None,
+                _prpl_off: 0,
+                _prpl_dva: 0,
+                _prpl: None,
+                _id: i,
+            };
+            ccbs.push(ccb);
+            free_list.push_back(i);
+        }
+
+        self._ccbs = Some(ccbs);
+        self._ccb_list = Some(Mutex::new(CcbList {
+            _free_list: free_list,
+        }));
+
+        Ok(())
+    }
+
+    fn _ccb_get(list: &mut CcbList) -> Option<u16> {
+        list._free_list.pop_front()
+    }
+
+    fn _ccb_put(list: &mut CcbList, ccb_id: u16, sc_ccbs: &mut [Ccb]) {
+        /* Reset CCB state */
+        let ccb = &mut sc_ccbs[ccb_id as usize];
+        ccb._cookie = None;
+        ccb._state._cqe.flags = 0;
+        ccb._done = None;
+        ccb._dmamap = None;
+
+        list._free_list.push_front(ccb_id);
+    }
 }
 
 struct Nvme {
@@ -235,11 +305,13 @@ struct Nvme {
 }
 impl Nvme {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let inner = NvmeInner::new(info)?;
+        let mut inner = NvmeInner::new(info)?;
 
         inner.disable()?;
 
         let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
+
+        inner.ccbs_alloc(QUEUE_SIZE as u16)?;
 
         inner.enable(&admin_q)?;
 
