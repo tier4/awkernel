@@ -7,7 +7,8 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
-  
+};
+
 mod nvme_regs;
 use nvme_regs::*;
 
@@ -23,6 +24,7 @@ struct Queue {
     comq: Mutex<ComQueue>,
     _id: u16,
     entries: u32,
+}
 
 pub(super) fn attach(
     mut info: PCIeInfo,
@@ -42,6 +44,7 @@ pub(super) fn attach(
 
     Ok(Arc::new(nvme))
 }
+
 struct NvmeInner {
     info: PCIeInfo,
     dstrd: u32,
@@ -50,6 +53,7 @@ struct NvmeInner {
     _mdts: usize,
     _max_prpl: usize,
 }
+
 impl NvmeInner {
     fn new(info: PCIeInfo) -> Result<Self, NvmeDriverErr> {
         let reg = read_reg(&info, NVME_VS)?;
@@ -100,9 +104,6 @@ impl NvmeInner {
         if cc & NVME_CC_EN != 0 {
             return self.ready(NVME_CSTS_RDY);
         }
-
-        //if (sc->sc_ops->op_enable != NULL)
-        //sc->sc_ops->op_enable(sc);
 
         write_reg(
             &self.info,
@@ -205,7 +206,7 @@ impl NvmeInner {
         let cqhdbl = NVME_CQHDBL(id, dstrd);
 
         let comq = ComQueue {
-            _com_ring: com_ring,
+            com_ring,
             _cqhdbl: cqhdbl as usize,
             _head: 0,
             _phase: NVME_CQE_PHASE,
