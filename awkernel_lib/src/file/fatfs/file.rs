@@ -366,14 +366,14 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                 return Ok(0);
             };
 
+            let offset_in_cluster = self.offset % cluster_size;
+            let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
             let size = metadata.inner().size();
             if let Some(s) = size {
                 if self.offset >= s {
                     return Ok(0);
                 }
             }
-            let offset_in_cluster = self.offset % cluster_size;
-            let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
             let bytes_left_in_file = size
                 .map(|s| (s - self.offset) as usize)
                 .unwrap_or(bytes_left_in_cluster);
@@ -458,16 +458,15 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                     // allocate new cluster
                     let new_cluster =
                         FileSystem::alloc_cluster(&self.fs, current_cluster_opt, self.is_dir())?;
-                    let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
                     log::trace!("allocated cluster {new_cluster}");
-
+                    let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
                     if first_cluster_opt.is_none() {
                         metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
                     }
                     new_cluster
                 }
             } else {
-                // Within cluster - get current cluster
+                // self.current_cluster should be a valid cluster
                 match self.get_current_cluster_with_metadata(&metadata)? {
                     Some(n) => n,
                     None => return Err(Error::CorruptedFileSystem),
@@ -480,19 +479,16 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
         log::trace!("write {write_size} bytes in cluster {current_cluster}");
         let offset_in_fs =
             self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
-
         let written_bytes = {
             let mut node = MCSNode::new();
             let mut disk_guard = self.fs.disk.lock(&mut node);
             disk_guard.seek(SeekFrom::Start(offset_in_fs))?;
             disk_guard.write(&buf[..write_size])?
         };
-
         if written_bytes == 0 {
             return Ok(0);
         }
-
-        // Update position and optionally size
+        // some bytes were writter - update position and optionally size
         self.offset += written_bytes as u32;
         self.update_dir_entry_after_write();
         Ok(written_bytes)
