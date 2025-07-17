@@ -1,20 +1,3 @@
-//! FAT filesystem file implementation.
-//!
-//! # Concurrency Limitations
-//!
-//! The FAT filesystem was not designed for concurrent access. While this implementation
-//! provides some consistency guarantees through shared metadata and atomic operations,
-//! there are inherent limitations:
-//!
-//! ## Known Limitations:
-//!
-//! 1. **Byte-Level Write Interleaving**: Multiple concurrent writers to the same file
-//!    may have their writes interleaved at the byte level within a cluster.
-//!
-//! 2. **No Transactional Guarantees**: Operations like file extension (allocating new
-//!    clusters and updating size) are not fully transactional. A crash or error during
-//!    these operations may leave the file in an inconsistent state.
-
 use alloc::sync::Arc;
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -69,10 +52,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if this is the root directory.
     pub fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
         log::trace!("File::truncate");
         if let Some(ref metadata_arc) = self.metadata {
@@ -102,7 +81,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 Ok(())
             }
         } else {
-            panic!("Trying to truncate a file without metadata (root directory?)");
+            unreachable!("Root directory should not be a file");
         }
     }
 
@@ -276,7 +255,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
 
     /// Get the cluster that contains the current file position.
     ///
-    /// Special case: when offset is at a cluster boundary (offset % cluster_size == 0),
+    /// NOTE: when offset is at a cluster boundary (offset % cluster_size == 0),
     /// this returns the PREVIOUS cluster, not the next one.
     fn get_current_cluster(&self) -> Result<Option<u32>, Error<IO::Error>> {
         if self.offset == 0 {
@@ -487,7 +466,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                         if metadata.inner().first_cluster(self.fs.fat_type()).is_none() {
                             let new_cluster =
                                 FileSystem::alloc_cluster(&self.fs, None, self.is_dir())?;
-                            log::trace!("allocated first cluster {new_cluster}");
+                            log::trace!("allocated cluster {new_cluster}");
                             metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
                             new_cluster
                         } else {
@@ -511,7 +490,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
         } else {
             match self.get_current_cluster()? {
                 Some(n) => n,
-                None => panic!("Offset inside cluster but no cluster allocated"),
+                None => return Err(Error::CorruptedFileSystem),
             }
         };
         log::trace!("write {write_size} bytes in cluster {current_cluster}");
@@ -569,18 +548,13 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
                 let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
 
                 if let Some(first) = first_cluster {
-                    // Calculate how many clusters are needed for the target offset
                     let offset_in_clusters = self.fs.clusters_from_bytes(u64::from(new_offset));
                     if offset_in_clusters > 0 {
                         let clusters_to_skip = offset_in_clusters - 1;
-                        let mut _cluster = first;
                         let mut iter = FileSystem::cluster_iter(&self.fs, first);
-
                         for i in 0..clusters_to_skip {
-                            _cluster = if let Some(r) = iter.next() {
-                                r?
-                            } else {
-                                // Cluster chain ends before the new position seek to the end of the last cluster
+                            if iter.next().is_none() {
+                                // cluster chain ends before the new position - seek to the end of the last cluster
                                 new_offset = self.fs.bytes_from_clusters(i + 1) as u32;
                                 break;
                             };
