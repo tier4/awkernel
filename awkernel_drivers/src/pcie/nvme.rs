@@ -118,7 +118,7 @@ impl NvmeInner {
             let subq = admin_q.subq.lock(&mut node);
             subq_phy_addr = subq.sub_ring.get_phy_addr().as_usize();
         }
-        write_reg(&self.info, NVME_ASQ, subq_phy_addr as u32)?;
+        write_reg(&self.info, NVME_ASQ, (subq_phy_addr & 0xFFFFFFFF) as u32)?;
         write_reg(&self.info, NVME_ASQ + 4, (subq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
