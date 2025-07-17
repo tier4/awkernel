@@ -516,7 +516,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
             log::error!("Invalid seek offset");
             return Err(Error::InvalidInput);
         };
-
         if let Some(size) = size_opt {
             if new_offset > size {
                 log::warn!("Seek beyond the end of the file");
@@ -528,13 +527,13 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for File<IO, TP, OCC> {
             if let Some(ref metadata_arc) = self.metadata {
                 let mut node = MCSNode::new();
                 let metadata = metadata_arc.lock(&mut node);
-                let first_cluster = metadata.inner().first_cluster(self.fs.fat_type());
+                let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
 
-                if let Some(first) = first_cluster {
-                    let offset_in_clusters = self.fs.clusters_from_bytes(u64::from(new_offset));
-                    if offset_in_clusters > 0 {
-                        let clusters_to_skip = offset_in_clusters - 1;
-                        let mut iter = FileSystem::cluster_iter(&self.fs, first);
+                if let Some(first_cluster) = first_cluster_opt {
+                    let new_offset_in_clusters = self.fs.clusters_from_bytes(u64::from(new_offset));
+                    if new_offset_in_clusters > 0 {
+                        let clusters_to_skip = new_offset_in_clusters - 1;
+                        let mut iter = FileSystem::cluster_iter(&self.fs, first_cluster);
                         for i in 0..clusters_to_skip {
                             if iter.next().is_none() {
                                 // cluster chain ends before the new position - seek to the end of the last cluster
