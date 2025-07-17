@@ -368,11 +368,11 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		fi
 		
 		// If there is a task to be invoked next, execute the task.
-		ipi_requests[cpu_id]?hp_task;
 		d_step {
 			printf("RUNNING[cpu_id] = hp_task: cpu_id = %d,hp_task = %d\n",cpu_id,hp_task);
 			RUNNING[cpu_id] = hp_task;
 		}
+		remove_from_ipi_requests(cpu_id,hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
 		byte loop_i;

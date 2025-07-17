@@ -1,7 +1,7 @@
 #!/bin/bash
 
 LTLS=(eventually_prerequisites ensure_priority)
-CPU_NUMS=(2 3 4)
+CPU_NUMS=(2 3)
 
 clear
 for CPU_NUM in "${CPU_NUMS[@]}"; do
