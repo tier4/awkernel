@@ -24,10 +24,10 @@ use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 //   https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html
 
 // ## Lock Ordering Hierarchy
-// 
+//
 // To prevent deadlocks, locks must be acquired in the following order:
 // 1. metadata lock → disk lock (via FAT operations)
-// 2. metadata lock → fs_info lock (via cluster allocation)  
+// 2. metadata lock → fs_info lock (via cluster allocation)
 // 3. fs_info lock → disk lock
 // 4. metadata_cache lock (independent, no nesting)
 // 5. current_status_flags lock (independent, no nesting)
@@ -653,10 +653,10 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut fs_info_guard = self.fs_info.lock(&mut node);
         if self.fat_type == FatType::Fat32 && fs_info_guard.dirty {
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
-            
-            // Acquire disk lock while holding fs_info lock (allowed by lock ordering: fs_info → disk)
+
             // This prevents race conditions where fs_info could be modified between checking
             // dirty flag and writing the data
+            // Lock ordering: fs_info → disk
             let mut node_disk = MCSNode::new();
             let mut disk_guard = self.disk.lock(&mut node_disk);
             disk_guard.seek(SeekFrom::Start(fs_info_sector_offset))?;

@@ -462,7 +462,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                         // IMPORTANT: Lock ordering - metadata held while calling alloc_cluster internally acquires: fs_info, disk (one each)
                         let mut node = MCSNode::new();
                         let mut metadata = metadata_arc.lock(&mut node);
-                        // Double-check under lock in case another thread allocated first cluster
+                        // Double-check under lock in case another task allocated first cluster
                         if metadata.inner().first_cluster(self.fs.fat_type()).is_none() {
                             let new_cluster =
                                 FileSystem::alloc_cluster(&self.fs, None, self.is_dir())?;
@@ -470,7 +470,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                             metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
                             new_cluster
                         } else {
-                            // Another thread allocated first cluster, try again
+                            // Another task allocated first cluster, try again
                             drop(metadata);
                             return self.write(buf);
                         }
