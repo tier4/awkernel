@@ -275,19 +275,26 @@ impl NvmeInner {
         Ok(())
     }
 
-    fn _ccb_get(list: &mut CcbList) -> Option<u16> {
-        list._free_list.pop_front()
+    fn _ccb_get(&self) -> Result<Option<u16>, NvmeDriverErr> {
+        let mut node = MCSNode::new();
+        let ccb_list = self._ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let mut list = ccb_list.lock(&mut node);
+        Ok(list._free_list.pop_front())
     }
 
-    fn _ccb_put(list: &mut CcbList, ccb_id: u16, sc_ccbs: &mut [Ccb]) {
-        /* Reset CCB state */
+    fn _ccb_put(&self, ccb_id: u16, sc_ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
         let ccb = &mut sc_ccbs[ccb_id as usize];
         ccb._cookie = None;
         ccb._state._cqe.flags = 0;
         ccb._done = None;
         ccb._dmamap = None;
 
+        let mut node = MCSNode::new();
+        let ccb_list = self._ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let mut list = ccb_list.lock(&mut node);
         list._free_list.push_front(ccb_id);
+
+        Ok(())
     }
 }
 
