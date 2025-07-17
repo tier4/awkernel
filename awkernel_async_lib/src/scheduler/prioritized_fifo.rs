@@ -110,29 +110,40 @@ impl Scheduler for PrioritizedFIFOScheduler {
 
 impl PrioritizedFIFOScheduler {
     fn invoke_preemption(&self, num_hp_tasks_in_queue: usize, task: Arc<Task>) -> bool {
-        let tasks_running = get_tasks_running()
-            .into_iter()
-            .filter(|rt| rt.task_id != 0)
-            .collect::<Vec<_>>();
+        let tasks_running = get_tasks_running();
 
-        // If there are sufficient idle CPUs or the task has already been running, preempt is not required.
-        let num_idle_cpus = num_cpu() - 1 - tasks_running.len();
-        if num_hp_tasks_in_queue < num_idle_cpus
-            || tasks_running.iter().any(|rt| rt.task_id == task.id)
-        {
+        // If the task has already been running, preempt is not required.
+        if tasks_running.iter().any(|rt| rt.task_id == task.id) {
             return false;
         }
 
+        let mut num_idle_cpus = 0;
         let preemption_target = tasks_running
             .iter()
             .filter_map(|rt| {
-                get_task(rt.task_id).map(|t| {
-                    let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
-                    (max(t, highest_pending), rt.cpu_id)
-                })
+                if rt.task_id == 0 {
+                    match peek_preemption_pending(rt.cpu_id) {
+                        None => {
+                            num_idle_cpus += 1;
+                            None
+                        }
+                        Some(highest_pending) => Some((highest_pending, rt.cpu_id)),
+                    }
+                } else {
+                    get_task(rt.task_id).map(|t| {
+                        let highest_pending =
+                            peek_preemption_pending(rt.cpu_id).unwrap_or_else(|| t.clone());
+                        (max(t, highest_pending), rt.cpu_id)
+                    })
+                }
             })
             .min()
             .unwrap();
+
+        // If there is sufficient number of idle CPUs, no preemption is required.
+        if num_hp_tasks_in_queue < num_idle_cpus {
+            return false;
+        }
 
         let (target_task, target_cpu) = preemption_target;
         if task > target_task {
