@@ -14,28 +14,6 @@
 //! 2. **No Transactional Guarantees**: Operations like file extension (allocating new
 //!    clusters and updating size) are not fully transactional. A crash or error during
 //!    these operations may leave the file in an inconsistent state.
-//!
-//! ## Consistency Guarantees:
-//!
-//! 1. **Atomic Truncation**: The truncate operation holds the metadata lock while updating
-//!    size and freeing clusters, preventing truncate-truncate races.
-//!
-//! 2. **Atomic First Cluster Allocation**: The first write to an empty file atomically
-//!    allocates and sets the first cluster, preventing lost cluster allocations.
-//!
-//! 3. **Shared Metadata**: Multiple file handles to the same file share the same metadata
-//!    (size, timestamps, first cluster), ensuring a consistent view.
-//!
-//! 4. **Reader-Truncate Protection**: Read operations hold the metadata lock during cluster
-//!    chain traversal, preventing concurrent truncate operations from freeing clusters
-//!    while they're being read.
-//!
-//! ## Recommendations:
-//!
-//! For applications requiring strong consistency guarantees:
-//! - Use file-level locking (e.g., flock) to coordinate access
-//! - Design applications with single-writer, multiple-reader patterns
-//! - Use fsync() to ensure data is written to disk before critical operations
 
 use alloc::sync::Arc;
 use core::convert::TryFrom;
@@ -88,11 +66,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
 
     /// Truncate file in current position.
     ///
-    /// This operation is atomic - it holds the metadata lock while updating
-    /// size and freeing clusters, preventing truncate-truncate races.
-    ///
-    /// Lock ordering: metadata → disk
-    ///
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
@@ -104,7 +77,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         log::trace!("File::truncate");
         if let Some(ref metadata_arc) = self.metadata {
             // IMPORTANT: We hold the metadata lock during the entire truncate operation
-            // to ensure atomicity. This follows the lock ordering: metadata → disk
+            // to ensure atomicity. Lock ordering: metadata → disk
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
 
@@ -123,7 +96,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 FileSystem::truncate_cluster_chain(&self.fs, cluster)
             } else {
                 debug_assert!(self.offset == 0);
-                // TODO - better handle when get_current_cluster returns None especially when "cluster chain ends before the current position".
                 if let Some(n) = first_cluster {
                     FileSystem::free_cluster_chain(&self.fs, n)?;
                 }
@@ -295,7 +267,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 r?
             } else {
                 // cluster chain ends before the current position
-                return Ok(None);
+                return Err(Error::CorruptedFileSystem);
             };
         }
 
@@ -398,7 +370,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
                         if self.offset == 0 {
                             metadata.inner().first_cluster(self.fs.fat_type())
                         } else {
-                            // TODO - better handle when get_current_cluster returns None especially when "cluster chain ends before the current position".
                             None
                         }
                     }
