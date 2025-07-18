@@ -252,6 +252,10 @@ impl NvmeInner {
         let mut ccbs = Vec::with_capacity(nccbs as usize);
         let mut free_list = VecDeque::with_capacity(nccbs as usize);
 
+        // TODO - Since we won't use prpl* fields for identify controller command,
+        // we can set prpl to None. We will implement prpl later when we support
+        // commands that require PRPL.
+
         for i in 0..nccbs {
             let ccb = Ccb {
                 _dmamap: None,
