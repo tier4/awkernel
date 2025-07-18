@@ -277,7 +277,19 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
     }
 
     pub(crate) fn is_root_dir(&self) -> bool {
-        self.metadata.is_none()
+        if let Some(ref metadata_arc) = self.metadata {
+            let mut node = MCSNode::new();
+            let metadata = metadata_arc.lock(&mut node);
+            if metadata.pos == 0 {
+                // root directory always has pos == 0
+                debug_assert!(metadata.inner().is_dir());
+                true
+            } else {
+                false
+            }
+        } else {
+            unreachable!("root directory must always have its metadata");
+        }
     }
 }
 
