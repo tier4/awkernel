@@ -131,16 +131,16 @@ impl ShortName {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DirFileEntryData {
     name: [u8; SFN_SIZE],
-    pub attrs: FileAttributes,
+    attrs: FileAttributes,
     reserved_0: u8,
     create_time_0: u8,
     create_time_1: u16,
     create_date: u16,
     access_date: u16,
-    pub first_cluster_hi: u16,
+    first_cluster_hi: u16,
     modify_time: u16,
     modify_date: u16,
-    pub first_cluster_lo: u16,
+    first_cluster_lo: u16,
     size: u32,
 }
 
