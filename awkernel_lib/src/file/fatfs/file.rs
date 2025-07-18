@@ -79,7 +79,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
                 Ok(())
             }
         } else {
-            unreachable!("File must have metadata before it is dropped");
+            unreachable!("File must always have its metadata before it is dropped");
         }
     }
 
@@ -398,7 +398,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
             }
             Ok(read_bytes)
         } else {
-            unreachable!("File must have metadata before it is dropped");
+            unreachable!("File must always have its metadata before it is dropped");
         }
     }
 }
@@ -460,11 +460,11 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                 // self.current_cluster should be a valid cluster
                 match self.get_current_cluster_with_metadata(&metadata)? {
                     Some(n) => n,
-                    None => return Err(Error::CorruptedFileSystem),
+                    None => unreachable!("get_current_cluster_with_metadata should not return None when offset is not 0"),
                 }
             }
         } else {
-            unreachable!("File must have metadata before it is dropped");
+            unreachable!("File must always have its metadata before it is dropped");
         };
 
         log::trace!("write {write_size} bytes in cluster {current_cluster}");
