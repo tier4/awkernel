@@ -25,12 +25,16 @@ struct PollState {
     _cqe: ComQueueEntry,
 }
 
+enum CcbCookie {
+    _Controller(DMAPool<IdentifyController>),
+    _State(PollState),
+}
+
 struct Ccb {
-    _dmamap: Option<DMAPool<IdentifyController>>,
+    //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
 
     // The following two fields are the replacement for OpenBSD's `cookie`.
-    _cookie: Option<DMAPool<IdentifyController>>,
-    _state: PollState,
+    _cookie: Option<CcbCookie>,
 
     _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
     _prpl_off: usize,
@@ -76,7 +80,7 @@ struct NvmeInner {
     mps: usize,
     _mdts: usize,
     _max_prpl: usize,
-    _ccb_list: Option<Mutex<CcbList>>,
+    ccb_list: Option<Mutex<CcbList>>,
     _ccbs: Option<Vec<Ccb>>, /* Array of all CCBs - no mutex needed */
 }
 
@@ -122,7 +126,7 @@ impl NvmeInner {
             mps,
             _mdts: mdts,
             _max_prpl: max_prpl,
-            _ccb_list: None,
+            ccb_list: None,
             _ccbs: None,
         })
     }
@@ -258,9 +262,7 @@ impl NvmeInner {
 
         for i in 0..nccbs {
             let ccb = Ccb {
-                _dmamap: None,
                 _cookie: None,
-                _state: Default::default(),
                 _done: None,
                 _prpl_off: 0,
                 _prpl_dva: 0,
@@ -272,7 +274,7 @@ impl NvmeInner {
         }
 
         self._ccbs = Some(ccbs);
-        self._ccb_list = Some(Mutex::new(CcbList {
+        self.ccb_list = Some(Mutex::new(CcbList {
             _free_list: free_list,
         }));
 
@@ -281,20 +283,17 @@ impl NvmeInner {
 
     fn _ccb_get(&self) -> Result<Option<u16>, NvmeDriverErr> {
         let mut node = MCSNode::new();
-        let ccb_list = self._ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
         let mut list = ccb_list.lock(&mut node);
         Ok(list._free_list.pop_front())
     }
 
     fn _ccb_put(&self, ccb_id: u16, sc_ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
         let ccb = &mut sc_ccbs[ccb_id as usize];
-        ccb._cookie = None;
-        ccb._state._cqe.flags = 0;
         ccb._done = None;
-        ccb._dmamap = None;
 
         let mut node = MCSNode::new();
-        let ccb_list = self._ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
         let mut list = ccb_list.lock(&mut node);
         list._free_list.push_front(ccb_id);
 
