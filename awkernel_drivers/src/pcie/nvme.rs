@@ -17,8 +17,6 @@ const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size - to be considered.TODO.*/
-pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
-pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
