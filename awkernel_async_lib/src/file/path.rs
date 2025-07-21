@@ -62,6 +62,54 @@ impl AsyncVfsPath {
         }
     }
 
+    /// Creates a VFS path from a mount path, resolving the appropriate filesystem
+    pub fn from_mount_path(path: impl AsRef<str>) -> VfsResult<Self> {
+        use awkernel_lib::file::mount::resolve_mount_path;
+
+        let path_str = path.as_ref();
+
+        // Resolve the mount point for this path
+        let (mount_point, relative_path) = resolve_mount_path(path_str).ok_or_else(|| {
+            VfsError::from(VfsErrorKind::NotFound)
+                .with_path(path_str)
+                .with_context(|| "No mount point found for path")
+        })?;
+
+        // Create filesystem based on mount type
+        let fs: Box<dyn AsyncFileSystem> = match mount_point.fs_type.as_str() {
+            "fatfs" => {
+                // For now, create an in-memory FatFS
+                // In a real implementation, this would use the mount source
+                //Box::new(AsyncFatFs::new_in_memory())
+                todo!();
+            }
+            "ext4" => {
+                // Would need to get the block device from mount source
+                return Err(VfsError::from(VfsErrorKind::NotSupported)
+                    .with_context(|| "ext4 mount resolution not yet implemented"));
+            }
+            "memfs" => {
+                // For now, use FatFS for memfs too
+                //Box::new(AsyncFatFs::new_in_memory())
+                todo!();
+            }
+            _ => {
+                return Err(VfsError::from(VfsErrorKind::NotSupported).with_context(|| {
+                    format!("Unsupported filesystem type: {}", mount_point.fs_type)
+                }));
+            }
+        };
+
+        let mut vfs_path = AsyncVfsPath::new(fs);
+
+        // Navigate to the relative path within the mount
+        if relative_path != "/" && !relative_path.is_empty() {
+            vfs_path = vfs_path.join(relative_path.trim_start_matches('/'))?;
+        }
+
+        Ok(vfs_path)
+    }
+
     /// Returns the string representation of this path
     pub fn as_str(&self) -> &str {
         &self.path
@@ -513,6 +561,35 @@ impl AsyncVfsPath {
             })
         })?;
         Ok(())
+    }
+
+    /// Check if this path crosses a mount boundary when joined with another path
+    pub fn crosses_mount_boundary(&self, other: &str) -> bool {
+        use awkernel_lib::file::mount::get_mount_info;
+
+        if let Ok(joined_path) = self.join(other) {
+            if let Some(current_mount) = get_mount_info(self.as_str()) {
+                if let Some(joined_mount) = get_mount_info(joined_path.as_str()) {
+                    return current_mount.mount_id != joined_mount.mount_id;
+                }
+            }
+        }
+        false
+    }
+
+    /// Get the mount point information for this path
+    pub fn mount_info(&self) -> Option<awkernel_lib::file::mount::MountInfo> {
+        awkernel_lib::file::mount::get_mount_info(self.as_str())
+    }
+
+    /// Check if this path is on a read-only mount
+    pub fn is_read_only_mount(&self) -> bool {
+        self.mount_info().map(|m| m.flags.readonly).unwrap_or(false)
+    }
+
+    /// Get the filesystem type for this path
+    pub fn filesystem_type(&self) -> Option<String> {
+        self.mount_info().map(|m| m.fs_type)
     }
 }
 
