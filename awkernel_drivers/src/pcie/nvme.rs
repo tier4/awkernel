@@ -16,7 +16,8 @@ const DEVICE_NAME: &str = "NVMe Controller";
 const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
-pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size - to be considered.TODO.*/
+pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
+// TODO - to be considered.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -31,8 +32,6 @@ enum CcbCookie {
 
 struct Ccb {
     //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
-
-    // The following two fields are the replacement for OpenBSD's `cookie`.
     _cookie: Option<CcbCookie>,
 
     _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
