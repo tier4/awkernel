@@ -17,6 +17,8 @@ const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
+pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
+pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to delay() in poll loop */
 // TODO - to be considered.
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -32,6 +34,8 @@ enum CcbCookie {
 
 struct Ccb {
     //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
+
+    // The following two fields are the replacement for OpenBSD's `cookie`.
     _cookie: Option<CcbCookie>,
 
     _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
@@ -50,6 +54,33 @@ struct Queue {
     comq: Mutex<ComQueue>,
     _id: u16,
     entries: u32,
+}
+
+impl Queue {
+    fn submit(&self, info: &PCIeInfo, ccb: &Ccb) -> Result<(), NvmeDriverErr> {
+        let mut node = MCSNode::new();
+        let mut subq = self.subq.lock(&mut node);
+        let mut tail = subq._tail;
+
+        let sqe = &mut subq.sub_ring.as_mut()[tail as usize];
+        *sqe = SubQueueEntry::default();
+
+        if let Some(CcbCookie::_State(state)) = &ccb._cookie {
+            *sqe = state._sqe;
+        } else {
+            return Err(NvmeDriverErr::CommandFailed);
+        }
+        sqe.cid = ccb._id;
+
+        tail += 1;
+        if tail >= self.entries {
+            tail = 0;
+        }
+        subq._tail = tail;
+        write_reg(info, subq._sqtdbl, subq._tail)?;
+
+        Ok(())
+    }
 }
 
 pub(super) fn attach(
@@ -79,7 +110,7 @@ struct NvmeInner {
     _mdts: usize,
     _max_prpl: usize,
     ccb_list: Option<Mutex<CcbList>>,
-    _ccbs: Option<Vec<Ccb>>,
+    _ccbs: Option<Vec<Ccb>>, /* Array of all CCBs - no mutex needed */
 }
 
 impl NvmeInner {
