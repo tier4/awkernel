@@ -32,8 +32,6 @@ enum CcbCookie {
 
 struct Ccb {
     //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
-
-    // The following two fields are the replacement for OpenBSD's `cookie`.
     _cookie: Option<CcbCookie>,
 
     _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
@@ -81,7 +79,7 @@ struct NvmeInner {
     _mdts: usize,
     _max_prpl: usize,
     ccb_list: Option<Mutex<CcbList>>,
-    _ccbs: Option<Vec<Ccb>>, /* Array of all CCBs - no mutex needed */
+    _ccbs: Option<Vec<Ccb>>,
 }
 
 impl NvmeInner {
