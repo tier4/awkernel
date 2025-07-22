@@ -9,23 +9,23 @@ use alloc::sync::Arc;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-pub struct PriorityBasedRRScheduler {
+pub struct PrioritizedRRScheduler {
     // Time quantum
     interval: u64,
-    data: Mutex<Option<PriorityBasedRRData>>,
+    data: Mutex<Option<PrioritizedRRData>>,
     priority: u8,
 }
 
-struct PriorityBasedRRTask {
+struct PrioritizedRRTask {
     task: Arc<Task>,
     _priority: u8,
 }
 
-struct PriorityBasedRRData {
-    queue: PriorityQueue<PriorityBasedRRTask>,
+struct PrioritizedRRData {
+    queue: PriorityQueue<PrioritizedRRTask>,
 }
 
-impl PriorityBasedRRData {
+impl PrioritizedRRData {
     fn new() -> Self {
         Self {
             queue: PriorityQueue::new(),
@@ -33,22 +33,22 @@ impl PriorityBasedRRData {
     }
 }
 
-impl Scheduler for PriorityBasedRRScheduler {
+impl Scheduler for PrioritizedRRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
-        let SchedulerType::PriorityBasedRR(priority) = info.scheduler_type else {
+        let SchedulerType::PrioritizedRR(priority) = info.scheduler_type else {
             return;
         };
-        let new_task = PriorityBasedRRTask {
+        let new_task = PrioritizedRRTask {
             task: task.clone(),
             _priority: priority,
         };
 
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
-        let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-        data.queue.push(priority as u32, new_task);
+        let data = guard.get_or_insert_with(PrioritizedRRData::new);
+        data.queue.push(priority, new_task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -83,7 +83,7 @@ impl Scheduler for PriorityBasedRRScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::PriorityBasedRR(0)
+        SchedulerType::PrioritizedRR(0)
     }
 
     fn priority(&self) -> u8 {
@@ -91,14 +91,14 @@ impl Scheduler for PriorityBasedRRScheduler {
     }
 }
 
-pub static SCHEDULER: PriorityBasedRRScheduler = PriorityBasedRRScheduler {
+pub static SCHEDULER: PrioritizedRRScheduler = PrioritizedRRScheduler {
     // Time quantum (4 ms)
     interval: 4_000,
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::PriorityBasedRR(0)),
+    priority: get_priority(SchedulerType::PrioritizedRR(0)),
 };
 
-impl PriorityBasedRRScheduler {
+impl PrioritizedRRScheduler {
     // Invoke a preemption if the task exceeds the time quantum
     pub fn invoke_preemption(&self, cpu_id: usize, task_id: u32) {
         let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();

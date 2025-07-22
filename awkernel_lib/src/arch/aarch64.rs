@@ -1,4 +1,5 @@
 pub mod armv8_timer;
+pub mod barrier;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod dvfs;

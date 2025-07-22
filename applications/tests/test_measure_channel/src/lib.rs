@@ -64,7 +64,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
                     }
                 }
             },
-            SchedulerType::RR,
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
 
@@ -77,7 +77,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
                 barrier2.wait().await;
                 client_task(tx1, rx2, num_bytes).await
             },
-            SchedulerType::RR,
+            SchedulerType::PrioritizedRR(31),
         )
         .await;
 
