@@ -79,7 +79,11 @@ impl Queue {
 
     fn _complete(&self, info: &PCIeInfo, sc_ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
         let mut node = MCSNode::new();
-        let mut comq = self.comq.lock(&mut node);
+        let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
+            guard
+        } else {
+            return Ok(false);
+        };
 
         let mut head = comq._head;
 
