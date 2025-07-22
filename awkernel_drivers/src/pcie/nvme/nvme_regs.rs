@@ -46,6 +46,74 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 
+/* Power State Descriptor Data */
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct IdentifyPsd {
+    pub mp: u16, /* Max Power */
+    pub flags: u16,
+    pub enlat: u16, /* Entry Latency */
+
+    pub exlat: u32, /* Exit Latency */
+
+    pub rrt: u8, /* Relative Read Throughput */
+    pub rrl: u8, /* Relative Read Latency */
+    pub rwt: u8, /* Relative Write Throughput */
+    pub rwl: u8, /* Relative Write Latency */
+
+    pub reserved: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct IdentifyController {
+    /* Controller Capabilities and Features */
+    pub vid: u16,      /* PCI Vendor ID */
+    pub ssvid: u16,    /* PCI Subsystem Vendor ID */
+    pub sn: [u8; 20],  /* Serial Number */
+    pub mn: [u8; 40],  /* Model Number */
+    pub fr: [u8; 8],   /* Firmware Revision */
+    pub rab: u8,       /* Recommended Arbitration Burst */
+    pub ieee: [u8; 3], /* IEEE OUI Identifier */
+    pub cmic: u8,      /* Controller Multi-Path I/O and Namespace Sharing Capabilities */
+    pub mdts: u8,      /* Maximum Data Transfer Size */
+    pub cntlid: u16,   /* Controller ID */
+    pub _reserved1: [u8; 16],
+    pub ctratt: u32,
+    pub _reserved9: [u8; 156],
+    pub oacs: u16, /* Optional Admin Command Support */
+    pub acl: u8,   /* Abort Command Limit */
+    pub aerl: u8,  /* Asynchronous Event Request Limit */
+    pub frmw: u8,  /* Firmware Updates */
+    pub lpa: u8,   /* Log Page Attributes */
+    pub elpe: u8,  /* Error Log Page Entries */
+    pub npss: u8,  /* Number of Power States Supported */
+    pub avscc: u8, /* Admin Vendor Specific Command Config */
+    pub apsta: u8, /* Autonomous Power State Transition Attributes */
+    pub _reserved2: [u8; 62],
+    pub sanicap: u32,
+    pub _reserved10: [u8; 180],
+    pub sqes: u8, /* Submission Queue Entry Size */
+    pub cqes: u8, /* Completion Queue Entry Size */
+    pub _reserved3: [u8; 2],
+    pub nn: u32,    /* Number of Namespaces */
+    pub oncs: u16,  /* Optional NVM Command Support */
+    pub fuses: u16, /* Fused Operation Support */
+    pub fna: u8,    /* Format NVM Attributes */
+    pub vwc: u8,    /* Volatile Write Cache */
+    pub awun: u16,  /* Atomic Write Unit Normal */
+    pub awupf: u16, /* Atomic Write Unit Power Fail */
+    pub nvscc: u8,  /* NVM Vendor Specific Command Config */
+    pub _reserved4: u8,
+    pub acwu: u16, /* Atomic Compare & Write Unit */
+    pub _reserved5: [u8; 2],
+    pub sgls: u32, /* SGL Support */
+    pub _reserved6: [u8; 164],
+    pub _reserved7: [u8; 1344],
+    pub psd: [IdentifyPsd; 32], /* Power State Descriptors */
+    pub vs: [u8; 1024],         /* Vendor Specific */
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union Entry {
