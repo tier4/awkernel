@@ -153,42 +153,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         Ok(())
     }
 
-    /// Sets date and time of creation for this file.
-    ///
-    /// Note: it is set to a value from the `TimeProvider` when creating a file.
-    #[deprecated]
-    pub fn set_created(&mut self, date_time: DateTime) {
-        if let Some(ref metadata_arc) = self.metadata {
-            let mut node = MCSNode::new();
-            let mut metadata = metadata_arc.lock(&mut node);
-            metadata.set_created(date_time);
-        }
-    }
-
-    /// Sets date of last access for this file.
-    ///
-    /// Note: it is overwritten by a value from the `TimeProvider` on every file read operation.
-    #[deprecated]
-    pub fn set_accessed(&mut self, date: Date) {
-        if let Some(ref metadata_arc) = self.metadata {
-            let mut node = MCSNode::new();
-            let mut metadata = metadata_arc.lock(&mut node);
-            metadata.set_accessed(date);
-        }
-    }
-
-    /// Sets date and time of last modification for this file.
-    ///
-    /// Note: it is overwritten by a value from the `TimeProvider` on every file write operation.
-    #[deprecated]
-    pub fn set_modified(&mut self, date_time: DateTime) {
-        if let Some(ref metadata_arc) = self.metadata {
-            let mut node = MCSNode::new();
-            let mut metadata = metadata_arc.lock(&mut node);
-            metadata.set_modified(date_time);
-        }
-    }
-
     fn size(&self) -> Option<u32> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
