@@ -511,13 +511,6 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn set_created(&mut self, date_time: DateTime) {
-        if date_time != self.data.created() {
-            self.data.set_created(date_time);
-            self.dirty = true;
-        }
-    }
-
     pub(crate) fn set_accessed(&mut self, date: Date) {
         if date != self.data.accessed() {
             self.data.set_accessed(date);
