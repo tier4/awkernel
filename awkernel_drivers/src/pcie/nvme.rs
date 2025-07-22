@@ -76,6 +76,49 @@ impl Queue {
 
         Ok(())
     }
+
+    fn _complete(&self, info: &PCIeInfo, sc_ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
+        let mut node = MCSNode::new();
+        let mut comq = self.comq.lock(&mut node);
+
+        let mut head = comq._head;
+
+        let mut rv = false;
+        loop {
+            let cqe = &comq.com_ring.as_ref()[head as usize];
+            let flags = u16::from_le(cqe.flags);
+            if (flags & NVME_CQE_PHASE) != comq._phase {
+                break;
+            }
+
+            bus_space_barrier(BUS_SPACE_BARRIER_READ);
+
+            let cid = cqe.cid;
+            let ccb = &mut sc_ccbs[cid as usize];
+
+            if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
+                state._cqe = *cqe;
+                state._cqe.flags |= NVME_CQE_PHASE.to_le();
+            } else {
+                return Err(NvmeDriverErr::CommandFailed);
+            }
+
+            head += 1;
+            if head >= self.entries {
+                head = 0;
+                comq._phase ^= NVME_CQE_PHASE;
+            }
+
+            rv = true;
+        }
+
+        if rv {
+            comq._head = head;
+            write_reg(info, comq._cqhdbl, comq._head)?;
+        }
+
+        Ok(rv)
+    }
 }
 
 pub(super) fn attach(
