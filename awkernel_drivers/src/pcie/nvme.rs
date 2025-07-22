@@ -2,7 +2,9 @@ use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
-    barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
+    barrier::{
+        bus_space_barrier, membar_consumer, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE,
+    },
     delay::wait_microsec,
     dma_pool::DMAPool,
     paging::PAGESIZE,
@@ -77,7 +79,7 @@ impl Queue {
         Ok(())
     }
 
-    fn _complete(&self, info: &PCIeInfo, sc_ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
+    fn _complete(&self, info: &PCIeInfo, ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
         let mut node = MCSNode::new();
         let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
             guard
@@ -95,10 +97,10 @@ impl Queue {
                 break;
             }
 
-            bus_space_barrier(BUS_SPACE_BARRIER_READ);
+            membar_consumer();
 
             let cid = cqe.cid;
-            let ccb = &mut sc_ccbs[cid as usize];
+            let ccb = &mut ccbs[cid as usize];
 
             if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
                 state._cqe = *cqe;
