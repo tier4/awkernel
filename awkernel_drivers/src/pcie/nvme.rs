@@ -52,6 +52,32 @@ struct Queue {
     entries: u32,
 }
 
+impl Queue {
+    fn _submit<F>(&self, info: &PCIeInfo, ccb: &Ccb, fill: F) -> Result<(), NvmeDriverErr>
+    where
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
+    {
+        let mut node = MCSNode::new();
+        let mut subq = self.subq.lock(&mut node);
+        let mut tail = subq._tail;
+
+        let sqe = &mut subq.sub_ring.as_mut()[tail as usize];
+        *sqe = SubQueueEntry::default();
+
+        fill(ccb, sqe);
+        sqe.cid = ccb._id;
+
+        tail += 1;
+        if tail >= self.entries {
+            tail = 0;
+        }
+        subq._tail = tail;
+        write_reg(info, subq._sqtdbl, subq._tail)?;
+
+        Ok(())
+    }
+}
+
 pub(super) fn attach(
     mut info: PCIeInfo,
 ) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
