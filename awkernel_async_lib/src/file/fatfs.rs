@@ -125,7 +125,7 @@ where
         path: &str,
     ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>> {
         let dir = FileSystem::root_dir(&self.fs)
-            .open_dir(&path)
+            .open_dir(path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let entries: Result<Vec<String>, _> = dir
             .iter()
@@ -142,14 +142,14 @@ where
 
     async fn create_dir(&self, path: &str) -> VfsResult<()> {
         FileSystem::root_dir(&self.fs)
-            .create_dir(&path)
+            .create_dir(path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         Ok(())
     }
 
     async fn open_file(&self, path: &str) -> VfsResult<Box<dyn AsyncSeekAndRead + Send + Unpin>> {
         let file = FileSystem::root_dir(&self.fs)
-            .open_file(&path)
+            .open_file(path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(Box::new(AsyncFile {
@@ -162,7 +162,7 @@ where
         path: &str,
     ) -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>> {
         let file = FileSystem::root_dir(&self.fs)
-            .create_file(&path)
+            .create_file(path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(Box::new(AsyncFile {
@@ -176,7 +176,7 @@ where
     ) -> VfsResult<Box<dyn AsyncSeekAndWrite + Send + Unpin>> {
         let file = {
             let result: Result<File<IO, TP, OCC>, Error<IO::Error>> = (|| {
-                let mut file = FileSystem::root_dir(&self.fs).open_file(&path)?;
+                let mut file = FileSystem::root_dir(&self.fs).open_file(path)?;
                 file.seek(SeekFrom::End(0))?;
                 Ok(file)
             })();
@@ -200,7 +200,7 @@ where
             });
         }
         let entry = FileSystem::root_dir(&self.fs)
-            .find_entry(&path, None, None)
+            .find_entry(path, None, None)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
         let metadata = VfsMetadata {
             file_type: if entry.is_dir() {
@@ -221,13 +221,13 @@ where
             return Ok(true);
         }
         Ok(FileSystem::root_dir(&self.fs)
-            .find_entry(&path, None, None)
+            .find_entry(path, None, None)
             .is_ok())
     }
 
     async fn remove_file(&self, path: &str) -> VfsResult<()> {
         FileSystem::root_dir(&self.fs)
-            .remove(&path)
+            .remove(path)
             .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
 
         Ok(())
