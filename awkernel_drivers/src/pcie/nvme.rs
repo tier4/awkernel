@@ -53,7 +53,7 @@ struct Queue {
 }
 
 impl Queue {
-    fn submit(&self, info: &PCIeInfo, ccb: &Ccb) -> Result<(), NvmeDriverErr> {
+    fn _submit(&self, info: &PCIeInfo, ccb: &Ccb) -> Result<(), NvmeDriverErr> {
         let mut node = MCSNode::new();
         let mut subq = self.subq.lock(&mut node);
         let mut tail = subq._tail;
