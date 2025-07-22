@@ -36,7 +36,7 @@ struct Ccb {
     //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
     _cookie: Option<CcbCookie>,
 
-    _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
+    _done: Option<fn(&mut Ccb, &ComQueueEntry)>,
     _prpl_off: usize,
     _prpl_dva: u64,
     _prpl: Option<usize>,
@@ -102,11 +102,8 @@ impl Queue {
             let cid = cqe.cid;
             let ccb = &mut ccbs[cid as usize];
 
-            if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
-                state._cqe = *cqe;
-                state._cqe.flags |= NVME_CQE_PHASE.to_le();
-            } else {
-                return Err(NvmeDriverErr::CommandFailed);
+            if let Some(done_fn) = ccb._done {
+                done_fn(ccb, cqe);
             }
 
             head += 1;
