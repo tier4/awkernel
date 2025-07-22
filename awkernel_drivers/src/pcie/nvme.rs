@@ -53,7 +53,10 @@ struct Queue {
 }
 
 impl Queue {
-    fn _submit(&self, info: &PCIeInfo, ccb: &Ccb) -> Result<(), NvmeDriverErr> {
+    fn _submit<F>(&self, info: &PCIeInfo, ccb: &Ccb, fill: F) -> Result<(), NvmeDriverErr>
+    where
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
+    {
         let mut node = MCSNode::new();
         let mut subq = self.subq.lock(&mut node);
         let mut tail = subq._tail;
@@ -61,11 +64,7 @@ impl Queue {
         let sqe = &mut subq.sub_ring.as_mut()[tail as usize];
         *sqe = SubQueueEntry::default();
 
-        if let Some(CcbCookie::_State(state)) = &ccb._cookie {
-            *sqe = state._sqe;
-        } else {
-            return Err(NvmeDriverErr::CommandFailed);
-        }
+        fill(ccb, sqe);
         sqe.cid = ccb._id;
 
         tail += 1;
