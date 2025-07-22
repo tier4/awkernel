@@ -88,6 +88,14 @@ impl Time {
             Duration::from_nanos(0)
         }
     }
+
+    pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
+        if self.uptime > earlier.uptime {
+            Duration::from_nanos((self.uptime - earlier.uptime) as u64)
+        } else {
+            Duration::new(0, 0)
+        }
+    }
 }
 
 impl Add<Duration> for Time {

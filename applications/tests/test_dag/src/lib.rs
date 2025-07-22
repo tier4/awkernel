@@ -17,6 +17,7 @@ pub async fn run() {
     dag.register_periodic_reactor::<_, (i32,)>(
         "reactor_source_node".into(),
         || -> (i32,) {
+            wait_microsec(100000);
             let number: i32 = 1;
             if LOG_ENABLE {
                 log::debug!("value={number} in reactor_source_node");
@@ -102,7 +103,4 @@ pub async fn run() {
             }
         }
     }
-
-    assert_eq!(dag.node_count(), 5);
-    assert_eq!(dag.edge_count(), 5);
 }

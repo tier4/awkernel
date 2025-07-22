@@ -63,7 +63,8 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
+    time_interval::Interval,
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -74,6 +75,7 @@ use alloc::{
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
+use futures::StreamExt;
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -893,13 +895,16 @@ where
             Attribute::default(),
         );
 
-        loop {
+        let mut interval = Interval::new(period);
+
+        while let Some(_tick_time) = interval.next().await {
             let results = f();
             publishers.send_all(results).await;
-            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
             #[cfg(feature = "perf")]
             periodic_measure();
         }
+
+        Ok(())
     };
 
     let task_id = crate::task::spawn(reactor_name, future, sched_type);
