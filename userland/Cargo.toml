@@ -74,6 +74,10 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
+[dependencies.test_mount_table]
+path = "../applications/tests/test_mount_table"
+optional = true
+
 [features]
 default = []
 perf = ["awkernel_services/perf"]
@@ -95,3 +99,4 @@ test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
+test_mount_table = ["dep:test_mount_table"]

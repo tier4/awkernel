@@ -52,5 +52,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_voluntary_preemption")]
     test_voluntary_preemption::run().await; // test for voluntary preemption
 
+    #[cfg(feature = "test_mount_table")]
+    test_mount_table::run().await; // test for mount table
+
     Ok(())
 }
