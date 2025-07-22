@@ -163,16 +163,6 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> File<IO, TP, OCC> {
         }
     }
 
-    fn is_dir(&self) -> bool {
-        if let Some(ref metadata_arc) = self.metadata {
-            let mut node = MCSNode::new();
-            let metadata = metadata_arc.lock(&mut node);
-            metadata.inner().is_dir()
-        } else {
-            true // root directory
-        }
-    }
-
     pub(crate) fn first_cluster(&self) -> Option<u32> {
         if let Some(ref metadata_arc) = self.metadata {
             let mut node = MCSNode::new();
@@ -423,9 +413,9 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                     n
                 } else {
                     // allocate new cluster
+                    let is_dir = metadata.inner().is_dir();
                     let new_cluster =
-                        FileSystem::alloc_cluster(&self.fs, current_cluster_opt, self.is_dir())?;
-                    log::trace!("allocated cluster {new_cluster}");
+                        FileSystem::alloc_cluster(&self.fs, current_cluster_opt, is_dir)?;
                     let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
                     if first_cluster_opt.is_none() {
                         metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
