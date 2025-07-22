@@ -416,6 +416,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
                     let is_dir = metadata.inner().is_dir();
                     let new_cluster =
                         FileSystem::alloc_cluster(&self.fs, current_cluster_opt, is_dir)?;
+                    log::trace!("allocated cluster {new_cluster}");
                     let first_cluster_opt = metadata.inner().first_cluster(self.fs.fat_type());
                     if first_cluster_opt.is_none() {
                         metadata.set_first_cluster(Some(new_cluster), self.fs.fat_type());
