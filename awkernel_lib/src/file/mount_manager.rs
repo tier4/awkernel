@@ -89,44 +89,34 @@ pub trait FileSystemFactory: Send + Sync {
     fn fs_type(&self) -> &str;
 }
 
-/// Memory filesystem factory
-pub struct MemFsFactory;
+/// FAT filesystem factory
+pub struct FatFsFactory;
 
-impl FileSystemFactory for MemFsFactory {
-    fn create(
-        &self,
-        _device: Option<Arc<dyn BlockDevice>>,
-        _options: &MountOptions,
-    ) -> MountResult<()> {
-        // In a real implementation, this would create the filesystem
-        Ok(())
-    }
-    
-    fn fs_type(&self) -> &str {
-        "memfs"
-    }
-}
-
-/// Ext4 filesystem factory
-pub struct Ext4FsFactory;
-
-impl FileSystemFactory for Ext4FsFactory {
+impl FileSystemFactory for FatFsFactory {
     fn create(
         &self,
         device: Option<Arc<dyn BlockDevice>>,
         _options: &MountOptions,
     ) -> MountResult<()> {
-        if device.is_none() {
+        // For now, we support two cases:
+        // 1. No device provided - use the global memory FAT filesystem
+        // 2. Device provided - would need to be a concrete type to use with create_fatfs_from_block_device
+        
+        if device.is_some() {
+            // In a real implementation, we would need to handle different concrete device types
+            // For now, we don't support mounting with external devices through this factory
             return Err(MountError::FilesystemError(
-                "ext4 requires a block device".into()
+                "Mounting FAT with external devices not yet implemented through factory".into()
             ));
         }
-        // In a real implementation, this would create the filesystem
+        
+        // Use the global memory FAT filesystem
+        // This is initialized separately through init_memory_fatfs()
         Ok(())
     }
     
     fn fs_type(&self) -> &str {
-        "ext4"
+        "fatfs"
     }
 }
 
@@ -171,8 +161,7 @@ impl MountManager {
         init_fs_factories();
         
         // Register default filesystems
-        let _ = register_filesystem(Box::new(MemFsFactory));
-        let _ = register_filesystem(Box::new(Ext4FsFactory));
+        let _ = register_filesystem(Box::new(FatFsFactory));
     }
     
     /// Mount a filesystem
@@ -282,7 +271,7 @@ pub fn mount_root() -> MountResult<()> {
     MountManager::mount(
         "/",
         "rootfs",
-        "memfs",
+        "fatfs",
         None,
         MountOptions::new(),
     )

@@ -262,7 +262,7 @@ async fn test_mount_manager() {
     let result = MountManager::mount(
         "/boot",
         "bootfs",
-        "memfs",
+        "fatfs",
         None,
         options,
     );
@@ -277,7 +277,7 @@ async fn test_mount_manager() {
     let result = MountManager::mount(
         "/storage",
         "/dev/vda",
-        "ext4",
+        "fatfs",
         Some(device),
         MountOptions::default(),
     );
