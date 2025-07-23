@@ -395,24 +395,32 @@ impl NvmeInner {
     where
         F: FnOnce(&mut Ccb, &mut SubQueueEntry),
     {
-        let (original_done, original_cookie) = {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
-            (ccb.done, ccb.cookie.take())
+        let mut state = PollState {
+            _sqe: SubQueueEntry::default(),
+            _cqe: ComQueueEntry::default(),
         };
 
         {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
-            let mut state = PollState {
-                _sqe: SubQueueEntry::default(),
-                _cqe: ComQueueEntry::default(),
-            };
-
             fill_fn(ccb, &mut state._sqe);
+        }
+
+        let (original_done, original_cookie) = {
+            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            let done = ccb.done;
+            let cookie = ccb.cookie.take();
+
             ccb.done = Some(Self::poll_done);
             ccb.cookie = Some(CcbCookie::_State(state));
 
+            (done, cookie)
+        };
+
+        {
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &ccbs[ccb_id as usize];
             q.submit(&self.info, ccb, Self::poll_fill)?;
         }
 
@@ -528,6 +536,7 @@ impl NvmeInner {
         {
             nn = 1;
         }
+
         self.nn = nn;
 
         self.identify = Some(*id);
