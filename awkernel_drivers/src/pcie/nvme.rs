@@ -373,10 +373,22 @@ impl NvmeInner {
         Ok(())
     }
 
+    fn _poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_State(state)) = &ccb._cookie {
+            *sqe = state._sqe;
+        }
+    }
+
+    fn _poll_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+        if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
+            state._cqe = *cqe;
+            state._cqe.flags |= NVME_CQE_PHASE.to_le();
+        }
+    }
+
     fn _poll<F>(
-        &self,
+        &mut self,
         q: &Queue,
-        ccbs: &mut [Ccb],
         ccb_id: u16,
         fill_fn: F,
         ms: u32,
@@ -384,36 +396,48 @@ impl NvmeInner {
     where
         F: FnOnce(&mut Ccb, &mut SubQueueEntry),
     {
+        let mut state = PollState {
+            _sqe: SubQueueEntry::default(),
+            _cqe: ComQueueEntry::default(),
+        };
+
         {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
-
-            let mut state = PollState {
-                _sqe: SubQueueEntry::default(),
-                _cqe: ComQueueEntry::default(),
-            };
-
             fill_fn(ccb, &mut state._sqe);
-            ccb._done = Some(_poll_done);
-            ccb._cookie = Some(CcbCookie::_State(state));
         }
 
+        let (original_done, original_cookie) = {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            let done = ccb.done;
+            let cookie = ccb.cookie.take();
+
+            ccb._done = Some(Self::poll_done);
+            ccb._cookie = Some(CcbCookie::_State(state));
+
+            (done, cookie)
+        };
+
         {
+            let ccbs = self._ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &ccbs[ccb_id as usize];
-            q._submit(&self.info, ccb, _poll_fill)?;
+            q.submit(&self.info, ccb, Self::poll_fill)?;
         }
 
         let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
         loop {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &ccbs[ccb_id as usize];
-            let phase_set = match &ccb._cookie {
+            let phase_set = match &ccb.cookie {
                 Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
-                _ => unreachable!(),
+                _ => return Err(NvmeDriverErr::NoCcb),
             };
             if phase_set {
                 break;
             }
 
-            if !q._complete(&self.info, ccbs)? {
+            if !q.complete(&self.info, ccbs)? {
                 wait_microsec(NVME_TIMO_DELAYNS);
             }
 
@@ -421,35 +445,29 @@ impl NvmeInner {
 
             if ms != 0 {
                 if us <= NVME_TIMO_DELAYNS as u32 {
-                    /* Timeout */
-                    return Err(NvmeDriverErr::CommandTimeout);
+                    break;
                 }
                 us -= NVME_TIMO_DELAYNS as u32;
             }
         }
 
-        let flags = {
-            let ccb = &ccbs[ccb_id as usize];
-            match &ccb._cookie {
-                Some(CcbCookie::_State(state)) => u16::from_le(state._cqe.flags),
-                _ => unreachable!(),
+        let cqe = {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            let cqe = match &ccb._cookie {
+                Some(CcbCookie::_State(state)) => state._cqe,
+                _ => return Err(NvmeDriverErr::NoCcb),
+            };
+            ccb._cookie = original_cookie;
+            if let Some(done_fn) = original_done {
+                done_fn(ccb, &cqe);
             }
+            cqe
         };
 
+        let flags = u16::from_le(cqe.flags);
+
         Ok(flags & !NVME_CQE_PHASE)
-    }
-}
-
-fn _poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-    if let Some(CcbCookie::_State(state)) = &ccb._cookie {
-        *sqe = state._sqe;
-    }
-}
-
-fn _poll_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
-    if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
-        state._cqe = *cqe;
-        state._cqe.flags |= NVME_CQE_PHASE.to_le();
     }
 }
 
