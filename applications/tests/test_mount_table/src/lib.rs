@@ -9,14 +9,14 @@ use awkernel_lib::file::mount::{
     MountFlags, MountPoint, init_mount_table, with_mount_table, 
     with_mount_table_mut, get_mount_info, resolve_mount_path
 };
-use awkernel_lib::file::block_device::{BlockDevice, MemoryBlockDevice};
+use awkernel_lib::file::block_device::BlockDevice;
+use awkernel_lib::file::memfs::MemoryBlockDevice;
 use awkernel_lib::file::mount_manager::{
     MountManager, MountOptions, MountError, FileSystemFactory, 
     register_filesystem, mount_root
 };
-// Mount-aware paths will be tested when implemented
-// use awkernel_lib::file::vfs::mount_aware::MountAwarePath;
-// use awkernel_async_lib::file::path::AsyncVfsPath;
+// Mount-aware paths
+use awkernel_lib::file::vfs::mount_aware::MountAwarePath;
 use awkernel_lib::delay::wait_millisec;
 use log::{info, warn, error};
 
@@ -195,11 +195,10 @@ async fn test_block_device_mounts() {
     }
 }
 
-// Requires ver3 implementation
-#[allow(dead_code)]
 async fn test_mount_aware_paths() {
     info!("\n=== Testing Mount-Aware Paths ===");
-    /*
+    
+    use awkernel_lib::file::vfs::MountAwarePath;
     
     let paths_to_test = [
         "/rom/boot/../config/system.conf",
@@ -212,8 +211,8 @@ async fn test_mount_aware_paths() {
         info!("Path: {}", path);
         info!("  Normalized: {}", aware_path.as_str());
         
-        if let Some((mount_path, relative)) = aware_path.resolve_mount() {
-            info!("  Mount: {} + Relative: {}", mount_path, relative);
+        if let Some((mount, relative)) = aware_path.resolve_mount() {
+            info!("  Mount: {} + Relative: {}", mount.path, relative);
             info!("  Filesystem: {:?}", aware_path.filesystem_type());
             info!("  Read-only: {}", aware_path.is_read_only());
         } else {
@@ -239,7 +238,6 @@ async fn test_mount_aware_paths() {
     } else {
         error!("✗ Failed to detect mount boundary crossing");
     }
-    */
 }
 
 async fn test_mount_manager() {
@@ -318,45 +316,43 @@ async fn test_mount_manager() {
     }
 }
 
-// Requires ver4 implementation
-#[allow(dead_code)]
 async fn test_async_vfs_paths() {
     info!("\n=== Testing Async VFS Paths ===");
-    /*
     
-    if let Some((mount_point, relative)) = resolve_mount_path("/rom/config") {
-        match AsyncVfsPath::from_mount_path(mount_point, relative).await {
-            Ok(path) => {
-                info!("✓ Created async path: {}", path.as_str());
-                
-                if let Some(info) = path.mount_info().await {
-                    info!("  Mount: {} [{}]", info.mount_path, info.fs_type);
-                    info!("  Flags: readonly={} noexec={}", 
-                          info.flags.readonly, info.flags.noexec);
-                }
-                
-                if path.is_read_only_mount().await {
-                    info!("✓ Correctly detected read-only mount");
-                }
+    use awkernel_async_lib::file::path::AsyncVfsPath;
+    
+    match AsyncVfsPath::from_mount_path("/rom/config") {
+        Ok(path) => {
+            info!("✓ Created async path: {}", path.as_str());
+            
+            if let Some(info) = path.mount_info() {
+                info!("  Mount: {} [{}]", info.mount_path, info.fs_type);
+                info!("  Flags: readonly={} noexec={}", 
+                      info.flags.readonly, info.flags.noexec);
             }
-            Err(e) => error!("✗ Failed to create async path: {:?}", e),
+            
+            if path.is_read_only_mount() {
+                info!("✓ Correctly detected read-only mount");
+            }
         }
+        Err(e) => error!("✗ Failed to create async path: {:?}", e),
     }
     
-    if let Some((mp1, rel1)) = resolve_mount_path("/rom/test") {
-        if let Some((mp2, rel2)) = resolve_mount_path("/data/test") {
-            if let Ok(path1) = AsyncVfsPath::from_mount_path(mp1, rel1).await {
-                if let Ok(path2) = AsyncVfsPath::from_mount_path(mp2, rel2).await {
-                    if path1.crosses_mount_boundary(&path2).await {
+    match AsyncVfsPath::from_mount_path("/rom/test") {
+        Ok(path1) => {
+            match AsyncVfsPath::from_mount_path("/data/test") {
+                Ok(path2) => {
+                    if path1.crosses_mount_boundary(path2.as_str()) {
                         info!("✓ Async mount boundary detection works");
                     } else {
                         error!("✗ Failed to detect async mount boundary");
                     }
                 }
+                Err(e) => error!("✗ Failed to create path2: {:?}", e),
             }
         }
+        Err(e) => error!("✗ Failed to create path1: {:?}", e),
     }
-    */
 }
 
 struct CustomFileSystemFactory;
@@ -410,9 +406,9 @@ pub async fn run() {
     test_basic_mount_operations().await;
     test_path_resolution().await;
     test_block_device_mounts().await;
-    // test_mount_aware_paths().await;  // Requires ver3 implementation
+    test_mount_aware_paths().await;
     test_mount_manager().await;
-    // test_async_vfs_paths().await;    // Requires ver4 implementation
+    test_async_vfs_paths().await;
     test_custom_filesystem().await;
     
     info!("\n=== Mount Table Tests Complete ===");
