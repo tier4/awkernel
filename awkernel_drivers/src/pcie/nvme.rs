@@ -404,7 +404,9 @@ impl NvmeInner {
             let ccb = &ccbs[ccb_id as usize];
             let phase_set = match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
-                _ => unreachable!(),
+                _ => {
+                    return Err(NvmeDriverErr::NoCcb);
+                }
             };
             if phase_set {
                 break;
@@ -418,7 +420,6 @@ impl NvmeInner {
 
             if ms != 0 {
                 if us <= NVME_TIMO_DELAYNS as u32 {
-                    /* Timeout */
                     return Err(NvmeDriverErr::CommandTimeout);
                 }
                 us -= NVME_TIMO_DELAYNS as u32;
@@ -429,7 +430,7 @@ impl NvmeInner {
             let ccb = &ccbs[ccb_id as usize];
             match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => u16::from_le(state._cqe.flags),
-                _ => unreachable!(),
+                _ => return Err(NvmeDriverErr::NoCcb),
             }
         };
 
