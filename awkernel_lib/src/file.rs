@@ -1,8 +1,8 @@
 pub mod block_device;
-pub mod block_device_adapter;
 pub mod error;
 pub mod fatfs;
 pub mod io;
+pub mod memfs;
 pub mod mount;
 pub mod mount_manager;
 pub mod vfs;

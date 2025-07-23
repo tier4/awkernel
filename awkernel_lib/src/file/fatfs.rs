@@ -10,13 +10,12 @@ pub mod time;
 use crate::{
     allocator::System,
     file::{
-        block_device::BlockDevice,
-        block_device_adapter::BlockDeviceAdapter,
+        block_device::{BlockDevice, BlockDeviceAdapter},
         fatfs::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
             time::NullTimeProvider,
         },
-        block_device::MemoryBlockDevice,
+        memfs::MemoryBlockDevice,
     },
     paging::PAGESIZE,
     sync::rwlock::RwLock,

@@ -5,7 +5,7 @@ extern crate alloc;
 use alloc::sync::Arc;
 use alloc::vec;
 use awkernel_lib::delay::wait_millisec;
-use awkernel_lib::file::block_device::MemoryBlockDevice;
+use awkernel_lib::file::memfs::MemoryBlockDevice;
 use awkernel_lib::file::fatfs::{create_fatfs_from_block_device, format_block_device_as_fat};
 use awkernel_lib::file::io::{Read, Write, Seek};
 use log::{info, error};
