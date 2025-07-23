@@ -896,15 +896,8 @@ where
 
         let mut interval = interval(period);
 
-        log::debug!(
-            "reactor_source_node is started at {} [ns]",
-            interval.get_next_tick_target().uptime().as_nanos()
-        );
-
         loop {
             interval.tick().await;
-            let start_time = awkernel_lib::time::Time::now().uptime().as_nanos();
-            log::debug!("reactor_source_node is called at {} [ns]", start_time);
             let results = f();
             publishers.send_all(results).await;
             #[cfg(feature = "perf")]
