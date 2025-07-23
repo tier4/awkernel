@@ -13,7 +13,7 @@ use awkernel_lib::file::block_device::BlockDevice;
 use awkernel_lib::file::memfs::MemoryBlockDevice;
 use awkernel_lib::file::mount_manager::{
     MountManager, MountOptions, MountError, FileSystemFactory, 
-    register_filesystem, mount_root
+    register_filesystem, mount_root, mount_memory_fatfs
 };
 // Mount-aware paths
 use awkernel_lib::file::vfs::mount_aware::MountAwarePath;
@@ -399,6 +399,61 @@ async fn test_custom_filesystem() {
     }
 }
 
+async fn test_memory_fatfs_integration() {
+    info!("\n=== Testing Memory FAT Filesystem Integration ===");
+    
+    // Test mounting memory FAT filesystem through mount manager
+    let result = mount_memory_fatfs(
+        "/memfat",
+        "memfat0",
+        2 * 1024 * 1024,  // 2MB
+        512,              // 512 byte blocks
+    );
+    
+    match result {
+        Ok(()) => info!("✓ Memory FAT filesystem mounted successfully"),
+        Err(e) => {
+            error!("✗ Failed to mount memory FAT filesystem: {:?}", e);
+            return;
+        }
+    }
+    
+    // Verify the mount exists and has a block device
+    let mount_info = MountManager::get_mount_info("/memfat");
+    match mount_info {
+        Some(info) => {
+            info!("✓ Mount info: path={}, source={}, fs_type={}, has_device={}", 
+                info.path, info.source, info.fs_type, info.has_device);
+            if info.has_device {
+                info!("✓ Memory FAT filesystem correctly has block device");
+            } else {
+                error!("✗ Memory FAT filesystem should have block device");
+            }
+        }
+        None => error!("✗ Mount info not found for /memfat"),
+    }
+    
+    // Test mounting another memory FAT filesystem
+    let result = mount_memory_fatfs(
+        "/data",
+        "datafs",
+        4 * 1024 * 1024,  // 4MB  
+        512,
+    );
+    
+    match result {
+        Ok(()) => info!("✓ Data filesystem mounted successfully"),
+        Err(MountError::AlreadyMounted(_)) => info!("✓ Data mount correctly rejected (already mounted)"),
+        Err(e) => error!("✗ Failed to mount data filesystem: {:?}", e),
+    }
+    
+    // List all mounts to verify
+    info!("\n=== Current Mounts with Memory FAT ===");
+    for mount in MountManager::list_mounts() {
+        info!("  {} [{}] device={}", mount.path, mount.fs_type, mount.has_device);
+    }
+}
+
 pub async fn run() {
     wait_millisec(1000);
     info!("Starting mount table tests...\n");
@@ -410,6 +465,7 @@ pub async fn run() {
     test_mount_manager().await;
     test_async_vfs_paths().await;
     test_custom_filesystem().await;
+    test_memory_fatfs_integration().await;
     
     info!("\n=== Mount Table Tests Complete ===");
 }

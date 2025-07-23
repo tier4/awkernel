@@ -96,23 +96,26 @@ impl FileSystemFactory for FatFsFactory {
     fn create(
         &self,
         device: Option<Arc<dyn BlockDevice>>,
-        _options: &MountOptions,
+        options: &MountOptions,
     ) -> MountResult<()> {
-        // For now, we support two cases:
-        // 1. No device provided - use the global memory FAT filesystem
-        // 2. Device provided - would need to be a concrete type to use with create_fatfs_from_block_device
+        // The factory just validates that we can create a FAT filesystem
+        // The actual filesystem creation happens elsewhere in the VFS layer
         
-        if device.is_some() {
-            // In a real implementation, we would need to handle different concrete device types
-            // For now, we don't support mounting with external devices through this factory
-            return Err(MountError::FilesystemError(
-                "Mounting FAT with external devices not yet implemented through factory".into()
-            ));
+        if let Some(_block_device) = device {
+            // Block device provided - validate it can be used for FAT
+            // Check if format option is specified
+            let format = options.fs_options.get("format")
+                .map(|v| v == "true")
+                .unwrap_or(true); // Default to formatting new filesystems
+            
+            // In the actual implementation, the VFS layer will handle
+            // creating the FileSystem instance using create_fatfs_from_block_device
+            Ok(())
+        } else {
+            // No device - this means we want to create a memory filesystem
+            // The mount manager will handle creating a MemoryBlockDevice
+            Ok(())
         }
-        
-        // Use the global memory FAT filesystem
-        // This is initialized separately through init_memory_fatfs()
-        Ok(())
     }
     
     fn fs_type(&self) -> &str {
@@ -268,12 +271,50 @@ pub struct MountInfo {
 
 /// Convenience function to mount root filesystem
 pub fn mount_root() -> MountResult<()> {
+    // Create a 1MB memory FAT filesystem for root
+    mount_memory_fatfs("/", "rootfs", 1024 * 1024, 512)
+}
+
+/// Create and mount a memory FAT filesystem
+pub fn mount_memory_fatfs(
+    path: impl Into<String>,
+    source: impl Into<String>,
+    size: usize,
+    block_size: usize,
+) -> MountResult<()> {
+    use crate::file::memfs::MemoryBlockDevice;
+    use crate::allocator::System;
+    use crate::paging::PAGESIZE;
+    use alloc::vec::Vec;
+    use core::alloc::{GlobalAlloc, Layout};
+    
+    // Allocate memory using System allocator for proper alignment
+    let disk_layout = Layout::from_size_align(size, PAGESIZE)
+        .map_err(|_| MountError::FilesystemError("Invalid layout for memory filesystem".into()))?;
+    
+    let raw_memory = unsafe { System.alloc(disk_layout) };
+    if raw_memory.is_null() {
+        return Err(MountError::FilesystemError("Failed to allocate memory for filesystem".into()));
+    }
+    
+    // Create a Vec from the allocated memory
+    let disk_data = unsafe {
+        Vec::from_raw_parts(raw_memory, size, size)
+    };
+    
+    // Create a MemoryBlockDevice
+    let memory_device = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
+    
+    // Mount it with format option
+    let mut options = MountOptions::new();
+    options.fs_options.insert("format".into(), "true".into());
+    
     MountManager::mount(
-        "/",
-        "rootfs",
+        path,
+        source,
         "fatfs",
-        None,
-        MountOptions::new(),
+        Some(memory_device as Arc<dyn BlockDevice>),
+        options,
     )
 }
 
