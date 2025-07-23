@@ -104,6 +104,8 @@ impl Queue {
 
             if let Some(done_fn) = ccb._done {
                 done_fn(ccb, cqe);
+            } else {
+                return Err(NvmeDriverErr::NoCallback);
             }
 
             head += 1;
@@ -426,6 +428,7 @@ pub enum NvmeDriverErr {
     CommandFailed,
     NoCcb,
     IncompatiblePageSize,
+    NoCallback,
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
@@ -443,6 +446,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::CommandFailed => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCcb => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
+            NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
         }
     }
 }
