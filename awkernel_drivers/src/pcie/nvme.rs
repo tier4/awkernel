@@ -395,10 +395,7 @@ impl NvmeInner {
             fill_fn(ccb, &mut state._sqe);
             ccb._done = Some(_poll_done);
             ccb._cookie = Some(CcbCookie::_State(state));
-        }
 
-        {
-            let ccb = &ccbs[ccb_id as usize];
             q._submit(&self.info, ccb, _poll_fill)?;
         }
 
