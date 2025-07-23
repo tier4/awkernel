@@ -422,7 +422,7 @@ impl NvmeInner {
 
             if ms != 0 {
                 if us <= NVME_TIMO_DELAYNS as u32 {
-                    return Err(NvmeDriverErr::CommandTimeout);
+                    break;
                 }
                 us -= NVME_TIMO_DELAYNS as u32;
             }
