@@ -75,7 +75,7 @@ path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
 [features]
-default = []
+default = ["test_dag"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications

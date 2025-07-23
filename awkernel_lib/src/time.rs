@@ -28,7 +28,7 @@ use core::{
 };
 
 /// Monotonically increasing time.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time {
     uptime: u128,
 }
