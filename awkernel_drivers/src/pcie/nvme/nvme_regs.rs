@@ -46,6 +46,8 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 
+pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
+
 /* Power State Descriptor Data */
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
