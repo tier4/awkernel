@@ -10,6 +10,8 @@ pub mod time;
 use crate::{
     allocator::System,
     file::{
+        block_device::BlockDevice,
+        block_device_adapter::BlockDeviceAdapter,
         fatfs::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
             time::NullTimeProvider,
@@ -22,6 +24,7 @@ use crate::{
 
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 use core::alloc::{GlobalAlloc, Layout};
+use core::fmt::Debug;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
 
@@ -75,4 +78,30 @@ pub fn get_memory_fatfs() -> Arc<FileSystem<InMemoryDisk, NullTimeProvider, Loss
     (*fs_guard)
         .clone()
         .expect("FAT filesystem has not been initialized. Call init_fatfs() first.")
+}
+
+/// Create a FAT filesystem from a block device
+pub fn create_fatfs_from_block_device<D: BlockDevice + Debug + 'static>(
+    device: Arc<D>,
+    format: bool,
+) -> Result<FileSystem<BlockDeviceAdapter<D>, NullTimeProvider, LossyOemCpConverter>, String> {
+    let mut adapter = BlockDeviceAdapter::new(device);
+    
+    if format {
+        format_volume(&mut adapter, FormatVolumeOptions::new())
+            .map_err(|e| format!("Failed to format FAT volume: {:?}", e))?;
+    }
+    
+    FileSystem::new(adapter, FsOptions::new())
+        .map_err(|e| format!("Failed to create FileSystem instance: {:?}", e))
+}
+
+/// Format a block device with FAT filesystem
+pub fn format_block_device_as_fat<D: BlockDevice + Debug + 'static>(
+    device: Arc<D>,
+) -> Result<(), String> {
+    let mut adapter = BlockDeviceAdapter::new(device);
+    
+    format_volume(&mut adapter, FormatVolumeOptions::new())
+        .map_err(|e| format!("Failed to format FAT volume: {:?}", e))
 }

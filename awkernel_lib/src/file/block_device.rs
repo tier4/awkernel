@@ -74,6 +74,7 @@ pub trait BlockDevice: Send + Sync {
 }
 
 /// A memory-backed block device for testing
+#[derive(Debug)]
 pub struct MemoryBlockDevice {
     data: Vec<u8>,
     block_size: usize,
