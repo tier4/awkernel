@@ -361,8 +361,8 @@ impl NvmeInner {
         Ok(list._free_list.pop_front())
     }
 
-    fn _ccb_put(&self, ccb_id: u16, sc_ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
-        let ccb = &mut sc_ccbs[ccb_id as usize];
+    fn _ccb_put(&self, ccb_id: u16, ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
+        let ccb = &mut ccbs[ccb_id as usize];
         ccb._done = None;
 
         let mut node = MCSNode::new();
@@ -376,7 +376,7 @@ impl NvmeInner {
     fn _poll<F>(
         &self,
         q: &Queue,
-        sc_ccbs: &mut [Ccb],
+        ccbs: &mut [Ccb],
         ccb_id: u16,
         fill_fn: F,
         ms: u32,
@@ -385,7 +385,7 @@ impl NvmeInner {
         F: FnOnce(&mut Ccb, &mut SubQueueEntry),
     {
         {
-            let ccb = &mut sc_ccbs[ccb_id as usize];
+            let ccb = &mut ccbs[ccb_id as usize];
 
             let mut state = PollState {
                 _sqe: SubQueueEntry::default(),
@@ -398,13 +398,13 @@ impl NvmeInner {
         }
 
         {
-            let ccb = &sc_ccbs[ccb_id as usize];
+            let ccb = &ccbs[ccb_id as usize];
             q._submit(&self.info, ccb, _poll_fill)?;
         }
 
         let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
         loop {
-            let ccb = &sc_ccbs[ccb_id as usize];
+            let ccb = &ccbs[ccb_id as usize];
             let phase_set = match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
                 _ => unreachable!(),
@@ -413,7 +413,7 @@ impl NvmeInner {
                 break;
             }
 
-            if !q._complete(&self.info, sc_ccbs)? {
+            if !q._complete(&self.info, ccbs)? {
                 wait_microsec(NVME_TIMO_DELAYNS);
             }
 
@@ -429,7 +429,7 @@ impl NvmeInner {
         }
 
         let flags = {
-            let ccb = &sc_ccbs[ccb_id as usize];
+            let ccb = &ccbs[ccb_id as usize];
             match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => u16::from_le(state._cqe.flags),
                 _ => unreachable!(),
