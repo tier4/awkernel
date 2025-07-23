@@ -92,6 +92,16 @@ impl MemoryBlockDevice {
         }
     }
     
+    /// Create a memory block device from pre-allocated memory
+    pub fn from_vec(data: Vec<u8>, block_size: usize) -> Self {
+        let num_blocks = (data.len() / block_size) as u64;
+        Self {
+            data,
+            block_size,
+            num_blocks,
+        }
+    }
+    
     /// Get the offset for a block number
     fn block_offset(&self, block_num: u64) -> Option<usize> {
         if block_num >= self.num_blocks {

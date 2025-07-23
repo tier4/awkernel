@@ -8,6 +8,7 @@ pub mod table;
 pub mod time;
 
 use crate::{
+    allocator::System,
     file::{
         block_device::BlockDevice,
         block_device_adapter::BlockDeviceAdapter,
@@ -17,10 +18,12 @@ use crate::{
         },
         block_device::MemoryBlockDevice,
     },
+    paging::PAGESIZE,
     sync::rwlock::RwLock,
 };
 
-use alloc::{format, string::String, sync::Arc};
+use alloc::{format, string::String, sync::Arc, vec::Vec};
+use core::alloc::{GlobalAlloc, Layout};
 use core::fmt::Debug;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
@@ -35,10 +38,27 @@ pub fn init_memory_fatfs() -> Result<(), String> {
         return Err("FAT filesystem has already been initialized.".into());
     }
 
-    // Create a MemoryBlockDevice with 512 byte blocks
+    // Allocate memory using System allocator for proper alignment
+    let disk_layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
+        .map_err(|_| "Invalid layout for memory filesystem allocation.")?;
+
+    let raw_disk_memory = unsafe { System.alloc(disk_layout) };
+    if raw_disk_memory.is_null() {
+        return Err("Failed to allocate memory for the in-memory disk.".into());
+    }
+
+    // Create a Vec from the allocated memory
+    let disk_data = unsafe {
+        Vec::from_raw_parts(
+            raw_disk_memory,
+            MEMORY_FILESYSTEM_SIZE,
+            MEMORY_FILESYSTEM_SIZE,
+        )
+    };
+
+    // Create a MemoryBlockDevice with 512 byte blocks using the pre-allocated memory
     let block_size = 512;
-    let num_blocks = MEMORY_FILESYSTEM_SIZE as u64 / block_size as u64;
-    let memory_device = Arc::new(MemoryBlockDevice::new(block_size, num_blocks));
+    let memory_device = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
     
     // Create the filesystem using BlockDeviceAdapter
     let file_system = match create_fatfs_from_block_device(memory_device, true) {
