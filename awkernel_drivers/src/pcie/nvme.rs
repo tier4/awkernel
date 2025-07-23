@@ -384,9 +384,13 @@ impl NvmeInner {
     where
         F: FnOnce(&mut Ccb, &mut SubQueueEntry),
     {
+        let (original_done, original_cookie) = {
+            let ccb = &mut ccbs[ccb_id as usize];
+            (ccb._done, ccb._cookie.take())
+        };
+
         {
             let ccb = &mut ccbs[ccb_id as usize];
-
             let mut state = PollState {
                 _sqe: SubQueueEntry::default(),
                 _cqe: ComQueueEntry::default(),
@@ -404,9 +408,7 @@ impl NvmeInner {
             let ccb = &ccbs[ccb_id as usize];
             let phase_set = match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
-                _ => {
-                    return Err(NvmeDriverErr::NoCcb);
-                }
+                _ => return Err(NvmeDriverErr::NoCcb),
             };
             if phase_set {
                 break;
@@ -423,6 +425,18 @@ impl NvmeInner {
                     return Err(NvmeDriverErr::CommandTimeout);
                 }
                 us -= NVME_TIMO_DELAYNS as u32;
+            }
+        }
+
+        {
+            let ccb = &mut ccbs[ccb_id as usize];
+            let cqe = match &ccb._cookie {
+                Some(CcbCookie::_State(state)) => state._cqe,
+                _ => return Err(NvmeDriverErr::NoCcb),
+            };
+            ccb._cookie = original_cookie;
+            if let Some(done_fn) = original_done {
+                done_fn(ccb, &cqe);
             }
         }
 
