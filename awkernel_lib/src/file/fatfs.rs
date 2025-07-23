@@ -8,7 +8,6 @@ pub mod table;
 pub mod time;
 
 use crate::{
-    allocator::System,
     file::{
         block_device::BlockDevice,
         block_device_adapter::BlockDeviceAdapter,
@@ -16,20 +15,18 @@ use crate::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
             time::NullTimeProvider,
         },
-        memfs::InMemoryDisk,
+        block_device::MemoryBlockDevice,
     },
-    paging::PAGESIZE,
     sync::rwlock::RwLock,
 };
 
-use alloc::{format, string::String, sync::Arc, vec::Vec};
-use core::alloc::{GlobalAlloc, Layout};
+use alloc::{format, string::String, sync::Arc};
 use core::fmt::Debug;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
 
 static FAT_FS_INSTANCE: RwLock<
-    Option<Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>>>,
+    Option<Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>>>,
 > = RwLock::new(None);
 
 pub fn init_memory_fatfs() -> Result<(), String> {
@@ -38,29 +35,13 @@ pub fn init_memory_fatfs() -> Result<(), String> {
         return Err("FAT filesystem has already been initialized.".into());
     }
 
-    let disk_layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
-        .map_err(|_| "Invalid layout for memory filesystem allocation.")?;
-
-    let raw_disk_memory = unsafe { System.alloc(disk_layout) };
-    if raw_disk_memory.is_null() {
-        return Err("Failed to allocate memory for the in-memory disk.".into());
-    }
-
-    let disk_data = unsafe {
-        Vec::from_raw_parts(
-            raw_disk_memory,
-            MEMORY_FILESYSTEM_SIZE,
-            MEMORY_FILESYSTEM_SIZE,
-        )
-    };
-
-    let mut in_memory_disk = InMemoryDisk::new(disk_data, 0);
-
-    if let Err(e) = format_volume(&mut in_memory_disk, FormatVolumeOptions::new()) {
-        return Err(format!("Failed to format FAT volume: {e:?}"));
-    }
-
-    let file_system = match FileSystem::new(in_memory_disk, FsOptions::new()) {
+    // Create a MemoryBlockDevice with 512 byte blocks
+    let block_size = 512;
+    let num_blocks = MEMORY_FILESYSTEM_SIZE as u64 / block_size as u64;
+    let memory_device = Arc::new(MemoryBlockDevice::new(block_size, num_blocks));
+    
+    // Create the filesystem using BlockDeviceAdapter
+    let file_system = match create_fatfs_from_block_device(memory_device, true) {
         Ok(fs) => fs,
         Err(e) => {
             return Err(format!("Failed to create FileSystem instance: {e:?}"));
@@ -72,7 +53,7 @@ pub fn init_memory_fatfs() -> Result<(), String> {
     Ok(())
 }
 
-pub fn get_memory_fatfs() -> Arc<FileSystem<InMemoryDisk, NullTimeProvider, LossyOemCpConverter>> {
+pub fn get_memory_fatfs() -> Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>> {
     let fs_guard = FAT_FS_INSTANCE.read();
 
     (*fs_guard)
