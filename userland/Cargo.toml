@@ -80,10 +80,13 @@ optional = true
 
 [dependencies.test_block_device_fatfs]
 path = "../applications/tests/test_block_device_fatfs"
+
+[dependencies.test_memfatfs]
+path = "../applications/tests/test_memfatfs"
 optional = true
 
 [features]
-default = []
+default = ["test_memfatfs"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -105,3 +108,4 @@ test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
 test_mount_table = ["dep:test_mount_table"]
 test_block_device_fatfs = ["dep:test_block_device_fatfs"]
+test_memfatfs = ["dep:test_memfatfs"]

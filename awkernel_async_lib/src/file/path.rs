@@ -4,6 +4,7 @@
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
+use crate::file::fatfs::AsyncFatFs;
 use awkernel_lib::{
     file::vfs::{
         error::{VfsError, VfsErrorKind, VfsResult},
@@ -52,6 +53,13 @@ impl PartialEq for AsyncVfsPath {
 }
 
 impl Eq for AsyncVfsPath {}
+
+impl AsyncVfsPath {
+    pub fn new_in_memory_fatfs() -> Self {
+        let fs = AsyncFatFs::new_in_memory();
+        AsyncVfsPath::from(Box::new(fs) as Box<dyn AsyncFileSystem>)
+    }
+}
 
 impl AsyncVfsPath {
     /// Creates a root path for the given filesystem

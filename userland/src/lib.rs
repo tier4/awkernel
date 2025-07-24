@@ -58,5 +58,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_block_device_fatfs")]
     test_block_device_fatfs::run().await; // test for block device FAT filesystem integration
 
+    #[cfg(feature = "test_memfatfs")]
+    test_memfatfs::run().await; // test for filesystem
+
     Ok(())
 }
