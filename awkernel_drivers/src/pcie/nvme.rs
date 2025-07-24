@@ -469,7 +469,7 @@ impl NvmeInner {
         Ok(flags & !NVME_CQE_PHASE)
     }
 
-    fn fill_identify(ccb: &mut Ccb, sqe: &mut SubQueueEntry) {
+    fn fill_identify(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         sqe.opcode = NVM_ADMIN_IDENTIFY;
         if let Some(CcbCookie::_Controller(mem)) = ccb.cookie.as_ref() {
             unsafe {
@@ -495,14 +495,7 @@ impl NvmeInner {
             ccb.done = None;
         }
 
-        let rv = self.poll(
-            admin_q,
-            ccb_id,
-            |ccb, cmd| {
-                Self::fill_identify(ccb, cmd);
-            },
-            NVME_TIMO_IDENT,
-        )?;
+        let rv = self.poll(admin_q, ccb_id, Self::fill_identify, NVME_TIMO_IDENT)?;
         self.ccb_put(ccb_id)?;
 
         if rv != 0 {
