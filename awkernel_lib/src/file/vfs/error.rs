@@ -170,3 +170,19 @@ impl fmt::Display for VfsIoError {
 
 /// The result type of this crate
 pub type VfsResult<T> = core::result::Result<T, VfsError>;
+
+impl From<crate::file::block_device::BlockDeviceAdapterError> for VfsIoError {
+    fn from(e: crate::file::block_device::BlockDeviceAdapterError) -> Self {
+        use crate::file::block_device::BlockDeviceAdapterError;
+        match e {
+            BlockDeviceAdapterError::OutOfBounds => VfsIoError::OutOfBounds,
+            BlockDeviceAdapterError::IoError => VfsIoError::Other("Block device I/O error".into()),
+            BlockDeviceAdapterError::ReadOnly => VfsIoError::Other("Device is read-only".into()),
+            BlockDeviceAdapterError::WriteZero => VfsIoError::WriteZero,
+            BlockDeviceAdapterError::UnexpectedEof => VfsIoError::UnexpectedEof,
+            BlockDeviceAdapterError::Interrupted => VfsIoError::Interrupted,
+            BlockDeviceAdapterError::DeviceBusy => VfsIoError::Other("Device is busy".into()),
+            BlockDeviceAdapterError::Other(msg) => VfsIoError::Other(msg),
+        }
+    }
+}

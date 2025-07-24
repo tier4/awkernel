@@ -11,7 +11,8 @@ use awkernel_lib::{
             time::{Date, DateTime, NullTimeProvider, TimeProvider},
         },
         io::{Read, Seek, SeekFrom, Write},
-        memfs::InMemoryDisk,
+        block_device::BlockDeviceAdapter,
+        memfs::MemoryBlockDevice,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsIoError, VfsResult},
             path::{VfsFileType, VfsMetadata},
@@ -101,10 +102,10 @@ where
     TP: TimeProvider + Send + Sync,
     OCC: OemCpConverter + Send + Sync,
 {
-    fs: Arc<FileSystem<IO, TP, OCC>>,
+    pub(crate) fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl AsyncFatFs<InMemoryDisk, NullTimeProvider, LossyOemCpConverter> {
+impl AsyncFatFs<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter> {
     pub fn new_in_memory() -> Self {
         Self {
             fs: get_memory_fatfs(),

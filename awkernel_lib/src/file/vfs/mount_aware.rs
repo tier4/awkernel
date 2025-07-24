@@ -3,7 +3,8 @@
 //! This module provides path utilities that are aware of mount points
 
 use alloc::{format, string::{String, ToString}, vec::Vec};
-use crate::file::mount::{resolve_mount_path, MountPoint};
+use crate::file::mount::resolve_mount_path;
+use crate::file::mount_types::MountInfo;
 use core::fmt;
 
 /// A path that is aware of mount points and can resolve its location
@@ -29,8 +30,8 @@ impl MountAwarePath {
     }
     
     /// Resolve the mount point and relative path for this path
-    pub fn resolve_mount(&self) -> Option<(MountPoint, String)> {
-        resolve_mount_path(&self.path)
+    pub fn resolve_mount(&self) -> Option<(MountInfo, String)> {
+        resolve_mount_path(&self.path).ok()
     }
     
     /// Check if this path crosses a mount boundary when compared to another path

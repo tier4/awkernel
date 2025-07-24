@@ -1,0 +1,227 @@
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+
+use alloc::{boxed::Box, string::ToString, vec::Vec};
+use awkernel_async_lib::{
+    executor::Executor,
+    file::{
+        mount::{mount_memory_fatfs, MountManager, registry::{get_mount_points, is_filesystem_registered}},
+        filesystem::AsyncSeekAndWrite,
+        mount_aware_vfs_path::MountAwareAsyncVfsPath,
+    },
+};
+use awkernel_lib::{print, println};
+
+#[awkernel_lib::test]
+fn test_vfs_registry_basic() {
+    println!("Testing VFS Registry basic functionality...");
+    
+    let executor = Executor::spawn_executor(None, 512);
+    
+    executor.spawn_detached(async {
+        // Initialize mount system
+        MountManager::init().expect("Failed to initialize mount manager");
+        println!("Mount manager initialized");
+        
+        // Mount a memory filesystem at root
+        mount_memory_fatfs("/", 1024 * 1024)
+            .await
+            .expect("Failed to mount root filesystem");
+        println!("Root filesystem mounted");
+        
+        // Check if registered
+        assert!(is_filesystem_registered("/"));
+        println!("Root filesystem is registered");
+        
+        // Get mount points
+        let mount_points = get_mount_points().expect("Failed to get mount points");
+        assert_eq!(mount_points.len(), 1);
+        assert_eq!(mount_points[0], "/");
+        println!("Mount points retrieved correctly");
+    });
+    
+    executor.run_tasks_until_complete();
+    println!("Basic VFS registry test passed!");
+}
+
+#[awkernel_lib::test]
+fn test_mount_aware_path_operations() {
+    println!("Testing mount-aware path operations...");
+    
+    let executor = Executor::spawn_executor(None, 512);
+    
+    executor.spawn_detached(async {
+        // Initialize and mount filesystems
+        MountManager::init().expect("Failed to initialize mount manager");
+        
+        // Mount multiple filesystems
+        mount_memory_fatfs("/", 1024 * 1024)
+            .await
+            .expect("Failed to mount root");
+        mount_memory_fatfs("/mnt/disk1", 512 * 1024)
+            .await
+            .expect("Failed to mount disk1");
+        mount_memory_fatfs("/mnt/disk2", 512 * 1024)
+            .await
+            .expect("Failed to mount disk2");
+        
+        println!("All filesystems mounted");
+        
+        // Test file operations on root
+        let root_file = MountAwareAsyncVfsPath::new("/test.txt");
+        let mut writer = root_file.create_file().await.expect("Failed to create file");
+        writer.write_all(b"Root file content").await.expect("Failed to write");
+        writer.flush().await.expect("Failed to flush");
+        drop(writer);
+        
+        assert!(root_file.exists().await.expect("Failed to check existence"));
+        println!("Root file created successfully");
+        
+        // Test file operations on disk1
+        let disk1_dir = MountAwareAsyncVfsPath::new("/mnt/disk1/data");
+        disk1_dir.create_dir().await.expect("Failed to create directory");
+        
+        let disk1_file = MountAwareAsyncVfsPath::new("/mnt/disk1/data/file.txt");
+        let mut writer = disk1_file.create_file().await.expect("Failed to create file");
+        writer.write_all(b"Disk1 file content").await.expect("Failed to write");
+        writer.flush().await.expect("Failed to flush");
+        drop(writer);
+        
+        assert!(disk1_file.exists().await.expect("Failed to check existence"));
+        println!("Disk1 file created successfully");
+        
+        // Test directory listing
+        let disk1_data = MountAwareAsyncVfsPath::new("/mnt/disk1/data");
+        let entries = disk1_data.read_dir().await.expect("Failed to read directory");
+        assert_eq!(entries.len(), 1);
+        println!("Directory listing works correctly");
+        
+        // Test that files are isolated between filesystems
+        let disk2_file = MountAwareAsyncVfsPath::new("/mnt/disk2/data/file.txt");
+        assert!(!disk2_file.exists().await.expect("Failed to check existence"));
+        println!("Filesystem isolation verified");
+    });
+    
+    executor.run_tasks_until_complete();
+    println!("Mount-aware path operations test passed!");
+}
+
+#[awkernel_lib::test]
+fn test_cross_filesystem_operations() {
+    println!("Testing cross-filesystem operations...");
+    
+    let executor = Executor::spawn_executor(None, 512);
+    
+    executor.spawn_detached(async {
+        // Initialize and mount filesystems
+        MountManager::init().expect("Failed to initialize mount manager");
+        
+        mount_memory_fatfs("/", 1024 * 1024)
+            .await
+            .expect("Failed to mount root");
+        mount_memory_fatfs("/backup", 512 * 1024)
+            .await
+            .expect("Failed to mount backup");
+        
+        // Create source file
+        let src_file = MountAwareAsyncVfsPath::new("/source.txt");
+        let mut writer = src_file.create_file().await.expect("Failed to create source");
+        writer.write_all(b"Source content for copy test").await.expect("Failed to write");
+        writer.flush().await.expect("Failed to flush");
+        drop(writer);
+        
+        // Copy to different filesystem
+        let dest_file = MountAwareAsyncVfsPath::new("/backup/copy.txt");
+        src_file.copy_file(&dest_file).await.expect("Failed to copy file");
+        
+        // Verify copy
+        assert!(dest_file.exists().await.expect("Failed to check existence"));
+        
+        // Read and verify content
+        let mut reader = dest_file.open_file().await.expect("Failed to open file");
+        let mut content = alloc::string::String::new();
+        reader.read_to_string(&mut content).await.expect("Failed to read");
+        assert_eq!(content, "Source content for copy test");
+        
+        println!("Cross-filesystem copy test passed!");
+    });
+    
+    executor.run_tasks_until_complete();
+    println!("Cross-filesystem operations test passed!");
+}
+
+#[awkernel_lib::test]
+fn test_nested_mount_points() {
+    println!("Testing nested mount points...");
+    
+    let executor = Executor::spawn_executor(None, 512);
+    
+    executor.spawn_detached(async {
+        // Initialize and mount filesystems
+        MountManager::init().expect("Failed to initialize mount manager");
+        
+        // Create nested mount structure
+        mount_memory_fatfs("/", 1024 * 1024)
+            .await
+            .expect("Failed to mount root");
+        mount_memory_fatfs("/mnt", 512 * 1024)
+            .await
+            .expect("Failed to mount /mnt");
+        mount_memory_fatfs("/mnt/usb", 256 * 1024)
+            .await
+            .expect("Failed to mount /mnt/usb");
+        
+        // Create files at each level
+        let root_file = MountAwareAsyncVfsPath::new("/root.txt");
+        let mut writer = root_file.create_file().await.expect("Failed to create root file");
+        writer.write_all(b"Root").await.expect("Failed to write");
+        drop(writer);
+        
+        let mnt_file = MountAwareAsyncVfsPath::new("/mnt/mnt.txt");
+        let mut writer = mnt_file.create_file().await.expect("Failed to create mnt file");
+        writer.write_all(b"Mnt").await.expect("Failed to write");
+        drop(writer);
+        
+        let usb_file = MountAwareAsyncVfsPath::new("/mnt/usb/usb.txt");
+        let mut writer = usb_file.create_file().await.expect("Failed to create usb file");
+        writer.write_all(b"USB").await.expect("Failed to write");
+        drop(writer);
+        
+        // Verify each file exists only in its filesystem
+        assert!(root_file.exists().await.expect("Failed to check"));
+        assert!(mnt_file.exists().await.expect("Failed to check"));
+        assert!(usb_file.exists().await.expect("Failed to check"));
+        
+        // Verify files don't exist in wrong filesystems
+        let wrong_path = MountAwareAsyncVfsPath::new("/mnt.txt");
+        assert!(!wrong_path.exists().await.expect("Failed to check"));
+        
+        println!("Nested mount points work correctly!");
+    });
+    
+    executor.run_tasks_until_complete();
+    println!("Nested mount points test passed!");
+}
+
+#[awkernel_lib::entry_point]
+fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
+    println!("Starting VFS Registry tests...\n");
+    
+    test_vfs_registry_basic();
+    println!();
+    
+    test_mount_aware_path_operations();
+    println!();
+    
+    test_cross_filesystem_operations();
+    println!();
+    
+    test_nested_mount_points();
+    println!();
+    
+    println!("\nAll VFS Registry tests passed!");
+    
+    awkernel_lib::halt();
+}

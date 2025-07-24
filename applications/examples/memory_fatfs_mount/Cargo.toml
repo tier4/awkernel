@@ -1,12 +1,11 @@
 [package]
-name = "test_mount_table"
+name = "memory_fatfs_mount"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 awkernel_lib = { path = "../../../awkernel_lib" }
 awkernel_async_lib = { path = "../../../awkernel_async_lib" }
-log = "0.4"
 
 [lib]
-path = "src/lib.rs"
+crate-type = ["cdylib"]
