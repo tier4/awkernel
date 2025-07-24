@@ -492,7 +492,14 @@ impl IxgbeInner {
                 }
             }
             ixgbe_hw::write_flush(&self.info)?;
-            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_tail as u32)?;
+            
+            // Don't update RDT here - we'll do it after rx_fill
+            drop(rx);
+        }
+        
+        // Fill receive descriptors and update RDT for each queue
+        for (i, que) in que.iter().enumerate() {
+            self.rx_fill_init(que, i)?;
         }
 
         self.setup_vlan_hw_support(que)?;
@@ -754,8 +761,11 @@ impl IxgbeInner {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
+            // Initialize head and tail pointers
+            // tail points to the next descriptor to be processed by software
+            // head points to the last descriptor available to hardware
             rx.rx_desc_tail = 0;
-            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
+            rx.rx_desc_head = 0;
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
@@ -768,6 +778,7 @@ impl IxgbeInner {
 
             let buf_phy_addr = read_buf.get_phy_addr().as_usize();
 
+            // Initialize all descriptors with buffer addresses
             for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
                 desc.data = [0; 2];
                 desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
@@ -949,6 +960,22 @@ impl IxgbeInner {
             ixgbe_hw::write_reg(&self.info, IXGBE_RQSMR(i), r as u32)?;
             ixgbe_hw::write_reg(&self.info, IXGBE_TQSM(i), r as u32)?;
         }
+        Ok(())
+    }
+    
+    // Initial rx_fill for initialization
+    fn rx_fill_init(&self, que: &Queue, que_id: usize) -> Result<(), IxgbeDriverErr> {
+        let mut node = MCSNode::new();
+        let mut rx = que.rx.lock(&mut node);
+
+        let ring_size = rx.rx_desc_ring.as_ref().len();
+        
+        // Make all descriptors except the last one available to hardware
+        rx.rx_desc_head = (ring_size - 1) as u32;
+        
+        // Update RDT to point to the last descriptor
+        ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que_id), rx.rx_desc_head)?;
+
         Ok(())
     }
 
@@ -1516,7 +1543,6 @@ impl Ixgbe {
 
     fn rx_fill(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
         let inner = self.inner.read();
-
         let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
@@ -1527,30 +1553,33 @@ impl Ixgbe {
         };
 
         let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
-        let mut i = rx.rx_desc_head as usize;
-        let mut prev;
-        let rx_desc_tail = rx.rx_desc_tail;
-        let rx_desc_ring = rx.rx_desc_ring.as_mut();
-
-        loop {
-            prev = i;
-            i += 1;
-            if i == rx_desc_ring.len() {
-                i = 0;
-            }
-
-            if i == rx_desc_tail {
-                break;
-            }
-
-            let desc = &mut rx_desc_ring[i];
+        let ring_size = rx.rx_desc_ring.as_ref().len();
+        let head = rx.rx_desc_head as usize;
+        let tail = rx.rx_desc_tail;
+        
+        // Calculate number of descriptors to refill
+        let refill_count = if tail <= head {
+            tail + ring_size - head - 1
+        } else {
+            tail - head - 1
+        };
+        
+        if refill_count == 0 {
+            return Ok(());
+        }
+        
+        // Refill descriptors
+        let mut i = head;
+        for _ in 0..refill_count {
+            i = (i + 1) % ring_size;
+            let desc = &mut rx.rx_desc_ring.as_mut()[i];
             desc.data = [0; 2];
             desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
         }
-
-        rx.rx_desc_head = prev as u32;
-        ixgbe_hw::write_reg(&inner.info, IXGBE_RDT(que.me), rx.rx_desc_head)?;
+        
+        // Update head pointer and RDT register
+        rx.rx_desc_head = i as u32;
+        ixgbe_hw::write_reg(&inner.info, IXGBE_RDT(que.me), i as u32)?;
 
         Ok(())
     }
@@ -1601,10 +1630,13 @@ impl Ixgbe {
                 }
 
                 if staterr & IXGBE_RXDADV_ERR_FRAME_ERR_MASK != 0 {
+                    // Skip this descriptor but still update tail
+                    // to return it to hardware
                     i += 1;
                     if i == rx_desc_ring_len {
                         i = 0;
                     }
+                    rx.rx_desc_tail = i;
                     continue;
                 }
 
