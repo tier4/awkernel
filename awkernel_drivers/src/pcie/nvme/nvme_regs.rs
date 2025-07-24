@@ -52,6 +52,13 @@ pub const NVM_ADMIN_DEL_IOCQ: u8 = 0x04; /* Delete I/O Completion Queue */
 pub const NVM_ADMIN_ADD_IOCQ: u8 = 0x05; /* Create I/O Completion Queue */
 pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
 
+/* Queue flags */
+pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
+pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
+
+/* Timeout for queue operations */
+pub const NVME_TIMO_QOP: u32 = 5000; /* 5 seconds */
+
 /* Power State Descriptor Data */
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -163,6 +170,23 @@ pub struct SubQueueEntry {
     pub cdw13: u32,
     pub cdw14: u32,
     pub cdw15: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubQueueEntryQ {
+    pub opcode: u8,
+    pub flags: u8,
+    pub cid: u16,
+    pub _reserved1: [u8; 20],
+    pub prp1: u64,
+    pub _reserved2: [u8; 8],
+    pub qid: u16,
+    pub qsize: u16,
+    pub qflags: u8,
+    pub _reserved3: u8,
+    pub cqid: u16,
+    pub _reserved4: [u8; 16],
 }
 
 pub struct SubQueue {

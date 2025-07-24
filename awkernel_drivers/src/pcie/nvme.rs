@@ -31,6 +31,7 @@ struct PollState {
 enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
+    _QueueCmd(SubQueueEntryQ),
 }
 
 struct Ccb {
@@ -339,13 +340,13 @@ impl NvmeInner {
         // Each CCB needs max_prpl entries of 8 bytes each
         let prpl_size = core::mem::size_of::<u64>() * self._max_prpl * nccbs as usize;
         let prpl_pages = prpl_size.div_ceil(PAGESIZE);
-        
+
         let prpl_dma = DMAPool::<u64>::new(self.info.segment_group as usize, prpl_pages)
             .ok_or(NvmeDriverErr::DMAPool)?;
-        
+
         let prpl_virt_base = prpl_dma.get_virt_addr().as_usize();
         let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
-        
+
         let mut off = 0;
         for i in 0..nccbs {
             let ccb = Ccb {
@@ -358,7 +359,7 @@ impl NvmeInner {
             };
             ccbs.push(ccb);
             free_list.push_back(i);
-            
+
             off += core::mem::size_of::<u64>() * self._max_prpl;
         }
 
@@ -399,8 +400,14 @@ impl NvmeInner {
     }
 
     fn poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::_State(state)) = &ccb.cookie {
-            *sqe = state._sqe;
+        match &ccb.cookie {
+            Some(CcbCookie::_State(state)) => {
+                *sqe = state._sqe;
+            }
+            Some(CcbCookie::_QueueCmd(_)) => {
+                Self::sqe_fill(ccb, sqe);
+            }
+            _ => {}
         }
     }
 
@@ -413,7 +420,7 @@ impl NvmeInner {
 
     fn poll<F>(&mut self, q: &Queue, ccb_id: u16, fill_fn: F, ms: u32) -> Result<u16, NvmeDriverErr>
     where
-        F: FnOnce(&mut Ccb, &mut SubQueueEntry),
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
     {
         let mut state = PollState {
             _sqe: SubQueueEntry::default(),
@@ -499,110 +506,80 @@ impl NvmeInner {
         sqe.cdw10 = 1_u32.to_le();
     }
 
+    fn sqe_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_QueueCmd(sqe_q)) = &ccb.cookie {
+            unsafe {
+                let sqe_ptr = sqe as *mut SubQueueEntry as *mut u8;
+                let sqe_q_ptr = sqe_q as *const SubQueueEntryQ as *const u8;
+                core::ptr::copy_nonoverlapping(
+                    sqe_q_ptr,
+                    sqe_ptr,
+                    core::mem::size_of::<SubQueueEntryQ>(),
+                );
+            }
+        }
+    }
+
     fn create_io_queue(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<(), NvmeDriverErr> {
-        log::info!("Creating I/O queue with id={}, entries={}", io_q._id, io_q.entries);
-        
-        // Create I/O Completion Queue
+        let mut sqe = SubQueueEntryQ::default();
+
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        
-        let rv = self.poll(
-            admin_q,
-            ccb_id,
-            |_ccb, sqe| {
-                // Clear the entire SQE first
-                unsafe {
-                    core::ptr::write_bytes(sqe as *mut SubQueueEntry, 0, 1);
-                }
-                sqe.opcode = NVM_ADMIN_ADD_IOCQ;
-                
-                // For queue commands, PRP1 is at a specific offset (24 bytes)
-                // The queue commands use a different structure layout
-                let comq_phy_addr = {
-                    let mut node = MCSNode::new();
-                    let comq = io_q.comq.lock(&mut node);
-                    comq.com_ring.get_phy_addr().as_usize() as u64
-                };
-                
-                // Write fields at specific offsets for queue creation command
-                unsafe {
-                    let sqe_bytes = sqe as *mut SubQueueEntry as *mut u8;
-                    
-                    // PRP1 at offset 24
-                    let prp1_ptr = sqe_bytes.add(24) as *mut u64;
-                    *prp1_ptr = comq_phy_addr.to_le();
-                    
-                    // Queue ID at offset 40
-                    let qid_ptr = sqe_bytes.add(40) as *mut u16;
-                    *qid_ptr = (io_q._id as u16).to_le();
-                    
-                    // Queue Size at offset 42 (0's based)
-                    let qsize_ptr = sqe_bytes.add(42) as *mut u16;
-                    *qsize_ptr = ((io_q.entries - 1) as u16).to_le();
-                    
-                    // Queue Flags at offset 44: bit 0 = PC, bit 1 = IEN
-                    let qflags_ptr = sqe_bytes.add(44) as *mut u8;
-                    *qflags_ptr = 0x3; // PC=1, IEN=1
-                }
-            },
-            5000, // 5 seconds timeout
-        )?;
-        self.ccb_put(ccb_id)?;
-        
+
+        // Create I/O Completion Queue
+        sqe.opcode = NVM_ADMIN_ADD_IOCQ;
+        sqe.prp1 = {
+            let mut node = MCSNode::new();
+            let comq = io_q.comq.lock(&mut node);
+            comq.com_ring.get_phy_addr().as_usize() as u64
+        }
+        .to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_CQ_IEN | NVM_SQE_Q_PC;
+        {
+            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
+
         if rv != 0 {
-            log::error!("Create I/O Completion Queue failed with status: 0x{:x}", rv);
+            self.ccb_put(ccb_id)?;
+            log::error!("Create I/O Completion Queue failed with status: 0x{rv:x}");
             return Err(NvmeDriverErr::CommandFailed);
         }
 
-        // Create I/O Submission Queue
-        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        
+        // Create I/O Submission Queue - reuse the same CCB
+        sqe = SubQueueEntryQ::default();
+        sqe.opcode = NVM_ADMIN_ADD_IOSQ;
+        sqe.prp1 = {
+            let mut node = MCSNode::new();
+            let subq = io_q.subq.lock(&mut node);
+            subq.sub_ring.get_phy_addr().as_usize() as u64
+        }
+        .to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.cqid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_Q_PC;
+        {
+            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+        }
+
         let rv = self.poll(
             admin_q,
             ccb_id,
-            |_ccb, sqe| {
-                // Clear the entire SQE first
-                unsafe {
-                    core::ptr::write_bytes(sqe as *mut SubQueueEntry, 0, 1);
-                }
-                sqe.opcode = NVM_ADMIN_ADD_IOSQ;
-                
-                let subq_phy_addr = {
-                    let mut node = MCSNode::new();
-                    let subq = io_q.subq.lock(&mut node);
-                    subq.sub_ring.get_phy_addr().as_usize() as u64
-                };
-                
-                // Write fields at specific offsets for queue creation command
-                unsafe {
-                    let sqe_bytes = sqe as *mut SubQueueEntry as *mut u8;
-                    
-                    // PRP1 at offset 24
-                    let prp1_ptr = sqe_bytes.add(24) as *mut u64;
-                    *prp1_ptr = subq_phy_addr.to_le();
-                    
-                    // Queue ID at offset 40
-                    let qid_ptr = sqe_bytes.add(40) as *mut u16;
-                    *qid_ptr = (io_q._id as u16).to_le();
-                    
-                    // Queue Size at offset 42 (0's based)
-                    let qsize_ptr = sqe_bytes.add(42) as *mut u16;
-                    *qsize_ptr = ((io_q.entries - 1) as u16).to_le();
-                    
-                    // Queue Flags at offset 44: bit 0 = PC
-                    let qflags_ptr = sqe_bytes.add(44) as *mut u8;
-                    *qflags_ptr = 0x1; // PC=1
-                    
-                    // CQ ID at offset 46
-                    let cqid_ptr = sqe_bytes.add(46) as *mut u16;
-                    *cqid_ptr = (io_q._id as u16).to_le();
-                }
-            },
-            5000, // 5 seconds timeout
+            Self::sqe_fill(ccb as &Ccb, sqe),
+            NVME_TIMO_QOP,
         )?;
+
         self.ccb_put(ccb_id)?;
-        
+
         if rv != 0 {
-            log::error!("Create I/O Submission Queue failed with status: 0x{:x}", rv);
+            log::error!("Create I/O Submission Queue failed with status: 0x{rv:x}");
             return Err(NvmeDriverErr::CommandFailed);
         }
 
@@ -710,7 +687,7 @@ impl Nvme {
 
         // Create I/O queue
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
-        
+
         // Create the I/O queue using admin commands
         inner.create_io_queue(&admin_q, &io_q)?;
 
