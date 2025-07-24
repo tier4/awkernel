@@ -393,7 +393,7 @@ impl NvmeInner {
 
     fn poll<F>(&mut self, q: &Queue, ccb_id: u16, fill_fn: F, ms: u32) -> Result<u16, NvmeDriverErr>
     where
-        F: FnOnce(&mut Ccb, &mut SubQueueEntry),
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
     {
         let mut state = PollState {
             _sqe: SubQueueEntry::default(),
