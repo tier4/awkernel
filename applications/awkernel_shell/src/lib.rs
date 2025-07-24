@@ -141,6 +141,110 @@ fn eval(expr: &str, ctx: &blisp::semantics::Context) {
             console::print("\r\n\r\ntry as follows\r\n> (help)\r\n");
         }
     }
+    
+    // Check if we should handle setip or setgw commands
+    if expr.trim_start().starts_with("(setip ") {
+        handle_setip_command(expr);
+    } else if expr.trim_start().starts_with("(setgw ") {
+        handle_setgw_command(expr);
+    }
+}
+
+fn handle_setip_command(expr: &str) {
+    use core::net::Ipv4Addr;
+    
+    // Parse command: (setip <interface_id> "<ip_address>" <prefix_len>)
+    let parts: Vec<&str> = expr.trim_start_matches("(setip")
+        .trim_end_matches(")")
+        .split_whitespace()
+        .collect();
+    
+    if parts.len() != 3 {
+        console::print("Usage: (setip <interface_id> \"<ip_address>\" <prefix_len>)\r\n");
+        console::print("Example: (setip 0 \"192.168.1.100\" 24)\r\n");
+        return;
+    }
+    
+    let interface_id: u64 = match parts[0].parse() {
+        Ok(id) => id,
+        Err(_) => {
+            console::print("Error: Invalid interface ID\r\n");
+            return;
+        }
+    };
+    
+    let ip_str = parts[1].trim_matches('"');
+    let addr = match ip_str.parse::<Ipv4Addr>() {
+        Ok(addr) => addr,
+        Err(e) => {
+            console::print(&format!("Error: Invalid IP address: {}\r\n", e));
+            return;
+        }
+    };
+    
+    let prefix_len: u8 = match parts[2].parse() {
+        Ok(len) => len,
+        Err(_) => {
+            console::print("Error: Invalid prefix length\r\n");
+            return;
+        }
+    };
+    
+    if prefix_len > 32 {
+        console::print("Error: Prefix length must be between 0 and 32\r\n");
+        return;
+    }
+    
+    awkernel_lib::net::add_ipv4_addr(interface_id, addr, prefix_len);
+    console::print(&format!(
+        "Set IP address {} with prefix length {} on interface {}\r\n",
+        ip_str, prefix_len, interface_id
+    ));
+}
+
+fn handle_setgw_command(expr: &str) {
+    use core::net::Ipv4Addr;
+    
+    // Parse command: (setgw <interface_id> "<gateway_ip>")
+    let parts: Vec<&str> = expr.trim_start_matches("(setgw")
+        .trim_end_matches(")")
+        .split_whitespace()
+        .collect();
+    
+    if parts.len() != 2 {
+        console::print("Usage: (setgw <interface_id> \"<gateway_ip>\")\r\n");
+        console::print("Example: (setgw 0 \"192.168.1.1\")\r\n");
+        return;
+    }
+    
+    let interface_id: u64 = match parts[0].parse() {
+        Ok(id) => id,
+        Err(_) => {
+            console::print("Error: Invalid interface ID\r\n");
+            return;
+        }
+    };
+    
+    let gateway_str = parts[1].trim_matches('"');
+    let gateway = match gateway_str.parse::<Ipv4Addr>() {
+        Ok(addr) => addr,
+        Err(e) => {
+            console::print(&format!("Error: Invalid gateway IP address: {}\r\n", e));
+            return;
+        }
+    };
+    
+    match awkernel_lib::net::set_default_gateway_ipv4(interface_id, gateway) {
+        Ok(()) => {
+            console::print(&format!(
+                "Set default gateway {} on interface {}\r\n",
+                gateway_str, interface_id
+            ));
+        }
+        Err(e) => {
+            console::print(&format!("Error setting gateway: {:?}\r\n", e));
+        }
+    }
 }
 
 const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
@@ -180,12 +284,27 @@ fn help_ffi() {
     lines.push_str("(task)      ; print tasks\r\n");
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
-
+    
     #[cfg(feature = "perf")]
     lines.push_str("(perf)      ; print performance information\r\n");
+    
+    lines.push_str("\r\nNetwork configuration commands:\r\n");
+    lines.push_str("(setip <interface_id> \"<ip_address>\" <prefix_len>) ; set IPv4 address\r\n");
+    lines.push_str("(setgw <interface_id> \"<gateway_ip>\") ; set default gateway\r\n");
+    lines.push_str("\r\nExamples:\r\n");
+    lines.push_str("(setip 0 \"192.168.1.100\" 24)\r\n");
+    lines.push_str("(setgw 0 \"192.168.1.1\")\r\n");
 
     console::print(lines.as_str());
 }
+
+struct HelpFfi;
+struct TaskFfi;
+struct InterruptFfi;
+struct IfconfigFfi;
+
+#[cfg(feature = "perf")]
+struct PerfFfi;
 
 #[embedded]
 fn task_ffi() {
