@@ -155,6 +155,7 @@ struct NvmeInner {
     _max_prpl: usize,
     ccb_list: Option<Mutex<CcbList>>,
     ccbs: Option<Vec<Ccb>>,
+    ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
 }
@@ -203,6 +204,7 @@ impl NvmeInner {
             _max_prpl: max_prpl,
             ccb_list: None,
             ccbs: None,
+            ccb_prpls: None,
             nn: 0,
             identify: None,
         })
@@ -333,21 +335,31 @@ impl NvmeInner {
         let mut ccbs = Vec::with_capacity(nccbs as usize);
         let mut free_list = VecDeque::with_capacity(nccbs as usize);
 
-        // TODO - Since we won't use prpl* fields for identify controller command,
-        // we can set prpl to None. We will implement prpl later when we support
-        // commands that require PRPL.
+        let prpl_size = core::mem::size_of::<u64>() * self._max_prpl * nccbs as usize;
+        let prpl_pages = prpl_size.div_ceil(PAGESIZE);
 
+        let prpl_dma = DMAPool::<u64>::new(self.info.segment_group as usize, prpl_pages)
+            .ok_or(NvmeDriverErr::DMAPool)?;
+
+        let prpl_virt_base = prpl_dma.get_virt_addr().as_usize();
+        let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
+
+        self.ccb_prpls = Some(prpl_dma);
+
+        let mut off = 0;
         for i in 0..nccbs {
             let ccb = Ccb {
                 cookie: None,
                 done: None,
-                _prpl_off: 0,
-                _prpl_dva: 0,
-                _prpl: None,
+                _prpl_off: off,
+                _prpl_dva: prpl_phys_base + off as u64,
+                _prpl: Some(prpl_virt_base + off),
                 _id: i,
             };
             ccbs.push(ccb);
             free_list.push_back(i);
+
+            off += core::mem::size_of::<u64>() * self._max_prpl;
         }
 
         self.ccbs = Some(ccbs);
@@ -356,6 +368,12 @@ impl NvmeInner {
         }));
 
         Ok(())
+    }
+
+    fn ccbs_free(&mut self) {
+        self.ccb_list = None;
+        self.ccbs = None;
+        self.ccb_prpls = None;
     }
 
     fn ccb_get(&self) -> Result<Option<u16>, NvmeDriverErr> {
@@ -563,6 +581,12 @@ impl Nvme {
         inner.enable(&admin_q)?;
 
         inner.identify(&admin_q)?;
+
+        // We now know the real values of sc_mdts and sc_max_prpl.
+        inner.ccbs_free();
+        inner.ccbs_alloc(64)?;
+
+        let _io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
         let nvme = Self {
             _admin_q: admin_q,
