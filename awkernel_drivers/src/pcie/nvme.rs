@@ -410,10 +410,10 @@ impl NvmeInner {
         let (original_done, original_cookie) = {
             let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
-            let done = ccb.done;
-            let cookie = ccb.cookie.take();
+            let done = ccb._done;
+            let cookie = ccb._cookie.take();
 
-            ccb._done = Some(Self::poll_done);
+            ccb._done = Some(Self::_poll_done);
             ccb._cookie = Some(CcbCookie::_State(state));
 
             (done, cookie)
@@ -422,14 +422,14 @@ impl NvmeInner {
         {
             let ccbs = self._ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &ccbs[ccb_id as usize];
-            q.submit(&self.info, ccb, Self::poll_fill)?;
+            q._submit(&self.info, ccb, Self::_poll_fill)?;
         }
 
         let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
         loop {
             let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &ccbs[ccb_id as usize];
-            let phase_set = match &ccb.cookie {
+            let phase_set = match &ccb._cookie {
                 Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
                 _ => return Err(NvmeDriverErr::NoCcb),
             };
@@ -437,7 +437,7 @@ impl NvmeInner {
                 break;
             }
 
-            if !q.complete(&self.info, ccbs)? {
+            if !q._complete(&self.info, ccbs)? {
                 wait_microsec(NVME_TIMO_DELAYNS);
             }
 
