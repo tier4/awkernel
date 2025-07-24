@@ -2,7 +2,9 @@ use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
-    barrier::{bus_space_barrier, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE},
+    barrier::{
+        bus_space_barrier, membar_consumer, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE,
+    },
     delay::wait_microsec,
     dma_pool::DMAPool,
     paging::PAGESIZE,
@@ -34,7 +36,7 @@ struct Ccb {
     //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
     _cookie: Option<CcbCookie>,
 
-    _done: Option<fn(&mut NvmeInner, &Ccb, &ComQueueEntry)>,
+    _done: Option<fn(&mut Ccb, &ComQueueEntry)>,
     _prpl_off: usize,
     _prpl_dva: u64,
     _prpl: Option<usize>,
@@ -50,6 +52,78 @@ struct Queue {
     comq: Mutex<ComQueue>,
     _id: u16,
     entries: u32,
+}
+
+impl Queue {
+    fn _submit<F>(&self, info: &PCIeInfo, ccb: &Ccb, fill: F) -> Result<(), NvmeDriverErr>
+    where
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
+    {
+        let mut node = MCSNode::new();
+        let mut subq = self.subq.lock(&mut node);
+        let mut tail = subq._tail;
+
+        let sqe = &mut subq.sub_ring.as_mut()[tail as usize];
+        *sqe = SubQueueEntry::default();
+
+        fill(ccb, sqe);
+        sqe.cid = ccb._id;
+
+        tail += 1;
+        if tail >= self.entries {
+            tail = 0;
+        }
+        subq._tail = tail;
+        write_reg(info, subq._sqtdbl, subq._tail)?;
+
+        Ok(())
+    }
+
+    fn _complete(&self, info: &PCIeInfo, ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
+        let mut node = MCSNode::new();
+        let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
+            guard
+        } else {
+            return Ok(false);
+        };
+
+        let mut head = comq._head;
+
+        let mut rv = false;
+        loop {
+            let cqe = &comq.com_ring.as_ref()[head as usize];
+            let flags = u16::from_le(cqe.flags);
+            if (flags & NVME_CQE_PHASE) != comq._phase {
+                break;
+            }
+
+            membar_consumer();
+
+            let cid = cqe.cid;
+            let ccb = &mut ccbs[cid as usize];
+
+            if let Some(done_fn) = ccb._done {
+                done_fn(ccb, cqe);
+            } else {
+                return Err(NvmeDriverErr::NoCallback);
+            }
+
+            head += 1;
+            if head >= self.entries {
+                head = 0;
+                comq._phase ^= NVME_CQE_PHASE;
+            }
+
+            rv = true;
+        }
+
+        if rv {
+            comq._head = head;
+            write_reg(info, comq._cqhdbl, comq._head)?;
+        }
+
+        Ok(rv)
+    }
 }
 
 pub(super) fn attach(
@@ -354,6 +428,7 @@ pub enum NvmeDriverErr {
     CommandFailed,
     NoCcb,
     IncompatiblePageSize,
+    NoCallback,
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
@@ -371,6 +446,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::CommandFailed => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCcb => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
+            NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
         }
     }
 }
