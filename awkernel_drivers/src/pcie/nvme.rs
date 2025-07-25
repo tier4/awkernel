@@ -511,7 +511,7 @@ impl NvmeInner {
         self.nn = u32::from_le(id.nn);
 
         log::info!(
-            "NVMe Controller - Serial: {} Model: {} Firmware: {} Namespaces: {}",
+            "NVMe Controller - Serial: {}, Model: {}, Firmware: {}, Namespaces: {}",
             serial.trim(),
             model.trim(),
             firmware.trim(),
