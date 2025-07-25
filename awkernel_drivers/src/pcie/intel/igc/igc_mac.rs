@@ -86,7 +86,7 @@ pub(super) fn igc_check_alt_mac_addr_generic(
     // We have a valid alternate MAC address, and we want to treat it the
     // same as the normal permanent MAC address stored by the HW into the
     // RAR. Do this by mapping this address into RAR0.
-    ops.rar_set(info, hw, &alt_mac_addr, 0)?;
+    ops.rar_set(info, &alt_mac_addr, 0)?;
 
     Ok(())
 }
@@ -194,12 +194,12 @@ pub(super) fn igc_init_rx_addrs_generic(
     // Setup the receive address
 
     let mac_addr = hw.mac.addr;
-    ops.rar_set(info, hw, &mac_addr, 0)?;
+    ops.rar_set(info, &mac_addr, 0)?;
 
     // Zero out the other (rar_entry_count - 1) receive addresses
     let mac_addr = [0; ETHER_ADDR_LEN];
     for i in 1..rar_count {
-        ops.rar_set(info, hw, &mac_addr, i as usize)?;
+        ops.rar_set(info, &mac_addr, i as usize)?;
     }
 
     Ok(())
