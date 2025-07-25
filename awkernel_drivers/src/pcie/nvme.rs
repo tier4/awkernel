@@ -508,13 +508,13 @@ impl NvmeInner {
         let model = core::str::from_utf8(&id.mn).unwrap_or("unknown");
         let firmware = core::str::from_utf8(&id.fr).unwrap_or("unknown");
 
+        self.nn = u32::from_le(id.nn);
+
         log::info!("NVMe Controller:");
         log::info!("  Serial: {}", serial.trim());
         log::info!("  Model: {}", model.trim());
         log::info!("  Firmware: {}", firmware.trim());
         log::info!("  Namespaces: {}", self.nn);
-
-        self.nn = u32::from_le(id.nn);
 
         // At least one Apple NVMe device presents a second, bogus disk that is
         // inaccessible, so cap targets at 1.
