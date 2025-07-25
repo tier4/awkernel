@@ -8,6 +8,7 @@ pub const NVME_CAP_TO: fn(u64) -> u32 = |r| 500 * ((r >> 24) & 0xff) as u32; /* 
 
 pub const NVME_VS: usize = 0x0008; /* Version */
 
+pub const NVME_INTMS: usize = 0x000c; /* Interrupt Mask Set */
 pub const NVME_INTMC: usize = 0x0010; /* Interrupt Mask Clear */
 
 pub const NVME_CC: usize = 0x0014; /* Controller Configuration */

@@ -1,5 +1,5 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{collections::VecDeque, format, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -7,6 +7,7 @@ use awkernel_lib::{
     },
     delay::wait_microsec,
     dma_pool::DMAPool,
+    interrupt::IRQ,
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
@@ -30,7 +31,6 @@ struct PollState {
 
 enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
-    _Namespace(DMAPool<IdentifyNamespace>, u32),
     _State(PollState),
     _QueueCmd(SubQueueEntryQ),
 }
@@ -506,16 +506,23 @@ impl NvmeInner {
     }
 
     fn sqe_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::_QueueCmd(sqe_q)) = &ccb.cookie {
-            unsafe {
-                let sqe_ptr = sqe as *mut SubQueueEntry as *mut u8;
-                let sqe_q_ptr = sqe_q as *const SubQueueEntryQ as *const u8;
-                core::ptr::copy_nonoverlapping(
-                    sqe_q_ptr,
-                    sqe_ptr,
-                    core::mem::size_of::<SubQueueEntryQ>(),
-                );
+        match &ccb.cookie {
+            Some(CcbCookie::_QueueCmd(sqe_q)) => {
+                unsafe {
+                    let sqe_ptr = sqe as *mut SubQueueEntry as *mut u8;
+                    let sqe_q_ptr = sqe_q as *const SubQueueEntryQ as *const u8;
+                    core::ptr::copy_nonoverlapping(
+                        sqe_q_ptr,
+                        sqe_ptr,
+                        core::mem::size_of::<SubQueueEntryQ>(),
+                    );
+                }
             }
+            Some(CcbCookie::_State(state)) => {
+                // For generic SQE operations (like identify namespace)
+                *sqe = state._sqe;
+            }
+            _ => {}
         }
     }
 
@@ -646,59 +653,101 @@ impl NvmeInner {
         let mem: DMAPool<IdentifyNamespace> =
             DMAPool::new(self.info.segment_group as usize, pages).ok_or(NvmeDriverErr::DMAPool)?;
 
+        // Build the SQE locally (following OpenBSD pattern)
+        let mut sqe = SubQueueEntry::default();
+        sqe.opcode = NVM_ADMIN_IDENTIFY;
+        sqe.nsid = nsid.to_le();
+        unsafe {
+            sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+        }
+        sqe.cdw10 = 0_u32.to_le(); // CNS = 0 for namespace identify
+
+        // Store the SQE in cookie
         {
             let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut sc_ccbs[ccb_id as usize];
-            ccb.cookie = Some(CcbCookie::_Namespace(mem, nsid));
+            ccb.cookie = Some(CcbCookie::_State(PollState {
+                _sqe: sqe,
+                _cqe: ComQueueEntry::default(),
+            }));
             ccb.done = None;
         }
 
-        let rv = self.poll(admin_q, ccb_id, Self::fill_identify_namespace, NVME_TIMO_IDENT)?;
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_IDENT)?;
         
-        {
-            let sc_ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &sc_ccbs[ccb_id as usize];
-            if let Some(CcbCookie::_Namespace(ref mem, _)) = ccb.cookie {
-                let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
-                let ident = unsafe { &*ptr };
-                
-                // Store the namespace identification data
-                if let Some(ref mut namespaces) = self.namespaces {
-                    if nsid > 0 && (nsid as usize) < namespaces.len() {
-                        namespaces[nsid as usize].ident = Some(*ident);
-                        
-                        let nsze = u64::from_le(ident.nsze);
-                        let ncap = u64::from_le(ident.ncap);
-                        let nuse = u64::from_le(ident.nuse);
-                        
-                        log::info!(
-                            "NVMe Namespace {}: Size={} blocks, Capacity={} blocks, Used={} blocks",
-                            nsid, nsze, ncap, nuse
-                        );
-                    }
+        if rv == 0 {
+            // Success - store the namespace identification data
+            let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
+            let ident = unsafe { &*ptr };
+            
+            if let Some(ref mut namespaces) = self.namespaces {
+                if nsid > 0 && (nsid as usize) < namespaces.len() {
+                    namespaces[nsid as usize].ident = Some(*ident);
+                    
+                    let nsze = u64::from_le(ident.nsze);
+                    let ncap = u64::from_le(ident.ncap);
+                    let nuse = u64::from_le(ident.nuse);
+                    
+                    log::info!(
+                        "NVMe Namespace {}: Size={} blocks, Capacity={} blocks, Used={} blocks",
+                        nsid, nsze, ncap, nuse
+                    );
                 }
             }
+        } else {
+            log::warn!("Failed to identify namespace {}: status 0x{:x}", nsid, rv);
         }
         
         self.ccb_put(ccb_id)?;
 
         if rv != 0 {
-            log::warn!("Failed to identify namespace {}: status 0x{:x}", nsid, rv);
             return Err(NvmeDriverErr::CommandFailed);
         }
 
         Ok(())
     }
 
-    fn fill_identify_namespace(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        sqe.opcode = NVM_ADMIN_IDENTIFY;
-        if let Some(CcbCookie::_Namespace(mem, nsid)) = ccb.cookie.as_ref() {
-            sqe.nsid = nsid.to_le();
-            unsafe {
-                sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+    /// Main interrupt handler for MSI/MSI-X interrupts
+    fn nvme_intr(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
+        let mut rv = false;
+        
+        // Process I/O queue completions first
+        if let Some(ccbs) = self.ccbs.as_mut() {
+            if let Ok(completed) = io_q.complete(&self.info, ccbs) {
+                if completed {
+                    rv = true;
+                }
             }
         }
-        sqe.cdw10 = 0_u32.to_le(); // CNS = 0 for namespace identify
+        
+        // Process admin queue completions
+        if let Some(ccbs) = self.ccbs.as_mut() {
+            if let Ok(completed) = admin_q.complete(&self.info, ccbs) {
+                if completed {
+                    rv = true;
+                }
+            }
+        }
+        
+        rv
+    }
+
+    /// Legacy interrupt handler for INTx interrupts
+    fn nvme_intr_intx(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
+        // Mask interrupts
+        if let Err(e) = write_reg(&self.info, NVME_INTMS, 1) {
+            log::error!("Failed to mask interrupts: {:?}", e);
+            return false;
+        }
+        
+        let rv = self.nvme_intr(admin_q, io_q);
+        
+        // Unmask interrupts
+        if let Err(e) = write_reg(&self.info, NVME_INTMC, 1) {
+            log::error!("Failed to unmask interrupts: {:?}", e);
+        }
+        
+        rv
     }
 }
 
@@ -711,13 +760,18 @@ struct Nvme {
     // 4. `NvmeInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    _admin_q: Queue,
-    _io_q: Queue,
-    inner: RwLock<NvmeInner>,
+    admin_q: Arc<Queue>,
+    io_q: Arc<Queue>,
+    inner: Arc<RwLock<NvmeInner>>,
+    _irqs: Vec<IRQ>,
 }
 
 impl Nvme {
-    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        // Extract MSI-X before moving info into inner
+        let segment_group = info.get_segment_group();
+        let mut msix = info.msix.take();
+        
         let mut inner = NvmeInner::new(info)?;
 
         inner.disable()?;
@@ -761,10 +815,75 @@ impl Nvme {
             }
         }
 
+        // Wrap in Arc for interrupt handler sharing
+        let admin_q = Arc::new(admin_q);
+        let io_q = Arc::new(io_q);
+        let inner = Arc::new(RwLock::new(inner));
+        
+        // Setup interrupts
+        let mut irqs = Vec::new();
+        
+        // Check for MSI-X support
+        if let Some(ref mut msix) = msix {
+            log::info!("NVMe: Using MSI-X interrupts");
+            
+            // Create interrupt handler closures
+            let admin_q_clone = admin_q.clone();
+            let io_q_clone = io_q.clone();
+            let inner_clone = inner.clone();
+            
+            // Register admin queue interrupt (vector 0)
+            match msix.register_handler(
+                Cow::from("nvme_admin"),
+                Box::new(move |_irq| {
+                    let mut inner_guard = inner_clone.write();
+                    inner_guard.nvme_intr(&admin_q_clone, &io_q_clone);
+                }),
+                segment_group as usize,
+                0, // target CPU
+                0, // MSI-X entry 0 for admin queue
+            ) {
+                Ok(irq) => irqs.push(irq),
+                Err(e) => {
+                    log::error!("Failed to register admin queue interrupt: {:?}", e);
+                    return Err(e);
+                }
+            }
+            
+            // Register I/O queue interrupt (vector 1)
+            let admin_q_clone = admin_q.clone();
+            let io_q_clone = io_q.clone();
+            let inner_clone = inner.clone();
+            
+            match msix.register_handler(
+                Cow::from("nvme_io"),
+                Box::new(move |_irq| {
+                    let mut inner_guard = inner_clone.write();
+                    inner_guard.nvme_intr(&admin_q_clone, &io_q_clone);
+                }),
+                segment_group as usize,
+                0, // target CPU
+                1, // MSI-X entry 1 for I/O queue
+            ) {
+                Ok(irq) => irqs.push(irq),
+                Err(e) => {
+                    log::error!("Failed to register I/O queue interrupt: {:?}", e);
+                    return Err(e);
+                }
+            }
+            
+            // Enable MSI-X
+            msix.enable();
+        } else {
+            // TODO: Implement MSI and legacy interrupt fallback
+            log::warn!("NVMe: MSI-X not available, interrupt support not implemented");
+        }
+
         let nvme = Self {
-            _admin_q: admin_q,
-            _io_q: io_q,
-            inner: RwLock::new(inner),
+            admin_q,
+            io_q,
+            inner,
+            _irqs: irqs,
         };
 
         Ok(nvme)
