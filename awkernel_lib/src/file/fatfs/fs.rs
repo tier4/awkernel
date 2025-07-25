@@ -1,3 +1,4 @@
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
@@ -8,7 +9,7 @@ use core::marker::PhantomData;
 use super::super::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use super::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use super::dir::{Dir, DirRawStream};
-use super::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
+use super::dir_entry::{DirEntryEditor, DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
 use super::error::Error;
 use super::file::File;
 use super::table::{
@@ -21,6 +22,17 @@ use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 // FAT implementation based on:
 //   http://wiki.osdev.org/FAT
 //   https://www.win.tue.nl/~aeb/linux/fs/fat/fat-1.html
+
+// Lock Ordering Hierarchy
+//
+// To prevent deadlocks, locks must be acquired in the following order:
+// 1. metadata lock → disk lock (via FAT operations)
+// 2. metadata lock → fs_info lock (via cluster allocation)
+// 3. fs_info lock → disk lock
+// 4. metadata_cache lock (independent, no nesting)
+// 5. current_status_flags lock (independent, no nesting)
+//
+// IMPORTANT: Never acquire metadata lock while holding disk or fs_info locks!
 
 /// A type of FAT filesystem.
 ///
@@ -328,8 +340,11 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-pub struct FileSystem<IO: ReadWriteSeek + Send, TP = DefaultTimeProvider, OCC = LossyOemCpConverter>
-{
+pub struct FileSystem<
+    IO: ReadWriteSeek + Send + Debug,
+    TP = DefaultTimeProvider,
+    OCC = LossyOemCpConverter,
+> {
     pub(crate) disk: Mutex<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
@@ -339,6 +354,30 @@ pub struct FileSystem<IO: ReadWriteSeek + Send, TP = DefaultTimeProvider, OCC = 
     total_clusters: u32,
     fs_info: Mutex<FsInfoSector>,
     current_status_flags: Mutex<FsStatusFlags>,
+    // Metadata cache for open files - maps entry position to shared metadata
+    pub(crate) metadata_cache: Mutex<BTreeMap<u64, Arc<Mutex<DirEntryEditor>>>>,
+}
+
+impl<IO, TP, OCC> Debug for FileSystem<IO, TP, OCC>
+where
+    IO: ReadWriteSeek + Send + Debug,
+    TP: Debug,
+    OCC: Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FileSystem")
+            .field("disk", &"<Mutex> disk")
+            .field("options", &self.options)
+            .field("fat_type", &self.fat_type)
+            .field("bpb", &self.bpb)
+            .field("first_data_sector", &self.first_data_sector)
+            .field("root_dir_sectors", &self.root_dir_sectors)
+            .field("total_clusters", &self.total_clusters)
+            .field("fs_info", &"<Mutex> fs_info")
+            .field("current_status_flags", &"<Mutex> status flags")
+            .field("metadata_cache", &"<Mutex> metadata cache")
+            .finish()
+    }
 }
 
 pub trait IntoStorage<T: Read + Write + Seek> {
@@ -351,7 +390,7 @@ impl<T: Read + Write + Seek> IntoStorage<T> for T {
     }
 }
 
-impl<IO: Read + Write + Seek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
+impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Creates a new filesystem object instance.
     ///
     /// Supplied `storage` parameter cannot be seeked. If there is a need to read a fragment of disk
@@ -424,6 +463,7 @@ impl<IO: Read + Write + Seek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
             total_clusters,
             fs_info: Mutex::new(fs_info),
             current_status_flags: Mutex::new(status_flags),
+            metadata_cache: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -610,16 +650,16 @@ impl<IO: Read + Write + Seek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
 
     fn flush_fs_info(&self) -> Result<(), Error<IO::Error>> {
         let mut node = MCSNode::new();
-        let fs_info_guard = self.fs_info.lock(&mut node);
+        let mut fs_info_guard = self.fs_info.lock(&mut node);
         if self.fat_type == FatType::Fat32 && fs_info_guard.dirty {
-            drop(fs_info_guard);
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
+
+            // This prevents race conditions where fs_info could be modified between checking
+            // dirty flag and writing the data
+            // Lock ordering: fs_info → disk
             let mut node_disk = MCSNode::new();
             let mut disk_guard = self.disk.lock(&mut node_disk);
             disk_guard.seek(SeekFrom::Start(fs_info_sector_offset))?;
-
-            let mut node = MCSNode::new();
-            let mut fs_info_guard = self.fs_info.lock(&mut node);
             fs_info_guard.serialize(&mut *disk_guard)?;
             fs_info_guard.dirty = false;
         }
@@ -675,18 +715,23 @@ impl<IO: Read + Write + Seek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
                     &fs.bpb,
                     FsIoAdapter { fs: Arc::clone(fs) },
                 )),
-                FatType::Fat32 => DirRawStream::File(File::new(
-                    Some(fs.bpb.root_dir_first_cluster),
-                    None,
-                    Arc::clone(fs),
-                )),
+                FatType::Fat32 => {
+                    let metadata = DirEntryEditor::new(
+                        DirFileEntryData::new_for_rootdir(fs.bpb.root_dir_first_cluster),
+                        0,
+                    );
+                    DirRawStream::File(File::new(
+                        Some(Arc::new(Mutex::new(metadata))),
+                        Arc::clone(fs),
+                    ))
+                }
             }
         };
         Dir::new(root_rdr, Arc::clone(fs))
     }
 }
 
-impl<IO: ReadWriteSeek + Send, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from BPB in the Boot Sector as `String`.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -701,7 +746,37 @@ impl<IO: ReadWriteSeek + Send, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> 
     }
 }
 
-impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
+    pub(crate) fn get_or_create_metadata(
+        &self,
+        entry_pos: u64,
+        entry_data: DirFileEntryData,
+        _first_cluster: Option<u32>,
+    ) -> Arc<Mutex<DirEntryEditor>> {
+        let mut node = MCSNode::new();
+        let mut cache = self.metadata_cache.lock(&mut node);
+
+        cache
+            .entry(entry_pos)
+            .or_insert_with(|| Arc::new(Mutex::new(DirEntryEditor::new(entry_data, entry_pos))))
+            .clone()
+    }
+
+    pub(crate) fn cleanup_metadata_if_unused(&self, entry_pos: u64) {
+        let mut node = MCSNode::new();
+        let mut cache = self.metadata_cache.lock(&mut node);
+
+        if let Some(metadata_arc) = cache.get(&entry_pos) {
+            if Arc::strong_count(metadata_arc) == 1 {
+                cache.remove(&entry_pos);
+            }
+        }
+    }
+}
+
+impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC: OemCpConverter>
+    FileSystem<IO, TP, OCC>
+{
     /// Returns a volume label from root directory as `String`.
     ///
     /// It finds file with `VOLUME_ID` attribute and returns its short name.
@@ -747,7 +822,7 @@ impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC: OemCpConverter> FileSystem
 }
 
 /// `Drop` implementation tries to unmount the filesystem when dropping.
-impl<IO: ReadWriteSeek + Send, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
             log::error!("unmount failed {err:?}");
@@ -755,15 +830,15 @@ impl<IO: ReadWriteSeek + Send, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     }
 }
 
-pub(crate) struct FsIoAdapter<IO: ReadWriteSeek + Send, TP, OCC> {
+pub(crate) struct FsIoAdapter<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl<IO: ReadWriteSeek + Send, TP, OCC> IoBase for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> IoBase for FsIoAdapter<IO, TP, OCC> {
     type Error = IO::Error;
 }
 
-impl<IO: ReadWriteSeek + Send, TP, OCC> Read for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Read for FsIoAdapter<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -771,7 +846,7 @@ impl<IO: ReadWriteSeek + Send, TP, OCC> Read for FsIoAdapter<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send, TP, OCC> Write for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Write for FsIoAdapter<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -790,7 +865,7 @@ impl<IO: ReadWriteSeek + Send, TP, OCC> Write for FsIoAdapter<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for FsIoAdapter<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -799,7 +874,7 @@ impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for FsIoAdapter<IO, TP, OCC> {
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek + Send, TP, OCC> Clone for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Clone for FsIoAdapter<IO, TP, OCC> {
     fn clone(&self) -> Self {
         FsIoAdapter {
             fs: self.fs.clone(),

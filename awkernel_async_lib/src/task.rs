@@ -9,7 +9,7 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
+use crate::scheduler::{self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -18,6 +18,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
+    priority_queue::LOWEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -72,6 +73,30 @@ impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
+    }
+}
+
+impl PartialEq for Task {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Task {}
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // Higher (smaller) priority is greater.
+        match other.priority.cmp(&self.priority) {
+            core::cmp::Ordering::Equal => other.id.cmp(&self.id),
+            ord => ord,
+        }
     }
 }
 
@@ -256,7 +281,7 @@ impl Tasks {
                 // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
                 let task_priority = match scheduler_type {
                     SchedulerType::PrioritizedFIFO(priority)
-                    | SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    | SchedulerType::PrioritizedRR(priority) => priority as u64,
                     _ => MAX_TASK_PRIORITY,
                 };
 
@@ -313,6 +338,14 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > LOWEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {LOWEST_PRIORITY}. It is addressed as {LOWEST_PRIORITY}."
+            );
+        }
+    }
+
     let future = future.boxed();
 
     let scheduler = get_scheduler(sched_type);
@@ -348,10 +381,16 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
 }
 
 #[inline(always)]
+pub fn set_current_task(cpu_id: usize, task_id: u32) {
+    RUNNING[cpu_id].store(task_id, Ordering::Relaxed);
+}
+
+#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
+            set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
             return Some(next);
         }
     }
@@ -636,6 +675,13 @@ pub fn run_main() {
         #[cfg(feature = "perf")]
         perf::start_kernel();
 
+        if RUNNING[awkernel_lib::cpu::cpu_id()].load(Ordering::Relaxed) == 0 {
+            // Re-wake all preemption-pending tasks, because the preemption is no longer required.
+            while let Some(p) = pop_preemption_pending(awkernel_lib::cpu::cpu_id()) {
+                p.scheduler.wake_task(p);
+            }
+        }
+
         if let Some(task) = get_next_task() {
             PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
 
@@ -666,16 +712,19 @@ pub fn run_main() {
             let mut ctx = Context::from_waker(&w);
 
             let result = {
+                let cpu_id = awkernel_lib::cpu::cpu_id();
                 let mut node = MCSNode::new();
                 let Some(mut guard) = task.future.try_lock(&mut node) else {
                     // This task is running on another CPU,
                     // and re-schedule the task to avoid starvation just in case.
+                    RUNNING[cpu_id].store(0, Ordering::Relaxed);
                     task.wake();
                     continue;
                 };
 
                 // Can remove this?
                 if guard.is_terminated() {
+                    RUNNING[cpu_id].store(0, Ordering::Relaxed);
                     continue;
                 }
 
@@ -684,13 +733,12 @@ pub fn run_main() {
                     let mut info = task.info.lock(&mut node);
 
                     if matches!(info.state, State::Terminated | State::Panicked) {
+                        RUNNING[cpu_id].store(0, Ordering::Relaxed);
                         continue;
                     }
 
                     info.update_last_executed();
                 }
-
-                let cpu_id = awkernel_lib::cpu::cpu_id();
 
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
@@ -698,6 +746,7 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
+                // This is unnecessary if the task is scheduled by PrioritizedFIFO or FIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
@@ -859,6 +908,13 @@ pub fn get_num_preemption() -> usize {
     {
         0
     }
+}
+
+#[inline(always)]
+pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+    tasks.id_to_task.get(&task_id).cloned()
 }
 
 #[inline(always)]
