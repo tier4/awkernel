@@ -14,7 +14,7 @@ use awkernel_lib::{
 mod nvme_regs;
 use nvme_regs::*;
 
-const DEVICE_NAME: &str = "NVMe Controller";
+const DEVICE_NAME: &str = " NVMe Controller";
 const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
@@ -398,14 +398,8 @@ impl NvmeInner {
     }
 
     fn poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        match &ccb.cookie {
-            Some(CcbCookie::_State(state)) => {
-                *sqe = state._sqe;
-            }
-            Some(CcbCookie::_QueueCmd(_)) => {
-                Self::sqe_fill(ccb, sqe);
-            }
-            _ => {}
+        if let Some(CcbCookie::_State(state)) = &ccb.cookie {
+            *sqe = state._sqe;
         }
     }
 
@@ -603,23 +597,25 @@ impl NvmeInner {
         }
 
         let id = unsafe { &*ptr };
-        self.nn = id.nn;
 
         let serial = core::str::from_utf8(&id.sn).unwrap_or("unknown");
         let model = core::str::from_utf8(&id.mn).unwrap_or("unknown");
         let firmware = core::str::from_utf8(&id.fr).unwrap_or("unknown");
 
-        log::info!("NVMe Controller:");
-        log::info!("  Serial: {}", serial.trim());
-        log::info!("  Model: {}", model.trim());
-        log::info!("  Firmware: {}", firmware.trim());
-        log::info!("  Namespaces: {}", self.nn);
+        self.nn = u32::from_le(id.nn);
+
+        log::info!(
+            "NVMe Controller - Serial: {}, Model: {}, Firmware: {}, Namespaces: {}",
+            serial.trim(),
+            model.trim(),
+            firmware.trim(),
+            self.nn
+        );
 
         // At least one Apple NVMe device presents a second, bogus disk that is
         // inaccessible, so cap targets at 1.
         let mn = id.mn;
-        let mut nn = u32::from_le(id.nn);
-        if id.nn > 1
+        if self.nn > 1
             && (mn.len() >= 5
                 && mn[0] == b'A'
                 && mn[1] == b'P'
@@ -627,10 +623,8 @@ impl NvmeInner {
                 && mn[3] == b'L'
                 && mn[4] == b'E')
         {
-            nn = 1;
+            self.nn = 1;
         }
-
-        self.nn = nn;
 
         self.identify = Some(*id);
 
@@ -651,6 +645,7 @@ struct Nvme {
     _io_q: Queue,
     inner: RwLock<NvmeInner>,
 }
+
 impl Nvme {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut inner = NvmeInner::new(info)?;
