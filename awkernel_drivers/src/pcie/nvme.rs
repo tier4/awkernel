@@ -18,8 +18,9 @@ const DEVICE_NAME: &str = "NVMe Controller";
 const _DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
-pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size */
-// TODO - to be considered.
+pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be considered. */
+pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
+pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -360,8 +361,8 @@ impl NvmeInner {
         Ok(list._free_list.pop_front())
     }
 
-    fn _ccb_put(&self, ccb_id: u16, sc_ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
-        let ccb = &mut sc_ccbs[ccb_id as usize];
+    fn _ccb_put(&self, ccb_id: u16, ccbs: &mut [Ccb]) -> Result<(), NvmeDriverErr> {
+        let ccb = &mut ccbs[ccb_id as usize];
         ccb._done = None;
 
         let mut node = MCSNode::new();
@@ -370,6 +371,103 @@ impl NvmeInner {
         list._free_list.push_front(ccb_id);
 
         Ok(())
+    }
+
+    fn _poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_State(state)) = &ccb._cookie {
+            *sqe = state._sqe;
+        }
+    }
+
+    fn _poll_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+        if let Some(CcbCookie::_State(state)) = &mut ccb._cookie {
+            state._cqe = *cqe;
+            state._cqe.flags |= NVME_CQE_PHASE.to_le();
+        }
+    }
+
+    fn _poll<F>(
+        &mut self,
+        q: &Queue,
+        ccb_id: u16,
+        fill_fn: F,
+        ms: u32,
+    ) -> Result<u16, NvmeDriverErr>
+    where
+        F: FnOnce(&Ccb, &mut SubQueueEntry),
+    {
+        let mut state = PollState {
+            _sqe: SubQueueEntry::default(),
+            _cqe: ComQueueEntry::default(),
+        };
+
+        {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            fill_fn(ccb, &mut state._sqe);
+        }
+
+        let (original_done, original_cookie) = {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            let done = ccb._done;
+            let cookie = ccb._cookie.take();
+
+            ccb._done = Some(Self::_poll_done);
+            ccb._cookie = Some(CcbCookie::_State(state));
+
+            (done, cookie)
+        };
+
+        {
+            let ccbs = self._ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &ccbs[ccb_id as usize];
+            q._submit(&self.info, ccb, Self::_poll_fill)?;
+        }
+
+        let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
+        loop {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &ccbs[ccb_id as usize];
+            let phase_set = match &ccb._cookie {
+                Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
+                _ => return Err(NvmeDriverErr::NoCcb),
+            };
+            if phase_set {
+                break;
+            }
+
+            if !q._complete(&self.info, ccbs)? {
+                wait_microsec(NVME_TIMO_DELAYNS);
+            }
+
+            bus_space_barrier(BUS_SPACE_BARRIER_READ);
+
+            if ms != 0 {
+                if us <= NVME_TIMO_DELAYNS as u32 {
+                    break;
+                }
+                us -= NVME_TIMO_DELAYNS as u32;
+            }
+        }
+
+        let cqe = {
+            let ccbs = self._ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            let cqe = match &ccb._cookie {
+                Some(CcbCookie::_State(state)) => state._cqe,
+                _ => return Err(NvmeDriverErr::NoCcb),
+            };
+            ccb._cookie = original_cookie;
+            if let Some(done_fn) = original_done {
+                done_fn(ccb, &cqe);
+            }
+            cqe
+        };
+
+        let flags = u16::from_le(cqe.flags);
+
+        Ok(flags & !NVME_CQE_PHASE)
     }
 }
 
