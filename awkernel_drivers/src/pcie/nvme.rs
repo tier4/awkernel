@@ -503,7 +503,6 @@ impl NvmeInner {
         }
 
         let id = unsafe { &*ptr };
-        self.nn = id.nn;
 
         let serial = core::str::from_utf8(&id.sn).unwrap_or("unknown");
         let model = core::str::from_utf8(&id.mn).unwrap_or("unknown");
@@ -515,11 +514,12 @@ impl NvmeInner {
         log::info!("  Firmware: {}", firmware.trim());
         log::info!("  Namespaces: {}", self.nn);
 
+        self.nn = u32::from_le(id.nn);
+
         // At least one Apple NVMe device presents a second, bogus disk that is
         // inaccessible, so cap targets at 1.
         let mn = id.mn;
-        let mut nn = u32::from_le(id.nn);
-        if id.nn > 1
+        if self.nn > 1
             && (mn.len() >= 5
                 && mn[0] == b'A'
                 && mn[1] == b'P'
@@ -527,10 +527,8 @@ impl NvmeInner {
                 && mn[3] == b'L'
                 && mn[4] == b'E')
         {
-            nn = 1;
+            self.nn = 1;
         }
-
-        self.nn = nn;
 
         self.identify = Some(*id);
 
