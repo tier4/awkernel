@@ -336,8 +336,6 @@ impl NvmeInner {
         let mut ccbs = Vec::with_capacity(nccbs as usize);
         let mut free_list = VecDeque::with_capacity(nccbs as usize);
 
-        // Allocate DMA memory for PRPL arrays
-        // Each CCB needs max_prpl entries of 8 bytes each
         let prpl_size = core::mem::size_of::<u64>() * self._max_prpl * nccbs as usize;
         let prpl_pages = prpl_size.div_ceil(PAGESIZE);
 
@@ -346,7 +344,8 @@ impl NvmeInner {
 
         let prpl_virt_base = prpl_dma.get_virt_addr().as_usize();
         let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
-
+        self.ccb_prpls = Some(prpl_dma);
+      
         let mut off = 0;
         for i in 0..nccbs {
             let ccb = Ccb {
@@ -363,14 +362,18 @@ impl NvmeInner {
             off += core::mem::size_of::<u64>() * self._max_prpl;
         }
 
-        // Store the PRPL DMA pool and CCBs
-        self.ccb_prpls = Some(prpl_dma);
         self.ccbs = Some(ccbs);
         self.ccb_list = Some(Mutex::new(CcbList {
             _free_list: free_list,
         }));
 
         Ok(())
+    }
+
+    fn ccbs_free(&mut self) {
+        self.ccb_list = None;
+        self.ccbs = None;
+        self.ccb_prpls = None;
     }
 
     fn ccb_get(&self) -> Result<Option<u16>, NvmeDriverErr> {
@@ -496,7 +499,7 @@ impl NvmeInner {
         Ok(flags & !NVME_CQE_PHASE)
     }
 
-    fn fill_identify(ccb: &mut Ccb, sqe: &mut SubQueueEntry) {
+    fn fill_identify(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         sqe.opcode = NVM_ADMIN_IDENTIFY;
         if let Some(CcbCookie::_Controller(mem)) = ccb.cookie.as_ref() {
             unsafe {
@@ -602,14 +605,7 @@ impl NvmeInner {
             ccb.done = None;
         }
 
-        let rv = self.poll(
-            admin_q,
-            ccb_id,
-            |ccb, cmd| {
-                Self::fill_identify(ccb, cmd);
-            },
-            NVME_TIMO_IDENT,
-        )?;
+        let rv = self.poll(admin_q, ccb_id, Self::fill_identify, NVME_TIMO_IDENT)?;
         self.ccb_put(ccb_id)?;
 
         if rv != 0 {
@@ -680,15 +676,12 @@ impl Nvme {
 
         inner.identify(&admin_q)?;
 
-        // We now know the real values of mdts and max_prpl from identify
-        // Free initial CCBs and reallocate with proper size
+        // We now know the real values of sc_mdts and sc_max_prpl.
         inner.ccbs_free();
         inner.ccbs_alloc(64)?;
 
-        // Create I/O queue
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
-        // Create the I/O queue using admin commands
         inner.create_io_queue(&admin_q, &io_q)?;
 
         let nvme = Self {
