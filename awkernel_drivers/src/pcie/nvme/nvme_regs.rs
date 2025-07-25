@@ -46,9 +46,9 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 
-pub const NVM_ADMIN_DEL_IOSQ: u8 = 0x00; /* Delete I/O Submission Queue */
+pub const _NVM_ADMIN_DEL_IOSQ: u8 = 0x00; /* Delete I/O Submission Queue */
 pub const NVM_ADMIN_ADD_IOSQ: u8 = 0x01; /* Create I/O Submission Queue */
-pub const NVM_ADMIN_DEL_IOCQ: u8 = 0x04; /* Delete I/O Completion Queue */
+pub const _NVM_ADMIN_DEL_IOCQ: u8 = 0x04; /* Delete I/O Completion Queue */
 pub const NVM_ADMIN_ADD_IOCQ: u8 = 0x05; /* Create I/O Completion Queue */
 pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
 

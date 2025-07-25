@@ -344,8 +344,9 @@ impl NvmeInner {
 
         let prpl_virt_base = prpl_dma.get_virt_addr().as_usize();
         let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
+
         self.ccb_prpls = Some(prpl_dma);
-      
+
         let mut off = 0;
         for i in 0..nccbs {
             let ccb = Ccb {
@@ -394,12 +395,6 @@ impl NvmeInner {
         list._free_list.push_front(ccb_id);
 
         Ok(())
-    }
-
-    fn ccbs_free(&mut self) {
-        self.ccb_list = None;
-        self.ccbs = None;
-        self.ccb_prpls = None;
     }
 
     fn poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
@@ -572,12 +567,7 @@ impl NvmeInner {
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
         }
 
-        let rv = self.poll(
-            admin_q,
-            ccb_id,
-            Self::sqe_fill(ccb as &Ccb, sqe),
-            NVME_TIMO_QOP,
-        )?;
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
 
         self.ccb_put(ccb_id)?;
 
