@@ -550,6 +550,7 @@ struct Nvme {
     _admin_q: Queue,
     inner: RwLock<NvmeInner>,
 }
+
 impl Nvme {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut inner = NvmeInner::new(info)?;
