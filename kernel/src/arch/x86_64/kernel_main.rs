@@ -306,6 +306,29 @@ fn kernel_main2(
         awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
+    // 16.5. Initialize RTC (Real-Time Clock).
+    {
+        use awkernel_drivers::rtc::Mc146818Rtc;
+        let rtc = Mc146818Rtc::new();
+        if let Err(e) = rtc.init() {
+            log::warn!("Failed to initialize RTC: {:?}", e);
+        } else {
+            log::info!("RTC initialized successfully");
+            
+            // Try to read the current time
+            match rtc.read_time() {
+                Ok(time) => {
+                    log::info!("RTC time: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                        time.year, time.month, time.day,
+                        time.hour, time.minute, time.second);
+                }
+                Err(e) => {
+                    log::warn!("Failed to read RTC time: {:?}", e);
+                }
+            }
+        }
+    }
+
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 
