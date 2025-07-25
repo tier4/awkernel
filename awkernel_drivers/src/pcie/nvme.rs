@@ -30,8 +30,13 @@ struct PollState {
 
 enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
+    _Namespace(DMAPool<IdentifyNamespace>, u32),
     _State(PollState),
     _QueueCmd(SubQueueEntryQ),
+}
+
+struct NvmeNamespace {
+    ident: Option<IdentifyNamespace>,
 }
 
 struct Ccb {
@@ -159,6 +164,7 @@ struct NvmeInner {
     ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
+    namespaces: Option<Vec<NvmeNamespace>>,
 }
 
 impl NvmeInner {
@@ -208,6 +214,7 @@ impl NvmeInner {
             ccb_prpls: None,
             nn: 0,
             identify: None,
+            namespaces: None,
         })
     }
 
@@ -630,6 +637,69 @@ impl NvmeInner {
 
         Ok(())
     }
+
+    fn identify_namespace(&mut self, admin_q: &Queue, nsid: u32) -> Result<(), NvmeDriverErr> {
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+
+        let dma_size = core::mem::size_of::<IdentifyNamespace>();
+        let pages = dma_size.div_ceil(PAGESIZE);
+        let mem: DMAPool<IdentifyNamespace> =
+            DMAPool::new(self.info.segment_group as usize, pages).ok_or(NvmeDriverErr::DMAPool)?;
+
+        {
+            let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut sc_ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_Namespace(mem, nsid));
+            ccb.done = None;
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::fill_identify_namespace, NVME_TIMO_IDENT)?;
+        
+        {
+            let sc_ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &sc_ccbs[ccb_id as usize];
+            if let Some(CcbCookie::_Namespace(ref mem, _)) = ccb.cookie {
+                let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
+                let ident = unsafe { &*ptr };
+                
+                // Store the namespace identification data
+                if let Some(ref mut namespaces) = self.namespaces {
+                    if nsid > 0 && (nsid as usize) < namespaces.len() {
+                        namespaces[nsid as usize].ident = Some(*ident);
+                        
+                        let nsze = u64::from_le(ident.nsze);
+                        let ncap = u64::from_le(ident.ncap);
+                        let nuse = u64::from_le(ident.nuse);
+                        
+                        log::info!(
+                            "NVMe Namespace {}: Size={} blocks, Capacity={} blocks, Used={} blocks",
+                            nsid, nsze, ncap, nuse
+                        );
+                    }
+                }
+            }
+        }
+        
+        self.ccb_put(ccb_id)?;
+
+        if rv != 0 {
+            log::warn!("Failed to identify namespace {}: status 0x{:x}", nsid, rv);
+            return Err(NvmeDriverErr::CommandFailed);
+        }
+
+        Ok(())
+    }
+
+    fn fill_identify_namespace(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        sqe.opcode = NVM_ADMIN_IDENTIFY;
+        if let Some(CcbCookie::_Namespace(mem, nsid)) = ccb.cookie.as_ref() {
+            sqe.nsid = nsid.to_le();
+            unsafe {
+                sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+            }
+        }
+        sqe.cdw10 = 0_u32.to_le(); // CNS = 0 for namespace identify
+    }
 }
 
 struct Nvme {
@@ -668,6 +738,28 @@ impl Nvme {
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
         inner.create_io_queue(&admin_q, &io_q)?;
+
+        // Enable interrupts
+        write_reg(&inner.info, NVME_INTMC, 1)?;
+
+        // Allocate namespace structures
+        let nn = inner.nn;
+        if nn > 0 {
+            let mut namespaces = Vec::with_capacity((nn + 1) as usize);
+            // Namespace IDs start at 1, so we add a dummy entry at index 0
+            for _ in 0..=nn {
+                namespaces.push(NvmeNamespace { ident: None });
+            }
+            inner.namespaces = Some(namespaces);
+            
+            // Identify each namespace
+            for nsid in 1..=nn {
+                if let Err(e) = inner.identify_namespace(&admin_q, nsid) {
+                    log::warn!("Failed to identify namespace {}: {:?}", nsid, e);
+                    // Continue with other namespaces even if one fails
+                }
+            }
+        }
 
         let nvme = Self {
             _admin_q: admin_q,
