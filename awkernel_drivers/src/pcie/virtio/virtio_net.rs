@@ -39,11 +39,14 @@ const VIRTIO_NET_ID: u16 = 0x1041;
 
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
+const VIRTIO_NET_F_CTRL_VQ: u64 = 1 << 17;
 const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
 const VIRTIO_F_NOTIFY_ON_EMPTY: u64 = 1 << 24;
+const VIRTIO_F_EVENT_IDX: u64 = 1 << 29;
 const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 const VIRTIO_F_ACCESS_PLATFORM: u64 = 1 << 33;
 
@@ -69,8 +72,15 @@ const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 const MAX_VQ_SIZE: usize = 256; // TODO: to be considered
 
-const VIRTQ_DESC_F_WRITE: u16 = 2;
+const VIRTQ_DESC_F_NEXT: u16 = 1; // This marks a buffer as continuing via the next field.
+const VIRTQ_DESC_F_WRITE: u16 = 2; // This marks a buffer as write-only (otherwise read-only).
 
+// The device uses this in used->flags to advise the driver: don’t kick me when you add a buffer.
+// It’s unreliable, so it’s simply an optimization.
+const VIRTQ_USED_F_NO_NOTIFY: u16 = 1;
+
+// The driver uses this in avail->flags to advise the device: don’t interrupt me when you consume a buffer.
+// It’s unreliable, so it’s simply an optimization.
 const VRING_AVAIL_F_NO_INTERRUPT: u16 = 1;
 
 const MCLSHIFT: u32 = 11;
@@ -87,6 +97,12 @@ pub enum IRQType {
 enum PCIeInt {
     None,
     MsiX(Vec<(IRQ, IRQType)>),
+}
+
+#[derive(Copy, Clone)]
+struct VirtqueueEnrty {
+    index: u16, // index in VirtqDesc array
+    next: i16,  // next enq slot
 }
 
 // Virtio ring descriptors: 16 bytes.
@@ -136,6 +152,7 @@ struct VirtqDMA {
 struct Virtq {
     vq_dma: DMAPool<VirtqDMA>,
     vq_freelist: LinkedList<usize>,
+    vq_entries: [VirtqueueEnrty; MAX_VQ_SIZE],
     vq_num: usize,
     vq_mask: usize,
     vq_avail_idx: u16,
@@ -143,8 +160,10 @@ struct Virtq {
     vq_index: u16,
     vq_intr_vec: u16,
 
+    is_event_idx: bool,
     data_buf: DMAPool<RxTxBuffer>,
     rx_buffer: RingQ<EtherFrameBuf>,
+    tx_hdrs: DMAPool<[VirtioNetHdr; MAX_VQ_SIZE]>,
 }
 
 impl Virtq {
@@ -154,6 +173,7 @@ impl Virtq {
         self.vq_freelist = LinkedList::new();
         for i in (0..self.vq_num).rev() {
             self.vq_freelist.push_front(i);
+            self.vq_entries[i].index = i as u16;
         }
 
         self.vq_avail_idx = 0;
@@ -170,24 +190,68 @@ impl Virtq {
 
     /// enqueue_prep: allocate a slot number
     fn virtio_enqueue_prep(&mut self) -> Option<usize> {
-        self.vq_alloc_entry()
+        let slot = self.vq_alloc_entry()?;
+        self.vq_entries[slot].next = -1; // next slot is not allocated yet
+        Some(slot)
     }
 
     /// enqueue_reserve: allocate remaining slots and build the descriptor chain.
-    fn virtio_enqueue_reserve(&mut self, slot: usize) {
-        self.vq_dma.as_mut().desc[slot].flags = 0;
+    /// Calls virtio_enqueue_abort() on failure.
+    fn virtio_enqueue_reserve(&mut self, slot: usize, nsegs: usize) -> Result<(), VirtioDriverErr> {
+        debug_assert!(self.vq_entries[slot].next == -1);
+        debug_assert!((1..=MAX_VQ_SIZE).contains(&nsegs));
+
+        self.vq_entries[slot].next = self.vq_entries[slot].index as i16;
+
+        let mut s = slot;
+        for _ in 0..nsegs - 1 {
+            let next_slot = if let Some(slot) = self.vq_alloc_entry() {
+                slot
+            } else {
+                self.vq_dma.as_mut().desc[s].flags = 0;
+                self.virtio_enqueue_abort(slot);
+                return Err(VirtioDriverErr::NoSlot);
+            };
+
+            self.vq_dma.as_mut().desc[s].flags = VIRTQ_DESC_F_NEXT;
+            self.vq_dma.as_mut().desc[s].next = next_slot as u16;
+            s = next_slot;
+        }
+
+        self.vq_dma.as_mut().desc[s].flags = 0;
+
+        Ok(())
     }
 
     /// enqueue: enqueue a single dmamap.
-    fn virtio_enqueue(&mut self, slot: usize, len: usize, write: bool) {
-        let desc = &mut self.vq_dma.as_mut().desc[slot];
+    fn virtio_enqueue(&mut self, slot: usize, phy_addr: usize, len: usize, write: bool) {
+        let next_slot = self.vq_entries[slot].next;
+        debug_assert!(next_slot >= 0);
 
-        desc.addr = (self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize) as u64;
+        let desc = &mut self.vq_dma.as_mut().desc[next_slot as usize];
+
+        desc.addr = phy_addr as u64;
         desc.len = len as u32;
         if !write {
             desc.flags |= VIRTQ_DESC_F_WRITE;
         }
-        desc.next = 0;
+        let next_slot = desc.next;
+
+        self.vq_entries[slot].next = next_slot as i16;
+    }
+
+    fn virtio_enqueue_p(&mut self, slot: usize, phy_addr: usize, len: usize, write: bool) {
+        let next_slot = self.vq_entries[slot].next;
+        debug_assert!(next_slot >= 0);
+
+        let desc = &mut self.vq_dma.as_mut().desc[next_slot as usize];
+        desc.addr = phy_addr as u64;
+        desc.len = len as u32;
+        if !write {
+            desc.flags |= VIRTQ_DESC_F_WRITE;
+        }
+
+        self.vq_entries[slot].next = desc.next as i16;
     }
 
     /// enqueue_commit: add it to the available ring.
@@ -196,7 +260,6 @@ impl Virtq {
 
         avail.ring[self.vq_avail_idx as usize & self.vq_mask] = slot as u16;
         self.vq_avail_idx += 1;
-        avail.idx = self.vq_avail_idx;
     }
 
     /// dequeue: dequeue a request from uring.
@@ -218,19 +281,79 @@ impl Virtq {
         self.vq_free_entry(slot);
     }
 
+    /// Increase the event index in order to delay interrupts.
+    /// Returns false on success; returns true if the used ring has already advanced
+    /// too far, and the caller must process the queue again (otherwise, no
+    /// more interrupts will happen).
+    fn virtio_postpone_intr(&mut self, nslots: u16) -> bool {
+        let idx = self.vq_used_idx + nslots;
+
+        // set the new event index: avail_ring->used_event = idx
+        self.vq_dma.as_mut().avail.used_event = idx;
+
+        // number of slots in the used ring available to be supplied to the avail ring.
+        let nused = self.vq_dma.as_ref().used.idx - self.vq_used_idx;
+        debug_assert!(nused < self.vq_num as u16);
+
+        nslots < nused
+    }
+
+    /// Postpone interrupt until 3/4 of the available descriptors have been consumed.
+    fn virtio_postpone_intr_smart(&mut self) -> bool {
+        let nslots = (self.vq_dma.as_ref().avail.idx - self.vq_used_idx) * 3 / 4;
+        self.virtio_postpone_intr(nslots)
+    }
+
+    /// Postpone interrupt until all of the available descriptors have been consumed.
+    fn virtio_postpone_intr_far(&mut self) -> bool {
+        let nslots = self.vq_dma.as_ref().avail.idx - self.vq_used_idx;
+        self.virtio_postpone_intr(nslots)
+    }
+
+    /// enqueue_abort: rollback.
+    fn virtio_enqueue_abort(&mut self, slot: usize) {
+        if self.vq_entries[slot].next < 0 {
+            self.vq_free_entry(slot);
+            return;
+        }
+
+        let mut s = slot;
+        while self.vq_dma.as_mut().desc[s].flags & VIRTQ_DESC_F_NEXT != 0 {
+            self.vq_free_entry(s);
+            s = self.vq_dma.as_mut().desc[s].next as usize;
+        }
+
+        self.vq_free_entry(s);
+    }
+
     /// Stop vq interrupt.  No guarantee.
     fn virtio_stop_vq_intr(&mut self) {
-        self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+        if self.is_event_idx {
+            // No way to disable the interrupt completely with RingEventIdx.
+            // Instead advance used_event by half the possible value.
+            // This won't happen soon and is far enough in the past to not trigger a spurious interrupt.
+            self.vq_dma.as_mut().avail.used_event = self.vq_used_idx + 0x8000;
+        } else {
+            self.vq_dma.as_mut().avail.flags |= VRING_AVAIL_F_NO_INTERRUPT;
+        }
     }
 
     /// Start vq interrupt.  No guarantee.
     fn virtio_start_vq_intr(&mut self) -> bool {
-        self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        // If event index feature is negotiated,
+        // enabling interrupts is done through setting the latest consumed index in the used_event field
+        if self.is_event_idx {
+            self.vq_dma.as_mut().avail.used_event = self.vq_used_idx;
+        } else {
+            self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
+        }
+
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
     }
 
     /// add mbufs for all the empty receive slots
-    fn vio_populate_rx_mbufs(&mut self) {
+    fn vio_populate_rx_mbufs(&mut self) -> bool {
+        let mut should_notify = false;
         for _ in 0..self.vq_num {
             let slot = if let Some(slot) = self.virtio_enqueue_prep() {
                 slot
@@ -238,10 +361,18 @@ impl Virtq {
                 break;
             };
 
-            self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, MCLBYTES as usize, false);
+            // NOTE: assume nsegs in rx dmamap is 1
+            if self.virtio_enqueue_reserve(slot, 1).is_err() {
+                break;
+            }
+
+            let data_phy_addr = self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize;
+            self.virtio_enqueue(slot, data_phy_addr, MCLBYTES as usize, false);
             self.virtio_enqueue_commit(slot);
+            should_notify = true;
         }
+
+        should_notify
     }
 
     /// dequeue received packets
@@ -252,9 +383,18 @@ impl Virtq {
             let buf = self.data_buf.as_mut();
             let data = buf[slot];
 
-            // TODO: handle VirtIO-net header
-            // For now, we just skip the header by [12..]
-            let data = data[0..len as usize][12..].to_vec();
+            let header_len = core::mem::size_of::<VirtioNetHdr>();
+            let header = &data[0..header_len];
+            let header = unsafe { &*(header.as_ptr() as *const VirtioNetHdr) };
+
+            if header.num_buffers > 1 {
+                log::error!(
+                    "virtio-net: num_buffers > 1. Receipt of large packets is not supported"
+                );
+                break;
+            }
+
+            let data = data[header_len..len as usize].to_vec();
 
             self.rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
@@ -267,10 +407,12 @@ impl Virtq {
         freed
     }
 
-    fn vio_rx_intr(&mut self) {
+    fn vio_rx_intr(&mut self) -> bool {
         let freed = self.vio_rxeof();
         if freed > 0 {
-            self.vio_populate_rx_mbufs();
+            self.vio_populate_rx_mbufs()
+        } else {
+            false
         }
     }
 
@@ -295,32 +437,59 @@ impl Virtq {
         self.vio_txeof();
     }
 
-    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> usize {
+    fn vio_encap(&mut self, slot: usize, frame: &EtherFrameRef) -> (usize, usize) {
         let len = frame.data.len();
-        let buf = self.data_buf.as_mut();
-        let dst = &mut buf[slot].as_mut_ptr();
-        let header_len = core::mem::size_of::<VirtioNetHdr>();
+        let buf = self.data_buf.as_mut()[slot].as_mut_ptr();
         unsafe {
-            // TODO: handle VirtIO-net header
-            // For now, we just skip the header by dst.add(header_len)
-            core::ptr::copy_nonoverlapping(frame.data.as_ptr(), dst.add(header_len), len);
+            core::ptr::copy_nonoverlapping(frame.data.as_ptr(), buf, len);
         }
 
-        header_len + len
+        let data_phy_addr = self.data_buf.get_phy_addr().as_usize() + slot * MCLBYTES as usize;
+        (data_phy_addr, len)
     }
 
     fn vio_start(&mut self, frame: &EtherFrameRef) {
         self.vio_tx_dequeue();
 
-        if let Some(slot) = self.virtio_enqueue_prep() {
-            let len = self.vio_encap(slot, frame);
-            self.virtio_enqueue_reserve(slot);
-            self.virtio_enqueue(slot, len, true);
-            self.virtio_enqueue_commit(slot);
+        let slot = if let Some(slot) = self.virtio_enqueue_prep() {
+            slot
+        } else {
+            log::error!("virtio-net: virtio_enqueue_prep failed");
+            return;
+        };
+
+        // NOTE: assume nsegs in tx dmamap is 1. +1 is for the header
+        if self.virtio_enqueue_reserve(slot, 1 + 1).is_err() {
+            log::error!("virtio-net: virtio_enqueue_reserve failed");
+            return;
         }
 
-        if self.virtio_start_vq_intr() {
+        let header_len = core::mem::size_of::<VirtioNetHdr>();
+        let header_phy_addr = self.tx_hdrs.get_phy_addr().as_usize() + slot * header_len;
+        self.virtio_enqueue_p(slot, header_phy_addr, header_len, true);
+
+        let (data_phy_addr, data_len) = self.vio_encap(slot, frame);
+        self.virtio_enqueue(slot, data_phy_addr, data_len, true);
+
+        self.virtio_enqueue_commit(slot);
+
+        let should_dequeue = if self.is_event_idx {
+            self.virtio_postpone_intr_smart()
+        } else {
+            self.virtio_start_vq_intr()
+        };
+
+        if should_dequeue {
             self.vio_tx_dequeue();
+        }
+    }
+
+    fn vio_ctrleof(&mut self) {
+        while let Some((slot, _)) = self.virtio_dequeue() {
+            self.virtio_dequeue_commit(slot);
+            if !self.virtio_start_vq_intr() {
+                break;
+            }
         }
     }
 }
@@ -390,6 +559,7 @@ struct VirtioNetInner {
     flags: NetFlags,
     capabilities: NetCapabilities,
     virtqueues: Vec<Queue>,
+    ctrl_vq: Option<Mutex<Virtq>>,
     irq_to_type: BTreeMap<u16, IRQType>,
     pcie_int: PCIeInt,
 }
@@ -408,6 +578,7 @@ impl VirtioNetInner {
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
             virtqueues: Vec::new(),
+            ctrl_vq: None,
             irq_to_type: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         }
@@ -453,8 +624,11 @@ impl VirtioNetInner {
 
     fn vio_attach(&mut self) -> Result<(), VirtioDriverErr> {
         self.driver_features = 0;
+        self.driver_features |= VIRTIO_F_EVENT_IDX;
         self.driver_features |= VIRTIO_NET_F_MAC;
+        self.driver_features |= VIRTIO_NET_F_MRG_RXBUF;
         self.driver_features |= VIRTIO_NET_F_STATUS;
+        self.driver_features |= VIRTIO_NET_F_CTRL_VQ;
         self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
         self.virtio_pci_negotiate_features()?;
@@ -475,13 +649,26 @@ impl VirtioNetInner {
             rx.vq_intr_vec = i + 2;
 
             let mut tx = self.virtio_alloc_vq(2 * i + 1)?;
-            tx.virtio_stop_vq_intr();
+            if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) {
+                tx.virtio_postpone_intr_far();
+            } else {
+                tx.virtio_stop_vq_intr();
+            }
             tx.vq_intr_vec = i + 2;
 
             self.virtqueues.push(Queue {
                 rx: Mutex::new(rx),
                 tx: Mutex::new(tx),
             });
+        }
+
+        if self.virtio_has_feature(VIRTIO_NET_F_CTRL_VQ) {
+            let vq_index = 2; // NOTE: when VIRTIO_NET_F_CTRL_VQ is negotiated, vq_index changes.
+            let mut vq = self.virtio_alloc_vq(vq_index)?;
+            vq.vq_intr_vec = 1;
+            vq.virtio_start_vq_intr();
+
+            self.ctrl_vq = Some(Mutex::new(vq));
         }
 
         {
@@ -510,7 +697,6 @@ impl VirtioNetInner {
         self.active_features = 0;
 
         // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-        // TODO: VIRTIO_F_RING_EVENT_IDX related setup
 
         self.virtio_pci_negotiate_features_10()?;
 
@@ -545,9 +731,9 @@ impl VirtioNetInner {
 
         self.active_features = negotiated_features;
 
-        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
-
-        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0
+            || negotiated_features & VIRTIO_NET_F_MRG_RXBUF == 0
+        {
             self.common_cfg
                 .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(VirtioDriverErr::InitFailure);
@@ -754,16 +940,22 @@ impl VirtioNetInner {
             return Err(VirtioDriverErr::InvalidQueueSize);
         }
 
-        // alloc and map the memory
+        // DMAPool for virtqueues
         let allocsize = core::mem::size_of::<VirtqDMA>();
         let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
-        //
+        // DMAPool for sent/received data
         let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
         let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
 
+        // DMAPool for tx headers
+        let allocsize = core::mem::size_of::<VirtioNetHdr>() * MAX_VQ_SIZE;
+        debug_assert!(allocsize <= PAGESIZE);
+        let tx_hdrs = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+
         let mut vq = Virtq {
             vq_dma,
+            vq_entries: [VirtqueueEnrty { index: 0, next: -1 }; MAX_VQ_SIZE],
             vq_freelist: LinkedList::new(),
             vq_num: vq_size,
             vq_mask: vq_size - 1,
@@ -771,13 +963,44 @@ impl VirtioNetInner {
             vq_used_idx: 0,
             vq_index: index,
             vq_intr_vec: 0,
+            is_event_idx: self.virtio_has_feature(VIRTIO_F_EVENT_IDX),
             data_buf,
             rx_buffer: RingQ::new(RECV_QUEUE_SIZE),
+            tx_hdrs,
         };
 
         vq.init();
 
         Ok(vq)
+    }
+
+    fn virtio_notify(&mut self, vq_idx: u16) -> Result<(), VirtioDriverErr> {
+        let should_kick = {
+            let queue_idx = (vq_idx / 2) as usize;
+            let mut node = MCSNode::new();
+            let vq = if vq_idx % 2 == 0 {
+                &mut self.virtqueues[queue_idx].rx.lock(&mut node)
+            } else {
+                &mut self.virtqueues[queue_idx].tx.lock(&mut node)
+            };
+
+            if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) {
+                let old_idx = vq.vq_dma.as_ref().avail.idx;
+                let new_idx = vq.vq_avail_idx;
+                vq.vq_dma.as_mut().avail.idx = new_idx;
+                let event_idx = vq.vq_dma.as_ref().used.avail_event + 1;
+                (new_idx - event_idx) < (new_idx - old_idx)
+            } else {
+                vq.vq_dma.as_mut().avail.idx = vq.vq_avail_idx;
+                vq.vq_dma.as_ref().used.flags & VIRTQ_USED_F_NO_NOTIFY == 0
+            }
+        };
+
+        if should_kick {
+            self.virtio_pci_kick(vq_idx)?;
+        }
+
+        Ok(())
     }
 
     fn vio_iff(&mut self) {
@@ -788,10 +1011,17 @@ impl VirtioNetInner {
     fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
         self.vio_stop()?;
 
+        let mut should_notify = Vec::new();
         for queue in self.virtqueues.iter_mut() {
             let mut node = MCSNode::new();
             let mut rx = queue.rx.lock(&mut node);
-            rx.vio_populate_rx_mbufs();
+            should_notify.push(rx.vio_populate_rx_mbufs());
+        }
+
+        for (queue_idx, should_notify) in should_notify.iter().enumerate() {
+            if *should_notify {
+                self.virtio_notify((queue_idx * 2) as u16)?;
+            }
         }
 
         self.vio_iff();
@@ -825,7 +1055,15 @@ impl VirtioNetInner {
             }
         }
 
-        self.virtio_reinit_end()
+        if let Some(ctrl_vq) = &self.ctrl_vq {
+            let mut node = MCSNode::new();
+            let mut ctrl_vq = ctrl_vq.lock(&mut node);
+            ctrl_vq.virtio_start_vq_intr();
+        }
+
+        self.virtio_reinit_end()?;
+
+        Ok(())
     }
 }
 
@@ -881,36 +1119,15 @@ impl NetDevice for VirtioNet {
             }
         }
 
-        let duplex = inner.net_cfg.virtio_get_duplex();
-        match duplex {
+        match inner.net_cfg.virtio_get_duplex() {
             Ok(0x00) => LinkStatus::UpHalfDuplex,
-            Ok(0x01) => LinkStatus::UpFullDuplex,
-            Ok(0xff) => {
-                log::warn!("virtio-net: duplex is unknown");
-                LinkStatus::Unknown
-            }
-            _ => {
-                log::warn!("virtio-net: cannot get duplex");
-                LinkStatus::Down
-            }
+            _ => LinkStatus::UpFullDuplex,
         }
     }
 
     fn link_speed(&self) -> u64 {
         let inner = self.inner.read();
-        let speed = inner.net_cfg.virtio_get_speed();
-
-        match speed {
-            Ok(0xffffffff) => {
-                log::warn!("virtio-net: speed is unknown");
-                0
-            }
-            Ok(speed) => speed as u64,
-            _ => {
-                log::warn!("virtio-net: cannot get speed");
-                0
-            }
-        }
+        inner.net_cfg.virtio_get_speed().unwrap_or(0) as u64
     }
 
     fn mac_address(&self) -> [u8; 6] {
@@ -961,7 +1178,7 @@ impl NetDevice for VirtioNet {
         let tx_vq_index = (que_id * 2 + 1) as u16;
         let mut inner = self.inner.write();
         inner
-            .virtio_pci_kick(tx_vq_index)
+            .virtio_notify(tx_vq_index)
             .or(Err(NetDevError::DeviceError))?;
 
         Ok(())
@@ -1012,15 +1229,31 @@ impl NetDevice for VirtioNet {
 
         match irq_type {
             IRQType::Config => Ok(()),
-            IRQType::Control => Ok(()),
+            IRQType::Control => {
+                drop(inner);
+                let mut inner = self.inner.write();
+
+                if let Some(ctrl_vq) = &mut inner.ctrl_vq {
+                    let mut node = MCSNode::new();
+                    let mut ctrl_vq = ctrl_vq.lock(&mut node);
+                    if ctrl_vq.vq_used_idx != ctrl_vq.vq_dma.as_ref().used.idx {
+                        ctrl_vq.vio_ctrleof();
+                    }
+                }
+
+                Ok(())
+            }
             IRQType::Queue(idx) => {
-                {
+                let should_notify = {
                     let mut node = MCSNode::new();
                     let mut rx = inner.virtqueues[*idx].rx.lock(&mut node);
                     if rx.vq_used_idx != rx.vq_dma.as_ref().used.idx {
-                        rx.vio_rx_intr();
+                        rx.vio_rx_intr()
+                    } else {
+                        false
                     }
-                }
+                };
+
                 {
                     let mut node = MCSNode::new();
                     let mut tx = inner.virtqueues[*idx].tx.lock(&mut node);
@@ -1029,12 +1262,14 @@ impl NetDevice for VirtioNet {
                     }
                 }
 
-                let rx_vq_index = (*idx * 2) as u16;
-                drop(inner);
-                let mut inner = self.inner.write();
-                inner
-                    .virtio_pci_kick(rx_vq_index)
-                    .or(Err(NetDevError::DeviceError))?;
+                if should_notify {
+                    let rx_vq_index = (*idx * 2) as u16;
+                    drop(inner);
+                    let mut inner = self.inner.write();
+                    inner
+                        .virtio_notify(rx_vq_index)
+                        .or(Err(NetDevError::DeviceError))?;
+                }
 
                 Ok(())
             }

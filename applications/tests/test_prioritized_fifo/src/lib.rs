@@ -26,22 +26,22 @@ pub async fn run() {
         spawn(
             "low_priority".into(),
             async move {
-                log::debug!("low priority task, core={i}");
+                log::debug!("low priority task started.");
                 wait_millisec(100);
+                spawn(
+                    "high_priority".into(),
+                    async move {
+                        log::debug!("high priority task started.");
+                        wait_millisec(100);
+                        log::debug!("high priority task finished.");
+                    },
+                    SchedulerType::PrioritizedFIFO(0),
+                )
+                .await;
+                wait_millisec(100);
+                log::debug!("low priority task finished.");
             },
             SchedulerType::PrioritizedFIFO(255),
-        )
-        .await;
-    }
-
-    for i in 1..num_cpu() {
-        spawn(
-            "high_priority".into(),
-            async move {
-                log::debug!("high priority task, core={i}");
-                wait_millisec(100);
-            },
-            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }

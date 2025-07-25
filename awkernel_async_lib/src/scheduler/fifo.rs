@@ -1,7 +1,10 @@
 //! A basic FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::{scheduler::get_priority, task::State};
+use crate::{
+    scheduler::get_priority,
+    task::{set_current_task, State},
+};
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -51,6 +54,7 @@ impl Scheduler for FIFOScheduler {
                     task_info.need_preemption = false;
                 }
                 task_info.state = State::Running;
+                set_current_task(awkernel_lib::cpu::cpu_id(), task.id);
             }
 
             return Some(task);
