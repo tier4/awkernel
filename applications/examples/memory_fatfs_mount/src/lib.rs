@@ -7,11 +7,12 @@ use alloc::string::ToString;
 use awkernel_async_lib::{
     executor::Executor,
     file::{
-        async_mount_manager::{mount_memory_fatfs, AsyncMountManager},
+        mount::{MountManager, create_memory_block_device, DEFAULT_BLOCK_SIZE, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
 };
+use alloc::collections::BTreeMap;
 use awkernel_lib::{print, println};
 
 #[awkernel_lib::entry_point]
@@ -26,19 +27,27 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         println!("Initializing async mount manager...");
         
         // Initialize the mount system
-        AsyncMountManager::init().expect("Failed to initialize mount manager");
+        MountManager::init().expect("Failed to initialize mount manager");
         println!("✓ Mount manager initialized");
         
-        // Mount a memory-backed FAT filesystem at /data
+        // Create a memory block device
+        println!("\nCreating memory block device...");
+        let device = create_memory_block_device(4 * 1024 * 1024, DEFAULT_BLOCK_SIZE)
+            .expect("Failed to create memory block device");
+        println!("✓ Memory block device created (4MB)");
+        
+        // Mount with format option
+        let mut options = MountOptions::new();
+        options.fs_options.insert("format".into(), "true".into());
+        
         println!("\nMounting memory FatFS at /data...");
-        mount_memory_fatfs(
-            "/data",           // Mount path
-            "memfs",          // Source identifier
-            4 * 1024 * 1024,  // 4MB size
-            512               // 512 byte blocks
-        )
-        .await
-        .expect("Failed to mount memory filesystem");
+        MountManager::mount(
+            "/data",
+            "memfs",
+            "memory-fatfs",
+            Some(device),
+            options,
+        ).await.expect("Failed to mount filesystem");
         println!("✓ Memory filesystem mounted at /data");
         
         // Create a directory structure

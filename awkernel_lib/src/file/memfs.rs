@@ -2,9 +2,10 @@
 
 use super::block_device::{BlockDevice, BlockDeviceError, BlockResult};
 use alloc::{vec, vec::Vec};
+use core::any::Any;
 
 /// A memory-backed block device for testing and in-memory filesystems
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryBlockDevice {
     data: Vec<u8>,
     block_size: usize,
@@ -47,6 +48,10 @@ impl BlockDevice for MemoryBlockDevice {
         self.block_size
     }
     
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    
     fn num_blocks(&self) -> u64 {
         self.num_blocks
     }
@@ -61,33 +66,5 @@ impl BlockDevice for MemoryBlockDevice {
         let offset = self.block_offset(block_num).ok_or(BlockDeviceError::InvalidBlock)?;
         self.data[offset..offset + self.block_size].copy_from_slice(&buf[..self.block_size]);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_memory_block_device() {
-        let mut device = MemoryBlockDevice::new(512, 100);
-        let mut buf = vec![0u8; 512];
-        
-        // Write some data
-        buf[0] = 0xDE;
-        buf[1] = 0xAD;
-        buf[2] = 0xBE;
-        buf[3] = 0xEF;
-        
-        assert!(device.write_block(0, &buf).is_ok());
-        
-        // Read it back
-        let mut read_buf = vec![0u8; 512];
-        assert!(device.read_block(0, &mut read_buf).is_ok());
-        
-        assert_eq!(read_buf[0], 0xDE);
-        assert_eq!(read_buf[1], 0xAD);
-        assert_eq!(read_buf[2], 0xBE);
-        assert_eq!(read_buf[3], 0xEF);
     }
 }

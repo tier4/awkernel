@@ -3,110 +3,71 @@
 //! This module provides the main API for mounting and unmounting filesystems.
 
 use super::{
-    factory::{get_filesystem_factory, init_default_factories},
-    registry::{init_mount_registry, register_mount, unregister_mount},
-    types::{MountError, MountInfo, MountOptions, MountResult},
+    filesystem_creator::create_filesystem,
+    registry::{init_mount_registry, get_registry, list_mounts as list_mounts_internal, get_mount_info as get_mount_info_internal},
+    types::{MountError, MountResult},
 };
 use alloc::{
-    format,
     string::String,
     sync::Arc,
     vec::Vec,
 };
-use awkernel_lib::file::block_device::BlockDevice;
+use awkernel_lib::file::{
+    block_device::BlockDevice,
+    mount_types::{MountInfo, MountOptions},
+};
 
-/// Mount manager providing high-level mount operations
-pub struct MountManager;
-
-impl MountManager {
-    /// Initialize the mount system
-    pub fn init() -> MountResult<()> {
-        init_mount_registry();
-        init_default_factories();
-        Ok(())
-    }
-    
-    /// Mount a filesystem
-    pub async fn mount(
-        path: impl Into<String>,
-        source: impl Into<String>,
-        fs_type: impl Into<String>,
-        device: Option<Arc<dyn BlockDevice>>,
-        options: MountOptions,
-    ) -> MountResult<()> {
-        let path = path.into();
-        let source = source.into();
-        let fs_type = fs_type.into();
-        
-        // Validate path
-        if !path.starts_with('/') {
-            return Err(MountError::InvalidPath(path));
-        }
-        
-        // Get the filesystem factory
-        let factory = get_filesystem_factory(&fs_type)?;
-        
-        // Create the filesystem instance
-        let filesystem = factory.create(device, &options).await?;
-        
-        // Register in the mount registry
-        register_mount(path, source, fs_type, options.flags, filesystem)?;
-        
-        Ok(())
-    }
-    
-    /// Unmount a filesystem
-    pub fn unmount(path: impl AsRef<str>) -> MountResult<()> {
-        unregister_mount(path.as_ref())
-    }
-    
-    /// List all mount points
-    pub fn list_mounts() -> Vec<MountInfo> {
-        use super::registry::list_mounts as list_mounts_internal;
-        list_mounts_internal()
-    }
-    
-    /// Get mount information for a path
-    pub fn get_mount_info(path: impl AsRef<str>) -> MountResult<MountInfo> {
-        super::registry::get_mount_info(path.as_ref())
-    }
+/// Initialize the mount system
+pub fn init() -> MountResult<()> {
+    init_mount_registry();
+    Ok(())
 }
 
-/// Convenience function to mount a memory-backed FatFs filesystem
-pub async fn mount_memory_fatfs(
+/// Mount a filesystem
+pub async fn mount(
     path: impl Into<String>,
-    size: usize,
+    source: impl Into<String>,
+    fs_type: impl Into<String>,
+    device: Option<Arc<dyn BlockDevice>>,
+    options: MountOptions,
 ) -> MountResult<()> {
     let path = path.into();
-    let source = format!("memory:{size}");
+    let source = source.into();
+    let fs_type = fs_type.into();
     
-    use super::types::mount_options_ext;
-    let options = mount_options_ext::with_format(
-        mount_options_ext::with_size(MountOptions::new(), size),
-        true
-    );
-    
-    MountManager::mount(
-        path,
-        source,
-        "fatfs",
-        None, // No device = use memory
-        options,
-    ).await
-}
-
-/// Convenience function to mount root filesystem
-pub async fn mount_root() -> MountResult<()> {
-    // Create a 1MB memory FatFs filesystem for root
-    mount_memory_fatfs("/", 1024 * 1024).await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[tokio::test]
-    async fn test_mount_manager_init() {
-        assert!(MountManager::init().is_ok());
+    // Validate path
+    if !path.starts_with('/') {
+        return Err(MountError::InvalidPath(path));
     }
+    
+    // Device is required
+    let device = device.ok_or_else(|| 
+        MountError::FilesystemError("Block device required".into())
+    )?;
+    
+    // Create the filesystem instance
+    let filesystem = create_filesystem(&fs_type, device, &options).await?;
+    
+    // Get the registry and register the mount
+    let registry = get_registry()?;
+    registry.register_mount(path, source, fs_type, options, filesystem)?;
+    
+    Ok(())
 }
+
+/// Unmount a filesystem
+pub fn unmount(path: impl AsRef<str>) -> MountResult<()> {
+    let registry = get_registry()?;
+    registry.unregister_mount(path.as_ref())
+}
+
+/// List all mount points
+pub fn list_mounts() -> Vec<MountInfo> {
+    list_mounts_internal()
+}
+
+/// Get mount information for a path
+pub fn get_mount_info(path: impl AsRef<str>) -> MountResult<MountInfo> {
+    get_mount_info_internal(path.as_ref())
+}
+

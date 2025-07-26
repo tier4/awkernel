@@ -4,7 +4,12 @@ extern crate alloc;
 
 use awkernel_async_lib::{
     file::{
-        mount::{MountManager, mount_memory_fatfs},
+        mount::{
+            MountManager, 
+            create_memory_block_device,
+            DEFAULT_BLOCK_SIZE,
+            MountOptions,
+        },
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
@@ -26,16 +31,36 @@ async fn memory_fatfs_test() {
     match MountManager::init() {
         Ok(_) => log::info!("Mount manager initialized"),
         Err(e) => {
-            log::error!("Failed to initialize mount manager: {:?}", e);
+            log::error!("Failed to initialize mount manager: {e:?}");
             return;
         }
     }
     
-    // Mount memory filesystem
-    match mount_memory_fatfs("/test", 512 * 1024).await {
+    // Create a memory block device
+    let device_size = 512 * 1024; // 512KB
+    let device = match create_memory_block_device(device_size, DEFAULT_BLOCK_SIZE) {
+        Ok(dev) => dev,
+        Err(e) => {
+            log::error!("Failed to create memory block device: {e:?}");
+            return;
+        }
+    };
+    
+    // Create mount options with format=true to format the new device
+    let mut options = MountOptions::new();
+    options.fs_options.insert("format".into(), "true".into());
+    
+    // Mount the filesystem
+    match MountManager::mount(
+        "/test",
+        "memory:512KB",
+        "memory-fatfs",
+        Some(device),
+        options,
+    ).await {
         Ok(_) => log::info!("Memory filesystem mounted at /test"),
         Err(e) => {
-            log::error!("Failed to mount memory filesystem: {:?}", e);
+            log::error!("Failed to mount filesystem: {e:?}");
             return;
         }
     }
@@ -48,20 +73,20 @@ async fn memory_fatfs_test() {
             match writer.write_all(b"Hello from memory FatFS!").await {
                 Ok(_) => log::info!("Successfully wrote to file"),
                 Err(e) => {
-                    log::error!("Failed to write: {:?}", e);
+                    log::error!("Failed to write: {e:?}");
                     return;
                 }
             }
             match writer.flush().await {
                 Ok(_) => log::info!("File flushed successfully"),
                 Err(e) => {
-                    log::error!("Failed to flush: {:?}", e);
+                    log::error!("Failed to flush: {e:?}");
                     return;
                 }
             }
         }
         Err(e) => {
-            log::error!("Failed to create file: {:?}", e);
+            log::error!("Failed to create file: {e:?}");
             return;
         }
     }
@@ -72,7 +97,7 @@ async fn memory_fatfs_test() {
             let mut contents = alloc::string::String::new();
             match reader.read_to_string(&mut contents).await {
                 Ok(_) => {
-                    log::info!("File contents: {}", contents);
+                    log::info!("File contents: {contents}");
                     if contents == "Hello from memory FatFS!" {
                         log::info!("✓ Memory FatFS test passed!");
                     } else {
@@ -80,12 +105,12 @@ async fn memory_fatfs_test() {
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to read: {:?}", e);
+                    log::error!("Failed to read: {e:?}");
                 }
             }
         }
         Err(e) => {
-            log::error!("Failed to open file: {:?}", e);
+            log::error!("Failed to open file: {e:?}");
         }
     }
 }

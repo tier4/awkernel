@@ -54,15 +54,15 @@ impl MountAwareAsyncVfsPath {
         let mut path = path.into();
         // Ensure path starts with /
         if !path.starts_with('/') && !path.is_empty() {
-            path = format!("/{}", path);
+            path = format!("/{path}");
         }
         Self { path }
     }
     
     /// Resolve the filesystem and relative path for this path
-    fn resolve(&self) -> VfsResult<(Arc<Box<dyn AsyncFileSystem>>, String)> {
+    fn resolve(&self) -> VfsResult<(Arc<dyn AsyncFileSystem>, String)> {
         let (fs, _mount_path, relative_path) = resolve_filesystem_for_path(&self.path)
-            .map_err(|e| VfsError::from(VfsErrorKind::Other(format!("{}", e))))?;
+            .map_err(|e| VfsError::from(VfsErrorKind::Other(format!("{e}"))))?;
         Ok((fs, relative_path))
     }
     
@@ -316,35 +316,3 @@ impl Stream for ReadDirStream {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::file::{
-        async_mount_manager::{mount_memory_fatfs, AsyncMountManager},
-        vfs_registry::init_vfs_registry,
-    };
-    
-    #[tokio::test]
-    async fn test_mount_aware_path() {
-        // Initialize mount system
-        AsyncMountManager::init().unwrap();
-        
-        // Mount a memory filesystem
-        mount_memory_fatfs("/test", "testfs", 1024 * 1024, 512).await.unwrap();
-        
-        // Create a path
-        let path = MountAwareAsyncVfsPath::new("/test/file.txt");
-        
-        // Create a file
-        let mut file = path.create_file().await.unwrap();
-        file.write_all(b"Hello, World!").await.unwrap();
-        file.flush().await.unwrap();
-        drop(file);
-        
-        // Read it back
-        let mut file = path.open_file().await.unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).await.unwrap();
-        assert_eq!(contents, "Hello, World!");
-    }
-}

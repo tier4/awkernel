@@ -1,4 +1,3 @@
-pub mod async_mount_manager;
 pub mod fatfs;
 pub mod filesystem;
 pub mod mount;

@@ -4,8 +4,5 @@ pub mod fatfs;
 pub mod io;
 pub mod memfs;
 pub mod mount;
-pub mod mount_lifecycle;
-pub mod mount_tests;
 pub mod mount_types;
-pub mod mount_validation;
 pub mod vfs;

@@ -27,9 +27,10 @@ use core::fmt::Debug;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
 
-static FAT_FS_INSTANCE: RwLock<
-    Option<Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>>>,
-> = RwLock::new(None);
+/// Type alias for the memory-based FAT filesystem
+type MemoryFatFs = FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>;
+
+static FAT_FS_INSTANCE: RwLock<Option<Arc<MemoryFatFs>>> = RwLock::new(None);
 
 pub fn init_memory_fatfs() -> Result<(), String> {
     let mut fs_guard = FAT_FS_INSTANCE.write();
@@ -89,11 +90,11 @@ pub fn create_fatfs_from_block_device<D: BlockDevice + Debug + 'static>(
     
     if format {
         format_volume(&mut adapter, FormatVolumeOptions::new())
-            .map_err(|e| format!("Failed to format FAT volume: {:?}", e))?;
+            .map_err(|e| format!("Failed to format FAT volume: {e:?}"))?;
     }
     
     FileSystem::new(adapter, FsOptions::new())
-        .map_err(|e| format!("Failed to create FileSystem instance: {:?}", e))
+        .map_err(|e| format!("Failed to create FileSystem instance: {e:?}"))
 }
 
 /// Format a block device with FAT filesystem
@@ -103,5 +104,5 @@ pub fn format_block_device_as_fat<D: BlockDevice + Debug + 'static>(
     let mut adapter = BlockDeviceAdapter::new(device);
     
     format_volume(&mut adapter, FormatVolumeOptions::new())
-        .map_err(|e| format!("Failed to format FAT volume: {:?}", e))
+        .map_err(|e| format!("Failed to format FAT volume: {e:?}"))
 }

@@ -6,6 +6,7 @@
 use super::error::IoError;
 use super::io::{IoBase, Read, Seek, SeekFrom, Write};
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
+use core::any::Any;
 use core::cmp::min;
 use core::fmt::{self, Debug, Display};
 
@@ -32,6 +33,9 @@ pub type BlockResult<T> = Result<T, BlockDeviceError>;
 pub trait BlockDevice: Send + Sync {
     /// Get the block size in bytes
     fn block_size(&self) -> usize;
+    
+    /// Get a reference to self as Any for downcasting
+    fn as_any(&self) -> &dyn Any;
     
     /// Get the total number of blocks
     fn num_blocks(&self) -> u64;
@@ -338,7 +342,7 @@ impl Display for BlockDeviceAdapterError {
             Self::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
             Self::Interrupted => write!(f, "Operation interrupted"),
             Self::DeviceBusy => write!(f, "Device is busy"),
-            Self::Other(msg) => write!(f, "Error: {}", msg),
+            Self::Other(msg) => write!(f, "Error: {msg}"),
         }
     }
 }
