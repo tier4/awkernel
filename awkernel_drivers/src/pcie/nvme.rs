@@ -630,6 +630,72 @@ impl NvmeInner {
 
         Ok(())
     }
+
+    fn namespace_size(ns: &IdentifyNamespace) -> u64 {
+        let ncap = u64::from_le(ns.ncap); // Max allowed allocation.
+        let nsze = u64::from_le(ns.nsze);
+
+        if (ns.nsfeat & NVME_ID_NS_NSFEAT_THIN_PROV) != 0 && ncap < nsze {
+            ncap
+        } else {
+            nsze
+        }
+    }
+
+    fn identify_namespace(&mut self, admin_q: &Queue, nsid: u32) -> Result<bool, NvmeDriverErr> {
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+
+        let dma_size = core::mem::size_of::<IdentifyNamespace>();
+        let pages = dma_size.div_ceil(PAGESIZE);
+        let mem: DMAPool<IdentifyNamespace> =
+            DMAPool::new(self.info.segment_group as usize, pages).ok_or(NvmeDriverErr::DMAPool)?;
+
+        let mut sqe = SubQueueEntry::default();
+        sqe.opcode = NVM_ADMIN_IDENTIFY;
+        sqe.nsid = nsid.to_le();
+        unsafe {
+            sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+        }
+        sqe.cdw10 = 0_u32.to_le();
+
+        {
+            let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut sc_ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_State(PollState {
+                _sqe: sqe,
+                _cqe: ComQueueEntry::default(),
+            }));
+            ccb.done = None;
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_IDENT)?;
+
+        self.ccb_put(ccb_id)?;
+
+        if rv != 0 {
+            log::warn!("Failed to identify namespace {}: status 0x{:x}", nsid, rv);
+            return Err(NvmeDriverErr::CommandFailed);
+        }
+
+        let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
+        let ident = unsafe { &*ptr };
+
+        // Note: This follows OpenBSD's behavior, which skips namespaces with zero size.
+        // For thin-provisioned namespaces, this might skip namespaces that could be
+        // allocated later, but we maintain this check for compatibility.
+        if Self::namespace_size(ident) > 0 {
+            // Commit namespace if it has a size greater than zero
+            if let Some(ref mut namespaces) = self.namespaces {
+                if nsid > 0 && (nsid as usize) < namespaces.len() {
+                    namespaces[nsid as usize].ident = Some(*ident);
+                }
+            }
+            Ok(true)
+        } else {
+            // Don't attach a namespace if its size is zero
+            Ok(false)
+        }
+    }
 }
 
 struct Nvme {
@@ -668,6 +734,43 @@ impl Nvme {
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
         inner.create_io_queue(&admin_q, &io_q)?;
+
+        write_reg(&inner.info, NVME_INTMC, 1)?;
+
+        let nn = inner.nn;
+        if nn > 0 {
+            let mut namespaces = Vec::with_capacity((nn + 1) as usize);
+            for _ in 0..=nn {
+                namespaces.push(NvmeNamespace { ident: None });
+            }
+            inner.namespaces = Some(namespaces);
+
+            let mut identified_count = 0;
+            let mut skipped_count = 0;
+
+            for nsid in 1..=nn {
+                match inner.identify_namespace(&admin_q, nsid) {
+                    Ok(attached) => {
+                        if attached {
+                            identified_count += 1;
+                        } else {
+                            skipped_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to identify namespace {}: {:?}", nsid, e);
+                    }
+                }
+            }
+
+            if skipped_count > 0 {
+                log::info!(
+                    "NVMe: Identified {} namespace(s), skipped {} zero-sized namespace(s)",
+                    identified_count,
+                    skipped_count
+                );
+            }
+        }
 
         let nvme = Self {
             _admin_q: admin_q,
