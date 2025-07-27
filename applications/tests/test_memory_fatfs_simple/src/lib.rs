@@ -5,7 +5,7 @@ extern crate alloc;
 use awkernel_async_lib::{
     file::{
         mount::{
-            MountManager, 
+            mount,
             create_memory_block_device,
             DEFAULT_BLOCK_SIZE,
             MountOptions,
@@ -27,15 +27,6 @@ pub async fn run() {
 async fn memory_fatfs_test() {
     log::info!("Testing memory FatFS mount...");
     
-    // Initialize mount system
-    match MountManager::init() {
-        Ok(_) => log::info!("Mount manager initialized"),
-        Err(e) => {
-            log::error!("Failed to initialize mount manager: {e:?}");
-            return;
-        }
-    }
-    
     // Create a memory block device
     let device_size = 512 * 1024; // 512KB
     let device = match create_memory_block_device(device_size, DEFAULT_BLOCK_SIZE) {
@@ -51,11 +42,11 @@ async fn memory_fatfs_test() {
     options.fs_options.insert("format".into(), "true".into());
     
     // Mount the filesystem
-    match MountManager::mount(
+    match mount(
         "/test",
         "memory:512KB",
-        "memory-fatfs",
-        Some(device),
+        "fatfs",
+        device,
         options,
     ).await {
         Ok(_) => log::info!("Memory filesystem mounted at /test"),

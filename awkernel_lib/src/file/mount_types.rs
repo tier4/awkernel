@@ -100,8 +100,6 @@ pub enum MountError {
     UnsupportedFilesystem(String),
     /// Filesystem-specific error
     FilesystemError(String),
-    /// Mount registry not initialized
-    RegistryNotInitialized,
 }
 
 impl fmt::Display for MountError {
@@ -112,7 +110,6 @@ impl fmt::Display for MountError {
             Self::InvalidPath(path) => write!(f, "Invalid mount path: {path}"),
             Self::UnsupportedFilesystem(fs) => write!(f, "Unsupported filesystem: {fs}"),
             Self::FilesystemError(err) => write!(f, "Filesystem error: {err}"),
-            Self::RegistryNotInitialized => write!(f, "Mount registry not initialized"),
         }
     }
 }

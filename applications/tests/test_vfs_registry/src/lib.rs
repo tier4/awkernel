@@ -7,7 +7,7 @@ use alloc::{boxed::Box, string::ToString, vec::Vec};
 use awkernel_async_lib::{
     executor::Executor,
     file::{
-        mount::{mount_memory_fatfs, MountManager, registry::{get_mount_points, is_filesystem_registered}},
+        mount::{mount, create_memory_block_device, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
@@ -22,13 +22,20 @@ fn test_vfs_registry_basic() {
     
     executor.spawn_detached(async {
         // Initialize mount system
-        MountManager::init().expect("Failed to initialize mount manager");
         println!("Mount manager initialized");
         
         // Mount a memory filesystem at root
-        mount_memory_fatfs("/", 1024 * 1024)
-            .await
-            .expect("Failed to mount root filesystem");
+        let root_device = create_memory_block_device(1024 * 1024, 512)
+            .expect("Failed to create root memory block device");
+        let mut root_options = MountOptions::new();
+        root_options.fs_options.insert("format".into(), "true".into());
+        mount(
+            "/",
+            "rootfs",
+            "fatfs",
+            root_device,
+            root_options,
+        ).await.expect("Failed to mount root filesystem");
         println!("Root filesystem mounted");
         
         // Check if registered
@@ -54,18 +61,28 @@ fn test_mount_aware_path_operations() {
     
     executor.spawn_detached(async {
         // Initialize and mount filesystems
-        MountManager::init().expect("Failed to initialize mount manager");
         
         // Mount multiple filesystems
-        mount_memory_fatfs("/", 1024 * 1024)
-            .await
-            .expect("Failed to mount root");
-        mount_memory_fatfs("/mnt/disk1", 512 * 1024)
-            .await
-            .expect("Failed to mount disk1");
-        mount_memory_fatfs("/mnt/disk2", 512 * 1024)
-            .await
-            .expect("Failed to mount disk2");
+        let root_device = create_memory_block_device(1024 * 1024, 512)
+            .expect("Failed to create root device");
+        let mut root_options = MountOptions::new();
+        root_options.fs_options.insert("format".into(), "true".into());
+        mount("/", "rootfs", "fatfs", root_device, root_options)
+            .await.expect("Failed to mount root");
+            
+        let disk1_device = create_memory_block_device(512 * 1024, 512)
+            .expect("Failed to create disk1 device");
+        let mut disk1_options = MountOptions::new();
+        disk1_options.fs_options.insert("format".into(), "true".into());
+        mount("/mnt/disk1", "disk1", "fatfs", disk1_device, disk1_options)
+            .await.expect("Failed to mount disk1");
+            
+        let disk2_device = create_memory_block_device(512 * 1024, 512)
+            .expect("Failed to create disk2 device");
+        let mut disk2_options = MountOptions::new();
+        disk2_options.fs_options.insert("format".into(), "true".into());
+        mount("/mnt/disk2", "disk2", "fatfs", disk2_device, disk2_options)
+            .await.expect("Failed to mount disk2");
         
         println!("All filesystems mounted");
         
@@ -116,14 +133,20 @@ fn test_cross_filesystem_operations() {
     
     executor.spawn_detached(async {
         // Initialize and mount filesystems
-        MountManager::init().expect("Failed to initialize mount manager");
         
-        mount_memory_fatfs("/", 1024 * 1024)
-            .await
-            .expect("Failed to mount root");
-        mount_memory_fatfs("/backup", 512 * 1024)
-            .await
-            .expect("Failed to mount backup");
+        let root_device = create_memory_block_device(1024 * 1024, 512)
+            .expect("Failed to create root device");
+        let mut root_options = MountOptions::new();
+        root_options.fs_options.insert("format".into(), "true".into());
+        mount("/", "rootfs", "fatfs", root_device, root_options)
+            .await.expect("Failed to mount root");
+            
+        let backup_device = create_memory_block_device(512 * 1024, 512)
+            .expect("Failed to create backup device");
+        let mut backup_options = MountOptions::new();
+        backup_options.fs_options.insert("format".into(), "true".into());
+        mount("/backup", "backup", "fatfs", backup_device, backup_options)
+            .await.expect("Failed to mount backup");
         
         // Create source file
         let src_file = MountAwareAsyncVfsPath::new("/source.txt");
@@ -160,18 +183,28 @@ fn test_nested_mount_points() {
     
     executor.spawn_detached(async {
         // Initialize and mount filesystems
-        MountManager::init().expect("Failed to initialize mount manager");
         
         // Create nested mount structure
-        mount_memory_fatfs("/", 1024 * 1024)
-            .await
-            .expect("Failed to mount root");
-        mount_memory_fatfs("/mnt", 512 * 1024)
-            .await
-            .expect("Failed to mount /mnt");
-        mount_memory_fatfs("/mnt/usb", 256 * 1024)
-            .await
-            .expect("Failed to mount /mnt/usb");
+        let root_device = create_memory_block_device(1024 * 1024, 512)
+            .expect("Failed to create root device");
+        let mut root_options = MountOptions::new();
+        root_options.fs_options.insert("format".into(), "true".into());
+        mount("/", "rootfs", "fatfs", root_device, root_options)
+            .await.expect("Failed to mount root");
+            
+        let mnt_device = create_memory_block_device(512 * 1024, 512)
+            .expect("Failed to create mnt device");
+        let mut mnt_options = MountOptions::new();
+        mnt_options.fs_options.insert("format".into(), "true".into());
+        mount("/mnt", "mnt", "fatfs", mnt_device, mnt_options)
+            .await.expect("Failed to mount /mnt");
+            
+        let usb_device = create_memory_block_device(256 * 1024, 512)
+            .expect("Failed to create usb device");
+        let mut usb_options = MountOptions::new();
+        usb_options.fs_options.insert("format".into(), "true".into());
+        mount("/mnt/usb", "usb", "fatfs", usb_device, usb_options)
+            .await.expect("Failed to mount /mnt/usb");
         
         // Create files at each level
         let root_file = MountAwareAsyncVfsPath::new("/root.txt");

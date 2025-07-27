@@ -3,25 +3,27 @@
 //! This provides an optimized mount registry with trie-based path lookup and
 //! better data structures for performance.
 
-use super::types::MountError;
+use super::{MountError, MountResult};
 use crate::file::filesystem::AsyncFileSystem;
 use alloc::{
-    boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
     sync::Arc,
     vec::Vec,
 };
 use awkernel_lib::{
-    file::mount_types::{
-        MountOptions, MountInfo, path_utils, generate_mount_id,
+    file::{
+        block_device::BlockDevice,
+        mount_types::{
+            MountOptions, MountInfo, path_utils, generate_mount_id,
+        },
     },
     sync::rwlock::RwLock,
 };
-use core::sync::atomic::{AtomicBool, Ordering};
 
 
 /// A mount entry containing both metadata and filesystem instance
+#[derive(Clone)]
 struct MountEntry {
     /// Mount information
     info: MountInfo,
@@ -30,10 +32,10 @@ struct MountEntry {
 }
 
 impl MountEntry {
-    fn new(info: MountInfo, filesystem: Box<dyn AsyncFileSystem>) -> Self {
+    fn new(info: MountInfo, filesystem: Arc<dyn AsyncFileSystem>) -> Self {
         Self {
             info,
-            filesystem: Arc::from(filesystem),
+            filesystem,
         }
     }
 }
@@ -58,7 +60,6 @@ impl MountRegistry {
         }
     }
 
-
     /// Find the best matching mount for a path
     fn find_best_mount(&self, path: &str) -> Option<(String, MountEntry)> {
         let normalized = path_utils::normalize_path(path);
@@ -69,7 +70,7 @@ impl MountRegistry {
             .range(..=normalized.clone())
             .rev()
             .find(|(mount_path, _)| {
-                path_utils::is_subpath(mount_path, &normalized) || **mount_path == normalized
+                path_utils::is_subpath(mount_path, &normalized)
             })
             .map(|(k, v)| (k.clone(), v.clone()))
     }
@@ -81,15 +82,14 @@ impl MountRegistry {
         source: String,
         fs_type: String,
         options: MountOptions,
-        filesystem: Box<dyn AsyncFileSystem>,
-    ) -> Result<usize, MountError> {
-        let normalized_path = path_utils::normalize_path(&path);
-        
-        // Validate path
-        if normalized_path.is_empty() {
-            return Err(MountError::InvalidPath("Empty path".into()));
+        filesystem: Arc<dyn AsyncFileSystem>,
+    ) -> Result<(), MountError> {
+        // Validate path before normalization
+        if !path.starts_with('/') {
+            return Err(MountError::InvalidPath(path));
         }
         
+        let normalized_path = path_utils::normalize_path(&path);
         let mut mounts = self.mounts.write();
         
         // Check if already mounted
@@ -110,7 +110,7 @@ impl MountRegistry {
         
         let entry = MountEntry::new(info, filesystem);
         mounts.insert(normalized_path, entry);
-        Ok(mount_id)
+        Ok(())
     }
 
     /// Unregister a mount
@@ -130,18 +130,7 @@ impl MountRegistry {
         self.find_best_mount(path)
             .map(|(_, entry)| entry.filesystem.clone())
     }
-}
 
-impl Clone for MountEntry {
-    fn clone(&self) -> Self {
-        Self {
-            info: self.info.clone(),
-            filesystem: self.filesystem.clone(),
-        }
-    }
-}
-
-impl MountRegistry {
     /// Get mount information for a path
     pub fn get_mount_info_for_path(&self, path: &str) -> Option<MountInfo> {
         self.find_best_mount(path)
@@ -164,27 +153,19 @@ impl MountRegistry {
 }
 
 // Global mount registry instance
-
-// Simple static registry - initialized once at startup
 use awkernel_lib::sync::mutex::{Mutex, MCSNode};
 static REGISTRY: Mutex<Option<Arc<MountRegistry>>> = Mutex::new(None);
-static REGISTRY_INIT: AtomicBool = AtomicBool::new(false);
 
-/// Initialize the mount registry
-pub fn init_mount_registry() {
-    if !REGISTRY_INIT.swap(true, Ordering::SeqCst) {
-        let mut node = MCSNode::new();
-        let mut guard = REGISTRY.lock(&mut node);
+/// Get the global mount registry, initializing if needed
+pub(super) fn get_registry() -> Arc<MountRegistry> {
+    let mut node = MCSNode::new();
+    let mut guard = REGISTRY.lock(&mut node);
+    
+    if guard.is_none() {
         *guard = Some(Arc::new(MountRegistry::new()));
     }
-}
-
-/// Get the global mount registry
-pub(super) fn get_registry() -> Result<Arc<MountRegistry>, MountError> {
-    let mut node = MCSNode::new();
-    let guard = REGISTRY.lock(&mut node);
-    guard.clone()
-        .ok_or(MountError::RegistryNotInitialized)
+    
+    guard.clone().expect("Registry was just initialized")
 }
 
 
@@ -193,7 +174,7 @@ type ResolveResult = Result<(Arc<dyn AsyncFileSystem>, String, String), MountErr
 
 /// Resolve a filesystem for a given path by finding the longest matching mount point
 pub fn resolve_filesystem_for_path(path: &str) -> ResolveResult {
-    let registry = get_registry()?;
+    let registry = get_registry();
     
     let (mount_path, entry) = registry.find_best_mount(path)
         .ok_or_else(|| MountError::NotMounted(path.to_string()))?;
@@ -210,14 +191,40 @@ pub fn resolve_filesystem_for_path(path: &str) -> ResolveResult {
 
 /// Get mount information for a specific path  
 pub fn get_mount_info(path: &str) -> Result<MountInfo, MountError> {
-    let registry = get_registry()?;
+    let registry = get_registry();
     registry.get_mount_info_for_path(path)
         .ok_or_else(|| MountError::NotMounted(path.to_string()))
 }
 
 /// List all mounted filesystems
 pub fn list_mounts() -> Vec<MountInfo> {
-    get_registry()
-        .map(|r| r.list_all_mounts())
-        .unwrap_or_default()
+    get_registry().list_all_mounts()
+}
+
+/// Mount a filesystem
+pub async fn mount(
+    path: impl Into<String>,
+    source: impl Into<String>,
+    fs_type: impl Into<String>,
+    device: Arc<dyn BlockDevice>,
+    options: MountOptions,
+) -> MountResult<()> {
+    let path = path.into();
+    let source = source.into();
+    let fs_type = fs_type.into();
+    
+    // Create the filesystem instance
+    let filesystem = super::filesystem_creator::create_filesystem(&fs_type, device, &options).await?;
+    
+    // Get the registry and register the mount
+    let registry = get_registry();
+    registry.register_mount(path, source, fs_type, options, Arc::from(filesystem))?;
+    
+    Ok(())
+}
+
+/// Unmount a filesystem
+pub fn unmount(path: impl AsRef<str>) -> MountResult<()> {
+    let registry = get_registry();
+    registry.unregister_mount(path.as_ref())
 }

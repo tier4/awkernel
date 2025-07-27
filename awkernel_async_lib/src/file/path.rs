@@ -534,7 +534,7 @@ impl AsyncVfsPath {
 
     /// Check if this path crosses a mount boundary when joined with another path
     pub fn crosses_mount_boundary(&self, other: &str) -> bool {
-        use awkernel_lib::file::mount::get_mount_info;
+        use crate::file::mount::get_mount_info;
 
         if let Ok(joined_path) = self.join(other) {
             if let Ok(current_mount) = get_mount_info(self.as_str()) {
@@ -548,7 +548,7 @@ impl AsyncVfsPath {
 
     /// Get the mount point information for this path
     pub fn mount_info(&self) -> Option<awkernel_lib::file::mount_types::MountInfo> {
-        awkernel_lib::file::mount::get_mount_info(self.as_str()).ok()
+        crate::file::mount::get_mount_info(self.as_str()).ok()
     }
 
     /// Check if this path is on a read-only mount

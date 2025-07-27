@@ -4,7 +4,7 @@ extern crate alloc;
 
 use awkernel_async_lib::{
     file::{
-        mount::{MountManager, mount_memory_fatfs},
+        mount::{mount, create_memory_block_device, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
@@ -22,17 +22,17 @@ pub async fn run() {
 async fn multiple_mounts_test() {
     log::info!("Testing multiple filesystem mounts...");
     
-    // Initialize mount system
-    match MountManager::init() {
-        Ok(_) => log::info!("Mount manager initialized"),
+    // Mount first filesystem at /data
+    let data_device = match create_memory_block_device(256 * 1024, 512) {
+        Ok(device) => device,
         Err(e) => {
-            log::error!("Failed to initialize mount manager: {:?}", e);
+            log::error!("Failed to create data device: {:?}", e);
             return;
         }
-    }
-    
-    // Mount first filesystem at /data
-    match mount_memory_fatfs("/data", 256 * 1024).await {
+    };
+    let mut data_options = MountOptions::new();
+    data_options.fs_options.insert("format".into(), "true".into());
+    match mount("/data", "data", "fatfs", data_device, data_options).await {
         Ok(_) => log::info!("Mounted filesystem at /data"),
         Err(e) => {
             log::error!("Failed to mount at /data: {:?}", e);
@@ -41,7 +41,16 @@ async fn multiple_mounts_test() {
     }
     
     // Mount second filesystem at /temp
-    match mount_memory_fatfs("/temp", 128 * 1024).await {
+    let temp_device = match create_memory_block_device(128 * 1024, 512) {
+        Ok(device) => device,
+        Err(e) => {
+            log::error!("Failed to create temp device: {:?}", e);
+            return;
+        }
+    };
+    let mut temp_options = MountOptions::new();
+    temp_options.fs_options.insert("format".into(), "true".into());
+    match mount("/temp", "temp", "fatfs", temp_device, temp_options).await {
         Ok(_) => log::info!("Mounted filesystem at /temp"),
         Err(e) => {
             log::error!("Failed to mount at /temp: {:?}", e);

@@ -7,7 +7,7 @@ use alloc::string::ToString;
 use awkernel_async_lib::{
     executor::Executor,
     file::{
-        mount::{MountManager, create_memory_block_device, DEFAULT_BLOCK_SIZE, MountOptions},
+        mount::{mount, create_memory_block_device, DEFAULT_BLOCK_SIZE, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
@@ -24,12 +24,6 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
     let executor = Executor::spawn_executor(None, 512);
     
     executor.spawn_detached(async {
-        println!("Initializing async mount manager...");
-        
-        // Initialize the mount system
-        MountManager::init().expect("Failed to initialize mount manager");
-        println!("✓ Mount manager initialized");
-        
         // Create a memory block device
         println!("\nCreating memory block device...");
         let device = create_memory_block_device(4 * 1024 * 1024, DEFAULT_BLOCK_SIZE)
@@ -41,11 +35,11 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         options.fs_options.insert("format".into(), "true".into());
         
         println!("\nMounting memory FatFS at /data...");
-        MountManager::mount(
+        mount(
             "/data",
             "memfs",
-            "memory-fatfs",
-            Some(device),
+            "fatfs",
+            device,
             options,
         ).await.expect("Failed to mount filesystem");
         println!("✓ Memory filesystem mounted at /data");
@@ -114,9 +108,22 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         
         // Mount another filesystem
         println!("\nMounting second filesystem at /backup...");
-        mount_memory_fatfs("/backup", "backup", 1024 * 1024, 512)
-            .await
-            .expect("Failed to mount backup filesystem");
+        
+        // Create a memory block device for backup
+        let backup_device = create_memory_block_device(1024 * 1024, 512)
+            .expect("Failed to create backup memory block device");
+        
+        // Mount with format option
+        let mut backup_options = MountOptions::new();
+        backup_options.fs_options.insert("format".into(), "true".into());
+        
+        mount(
+            "/backup",
+            "backup",
+            "fatfs",
+            backup_device,
+            backup_options,
+        ).await.expect("Failed to mount backup filesystem");
         println!("✓ Backup filesystem mounted");
         
         // Copy file between filesystems
