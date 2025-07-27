@@ -23,6 +23,10 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
+struct Namespace {
+    ident: Option<IdentifyNamespace>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
     _sqe: SubQueueEntry,
@@ -164,7 +168,11 @@ struct NvmeInner {
     ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
+<<<<<<< HEAD
     namespaces: Option<Vec<NvmeNamespace>>,
+=======
+    namespaces: Option<Vec<Namespace>>,
+>>>>>>> feat/nvme_attach
 }
 
 impl NvmeInner {
@@ -665,13 +673,14 @@ impl NvmeInner {
         let mem: DMAPool<IdentifyNamespace> =
             DMAPool::new(self.info.segment_group as usize, pages).ok_or(NvmeDriverErr::DMAPool)?;
 
-        let mut sqe = SubQueueEntry::default();
-        sqe.opcode = NVM_ADMIN_IDENTIFY;
-        sqe.nsid = nsid.to_le();
+        let mut sqe = SubQueueEntry {
+            opcode: NVM_ADMIN_IDENTIFY,
+            nsid: nsid.to_le(),
+            ..Default::default()
+        };
         unsafe {
             sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
         }
-        sqe.cdw10 = 0_u32.to_le();
 
         {
             let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
@@ -688,7 +697,7 @@ impl NvmeInner {
         self.ccb_put(ccb_id)?;
 
         if rv != 0 {
-            log::warn!("Failed to identify namespace {}: status 0x{:x}", nsid, rv);
+            log::warn!("Failed to identify namespace {nsid}: status 0x{rv:x}");
             return Err(NvmeDriverErr::CommandFailed);
         }
 
@@ -893,20 +902,16 @@ impl Nvme {
 
         inner.create_io_queue(&admin_q, &io_q)?;
 
-        // Enable interrupts
         write_reg(&inner.info, NVME_INTMC, 1)?;
 
-        // Allocate namespace structures
         let nn = inner.nn;
         if nn > 0 {
             let mut namespaces = Vec::with_capacity((nn + 1) as usize);
-            // Namespace IDs start at 1, so we add a dummy entry at index 0
             for _ in 0..=nn {
-                namespaces.push(NvmeNamespace { ident: None });
+                namespaces.push(Namespace { ident: None });
             }
             inner.namespaces = Some(namespaces);
 
-            // Identify each namespace
             let mut identified_count = 0;
             let mut skipped_count = 0;
 
@@ -920,17 +925,14 @@ impl Nvme {
                         }
                     }
                     Err(e) => {
-                        log::warn!("Failed to identify namespace {}: {:?}", nsid, e);
-                        // Continue with other namespaces even if one fails
+                        log::warn!("Failed to identify namespace {nsid}: {e:?}");
                     }
                 }
             }
 
             if skipped_count > 0 {
                 log::info!(
-                    "NVMe: Identified {} namespace(s), skipped {} zero-sized namespace(s)",
-                    identified_count,
-                    skipped_count
+                    "NVMe: Identified {identified_count} namespace(s), skipped {skipped_count} zero-sized namespace(s)"
                 );
             }
         }
