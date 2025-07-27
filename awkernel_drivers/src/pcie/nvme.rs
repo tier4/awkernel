@@ -1,5 +1,12 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{BTreeMap, VecDeque},
+    format,
+    sync::Arc,
+    vec::Vec,
+};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -23,8 +30,25 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
+// Global NVMe device instance (single device assumption)
+static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None);
+
+#[derive(Debug, Clone, Copy)]
+enum NvmeQueueType {
+    Admin,
+    Io,
+}
+
 struct Namespace {
     ident: Option<IdentifyNamespace>,
+}
+
+/// Global interrupt handler for the single NVMe device
+pub fn nvme_interrupt(irq: u16) {
+    let device = NVME_DEVICE.read();
+    if let Some(nvme) = device.as_ref() {
+        let _ = nvme.process_interrupt(irq);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -37,10 +61,6 @@ enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
     _QueueCmd(SubQueueEntryQ),
-}
-
-struct NvmeNamespace {
-    ident: Option<IdentifyNamespace>,
 }
 
 struct Ccb {
@@ -137,25 +157,6 @@ impl Queue {
     }
 }
 
-pub(super) fn attach(
-    mut info: PCIeInfo,
-) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
-    // Initialize PCIeInfo
-
-    // Map the memory regions of MMIO.
-    if let Err(e) = info.map_bar() {
-        log::warn!("NVMe: Failed to map the memory regions of MMIO: {e:?}");
-        return Err(PCIeDeviceErr::PageTableFailure);
-    }
-
-    // Read capabilities of PCIe.
-    info.read_capability();
-
-    let nvme = Nvme::new(info)?;
-
-    Ok(Arc::new(nvme))
-}
-
 struct NvmeInner {
     info: PCIeInfo,
     dstrd: u32,
@@ -168,11 +169,9 @@ struct NvmeInner {
     ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
-<<<<<<< HEAD
-    namespaces: Option<Vec<NvmeNamespace>>,
-=======
     namespaces: Option<Vec<Namespace>>,
->>>>>>> feat/nvme_attach
+    irq_to_queue: BTreeMap<u16, NvmeQueueType>,
+    pcie_int: PCIeInt,
 }
 
 impl NvmeInner {
@@ -223,6 +222,8 @@ impl NvmeInner {
             nn: 0,
             identify: None,
             namespaces: None,
+            irq_to_queue: BTreeMap::new(),
+            pcie_int: PCIeInt::None,
         })
     }
 
@@ -768,7 +769,7 @@ impl NvmeInner {
 enum PCIeInt {
     None,
     Msi(IRQ),
-    MsiX(Vec<IRQ>),
+    MsiX(Vec<(IRQ, NvmeQueueType)>),
 }
 
 struct Nvme {
@@ -780,107 +781,108 @@ struct Nvme {
     // 4. `NvmeInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    admin_q: Arc<Queue>,
-    io_q: Arc<Queue>,
-    inner: Arc<RwLock<NvmeInner>>,
-    _pcie_int: PCIeInt,
+    admin_q: Queue,
+    io_q: Queue,
+    inner: RwLock<NvmeInner>,
 }
 
-fn allocate_interrupts(
-    msix: &mut Option<crate::pcie::capability::msix::Msix>,
-    msi: &mut Option<crate::pcie::capability::msi::Msi>,
-    segment_group: u16,
-    bfd: String,
-    admin_q: &Arc<Queue>,
-    io_q: &Arc<Queue>,
-    inner: &Arc<RwLock<NvmeInner>>,
-) -> PCIeInt {
+impl Nvme {
+    fn process_interrupt(&self, irq: u16) -> Result<(), NvmeDriverErr> {
+        let inner = self.inner.read();
+
+        let queue_type = match inner.irq_to_queue.get(&irq) {
+            Some(qt) => *qt,
+            None => return Ok(()),
+        };
+
+        drop(inner); // Release read lock
+
+        match queue_type {
+            NvmeQueueType::Admin | NvmeQueueType::Io => {
+                let mut inner = self.inner.write();
+                inner.nvme_intr(&self.admin_q, &self.io_q);
+                Ok(())
+            }
+        }
+    }
+}
+
+fn setup_interrupts(inner: &mut NvmeInner) -> PCIeInt {
+    let segment_group = inner.info.get_segment_group();
+    let bfd = inner.info.get_bfd();
+
     // Try MSI-X first
-    if let Some(msix) = msix.as_mut() {
+    if let Some(msix) = inner.info.get_msix_mut() {
         let mut irqs = Vec::new();
-        
+
         // Register admin queue interrupt (vector 0)
-        let admin_q_clone = admin_q.clone();
-        let io_q_clone = io_q.clone();
-        let inner_clone = inner.clone();
-        
         if let Ok(irq_admin) = msix.register_handler(
-            Cow::from(format!("nvme-{}-admin", bfd)),
-            Box::new(move |_irq| {
-                let mut inner_guard = inner_clone.write();
-                inner_guard.nvme_intr(&admin_q_clone, &io_q_clone);
+            Cow::from(format!("nvme-{bfd}-admin")),
+            Box::new(|irq| {
+                nvme_interrupt(irq);
             }),
             segment_group as usize,
             0, // target CPU
             0, // MSI-X entry 0 for admin queue
         ) {
-            irqs.push(irq_admin);
-            
+            let irq_num = irq_admin.get_irq();
+            irqs.push((irq_admin, NvmeQueueType::Admin));
+            inner.irq_to_queue.insert(irq_num, NvmeQueueType::Admin);
+
             // Register I/O queue interrupt (vector 1)
-            let admin_q_clone = admin_q.clone();
-            let io_q_clone = io_q.clone();
-            let inner_clone = inner.clone();
-            
             if let Ok(irq_io) = msix.register_handler(
-                Cow::from(format!("nvme-{}-io", bfd)),
-                Box::new(move |_irq| {
-                    let mut inner_guard = inner_clone.write();
-                    inner_guard.nvme_intr(&admin_q_clone, &io_q_clone);
+                Cow::from(format!("nvme-{bfd}-io")),
+                Box::new(|irq| {
+                    nvme_interrupt(irq);
                 }),
                 segment_group as usize,
                 0, // target CPU
                 1, // MSI-X entry 1 for I/O queue
             ) {
-                irqs.push(irq_io);
-                
+                let irq_num = irq_io.get_irq();
+                irqs.push((irq_io, NvmeQueueType::Io));
+                inner.irq_to_queue.insert(irq_num, NvmeQueueType::Io);
+
                 // Enable MSI-X
                 msix.enable();
                 log::info!("NVMe: Using MSI-X interrupts");
                 return PCIeInt::MsiX(irqs);
             }
         }
-        
+
         // If MSI-X failed, disable it
         msix.disable();
     }
-    
+
     // Try MSI
-    if let Some(msi) = msi.as_mut() {
+    if let Some(msi) = inner.info.get_msi_mut() {
         msi.disable();
-        
-        let admin_q_clone = admin_q.clone();
-        let io_q_clone = io_q.clone();
-        let inner_clone = inner.clone();
-        
+
         if let Ok(mut irq) = msi.register_handler(
-            Cow::from(format!("nvme-{}", bfd)),
-            Box::new(move |_irq| {
-                let mut inner_guard = inner_clone.write();
-                inner_guard.nvme_intr(&admin_q_clone, &io_q_clone);
+            Cow::from(format!("nvme-{bfd}")),
+            Box::new(|irq| {
+                nvme_interrupt(irq);
             }),
             segment_group as usize,
             0, // target CPU
         ) {
+            // For MSI, both queues share the same interrupt
+            let irq_num = irq.get_irq();
+            inner.irq_to_queue.insert(irq_num, NvmeQueueType::Admin);
             irq.enable();
             msi.enable();
             log::info!("NVMe: Using MSI interrupts");
             return PCIeInt::Msi(irq);
         }
     }
-    
+
     // Fall back to polling mode
     log::warn!("NVMe: No MSI-X/MSI support, using polling mode");
     PCIeInt::None
 }
 
 impl Nvme {
-    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        // Extract interrupt capabilities and info before moving info into inner
-        let segment_group = info.get_segment_group();
-        let bfd = info.get_bfd();
-        let mut msix = info.msix.take();
-        let mut msi = info.msi.take();
-        
+    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut inner = NvmeInner::new(info)?;
 
         inner.disable()?;
@@ -937,27 +939,13 @@ impl Nvme {
             }
         }
 
-        // Wrap in Arc for interrupt handler sharing
-        let admin_q = Arc::new(admin_q);
-        let io_q = Arc::new(io_q);
-        let inner = Arc::new(RwLock::new(inner));
-
-        // Setup interrupts
-        let _pcie_int = allocate_interrupts(
-            &mut msix,
-            &mut msi,
-            segment_group,
-            bfd,
-            &admin_q,
-            &io_q,
-            &inner,
-        );
+        // Setup interrupts and populate IRQ mappings
+        inner.pcie_int = setup_interrupts(&mut inner);
 
         let nvme = Self {
             admin_q,
             io_q,
-            inner,
-            _pcie_int,
+            inner: RwLock::new(inner),
         };
 
         Ok(nvme)
@@ -970,6 +958,12 @@ impl PCIeDevice for Nvme {
         let bfd = inner.info.get_bfd();
         let name = format!("{bfd}:{DEVICE_NAME}");
         name.into()
+    }
+}
+
+impl PCIeDevice for Arc<Nvme> {
+    fn device_name(&self) -> alloc::borrow::Cow<'static, str> {
+        (**self).device_name()
     }
 }
 
@@ -1038,4 +1032,26 @@ pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u3
     let bar0 = info.get_bar(0).ok_or(NvmeDriverErr::NoBar0)?;
     bar0.read32(offset + (index << 2))
         .ok_or(NvmeDriverErr::ReadFailure)
+}
+
+pub(super) fn attach(
+    mut info: PCIeInfo,
+) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+    // Map the memory regions of MMIO.
+    if let Err(e) = info.map_bar() {
+        log::warn!("NVMe: Failed to map the memory regions of MMIO: {e:?}");
+        return Err(PCIeDeviceErr::PageTableFailure);
+    }
+
+    // Read capabilities of PCIe.
+    info.read_capability();
+
+    let nvme = Nvme::new(info)?;
+    let nvme_arc = Arc::new(nvme);
+
+    // Store the device globally
+    let mut device = NVME_DEVICE.write();
+    *device = Some(nvme_arc.clone());
+
+    Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
