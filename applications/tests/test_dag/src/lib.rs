@@ -1,12 +1,11 @@
 #![no_std]
 extern crate alloc;
 
-use core::time::Duration;
-
 use alloc::{borrow::Cow, vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
+use core::time::Duration;
 
 const LOG_ENABLE: bool = false;
 
