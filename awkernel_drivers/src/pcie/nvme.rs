@@ -654,7 +654,6 @@ impl Nvme {
 
         let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
 
-        // Allocate initial CCBs for admin commands
         inner.ccbs_alloc(16)?;
 
         inner.enable(&admin_q)?;
