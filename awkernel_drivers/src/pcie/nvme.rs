@@ -538,6 +538,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
         }
 
         let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
@@ -565,6 +566,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
         }
 
         let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
@@ -727,7 +729,6 @@ impl Nvme {
 
         let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
 
-        // Allocate initial CCBs for admin commands
         inner.ccbs_alloc(16)?;
 
         inner.enable(&admin_q)?;

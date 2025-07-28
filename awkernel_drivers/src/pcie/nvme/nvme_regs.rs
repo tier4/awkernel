@@ -48,17 +48,13 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 
-pub const _NVM_ADMIN_DEL_IOSQ: u8 = 0x00; /* Delete I/O Submission Queue */
-pub const NVM_ADMIN_ADD_IOSQ: u8 = 0x01; /* Create I/O Submission Queue */
-pub const _NVM_ADMIN_DEL_IOCQ: u8 = 0x04; /* Delete I/O Completion Queue */
-pub const NVM_ADMIN_ADD_IOCQ: u8 = 0x05; /* Create I/O Completion Queue */
-pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
-
-/* Queue flags */
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
 pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
 
-/* Timeout for queue operations */
+pub const NVM_ADMIN_ADD_IOSQ: u8 = 0x01; /* Create I/O Submission Queue */
+pub const NVM_ADMIN_ADD_IOCQ: u8 = 0x05; /* Create I/O Completion Queue */
+pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
+
 pub const NVME_TIMO_QOP: u32 = 5000; /* 5 seconds */
 
 /* Power State Descriptor Data */
