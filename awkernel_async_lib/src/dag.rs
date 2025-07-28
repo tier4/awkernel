@@ -900,6 +900,7 @@ where
             interval.tick().await;
             let results = f();
             publishers.send_all(results).await;
+
             #[cfg(feature = "perf")]
             periodic_measure();
         }
