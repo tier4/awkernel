@@ -18,6 +18,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
+    priority_queue::LOWEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -337,6 +338,14 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > LOWEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {LOWEST_PRIORITY}. It is addressed as {LOWEST_PRIORITY}."
+            );
+        }
+    }
+
     let future = future.boxed();
 
     let scheduler = get_scheduler(sched_type);
