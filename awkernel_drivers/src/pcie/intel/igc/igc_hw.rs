@@ -347,13 +347,7 @@ pub(super) trait IgcMacOperations {
 
     /// Sets the receive address array register at index to the address passed
     /// in by addr.
-    fn rar_set(
-        &self,
-        info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        addr: &[u8],
-        index: usize,
-    ) -> Result<(), IgcDriverErr> {
+    fn rar_set(&self, info: &mut PCIeInfo, addr: &[u8], index: usize) -> Result<(), IgcDriverErr> {
         // HW expects these in little endian so we reverse the byte order
         // from network order (big endian) to little endian
         let rar_low = (addr[0] as u32)
