@@ -687,9 +687,8 @@ impl NvmeInner {
         let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
         let ident = unsafe { &*ptr };
 
-        // Note: This follows OpenBSD's behavior, which skips namespaces with zero size.
-        // For thin-provisioned namespaces, this might skip namespaces that could be
-        // allocated later, but we maintain this check for compatibility.
+        // Note: For thin-provisioned namespaces, this might skip namespaces that could be
+        // allocated later. However, we maintain this check following the OpenBSD behavior, which skips namespaces with zero size.
         if Self::namespace_size(ident) > 0 {
             // Commit namespace if it has a size greater than zero
             self.namespaces.push(Some(*ident));
