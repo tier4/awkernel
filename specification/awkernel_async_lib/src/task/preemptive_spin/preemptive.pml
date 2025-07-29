@@ -62,14 +62,9 @@ inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
 			short reference_task = - 1;
 			if
 			:: RUNNING[j] == task ->// The task has already been running.
-				assert(empty(ipi_requests[j]));
 				ret_task = - 1;
 				break
-			:: RUNNING[j] == -1 ->
-				if
-				:: ipi_requests[j]?[reference_task] -> ipi_requests[j]?<reference_task>
-				:: else -> num_idle_cpus++;
-				fi
+			:: RUNNING[j] == -1 -> num_idle_cpus++;
 			:: else ->
 				byte highest_pending;
 				if
@@ -445,17 +440,13 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	if
 	:: RUNNING[cpu_id(tid)] == - 1 -> 
 		byte pending_task;
-		byte loop_i;
-		byte original_len = len(ipi_requests[cpu_id(tid)]);
-		for (loop_i : 0 .. original_len - 1) {
-			if
-			:: atomic{ipi_requests[cpu_id(tid)]?[pending_task] ->
-				ipi_requests[cpu_id(tid)]?pending_task;
-				waking[pending_task]++;}
-				wake_task(tid,pending_task)
-			:: atomic{else -> break}
-			fi
-		}
+		do
+		:: d_step{ipi_requests[cpu_id(tid)]?[pending_task] ->
+		    ipi_requests[cpu_id(tid)]?pending_task;
+			waking[pending_task]++;}
+			wake_task(tid,pending_task)
+		:: else -> break
+		od
 	:: else
 	fi
 
