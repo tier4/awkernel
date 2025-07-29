@@ -912,7 +912,7 @@ impl NvmeInner {
         data_phys: u64,
         read: bool,
         poll: bool,
-    ) -> Result<(), NvmeDriverErr> {
+    ) -> Result<u16, NvmeDriverErr> {
         // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
@@ -938,41 +938,18 @@ impl NvmeInner {
             // Synchronous polling mode - use the poll() function like OpenBSD
             self.poll(io_q, ccb_id, Self::nvme_io_fill, 30000)?; // 30 second timeout
             let _ = self.ccb_put(ccb_id);
+            Ok(ccb_id)
         } else {
-            // Asynchronous mode
+            // Asynchronous mode - just submit and return like OpenBSD
             // Clear the completion flag before submitting
             ccb.completed.store(false, Ordering::Release);
-
-            // Get a clone of the completion flag to wait on
-            let completion_flag = ccb.completed.clone();
 
             // Submit the command
             io_q.submit(&self.info, ccb, Self::nvme_io_fill)?;
 
-            // For testing purposes, wait for async completion
-            // In a real system, the upper layer (SCSI) would handle this
-            let mut iterations = 0;
-            const MAX_ITERATIONS: u32 = 4_000_000; // 40 seconds with 10us delays
-
-            loop {
-                // Check if the interrupt handler has marked it complete
-                if completion_flag.load(Ordering::Acquire) {
-                    break;
-                }
-
-                if iterations >= MAX_ITERATIONS {
-                    let _ = self.ccb_put(ccb_id);
-                    return Err(NvmeDriverErr::CommandTimeout);
-                }
-
-                wait_microsec(10); // Wait for interrupt
-                iterations += 1;
-            }
-
-            let _ = self.ccb_put(ccb_id);
+            // Return the CCB ID so the caller can wait and free it later
+            Ok(ccb_id)
         }
-
-        Ok(())
     }
 
     /// Submit flush command
@@ -982,7 +959,7 @@ impl NvmeInner {
         io_q: &Queue,
         nsid: u32,
         poll: bool,
-    ) -> Result<(), NvmeDriverErr> {
+    ) -> Result<u16, NvmeDriverErr> {
         // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
@@ -999,42 +976,18 @@ impl NvmeInner {
             self.poll(io_q, ccb_id, Self::nvme_flush_fill, 10000)?; // 10 second timeout
             log::info!("Flush completed successfully");
             let _ = self.ccb_put(ccb_id);
+            Ok(ccb_id)
         } else {
-            // Asynchronous mode
+            // Asynchronous mode - just submit and return like OpenBSD
             // Clear the completion flag before submitting
             ccb.completed.store(false, Ordering::Release);
-
-            // Get a clone of the completion flag to wait on
-            let completion_flag = ccb.completed.clone();
 
             // Submit the command
             io_q.submit(&self.info, ccb, Self::nvme_flush_fill)?;
 
-            // For testing purposes, wait for async completion
-            // In a real system, the upper layer (SCSI) would handle this
-            let mut iterations = 0;
-            const MAX_ITERATIONS: u32 = 4_000_000; // 40 seconds with 10us delays
-
-            loop {
-                // Check if the interrupt handler has marked it complete
-                if completion_flag.load(Ordering::Acquire) {
-                    break;
-                }
-
-                if iterations >= MAX_ITERATIONS {
-                    let _ = self.ccb_put(ccb_id);
-                    return Err(NvmeDriverErr::CommandTimeout);
-                }
-
-                wait_microsec(10); // Wait for interrupt
-                iterations += 1;
-            }
-
-            // Free the CCB now that it's complete
-            let _ = self.ccb_put(ccb_id);
+            // Return the CCB ID so the caller can wait and free it later
+            Ok(ccb_id)
         }
-
-        Ok(())
     }
 }
 
@@ -1302,9 +1255,9 @@ impl Nvme {
         if poll {
             // For polling mode, we can hold the lock throughout
             let mut inner = self.inner.write();
-            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, read, poll)?;
-            // For polling mode, we don't need to wait - submit_io handles it
-            Ok((0, Arc::new(AtomicBool::new(true))))
+            let ccb_id = inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, read, poll)?;
+            // For polling mode, submit_io already handled waiting and freed the CCB
+            Ok((ccb_id, Arc::new(AtomicBool::new(true))))
         } else {
             // For interrupt mode, follow OpenBSD's pattern:
             // 1. Get CCB
@@ -1448,9 +1401,9 @@ impl Nvme {
         if poll {
             // For polling mode, we can hold the lock throughout
             let mut inner = self.inner.write();
-            inner.submit_flush(&self.io_q, nsid, poll)?;
-            // For polling mode, we don't need to wait - submit_flush handles it
-            Ok((0, Arc::new(AtomicBool::new(true))))
+            let ccb_id = inner.submit_flush(&self.io_q, nsid, poll)?;
+            // For polling mode, submit_flush already handled waiting and freed the CCB
+            Ok((ccb_id, Arc::new(AtomicBool::new(true))))
         } else {
             // For interrupt mode, follow OpenBSD's pattern:
             // 1. Get CCB
