@@ -1,9 +1,7 @@
-#define TASK_NUM 4
+#define TASK_NUM 5
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
-#ifndef CPU_NUM
 #define CPU_NUM 2
-#endif
 
 #include "data_structure.pml"
 #include "for_verification.pml"
@@ -430,7 +428,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	:: else
 	fi
 	
-	mtype poll_result;
+	mtype poll_result; byte next_ctx;
 	
 	start:
 	atomic {
@@ -478,9 +476,8 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	// After that, the current thread will be stored in the thread pool.
 	lock(tid,lock_info[task]);
 	if
-	:: tasks[task].thread != - 1 -> 
-		byte next_ctx;
-		take_preempt_context(task,next_ctx);
+	:: d_step{tasks[task].thread != - 1 -> 
+		take_preempt_context(task,next_ctx);}
 		unlock(tid,lock_info[task]);
 		yield_and_pool(task,tid,next_ctx);
 		goto start;
@@ -545,7 +542,7 @@ init {
 		tasks[i].id = i;
 	}
 	
-	wake(0,3);
+	wake(0,4);
 
 	for (i: 0 .. IR_HANDLER_NUM - 1) {
 		run interrupt_handler(i);
