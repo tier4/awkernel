@@ -6,33 +6,7 @@
 #include "data_structure.pml"
 #include "for_verification.pml"
 #include "future_mock.pml"
-
-inline min(a,b,ret) {
-	d_step {
-		if
-		:: a < b -> ret = a
-		:: else -> ret = b
-		fi
-	}
-}
-
-inline remove_from_ipi_requests(cpu_id,task) {
-	d_step {
-		byte k = 0;
-		byte original_len = len(ipi_requests[cpu_id]);
-		do
-		:: k < original_len ->
-			byte ipi_pending_task;
-			ipi_requests[cpu_id]?ipi_pending_task;
-			if
-			:: ipi_pending_task != task -> ipi_requests[cpu_id]!ipi_pending_task;
-			:: else -> printf("remove_from_ipi_requests(): remove task %d from ipi_requests[%d]\n",task,cpu_id)
-			fi
-			k++;
-		:: else -> break
-		od
-	}
-}
+#include "utility.pml"
 
 inline get_higher_priority_num_in_queue(task,ret) {
 	d_step {
@@ -340,7 +314,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		:: d_step{cur_task == - 1 -> 
 			printf("There is no running task in cpu_id %d\n",cpu_id);}
 			d_step {
-				remove_from_ipi_requests(cpu_id,hp_task);
+				remove_from_channel(ipi_requests[cpu_id],hp_task);
 				waking[hp_task]++;
 			}
 			wake_task(tid,hp_task);
@@ -352,7 +326,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		:: d_step{cur_task < hp_task ->
 			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);}
 			d_step {
-				remove_from_ipi_requests(cpu_id,hp_task);
+				remove_from_channel(ipi_requests[cpu_id],hp_task);
 				waking[hp_task]++;
 			}
 			wake_task(tid,hp_task);
@@ -365,7 +339,7 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			printf("RUNNING[cpu_id] = hp_task: cpu_id = %d,hp_task = %d\n",cpu_id,hp_task);
 			RUNNING[cpu_id] = hp_task;
 		}
-		remove_from_ipi_requests(cpu_id,hp_task);
+		remove_from_channel(ipi_requests[cpu_id],hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
 		byte loop_i;
