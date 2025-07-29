@@ -680,8 +680,7 @@ impl NvmeInner {
         self.ccb_put(ccb_id)?;
 
         if rv != 0 {
-            log::warn!("Failed to identify namespace {nsid}: status 0x{rv:x}");
-            return Err(NvmeDriverErr::CommandFailed);
+            return Ok(false); // Namespace not found.
         }
 
         let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
@@ -744,10 +743,8 @@ impl Nvme {
             inner.namespaces.reserve_exact((nn + 1) as usize);
             let mut identified_count = 0;
             for nsid in 1..=nn {
-                if let Ok(attached) = inner.identify_namespace(&admin_q, nsid) {
-                    if attached {
-                        identified_count += 1;
-                    }
+                if inner.identify_namespace(&admin_q, nsid)? {
+                    identified_count += 1;
                 }
             }
 
