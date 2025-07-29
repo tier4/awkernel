@@ -188,7 +188,7 @@ struct NvmeInner {
     ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
-    namespaces: Option<Vec<Namespace>>,
+    namespaces: Vec<Option<IdentifyNamespace>>,
     irq_to_queue: BTreeMap<u16, NvmeQueueType>,
     pcie_int: PCIeInt,
 }
@@ -240,7 +240,7 @@ impl NvmeInner {
             ccb_prpls: None,
             nn: 0,
             identify: None,
-            namespaces: None,
+            namespaces: Vec::new(),
             irq_to_queue: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         })
@@ -566,6 +566,8 @@ impl NvmeInner {
             _ => {
                 log::error!("NVMe: Invalid CCB cookie for SQE fill");
             }
+        } else if let Some(CcbCookie::_State(state)) = &ccb.cookie {
+            *sqe = state._sqe;
         }
     }
 
@@ -598,6 +600,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
         }
 
         let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
@@ -627,6 +630,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
         }
 
         let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
@@ -749,19 +753,15 @@ impl NvmeInner {
         let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
         let ident = unsafe { &*ptr };
 
-        // Note: This follows OpenBSD's behavior, which skips namespaces with zero size.
-        // For thin-provisioned namespaces, this might skip namespaces that could be
-        // allocated later, but we maintain this check for compatibility.
+        // Note: For thin-provisioned namespaces, this might skip namespaces that could be
+        // allocated later. However, we maintain this check following the OpenBSD behavior, which skips namespaces with zero size.
         if Self::namespace_size(ident) > 0 {
             // Commit namespace if it has a size greater than zero
-            if let Some(ref mut namespaces) = self.namespaces {
-                if nsid > 0 && (nsid as usize) < namespaces.len() {
-                    namespaces[nsid as usize].ident = Some(*ident);
-                }
-            }
+            self.namespaces.push(Some(*ident));
             Ok(true)
         } else {
             // Don't attach a namespace if its size is zero
+            self.namespaces.push(None);
             Ok(false)
         }
     }
@@ -1252,7 +1252,6 @@ impl Nvme {
 
         let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
 
-        // Allocate initial CCBs for admin commands
         inner.ccbs_alloc(16)?;
 
         inner.enable(&admin_q)?;
@@ -1284,34 +1283,18 @@ impl Nvme {
 
         let nn = inner.nn;
         if nn > 0 {
-            let mut namespaces = Vec::with_capacity((nn + 1) as usize);
-            for _ in 0..=nn {
-                namespaces.push(Namespace { ident: None });
-            }
-            inner.namespaces = Some(namespaces);
-
+            inner.namespaces.reserve_exact((nn + 1) as usize);
             let mut identified_count = 0;
-            let mut skipped_count = 0;
-
             for nsid in 1..=nn {
-                match inner.identify_namespace(&admin_q, nsid) {
-                    Ok(attached) => {
-                        if attached {
-                            identified_count += 1;
-                        } else {
-                            skipped_count += 1;
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to identify namespace {nsid}: {e:?}");
+                if let Ok(attached) = inner.identify_namespace(&admin_q, nsid) {
+                    if attached {
+                        identified_count += 1;
                     }
                 }
             }
 
-            if skipped_count > 0 {
-                log::info!(
-                    "NVMe: Identified {identified_count} namespace(s), skipped {skipped_count} zero-sized namespace(s)"
-                );
+            if identified_count < nn {
+                log::info!("NVMe: Identified {identified_count} namespace(s), out of {nn} total");
             }
         }
 
