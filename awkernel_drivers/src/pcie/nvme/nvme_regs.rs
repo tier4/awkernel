@@ -56,7 +56,7 @@ pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
 pub const NVME_TIMO_QOP: u32 = 5000; /* 5 seconds */
 
 /* Power State Descriptor Data */
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyPsd {
     pub mp: u16, /* Max Power */
@@ -73,7 +73,7 @@ pub struct IdentifyPsd {
     pub reserved: [u8; 16],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyController {
     /* Controller Capabilities and Features */
@@ -123,12 +123,13 @@ pub struct IdentifyController {
     pub vs: [u8; 1024],         /* Vendor Specific */
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub union Entry {
     pub prp: [u64; 2],
     pub sgl: Sge,
 }
+
 impl Default for Entry {
     fn default() -> Self {
         Self { prp: [0, 0] }
@@ -138,19 +139,20 @@ impl Default for Entry {
 impl core::fmt::Debug for Entry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         unsafe {
-            let Entry { prp } = self;
+            let prp = self.prp;
             write!(f, "PRP: [{:#x}, {:#x}]", prp[0], prp[1])
         }
     }
 }
 
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Sge {
     pub _id: u8,
     pub _reserved: [u8; 15],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SubQueueEntry {
     pub opcode: u8,
@@ -168,7 +170,7 @@ pub struct SubQueueEntry {
     pub cdw15: u32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SubQueueEntryQ {
     pub opcode: u8,
@@ -190,7 +192,8 @@ pub struct SubQueue {
     pub _sqtdbl: usize,
     pub _tail: u32,
 }
-#[repr(C)]
+
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ComQueueEntry {
     pub cdw0: u32,
