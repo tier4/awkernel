@@ -83,7 +83,7 @@ pub struct NamespaceFormat {
     pub rp: u8,    /* Relative Performance */
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyNamespace {
     pub nsze: u64,  /* Namespace Size */
