@@ -74,9 +74,14 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
+[dependencies.test_nvme]
+path = "../applications/tests/test_nvme"
+optional = true
+
 [features]
-default = []
+default = ["test_nvme"]
 perf = ["awkernel_services/perf"]
+test_nvme = ["dep:test_nvme"]
 
 # Evaluation applications
 rd_gen_to_dags = ["dep:rd_gen_to_dags"]
