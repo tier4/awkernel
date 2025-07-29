@@ -75,7 +75,6 @@ pub struct IdentifyPsd {
     pub reserved: [u8; 16],
 }
 
-/* Namespace structures */
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceFormat {
@@ -104,7 +103,6 @@ pub struct IdentifyNamespace {
     pub vs: [u8; 3712], /* Vendor Specific */
 }
 
-/* Namespace Features bits */
 pub const NVME_ID_NS_NSFEAT_THIN_PROV: u8 = 1 << 0;
 
 #[repr(C)]
