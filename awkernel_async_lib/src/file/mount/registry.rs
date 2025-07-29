@@ -3,9 +3,13 @@
 //! This provides an optimized mount registry with trie-based path lookup and
 //! better data structures for performance.
 
-use super::{MountError, MountResult};
-use crate::file::filesystem::AsyncFileSystem;
+use super::{MountError, MountResult, MountOptions};
+use crate::file::{
+    filesystem::AsyncFileSystem,
+    fatfs::AsyncFatFs,
+};
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
     sync::Arc,
@@ -14,12 +18,17 @@ use alloc::{
 use awkernel_lib::{
     file::{
         block_device::BlockDevice,
+        fatfs::create_fatfs_from_block_device,
+        memfs::MemoryBlockDevice,
         mount_types::{
-            MountOptions, MountInfo, path_utils, generate_mount_id,
+            MountInfo, path_utils, generate_mount_id,
         },
     },
     sync::rwlock::RwLock,
 };
+
+/// Filesystem type for FAT filesystem
+pub const FS_TYPE_FATFS: &str = "fatfs";
 
 
 /// A mount entry containing both metadata and filesystem instance
@@ -214,7 +223,7 @@ pub async fn mount(
     let fs_type = fs_type.into();
     
     // Create the filesystem instance
-    let filesystem = super::filesystem_creator::create_filesystem(&fs_type, device, &options).await?;
+    let filesystem = create_filesystem(&fs_type, device, &options).await?;
     
     // Get the registry and register the mount
     let registry = get_registry();
@@ -227,4 +236,46 @@ pub async fn mount(
 pub fn unmount(path: impl AsRef<str>) -> MountResult<()> {
     let registry = get_registry();
     registry.unregister_mount(path.as_ref())
+}
+
+/// Create a filesystem based on type
+async fn create_filesystem(
+    fs_type: &str,
+    device: Arc<dyn BlockDevice>,
+    options: &MountOptions,
+) -> MountResult<Box<dyn AsyncFileSystem>> {
+    match fs_type {
+        FS_TYPE_FATFS => {
+            // Try to downcast to concrete types that FatFS supports
+            if let Some(memory_device) = device.as_any().downcast_ref::<MemoryBlockDevice>() {
+                // Memory block device
+                let device_arc = Arc::new(memory_device.clone());
+                let format = options.fs_options.get("format")
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+                
+                let fs = create_fatfs_from_block_device(device_arc, format)
+                    .map_err(MountError::FilesystemError)?;
+                
+                Ok(Box::new(AsyncFatFs { fs: Arc::new(fs) }))
+            } else {
+                // Future: Add support for other block device types here
+                // e.g., if let Some(disk_device) = device.as_any().downcast_ref::<DiskBlockDevice>() { ... }
+                Err(MountError::FilesystemError(
+                    "FatFS currently only supports MemoryBlockDevice".to_string()
+                ))
+            }
+        }
+        
+        // Future filesystems can be added here
+        // "ext4" => create_ext4_filesystem(device, options),
+        // "btrfs" => create_btrfs_filesystem(device, options),
+        
+        _ => Err(MountError::UnsupportedFilesystem(fs_type.to_string()))
+    }
+}
+
+/// Check if a filesystem type is supported
+pub fn is_filesystem_supported(fs_type: &str) -> bool {
+    matches!(fs_type, FS_TYPE_FATFS)
 }

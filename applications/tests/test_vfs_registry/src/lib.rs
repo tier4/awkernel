@@ -7,12 +7,12 @@ use alloc::{boxed::Box, string::ToString, vec::Vec};
 use awkernel_async_lib::{
     executor::Executor,
     file::{
-        mount::{mount, create_memory_block_device, MountOptions},
+        mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
 };
-use awkernel_lib::{print, println};
+use awkernel_lib::{print, println, file::memfs::create_memory_block_device};
 
 #[awkernel_lib::test]
 fn test_vfs_registry_basic() {

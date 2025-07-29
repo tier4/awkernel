@@ -7,13 +7,13 @@ use alloc::string::ToString;
 use awkernel_async_lib::{
     executor::Executor,
     file::{
-        mount::{mount, create_memory_block_device, DEFAULT_BLOCK_SIZE, MountOptions},
+        mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
 };
 use alloc::collections::BTreeMap;
-use awkernel_lib::{print, println};
+use awkernel_lib::{print, println, file::memfs::{create_memory_block_device, DEFAULT_BLOCK_SIZE}};
 
 #[awkernel_lib::entry_point]
 fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {

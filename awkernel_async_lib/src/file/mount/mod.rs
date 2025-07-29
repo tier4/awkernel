@@ -2,24 +2,22 @@
 //!
 //! This module provides all mount-related functionality including:
 //! - Mount registry that tracks both mount points and filesystem instances
-//! - Filesystem factory pattern for creating filesystem instances
 //! - High-level mount management API
 //! - Mount-aware path resolution
 
-pub mod filesystem_creator;
 pub mod registry;
 
 // Re-export commonly used types and functions
-pub use filesystem_creator::{
-    create_filesystem, 
-    is_filesystem_supported,
-    create_memory_block_device,
-    DEFAULT_BLOCK_SIZE,
-    FS_TYPE_FATFS,
-};
 pub use registry::{
     mount, unmount, list_mounts, get_mount_info,
-    resolve_filesystem_for_path,
+    resolve_filesystem_for_path, is_filesystem_supported,
+    FS_TYPE_FATFS,
+};
+
+// Re-export block device utilities from the sync lib
+pub use awkernel_lib::file::memfs::{
+    create_memory_block_device,
+    DEFAULT_BLOCK_SIZE,
 };
 
 // Re-export mount types from sync lib

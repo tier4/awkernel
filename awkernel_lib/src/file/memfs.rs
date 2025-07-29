@@ -1,8 +1,11 @@
 //! Memory-based filesystem implementations
 
 use super::block_device::{BlockDevice, BlockDeviceError, BlockResult};
-use alloc::{vec, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 use core::any::Any;
+
+/// Default block size for block devices
+pub const DEFAULT_BLOCK_SIZE: usize = 512;
 
 /// A memory-backed block device for testing and in-memory filesystems
 #[derive(Debug, Clone)]
@@ -67,4 +70,24 @@ impl BlockDevice for MemoryBlockDevice {
         self.data[offset..offset + self.block_size].copy_from_slice(&buf[..self.block_size]);
         Ok(())
     }
+}
+
+/// Create a memory block device with the specified size
+pub fn create_memory_block_device(size: usize, block_size: usize) -> Result<Arc<dyn BlockDevice>, &'static str> {
+    // Validate parameters
+    if size == 0 {
+        return Err("Size must be greater than 0");
+    }
+    
+    if block_size == 0 || !block_size.is_power_of_two() {
+        return Err("Block size must be a power of 2");
+    }
+    
+    // Create a zero-initialized Vec for the disk data
+    let disk_data = vec![0u8; size];
+    
+    // Create a MemoryBlockDevice
+    let memory_device = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
+    
+    Ok(memory_device as Arc<dyn BlockDevice>)
 }

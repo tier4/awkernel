@@ -4,11 +4,12 @@ extern crate alloc;
 
 use awkernel_async_lib::{
     file::{
-        mount::{mount, create_memory_block_device, MountOptions},
+        mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
         mount_aware_vfs_path::MountAwareAsyncVfsPath,
     },
 };
+use awkernel_lib::file::memfs::create_memory_block_device;
 
 pub async fn run() {
     awkernel_async_lib::spawn(
