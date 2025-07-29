@@ -75,7 +75,7 @@ pub struct IdentifyPsd {
     pub reserved: [u8; 16],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceFormat {
     pub ms: u16,   /* Metadata Size */
