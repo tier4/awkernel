@@ -62,7 +62,7 @@ pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
 pub const NVME_TIMO_QOP: u32 = 5000; /* 5 seconds */
 
 /* Power State Descriptor Data */
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyPsd {
     pub mp: u16, /* Max Power */
@@ -79,7 +79,7 @@ pub struct IdentifyPsd {
     pub reserved: [u8; 16],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct NamespaceFormat {
     pub ms: u16,   /* Metadata Size */
@@ -87,7 +87,7 @@ pub struct NamespaceFormat {
     pub rp: u8,    /* Relative Performance */
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyNamespace {
     pub nsze: u64,  /* Namespace Size */
@@ -109,7 +109,7 @@ pub struct IdentifyNamespace {
 
 pub const NVME_ID_NS_NSFEAT_THIN_PROV: u8 = 1 << 0;
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyController {
     /* Controller Capabilities and Features */
@@ -159,7 +159,7 @@ pub struct IdentifyController {
     pub vs: [u8; 1024],         /* Vendor Specific */
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub union Entry {
     pub prp: [u64; 2],
@@ -174,7 +174,7 @@ impl Default for Entry {
 impl core::fmt::Debug for Entry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         unsafe {
-            let Entry { prp } = self;
+            let prp = self.prp;
             write!(f, "PRP: [{:#x}, {:#x}]", prp[0], prp[1])
         }
     }
@@ -194,13 +194,14 @@ pub const NVM_CMD_FLUSH: u8 = 0x00;
 pub const NVM_CMD_WRITE: u8 = 0x01;
 pub const NVM_CMD_READ: u8 = 0x02;
 
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Sge {
     pub _id: u8,
     pub _reserved: [u8; 15],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SubQueueEntry {
     pub opcode: u8,
@@ -218,7 +219,7 @@ pub struct SubQueueEntry {
     pub cdw15: u32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SubQueueEntryQ {
     pub opcode: u8,
@@ -227,8 +228,8 @@ pub struct SubQueueEntryQ {
     pub _reserved1: [u8; 20],
     pub prp1: u64,
     pub _reserved2: [u8; 8],
-    pub cdw10: u32,  // Contains qid (bits 15:0) and qsize (bits 31:16)
-    pub cdw11: u32,  // Contains interrupt vector (bits 31:16) and flags (bits 15:0)
+    pub cdw10: u32, // Contains qid (bits 15:0) and qsize (bits 31:16)
+    pub cdw11: u32, // Contains interrupt vector (bits 31:16) and flags (bits 15:0)
     pub cdw12: u32,
     pub cdw13: u32,
     pub cdw14: u32,
@@ -240,7 +241,8 @@ pub struct SubQueue {
     pub _sqtdbl: usize,
     pub _tail: u32,
 }
-#[repr(C)]
+
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ComQueueEntry {
     pub cdw0: u32,
@@ -269,15 +271,15 @@ pub struct SubQueueEntryIo {
     pub nsid: u32,
     pub _reserved: [u8; 8],
     pub mptr: u64,
-    pub entry: Entry,  // PRP entries
-    pub slba: u64,     // Starting LBA
-    pub nlb: u16,      // Number of Logical Blocks
+    pub entry: Entry, // PRP entries
+    pub slba: u64,    // Starting LBA
+    pub nlb: u16,     // Number of Logical Blocks
     pub ioflags: u16,
-    pub dsm: u8,       // Dataset Management
+    pub dsm: u8, // Dataset Management
     pub _reserved2: [u8; 3],
-    pub eilbrt: u32,   // Expected Initial Logical Block Reference Tag
-    pub elbat: u16,    // Expected Logical Block Application Tag
-    pub elbatm: u16,   // Expected Logical Block Application Tag Mask
+    pub eilbrt: u32, // Expected Initial Logical Block Reference Tag
+    pub elbat: u16,  // Expected Logical Block Application Tag
+    pub elbatm: u16, // Expected Logical Block Application Tag Mask
 }
 
 pub type SubRing = [SubQueueEntry; QUEUE_SIZE];
