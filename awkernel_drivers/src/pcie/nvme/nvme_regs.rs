@@ -228,12 +228,12 @@ pub struct SubQueueEntryQ {
     pub _reserved1: [u8; 20],
     pub prp1: u64,
     pub _reserved2: [u8; 8],
-    pub cdw10: u32, // Contains qid (bits 15:0) and qsize (bits 31:16)
-    pub cdw11: u32, // Contains interrupt vector (bits 31:16) and flags (bits 15:0)
-    pub cdw12: u32,
-    pub cdw13: u32,
-    pub cdw14: u32,
-    pub cdw15: u32,
+    pub qid: u16,
+    pub qsize: u16,
+    pub qflags: u8,
+    pub _reserved3: u8,
+    pub cqid: u16,
+    pub _reserved4: [u8; 16],
 }
 
 pub struct SubQueue {

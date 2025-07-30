@@ -561,14 +561,9 @@ impl NvmeInner {
         }
         .to_le();
 
-        // CDW10: Queue ID (bits 15:0) and Queue Size (bits 31:16)
-        sqe.cdw10 = ((((io_q.entries - 1) as u32) << 16) | (io_q._id as u32)).to_le();
-
-        // CDW11: Interrupt Vector (bits 31:16) and Queue Flags (bits 15:0)
-        // Like OpenBSD, use vector 0 for all queues
-        let interrupt_vector = 0u32;
-        let qflags = (NVM_SQE_CQ_IEN | NVM_SQE_Q_PC) as u32;
-        sqe.cdw11 = ((interrupt_vector << 16) | qflags).to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_CQ_IEN | NVM_SQE_Q_PC;
         {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
@@ -594,11 +589,10 @@ impl NvmeInner {
         }
         .to_le();
 
-        // CDW10: Queue ID (bits 15:0) and Queue Size (bits 31:16)
-        sqe.cdw10 = ((((io_q.entries - 1) as u32) << 16) | (io_q._id as u32)).to_le();
-
-        // CDW11: CQ ID (bits 31:16) and Queue Flags (bits 15:0)
-        sqe.cdw11 = (((io_q._id as u32) << 16) | (NVM_SQE_Q_PC as u32)).to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.cqid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_Q_PC;
         {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
