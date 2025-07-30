@@ -1013,6 +1013,8 @@ impl PCIeInfo {
                 return virtio::attach(self);
             }
             _ => {
+                // TODO: After the issue with the actual device is reolved,
+                // we will enable the NVMe support.
                 //if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
                 //pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
                 //)) = self.get_class()
