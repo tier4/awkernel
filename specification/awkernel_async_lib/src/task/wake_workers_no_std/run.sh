@@ -49,16 +49,16 @@ for i in $(seq 0 3); do
     # fi
 
     # Edge-triggered timer
-    make clean
-    echo make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run
-    time make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run | tee concurrent_work_conservation_edge_irq$i.out
+    # make clean
+    # echo make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run
+    # time make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run | tee concurrent_work_conservation_edge_irq$i.out
 
-    if [ -e "wake_workers.pml.trail" ]; then
-        echo "false make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
-    else
-        echo "true make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
-    fi
+    # if [ -e "wake_workers.pml.trail" ]; then
+    #     echo "false make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
+    #     echo "wake_workers.pml.trail ファイルが存在します。"
+    # else
+    #     echo "true make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
+    # fi
 
     # make clean
     # echo make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU0 TIMER=TIMER_EDGE run

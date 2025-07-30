@@ -80,6 +80,7 @@ inline interrupt_handler(cpu_id) {
             if
             :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
                 timer_interrupt[cpu_id] = false
+                timer_enable[cpu_id] = false
                 printf("CPU#{%d}: handle timer interrupt\n", cpu_id)
             :: else
             fi
