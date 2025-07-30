@@ -8,64 +8,47 @@
 #include "future_mock.pml"
 #include "utility.pml"
 
-inline get_higher_priority_num_in_queue(task,ret) {
-	d_step {
-		byte k = 0;
-		ret = 0;
-		do
-		:: k < len(queue) ->
-			byte queued_task;
-			queue?queued_task; queue!queued_task;
-			if
-			:: queued_task < task -> ret++;
-			:: else
-			fi
-			k++;
-		:: else -> break
-		od
+inline get_lowest_priority_task(task,ret_task,ret_cpu_id) {
+	atomic{
+		printf("get_lowest_priority_task(): task = %d\n",task);
+		ret_task = -1;ret_cpu_id = -1;
 	}
-}
 
-inline get_lowest_priority_task(tid,task,ret_task,ret_cpu_id) {
-	byte j;
-	byte num_idle_cpus = 0;
+	short tasks_running[CPU_NUM];byte c_i;
+	for (c_i : 0 .. CPU_NUM - 1) {
+		tasks_running[c_i] = RUNNING[c_i];
+	}
 
-	atomic {
-		printf("get_lowest_priority_task(): tid = %d,task = %d\n",tid,task);
-		for (j : 0 .. CPU_NUM - 1) {
-			short reference_task = - 1;
+	// If the task has already been running, preempt is not required.
+	for (c_i : 0 .. CPU_NUM - 1) {
+		if
+		:: tasks_running[c_i] == task -> goto end_get_lowest_priority_task
+		:: else
+		fi
+	}
+
+	short reference_task;byte highest_pending;
+	for (c_i : 0 .. CPU_NUM - 1) {
+		if
+		:: tasks_running[c_i] == -1 -> skip
+		:: else ->
 			if
-			:: RUNNING[j] == task ->// The task has already been running.
-				ret_task = - 1;
-				break
-			:: RUNNING[j] == -1 -> num_idle_cpus++;
-			:: else ->
-				byte highest_pending;
-				if
-				:: ipi_requests[j]?[highest_pending] -> 
-					ipi_requests[j]?<highest_pending>;
-					min(RUNNING[j],highest_pending,reference_task);
-				:: else -> reference_task = RUNNING[j];
-				fi
+			:: d_step{ipi_requests[c_i]?[highest_pending] ->
+				ipi_requests[c_i]?<highest_pending>;}
+				min(tasks_running[c_i],highest_pending,reference_task);
+			:: else -> reference_task = tasks_running[c_i];
 			fi
+		fi
 
-			if
-			:: reference_task > ret_task -> 
-				ret_task = reference_task;
-				ret_cpu_id = j;
-			:: else
-			fi
-		}
-	}	
+		if
+		:: reference_task > ret_task -> 
+			ret_task = reference_task;
+			ret_cpu_id = c_i;
+		:: else
+		fi
+	}
 
-	byte higher_priority_num = 0;
-	get_higher_priority_num_in_queue(ret_task,higher_priority_num);
-	if
-	:: higher_priority_num < num_idle_cpus ->
-		ret_task = -1;
-		ret_cpu_id = -1;
-	:: else
-	fi
+	end_get_lowest_priority_task:
 }
 
 inline set_need_preemption(tid,task) {
@@ -75,9 +58,8 @@ inline set_need_preemption(tid,task) {
 }
 
 inline invoke_preemption(tid,task,ret) {
-	int lp_task = - 1;
-	int lp_cpu_id = - 1;
-	get_lowest_priority_task(tid,task,lp_task,lp_cpu_id);
+	short lp_task;short lp_cpu_id;
+	get_lowest_priority_task(task,lp_task,lp_cpu_id);
 	if
 	:: task < lp_task -> // If lp_task is - 1,preemption will not occur.
 		set_need_preemption(tid,lp_task);
