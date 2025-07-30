@@ -31,6 +31,7 @@ struct PollState {
 enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
+    _QueueCmd(SubQueueEntryQ),
 }
 
 struct Ccb {
@@ -158,6 +159,7 @@ struct NvmeInner {
     ccb_prpls: Option<DMAPool<u64>>,
     nn: u32,
     identify: Option<IdentifyController>,
+    namespaces: Vec<Option<IdentifyNamespace>>,
 }
 
 impl NvmeInner {
@@ -207,6 +209,7 @@ impl NvmeInner {
             ccb_prpls: None,
             nn: 0,
             identify: None,
+            namespaces: Vec::new(),
         })
     }
 
@@ -497,6 +500,85 @@ impl NvmeInner {
         sqe.cdw10 = 1_u32.to_le();
     }
 
+    fn sqe_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_QueueCmd(sqe_q)) = &ccb.cookie {
+            unsafe {
+                let sqe_ptr = sqe as *mut SubQueueEntry as *mut u8;
+                let sqe_q_ptr = sqe_q as *const SubQueueEntryQ as *const u8;
+                core::ptr::copy_nonoverlapping(
+                    sqe_q_ptr,
+                    sqe_ptr,
+                    core::mem::size_of::<SubQueueEntryQ>(),
+                );
+            }
+        } else if let Some(CcbCookie::_State(state)) = &ccb.cookie {
+            *sqe = state._sqe;
+        }
+    }
+
+    fn create_io_queue(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<(), NvmeDriverErr> {
+        let mut sqe = SubQueueEntryQ::default();
+
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+
+        // Create I/O Completion Queue
+        sqe.opcode = NVM_ADMIN_ADD_IOCQ;
+        sqe.prp1 = {
+            let mut node = MCSNode::new();
+            let comq = io_q.comq.lock(&mut node);
+            comq.com_ring.get_phy_addr().as_usize() as u64
+        }
+        .to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_CQ_IEN | NVM_SQE_Q_PC;
+        {
+            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
+
+        if rv != 0 {
+            self.ccb_put(ccb_id)?;
+            log::error!("Create I/O Completion Queue failed with status: 0x{rv:x}");
+            return Err(NvmeDriverErr::CommandFailed);
+        }
+
+        // Create I/O Submission Queue - reuse the same CCB
+        sqe = SubQueueEntryQ::default();
+        sqe.opcode = NVM_ADMIN_ADD_IOSQ;
+        sqe.prp1 = {
+            let mut node = MCSNode::new();
+            let subq = io_q.subq.lock(&mut node);
+            subq.sub_ring.get_phy_addr().as_usize() as u64
+        }
+        .to_le();
+        sqe.qid = io_q._id.to_le();
+        sqe.qsize = ((io_q.entries - 1) as u16).to_le();
+        sqe.cqid = io_q._id.to_le();
+        sqe.qflags = NVM_SQE_Q_PC;
+        {
+            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
+            ccb.done = None;
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_QOP)?;
+
+        self.ccb_put(ccb_id)?;
+
+        if rv != 0 {
+            log::error!("Create I/O Submission Queue failed with status: 0x{rv:x}");
+            return Err(NvmeDriverErr::CommandFailed);
+        }
+
+        Ok(())
+    }
+
     fn identify(&mut self, admin_q: &Queue) -> Result<(), NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
 
@@ -554,6 +636,68 @@ impl NvmeInner {
 
         Ok(())
     }
+
+    fn namespace_size(ns: &IdentifyNamespace) -> u64 {
+        let ncap = u64::from_le(ns.ncap); // Max allowed allocation.
+        let nsze = u64::from_le(ns.nsze);
+
+        if (ns.nsfeat & NVME_ID_NS_NSFEAT_THIN_PROV) != 0 && ncap < nsze {
+            ncap
+        } else {
+            nsze
+        }
+    }
+
+    fn identify_namespace(&mut self, admin_q: &Queue, nsid: u32) -> Result<bool, NvmeDriverErr> {
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+
+        let dma_size = core::mem::size_of::<IdentifyNamespace>();
+        let pages = dma_size.div_ceil(PAGESIZE);
+        let mem: DMAPool<IdentifyNamespace> =
+            DMAPool::new(self.info.segment_group as usize, pages).ok_or(NvmeDriverErr::DMAPool)?;
+
+        let mut sqe = SubQueueEntry {
+            opcode: NVM_ADMIN_IDENTIFY,
+            nsid: nsid.to_le(),
+            ..Default::default()
+        };
+        unsafe {
+            sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+        }
+
+        {
+            let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
+            let ccb = &mut sc_ccbs[ccb_id as usize];
+            ccb.cookie = Some(CcbCookie::_State(PollState {
+                _sqe: sqe,
+                _cqe: ComQueueEntry::default(),
+            }));
+            ccb.done = None;
+        }
+
+        let rv = self.poll(admin_q, ccb_id, Self::sqe_fill, NVME_TIMO_IDENT)?;
+
+        self.ccb_put(ccb_id)?;
+
+        if rv != 0 {
+            return Ok(false); // Namespace not found.
+        }
+
+        let ptr = mem.get_virt_addr().as_ptr::<IdentifyNamespace>();
+        let ident = unsafe { &*ptr };
+
+        // Note: For thin-provisioned namespaces, this might skip namespaces that could be
+        // allocated later. However, we maintain this check following the OpenBSD behavior, which skips namespaces with zero size.
+        if Self::namespace_size(ident) > 0 {
+            // Commit namespace if it has a size greater than zero
+            self.namespaces.push(Some(*ident));
+            Ok(true)
+        } else {
+            // Don't attach a namespace if its size is zero
+            self.namespaces.push(None);
+            Ok(false)
+        }
+    }
 }
 
 struct Nvme {
@@ -566,6 +710,7 @@ struct Nvme {
     //
     // Otherwise, a deadlock will occur.
     _admin_q: Queue,
+    _io_q: Queue,
     inner: RwLock<NvmeInner>,
 }
 
@@ -577,7 +722,7 @@ impl Nvme {
 
         let admin_q = inner.allocate_queue(NVME_ADMIN_Q, QUEUE_SIZE as u32, inner.dstrd)?;
 
-        inner.ccbs_alloc(QUEUE_SIZE as u16)?;
+        inner.ccbs_alloc(16)?;
 
         inner.enable(&admin_q)?;
 
@@ -587,10 +732,30 @@ impl Nvme {
         inner.ccbs_free();
         inner.ccbs_alloc(64)?;
 
-        let _io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
+        let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
+
+        inner.create_io_queue(&admin_q, &io_q)?;
+
+        write_reg(&inner.info, NVME_INTMC, 1)?;
+
+        let nn = inner.nn;
+        if nn > 0 {
+            inner.namespaces.reserve_exact((nn + 1) as usize);
+            let mut identified_count = 0;
+            for nsid in 1..=nn {
+                if inner.identify_namespace(&admin_q, nsid)? {
+                    identified_count += 1;
+                }
+            }
+
+            if identified_count < nn {
+                log::info!("NVMe: Identified {identified_count} namespace(s), out of {nn} total");
+            }
+        }
 
         let nvme = Self {
             _admin_q: admin_q,
+            _io_q: io_q,
             inner: RwLock::new(inner),
         };
 
