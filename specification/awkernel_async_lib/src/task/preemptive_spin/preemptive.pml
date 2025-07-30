@@ -322,14 +322,14 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		fi
 
 		// If there is a task to be invoked next, execute the task.
+		move_channel(ipi_requests[cpu_id_],moved_preemption_pending);
+		moved_preemption_pending?hp_task;// hp_task may be updated, so the latest hp_task is used.
 		d_step {
 			printf("RUNNING[%d] = %d\n",cpu_id_,hp_task);
 			RUNNING[cpu_id_] = hp_task;
 		}
-		remove_from_channel(ipi_requests[cpu_id_],hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
-		move_channel(ipi_requests[cpu_id_],moved_preemption_pending);
 		do
 		:: d_step{moved_preemption_pending?[pending_lp_task] -> 
 			moved_preemption_pending?pending_lp_task;
