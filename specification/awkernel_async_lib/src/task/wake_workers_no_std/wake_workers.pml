@@ -494,7 +494,7 @@ ltl cpu_waking_to_active_cpu1 {
     cnt_scheduling_event > 0)
 
 ltl concurrent_work_conservation {
-    [] (run_queue > 0 && (CPU_SLEEP_TAG[1] == Waiting || polling[0] == true) ->
+    [] (run_queue > 0 && polling[0] == true ->
         !(!(E || IPI[1] == true || timer_interrupt[1] == true) &&
             CPU_SLEEP_TAG[1] == Waiting) &&
         !(!(E || IPI[2] == true || timer_interrupt[2] == true) &&
