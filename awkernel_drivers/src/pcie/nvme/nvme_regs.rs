@@ -8,6 +8,8 @@ pub const NVME_CAP_TO: fn(u64) -> u32 = |r| 500 * ((r >> 24) & 0xff) as u32; /* 
 
 pub const NVME_VS: usize = 0x0008; /* Version */
 
+pub const NVME_INTMC: usize = 0x0010; /* Interrupt Mask Clear */
+
 pub const NVME_CC: usize = 0x0014; /* Controller Configuration */
 pub const NVME_CC_IOCQES: fn(u32) -> u32 = |_v| (((_v) & 0xf) << 20);
 pub const NVME_CC_IOCQES_MASK: u32 = 0xf << 20;
@@ -72,6 +74,36 @@ pub struct IdentifyPsd {
 
     pub reserved: [u8; 16],
 }
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct NamespaceFormat {
+    pub ms: u16,   /* Metadata Size */
+    pub lbads: u8, /* LBA Data Size */
+    pub rp: u8,    /* Relative Performance */
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct IdentifyNamespace {
+    pub nsze: u64,  /* Namespace Size */
+    pub ncap: u64,  /* Namespace Capacity */
+    pub nuse: u64,  /* Namespace Utilization */
+    pub nsfeat: u8, /* Namespace Features */
+    pub nlbaf: u8,  /* Number of LBA Formats */
+    pub flbas: u8,  /* Formatted LBA Size */
+    pub mc: u8,     /* Metadata Capabilities */
+    pub dpc: u8,    /* End-to-end Data Protection Capabilities */
+    pub dps: u8,    /* End-to-end Data Protection Type Settings */
+    pub _reserved1: [u8; 74],
+    pub nguid: [u8; 16],
+    pub eui64: [u8; 8],              /* BIG-endian */
+    pub lbaf: [NamespaceFormat; 16], /* LBA Format Support */
+    pub _reserved2: [u8; 192],
+    pub vs: [u8; 3712], /* Vendor Specific */
+}
+
+pub const NVME_ID_NS_NSFEAT_THIN_PROV: u8 = 1 << 0;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
