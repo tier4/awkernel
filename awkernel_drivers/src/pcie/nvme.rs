@@ -1,12 +1,5 @@
 use super::{registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{
-    borrow::Cow,
-    boxed::Box,
-    collections::VecDeque,
-    format,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -35,13 +28,6 @@ pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 // Global NVMe device instance (single device assumption)
 pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None);
 
-/// Global interrupt handler for the single NVMe device
-pub fn nvme_interrupt(irq: u16) {
-    let device = NVME_DEVICE.read();
-    if let Some(nvme) = device.as_ref() {
-        let _ = nvme.process_interrupt(irq);
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -564,6 +550,7 @@ impl NvmeInner {
         sqe.qsize = ((io_q.entries - 1) as u16).to_le();
         sqe.qid = io_q._id.to_le();
         sqe.qflags = NVM_SQE_CQ_IEN | NVM_SQE_Q_PC;
+        // ENHANCE: It better to use a separate interrupt vector for I/O queues and not reuse the same ID as the admin queue. However, this is how OpenBSD does it, so we follow that for now.
         {
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
@@ -733,7 +720,7 @@ impl NvmeInner {
     }
 
     /// Main interrupt handler for MSI/MSI-X interrupts
-    fn nvme_intr(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
+    fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
         let mut rv = false;
 
         // Process I/O queue completions first
@@ -745,7 +732,7 @@ impl NvmeInner {
                     }
                 }
                 Err(e) => {
-                    log::error!("nvme_intr: Error processing I/O completions: {:?}", e);
+                    log::error!("intr: Error processing I/O completions: {:?}", e);
                 }
             }
         }
@@ -759,7 +746,7 @@ impl NvmeInner {
                     }
                 }
                 Err(e) => {
-                    log::error!("nvme_intr: Error processing admin completions: {:?}", e);
+                    log::error!("intr: Error processing admin completions: {:?}", e);
                 }
             }
         }
@@ -767,28 +754,9 @@ impl NvmeInner {
         rv
     }
 
-    /// Legacy interrupt handler for INTx interrupts
-    #[allow(dead_code)]
-    fn nvme_intr_intx(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
-        // Mask interrupts
-        if let Err(e) = write_reg(&self.info, NVME_INTMS, 1) {
-            log::error!("Failed to mask interrupts: {e:?}");
-            return false;
-        }
-
-        let rv = self.nvme_intr(admin_q, io_q);
-
-        // Unmask interrupts
-        if let Err(e) = write_reg(&self.info, NVME_INTMC, 1) {
-            log::error!("Failed to unmask interrupts: {e:?}");
-        }
-
-        rv
-    }
-
     /// Fill I/O command in submission queue entry
     /// Based on OpenBSD's nvme_scsi_io_fill()
-    fn nvme_io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+    fn io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         if let Some(CcbCookie::Io {
             lba,
             blocks,
@@ -818,13 +786,13 @@ impl NvmeInner {
                 }
             }
         } else {
-            log::error!("nvme_io_fill called with non-IO cookie");
+            log::error!("io_fill called with non-IO cookie");
         }
     }
 
     /// Process I/O command completion
     /// Based on OpenBSD's nvme_scsi_io_done()
-    fn nvme_io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
         let status = (flags >> 1) & 0x7ff; // Extract status code
 
@@ -854,7 +822,7 @@ impl NvmeInner {
 
     /// Process flush command completion
     /// Based on OpenBSD's nvme_scsi_sync_done()
-    fn nvme_flush_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
         let status = (flags >> 1) & 0x7ff; // Extract status code
 
@@ -872,14 +840,14 @@ impl NvmeInner {
 
     /// Fill flush command in submission queue entry
     /// Based on OpenBSD's nvme_scsi_sync_fill()
-    fn nvme_flush_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
             // Clear the SQE first (following OpenBSD's pattern)
             *sqe = SubQueueEntry::default();
             sqe.opcode = NVM_CMD_FLUSH;
             sqe.nsid = u32::to_le(*nsid);
         } else {
-            log::error!("nvme_flush_fill called with non-flush cookie");
+            log::error!("sync_fill called with non-flush cookie");
         }
     }
 
@@ -909,7 +877,7 @@ impl NvmeInner {
         });
 
         // Set up done callback (following OpenBSD's nvme_scsi_io)
-        ccb.done = Some(Self::nvme_io_done);
+        ccb.done = Some(Self::io_done);
 
         // Store the physical address in the PRPL
         if let Some(prpl_ptr) = ccb._prpl {
@@ -919,19 +887,19 @@ impl NvmeInner {
 
         if poll {
             // Synchronous polling mode - use the poll() function like OpenBSD
-            self.poll(io_q, ccb_id, Self::nvme_io_fill, 30000)?; // 30 second timeout
+            self.poll(io_q, ccb_id, Self::io_fill, 30000)?; // 30 second timeout
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
         } else {
             // Asynchronous mode - just submit and return like OpenBSD
             // Clear the completion flag before submitting
             ccb.completed.store(false, Ordering::Release);
-            
+
             // Get a clone of the completion flag to return
             let completion_flag = ccb.completed.clone();
 
             // Submit the command
-            io_q.submit(&self.info, ccb, Self::nvme_io_fill)?;
+            io_q.submit(&self.info, ccb, Self::io_fill)?;
 
             // Return the CCB ID and completion flag so the caller can wait and free it later
             Ok((ccb_id, Some(completion_flag)))
@@ -954,12 +922,12 @@ impl NvmeInner {
         ccb.cookie = Some(CcbCookie::Flush { nsid });
 
         // Set up done callback (following OpenBSD's nvme_scsi_sync)
-        ccb.done = Some(Self::nvme_flush_done);
+        ccb.done = Some(Self::sync_done);
 
         if poll {
             // Synchronous polling mode - use the poll() function like OpenBSD
             log::info!("Polling for flush completion, ccb_id={ccb_id}");
-            self.poll(io_q, ccb_id, Self::nvme_flush_fill, 10000)?; // 10 second timeout
+            self.poll(io_q, ccb_id, Self::sync_fill, 10000)?; // 10 second timeout
             log::info!("Flush completed successfully");
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
@@ -967,16 +935,102 @@ impl NvmeInner {
             // Asynchronous mode - just submit and return like OpenBSD
             // Clear the completion flag before submitting
             ccb.completed.store(false, Ordering::Release);
-            
+
             // Get a clone of the completion flag to return
             let completion_flag = ccb.completed.clone();
 
             // Submit the command
-            io_q.submit(&self.info, ccb, Self::nvme_flush_fill)?;
+            io_q.submit(&self.info, ccb, Self::sync_fill)?;
 
             // Return the CCB ID and completion flag so the caller can wait and free it later
             Ok((ccb_id, Some(completion_flag)))
         }
+    }
+
+    /// Setup MSI-X or MSI interrupts for the NVMe controller
+    fn setup_interrupts(&mut self) {
+        let segment_group = self.info.get_segment_group();
+        let bfd = self.info.get_bfd();
+        log::info!("Setting up NVMe interrupts for {}", bfd);
+
+        // Try MSI-X first
+        if let Some(msix) = self.info.get_msix_mut() {
+            log::info!("MSI-X capability found, attempting to register handler");
+            let mut irqs = Vec::new();
+
+            // ENHANCE: It better to use a separate interrupt vector for I/O queues and not reuse the same ID as the admin queue. However, this is how OpenBSD does it, so we follow that for now.
+            match msix.register_handler(
+                Cow::from(format!("nvme-{bfd}")),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.process_interrupt(irq);
+                    }
+                }),
+                segment_group as usize,
+                0, // target CPU
+                0, // MSI-X entry 0 for both queues
+            ) {
+                Ok(irq) => {
+                    let irq_num = irq.get_irq();
+                    log::info!("Registered NVMe interrupt: IRQ {}", irq_num);
+                    irqs.push(irq);
+
+                    // Enable MSI-X
+                    msix.enable();
+                    log::info!("NVMe: MSI-X interrupts enabled successfully");
+                    self.pcie_int = PCIeInt::MsiX(irqs);
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Failed to register MSI-X interrupt: {:?}", e);
+                }
+            }
+
+            // If MSI-X failed, disable it
+            msix.disable();
+            log::warn!("MSI-X setup failed, disabling MSI-X");
+        } else {
+            log::info!("No MSI-X capability found");
+        }
+
+        // Try MSI
+        if let Some(msi) = self.info.get_msi_mut() {
+            log::info!("MSI capability found, attempting to register handler");
+            msi.disable();
+
+            match msi.register_handler(
+                Cow::from(format!("nvme-{bfd}")),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.process_interrupt(irq);
+                    }
+                }),
+                segment_group as usize,
+                0, // target CPU
+            ) {
+                Ok(mut irq) => {
+                    // For MSI, both queues share the same interrupt
+                    let irq_num = irq.get_irq();
+                    log::info!("Registered MSI interrupt: IRQ {}", irq_num);
+                    irq.enable();
+                    msi.enable();
+                    log::info!("NVMe: MSI interrupts enabled successfully");
+                    self.pcie_int = PCIeInt::Msi(irq);
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Failed to register MSI handler: {:?}", e);
+                }
+            }
+        } else {
+            log::info!("No MSI capability found");
+        }
+
+        // Fall back to polling mode
+        log::warn!("NVMe: No MSI-X/MSI support, falling back to polling mode");
+        self.pcie_int = PCIeInt::None;
     }
 }
 
@@ -1001,124 +1055,6 @@ pub struct Nvme {
     admin_q: Queue,
     io_q: Queue,
     inner: RwLock<NvmeInner>,
-}
-
-impl Nvme {
-    fn process_interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
-        // Process both admin and I/O completions
-        let mut inner = self.inner.write();
-        inner.nvme_intr(&self.admin_q, &self.io_q);
-        Ok(())
-    }
-
-    /// Debug function to log interrupt configuration
-    pub fn debug_interrupt_config(&self) {
-        let inner = self.inner.read();
-        log::info!("=== NVMe Interrupt Configuration Debug ===");
-
-        match &inner.pcie_int {
-            PCIeInt::None => {
-                log::warn!("No interrupts configured - device in polling mode only!");
-            }
-            PCIeInt::Msi(irq) => {
-                log::info!("MSI interrupt configured with IRQ {:?}", irq);
-            }
-            PCIeInt::MsiX(irqs) => {
-                log::info!("MSI-X interrupt configured:");
-                for irq in irqs {
-                    log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
-                }
-            }
-        }
-
-
-        // Check controller interrupt mask register
-        if let Ok(intms) = read_reg(&inner.info, NVME_INTMS) {
-            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{:08x}", intms);
-        }
-        if let Ok(intmc) = read_reg(&inner.info, NVME_INTMC) {
-            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{:08x}", intmc);
-        }
-
-        log::info!("==========================================");
-    }
-}
-
-fn setup_interrupts(inner: &mut NvmeInner) -> PCIeInt {
-    let segment_group = inner.info.get_segment_group();
-    let bfd = inner.info.get_bfd();
-    log::info!("Setting up NVMe interrupts for {}", bfd);
-
-    // Try MSI-X first
-    if let Some(msix) = inner.info.get_msix_mut() {
-        log::info!("MSI-X capability found, attempting to register handler");
-        let mut irqs = Vec::new();
-
-        // Register single interrupt for both queues (vector 0) - like OpenBSD
-        match msix.register_handler(
-            Cow::from(format!("nvme-{bfd}")),
-            Box::new(|irq| {
-                nvme_interrupt(irq);
-            }),
-            segment_group as usize,
-            0, // target CPU
-            0, // MSI-X entry 0 for both queues
-        ) {
-            Ok(irq) => {
-                let irq_num = irq.get_irq();
-                log::info!("Registered NVMe interrupt: IRQ {}", irq_num);
-                irqs.push(irq);
-
-                // Enable MSI-X
-                msix.enable();
-                log::info!("NVMe: MSI-X interrupts enabled successfully");
-                return PCIeInt::MsiX(irqs);
-            }
-            Err(e) => {
-                log::error!("Failed to register MSI-X interrupt: {:?}", e);
-            }
-        }
-
-        // If MSI-X failed, disable it
-        msix.disable();
-        log::warn!("MSI-X setup failed, disabling MSI-X");
-    } else {
-        log::info!("No MSI-X capability found");
-    }
-
-    // Try MSI
-    if let Some(msi) = inner.info.get_msi_mut() {
-        log::info!("MSI capability found, attempting to register handler");
-        msi.disable();
-
-        match msi.register_handler(
-            Cow::from(format!("nvme-{bfd}")),
-            Box::new(|irq| {
-                nvme_interrupt(irq);
-            }),
-            segment_group as usize,
-            0, // target CPU
-        ) {
-            Ok(mut irq) => {
-                // For MSI, both queues share the same interrupt
-                let irq_num = irq.get_irq();
-                log::info!("Registered MSI interrupt: IRQ {}", irq_num);
-                irq.enable();
-                msi.enable();
-                log::info!("NVMe: MSI interrupts enabled successfully");
-                return PCIeInt::Msi(irq);
-            }
-            Err(e) => {
-                log::error!("Failed to register MSI handler: {:?}", e);
-            }
-        }
-    } else {
-        log::info!("No MSI capability found");
-    }
-
-    // Fall back to polling mode
-    log::warn!("NVMe: No MSI-X/MSI support, falling back to polling mode");
-    PCIeInt::None
 }
 
 impl Nvme {
@@ -1147,7 +1083,7 @@ impl Nvme {
         inner.ccbs_alloc(64)?;
 
         // Setup interrupts BEFORE creating I/O queue so we know which interrupt vector to use
-        inner.pcie_int = setup_interrupts(&mut inner);
+        inner.setup_interrupts();
 
         // Unmask interrupts BEFORE creating I/O queue (like OpenBSD does)
         // Only unmask vector 0 since both queues share it
@@ -1181,24 +1117,42 @@ impl Nvme {
         Ok(nvme)
     }
 
-    /// Submit an I/O command (read or write)
-    /// Modeled after OpenBSD's nvme_scsi_io()
-    fn nvme_io_submit(
-        &self,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
-        data_phys: u64,
-        read: bool,
-        poll: bool,
-    ) -> Result<(u16, Arc<AtomicBool>), NvmeDriverErr> {
-        // Use submit_io for both polling and async modes
+    fn process_interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
+        // Process both admin and I/O completions
         let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) = inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, read, poll)?;
-        
-        // For polling mode, submit_io already handled waiting and freed the CCB
-        // For async mode, we get the completion flag to return
-        Ok((ccb_id, completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)))))
+        inner.intr(&self.admin_q, &self.io_q);
+        Ok(())
+    }
+
+    /// Debug function to log interrupt configuration
+    pub fn debug_interrupt_config(&self) {
+        let inner = self.inner.read();
+        log::info!("=== NVMe Interrupt Configuration Debug ===");
+
+        match &inner.pcie_int {
+            PCIeInt::None => {
+                log::warn!("No interrupts configured - device in polling mode only!");
+            }
+            PCIeInt::Msi(irq) => {
+                log::info!("MSI interrupt configured with IRQ {:?}", irq);
+            }
+            PCIeInt::MsiX(irqs) => {
+                log::info!("MSI-X interrupt configured:");
+                for irq in irqs {
+                    log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
+                }
+            }
+        }
+
+        // Check controller interrupt mask register
+        if let Ok(intms) = read_reg(&inner.info, NVME_INTMS) {
+            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{:08x}", intms);
+        }
+        if let Ok(intmc) = read_reg(&inner.info, NVME_INTMC) {
+            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{:08x}", intmc);
+        }
+
+        log::info!("==========================================");
     }
 
     /// Wait for I/O completion and cleanup CCB
@@ -1243,8 +1197,12 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
         let (ccb_id, completion_flag) =
-            self.nvme_io_submit(nsid, lba, blocks, data_phys, true, poll)?;
+            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, true, poll)?;
+        drop(inner);
+
+        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
 
         if !poll {
             // For testing, wait for completion
@@ -1264,8 +1222,12 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
         let (ccb_id, completion_flag) =
-            self.nvme_io_submit(nsid, lba, blocks, data_phys, false, poll)?;
+            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, false, poll)?;
+        drop(inner);
+
+        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
 
         if !poll {
             // For testing, wait for completion
@@ -1276,25 +1238,13 @@ impl Nvme {
         Ok(())
     }
 
-    /// Submit a flush command (sync cache)
-    /// Modeled after OpenBSD's nvme_scsi_sync()
-    fn nvme_sync_submit(
-        &self,
-        nsid: u32,
-        poll: bool,
-    ) -> Result<(u16, Arc<AtomicBool>), NvmeDriverErr> {
-        // Use submit_flush for both polling and async modes
-        let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) = inner.submit_flush(&self.io_q, nsid, poll)?;
-        
-        // For polling mode, submit_flush already handled waiting and freed the CCB
-        // For async mode, we get the completion flag to return
-        Ok((ccb_id, completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)))))
-    }
-
     /// Submit a flush command
     pub fn flush(&self, nsid: u32, poll: bool) -> Result<(), NvmeDriverErr> {
-        let (ccb_id, completion_flag) = self.nvme_sync_submit(nsid, poll)?;
+        let mut inner = self.inner.write();
+        let (ccb_id, completion_flag) = inner.submit_flush(&self.io_q, nsid, poll)?;
+        drop(inner);
+
+        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
 
         if !poll {
             // For testing, wait for completion
