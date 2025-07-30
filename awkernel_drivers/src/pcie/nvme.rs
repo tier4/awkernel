@@ -947,90 +947,98 @@ impl NvmeInner {
         }
     }
 
-    /// Setup MSI-X or MSI interrupts for the NVMe controller
+    /// Setup interrupts by trying MSI-X first, then MSI, then falling back to polling
     fn setup_interrupts(&mut self) {
-        let segment_group = self.info.get_segment_group();
-        let bfd = self.info.get_bfd();
-        log::info!("Setting up NVMe interrupts for {}", bfd);
-
         // Try MSI-X first
-        if let Some(msix) = self.info.get_msix_mut() {
-            log::info!("MSI-X capability found, attempting to register handler");
-            let mut irqs = Vec::new();
+        if let Ok(pcie_int) = Self::allocate_msix(&mut self.info) {
+            log::info!("NVMe: MSI-X interrupts configured successfully");
+            self.pcie_int = pcie_int;
+        } else if let Ok(pcie_int) = Self::allocate_msi(&mut self.info) {
+            log::info!("NVMe: MSI interrupts configured successfully");
+            self.pcie_int = pcie_int;
+        } else {
+            log::warn!("NVMe: No MSI-X/MSI support, falling back to polling mode");
+            self.pcie_int = PCIeInt::None;
+        }
+    }
 
-            // ENHANCE: It better to use a separate interrupt vector for I/O queues and not reuse the same ID as the admin queue. However, this is how OpenBSD does it, so we follow that for now.
-            match msix.register_handler(
-                Cow::from(format!("nvme-{bfd}")),
-                Box::new(|irq| {
-                    let device = NVME_DEVICE.read();
-                    if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.process_interrupt(irq);
-                    }
-                }),
-                segment_group as usize,
-                0, // target CPU
-                0, // MSI-X entry 0 for both queues
-            ) {
-                Ok(irq) => {
-                    let irq_num = irq.get_irq();
-                    log::info!("Registered NVMe interrupt: IRQ {}", irq_num);
-                    irqs.push(irq);
-
-                    // Enable MSI-X
-                    msix.enable();
-                    log::info!("NVMe: MSI-X interrupts enabled successfully");
-                    self.pcie_int = PCIeInt::MsiX(irqs);
-                    return;
+    /// Allocate MSI-X interrupts
+    fn allocate_msix(info: &mut PCIeInfo) -> Result<PCIeInt, NvmeDriverErr> {
+        let segment_group = info.get_segment_group();
+        let bfd = info.get_bfd();
+        
+        let msix = info.get_msix_mut().ok_or(NvmeDriverErr::InitFailure)?;
+        
+        log::info!("MSI-X capability found for NVMe {}", bfd);
+        
+        // Register single interrupt for both admin and I/O queues (like OpenBSD)
+        // ENHANCE: It better to use a separate interrupt vector for I/O queues
+        let mut irq = msix.register_handler(
+            Cow::from(format!("nvme-{}", bfd)),
+            Box::new(|irq| {
+                let device = NVME_DEVICE.read();
+                if let Some(nvme) = device.as_ref() {
+                    let _ = nvme.process_interrupt(irq);
                 }
-                Err(e) => {
-                    log::error!("Failed to register MSI-X interrupt: {:?}", e);
-                }
-            }
+            }),
+            segment_group as usize,
+            0, // target CPU
+            0, // MSI-X entry 0 for both queues
+        ).map_err(|e| {
+            log::error!("Failed to register MSI-X handler: {:?}", e);
+            NvmeDriverErr::InitFailure
+        })?;
+        
+        // Enable the interrupt and MSI-X
+        irq.enable();
+        msix.enable();
+        
+        log::info!("Registered NVMe MSI-X interrupt: IRQ {}", irq.get_irq());
+        
+        let mut irqs = Vec::new();
+        irqs.push(irq);
+        Ok(PCIeInt::MsiX(irqs))
+    }
 
-            // If MSI-X failed, disable it
+    /// Allocate MSI interrupts
+    fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, NvmeDriverErr> {
+        // Disable MSI-X if present
+        if let Some(msix) = info.get_msix_mut() {
             msix.disable();
-            log::warn!("MSI-X setup failed, disabling MSI-X");
-        } else {
-            log::info!("No MSI-X capability found");
         }
-
-        // Try MSI
-        if let Some(msi) = self.info.get_msi_mut() {
-            log::info!("MSI capability found, attempting to register handler");
-            msi.disable();
-
-            match msi.register_handler(
-                Cow::from(format!("nvme-{bfd}")),
-                Box::new(|irq| {
-                    let device = NVME_DEVICE.read();
-                    if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.process_interrupt(irq);
-                    }
-                }),
-                segment_group as usize,
-                0, // target CPU
-            ) {
-                Ok(mut irq) => {
-                    // For MSI, both queues share the same interrupt
-                    let irq_num = irq.get_irq();
-                    log::info!("Registered MSI interrupt: IRQ {}", irq_num);
-                    irq.enable();
-                    msi.enable();
-                    log::info!("NVMe: MSI interrupts enabled successfully");
-                    self.pcie_int = PCIeInt::Msi(irq);
-                    return;
+        
+        let segment_group = info.get_segment_group();
+        let bfd = info.get_bfd();
+        
+        let msi = info.get_msi_mut().ok_or(NvmeDriverErr::InitFailure)?;
+        
+        log::info!("MSI capability found for NVMe {}", bfd);
+        
+        // Disable then re-enable MSI
+        msi.disable();
+        
+        let mut irq = msi.register_handler(
+            Cow::from(format!("nvme-{}", bfd)),
+            Box::new(|irq| {
+                let device = NVME_DEVICE.read();
+                if let Some(nvme) = device.as_ref() {
+                    let _ = nvme.process_interrupt(irq);
                 }
-                Err(e) => {
-                    log::error!("Failed to register MSI handler: {:?}", e);
-                }
-            }
-        } else {
-            log::info!("No MSI capability found");
-        }
-
-        // Fall back to polling mode
-        log::warn!("NVMe: No MSI-X/MSI support, falling back to polling mode");
-        self.pcie_int = PCIeInt::None;
+            }),
+            segment_group as usize,
+            0, // target CPU
+        ).map_err(|e| {
+            log::error!("Failed to register MSI handler: {:?}", e);
+            NvmeDriverErr::InitFailure
+        })?;
+        
+        // Enable the interrupt and MSI
+        irq.enable();
+        msi.enable();
+        
+        log::info!("Registered NVMe MSI interrupt: IRQ {}", irq.get_irq());
+        
+        Ok(PCIeInt::Msi(irq))
     }
 }
 
