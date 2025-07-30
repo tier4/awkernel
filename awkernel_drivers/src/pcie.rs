@@ -36,7 +36,7 @@ pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
-pub mod nvme;
+//pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
@@ -1013,12 +1013,12 @@ impl PCIeInfo {
                 return virtio::attach(self);
             }
             _ => {
-                if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
-                    pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
-                )) = self.get_class()
-                {
-                    return nvme::attach(self);
-                }
+                //if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
+                //pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
+                //)) = self.get_class()
+                //{
+                //return nvme::attach(self);
+                //}
             }
         }
 
