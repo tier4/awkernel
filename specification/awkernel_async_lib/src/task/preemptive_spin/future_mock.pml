@@ -28,3 +28,5 @@ inline future(tid,task,ret) {
 	:: else -> assert(false);
 	fi
 }
+
+#define INIT_TASK 4
