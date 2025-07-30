@@ -989,8 +989,17 @@ impl NvmeInner {
             NvmeDriverErr::InitFailure
         })?;
         
-        // Enable the interrupt and MSI-X
+        // Enable the interrupt
         irq.enable();
+        
+        // Disable MSI and legacy interrupts before enabling MSI-X (following igb pattern)
+        if let Some(msi) = info.get_msi_mut() {
+            msi.disable();
+        }
+        info.disable_legacy_interrupt();
+        
+        // Get MSI-X again and enable it
+        let msix = info.get_msix_mut().unwrap();
         msix.enable();
         
         log::info!("Registered NVMe MSI-X interrupt: IRQ {}", irq.get_irq());
