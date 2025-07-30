@@ -1,4 +1,4 @@
-#define TASK_NUM 5
+#define TASK_NUM 4
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
 #define CPU_NUM 2
@@ -283,6 +283,7 @@ inline take_preempt_context(task,ret) {
 */ 
 proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1) {
 	byte cpu_id_;short cur_task;short hp_task;short next_thread;byte pending_lp_task;
+	chan moved_preemption_pending = [TASK_NUM] of { byte };
 	
 	do
 	:: d_step {(interrupt_enabled[cpu_id(tid)] && ipi_requests[cpu_id(tid)]?[hp_task]) -> 
@@ -328,17 +329,14 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		remove_from_channel(ipi_requests[cpu_id_],hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
-		byte loop_i;
-		byte original_len = len(ipi_requests[cpu_id_]);
-		for (loop_i : 0 .. original_len - 1) {
-			if
-			:: d_step{ipi_requests[cpu_id_]?[pending_lp_task] -> 
-				ipi_requests[cpu_id_]?[pending_lp_task];
-				waking[pending_lp_task]++;}
-				wake_task(tid,pending_lp_task)
-			:: else -> break
-			fi
-		}
+		move_channel(ipi_requests[cpu_id_],moved_preemption_pending);
+		do
+		:: d_step{moved_preemption_pending?[pending_lp_task] -> 
+			moved_preemption_pending?pending_lp_task;
+			waking[pending_lp_task]++;}
+			wake_task(tid,pending_lp_task)
+		:: else -> break
+		od
 
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id_,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
