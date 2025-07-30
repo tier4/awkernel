@@ -876,7 +876,7 @@ fn igc_setup_copper_link_i225(
 }
 
 /// Enable/disable EEE based on setting in dev_spec structure.
-fn igc_set_eee_i225(
+pub(super) fn igc_set_eee_i225(
     info: &PCIeInfo,
     hw: &IgcHw,
     adv2p5g: bool,
