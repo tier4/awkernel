@@ -22,7 +22,7 @@ inline get_lowest_priority_task(task,ret_task,ret_cpu_id) {
 	// If the task has already been running, preempt is not required.
 	for (c_i : 0 .. CPU_NUM - 1) {
 		if
-		:: tasks_running[c_i] == task -> goto end_get_lowest_priority_task
+		:: tasks_running[c_i] == task -> goto finish_get_lowest_priority_task
 		:: else
 		fi
 	}
@@ -48,7 +48,7 @@ inline get_lowest_priority_task(task,ret_task,ret_cpu_id) {
 		fi
 	}
 	
-	end_get_lowest_priority_task:
+	finish_get_lowest_priority_task:
 }
 
 inline set_need_preemption(tid,task) {
@@ -282,25 +282,25 @@ inline take_preempt_context(task,ret) {
 * In this model,Worker and InterruptHandler has one-to-one relationship, so tid equals the interrupt handler's id.
 */ 
 proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1) {
-	byte cpu_id;short cur_task;short hp_task;short next_thread;byte pending_lp_task;
+	byte cpu_id_;short cur_task;short hp_task;short next_thread;byte pending_lp_task;
 	
 	do
 	:: d_step {(interrupt_enabled[cpu_id(tid)] && ipi_requests[cpu_id(tid)]?[hp_task]) -> 
 			ipi_requests[cpu_id(tid)]?<hp_task>;
-			cpu_id = cpu_id(tid);
-			interrupt_enabled[cpu_id] = false;
+			cpu_id_ = cpu_id(tid);
+			interrupt_enabled[cpu_id_] = false;
 			workers[tid].interrupted = true;
 			handling_interrupt[tid] = true;
-			printf("Received IPI request. cpu_id = %d\n",cpu_id);
+			printf("Received IPI request. cpu_id = %d\n",cpu_id_);
 		}
 		
-		cur_task = RUNNING[cpu_id];
+		cur_task = RUNNING[cpu_id_];
 		
 		if
 		:: d_step{cur_task == - 1 -> 
-			printf("There is no running task in cpu_id %d\n",cpu_id);}
+			printf("There is no running task in cpu_id %d\n",cpu_id_);}
 			d_step {
-				remove_from_channel(ipi_requests[cpu_id],hp_task);
+				remove_from_channel(ipi_requests[cpu_id_],hp_task);
 				waking[hp_task]++;
 			}
 			wake_task(tid,hp_task);
@@ -310,9 +310,9 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		
 		if
 		:: d_step{cur_task < hp_task -> 
-			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);}
+			printf("cur_task < hp_task: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id_,cur_task,hp_task);}
 			d_step {
-				remove_from_channel(ipi_requests[cpu_id],hp_task);
+				remove_from_channel(ipi_requests[cpu_id_],hp_task);
 				waking[hp_task]++;
 			}
 			wake_task(tid,hp_task);
@@ -322,25 +322,25 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 
 		// If there is a task to be invoked next, execute the task.
 		d_step {
-			printf("RUNNING[%d] = %d\n",cpu_id,hp_task);
-			RUNNING[cpu_id] = hp_task;
+			printf("RUNNING[%d] = %d\n",cpu_id_,hp_task);
+			RUNNING[cpu_id_] = hp_task;
 		}
-		remove_from_channel(ipi_requests[cpu_id],hp_task);
+		remove_from_channel(ipi_requests[cpu_id_],hp_task);
 
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
 		byte loop_i;
-		byte original_len = len(ipi_requests[cpu_id]);
+		byte original_len = len(ipi_requests[cpu_id_]);
 		for (loop_i : 0 .. original_len - 1) {
 			if
-			:: d_step{ipi_requests[cpu_id]?[pending_lp_task] -> 
-				ipi_requests[cpu_id]?pending_lp_task;
+			:: d_step{ipi_requests[cpu_id_]?[pending_lp_task] -> 
+				ipi_requests[cpu_id_]?[pending_lp_task];
 				waking[pending_lp_task]++;}
 				wake_task(tid,pending_lp_task)
 			:: else -> break
 			fi
 		}
-		
-		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id,cur_task,hp_task);
+
+		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id_,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
 		if
 		:: d_step { tasks[hp_task].thread != - 1 -> take_preempt_context(hp_task,next_thread); }
@@ -350,8 +350,8 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 			unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
 			d_step {
-				assert(NEXT_TASK[cpu_id] == - 1);
-				NEXT_TASK[cpu_id] = hp_task;
+				assert(NEXT_TASK[cpu_id_] == - 1);
+				NEXT_TASK[cpu_id_] = hp_task;
 			}
 			yield_preempted_and_wake_task(cur_task,tid,next_thread)
 		fi
