@@ -111,7 +111,7 @@ pub fn interval_at(start: Time, period: Duration) -> Interval {
         delay: None,
         next_tick_target: start,
         period,
-
+        period_nanos: period.as_nanos(),
         missed_tick_behavior: MissedTickBehavior::default(),
     }
 }
@@ -120,6 +120,7 @@ pub struct Interval {
     next_tick_target: Time,
     delay: Option<Pin<Box<Sleep>>>,
     period: Duration,
+    period_nanos: u128,
     missed_tick_behavior: MissedTickBehavior,
 }
 
@@ -155,7 +156,7 @@ impl Stream for Interval {
                         MissedTickBehavior::Delay => now + period,
                         MissedTickBehavior::Skip => {
                             let ticks_missed = (now.saturating_duration_since(tick_time).as_nanos()
-                                / period.as_nanos())
+                                / self.period_nanos)
                                 as u32;
                             tick_time + period * (ticks_missed + 1)
                         }
