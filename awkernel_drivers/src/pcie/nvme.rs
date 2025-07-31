@@ -25,7 +25,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -973,7 +973,7 @@ impl NvmeInner {
         let msix = self.info.get_msix_mut().unwrap();
         msix.enable();
 
-        Ok(PCIeInt::MsiX(irq))
+        Ok(PCIeInt::_MsiX(irq))
     }
 
     fn allocate_msi(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
@@ -1009,7 +1009,7 @@ impl NvmeInner {
         irq.enable();
         msi.enable();
 
-        Ok(PCIeInt::Msi(irq))
+        Ok(PCIeInt::_Msi(irq))
     }
 }
 
@@ -1052,11 +1052,7 @@ impl Nvme {
         inner.ccbs_free();
         inner.ccbs_alloc(64)?;
 
-        // Setup interrupts BEFORE creating I/O queue so we know which interrupt vector to use
         inner.setup_interrupts();
-
-        // Unmask interrupts BEFORE creating I/O queue (like OpenBSD does)
-        // Only unmask vector 0 since both queues share it
         write_reg(&inner.info, NVME_INTMC, 0x1)?;
 
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
@@ -1096,10 +1092,10 @@ impl Nvme {
             PCIeInt::None => {
                 log::warn!("No interrupts configured - device in polling mode only!");
             }
-            PCIeInt::Msi(irq) => {
+            PCIeInt::_Msi(irq) => {
                 log::info!("MSI interrupt configured with IRQ {:?}", irq);
             }
-            PCIeInt::MsiX(irq) => {
+            PCIeInt::_MsiX(irq) => {
                 log::info!("MSI-X interrupt configured:");
                 log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
             }
@@ -1254,10 +1250,11 @@ pub enum NvmeDriverErr {
     NoCallback,
 }
 
+#[allow(dead_code)]
 enum PCIeInt {
     None,
-    Msi(IRQ),
-    MsiX(IRQ),
+    _Msi(IRQ),
+    _MsiX(IRQ),
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
