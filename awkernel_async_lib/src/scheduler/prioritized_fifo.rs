@@ -134,6 +134,10 @@ impl PrioritizedFIFOScheduler {
             set_need_preemption(target_task.id, target_cpu);
             awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
 
+            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+            // Therefore, a more sophisticated implementation will be considered in the future.
+
             return true;
         }
 
