@@ -81,7 +81,7 @@ impl Default for MissedTickBehavior {
 /// The first tick completes immediately.
 ///
 /// # Panics
-/// Panics if `period` is zero.   
+/// Panics if `period` is zero.
 ///
 /// # Example
 ///
