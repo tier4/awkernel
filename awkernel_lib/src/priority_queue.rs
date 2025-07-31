@@ -42,13 +42,6 @@ impl<T> PriorityQueue<T> {
 
         next
     }
-
-    /// Count the number of elements with higher priority than the specified one
-    #[inline(always)]
-    pub fn count_higher_priority(&self, priority: u8) -> usize {
-        let p = priority.min(LOWEST_PRIORITY) as usize;
-        self.queue[..p].iter().map(VecDeque::len).sum()
-    }
 }
 
 impl<T> Default for PriorityQueue<T> {

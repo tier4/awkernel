@@ -8,6 +8,8 @@ pub const NVME_CAP_TO: fn(u64) -> u32 = |r| 500 * ((r >> 24) & 0xff) as u32; /* 
 
 pub const NVME_VS: usize = 0x0008; /* Version */
 
+pub const NVME_INTMC: usize = 0x0010; /* Interrupt Mask Clear */
+
 pub const NVME_CC: usize = 0x0014; /* Controller Configuration */
 pub const NVME_CC_IOCQES: fn(u32) -> u32 = |_v| (((_v) & 0xf) << 20);
 pub const NVME_CC_IOCQES_MASK: u32 = 0xf << 20;
@@ -46,8 +48,17 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 
+pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
+pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
+
+pub const NVM_ADMIN_ADD_IOSQ: u8 = 0x01; /* Create I/O Submission Queue */
+pub const NVM_ADMIN_ADD_IOCQ: u8 = 0x05; /* Create I/O Completion Queue */
+pub const NVM_ADMIN_IDENTIFY: u8 = 0x06; /* Identify */
+
+pub const NVME_TIMO_QOP: u32 = 5000; /* 5 seconds */
+
 /* Power State Descriptor Data */
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyPsd {
     pub mp: u16, /* Max Power */
@@ -64,7 +75,37 @@ pub struct IdentifyPsd {
     pub reserved: [u8; 16],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct NamespaceFormat {
+    pub ms: u16,   /* Metadata Size */
+    pub lbads: u8, /* LBA Data Size */
+    pub rp: u8,    /* Relative Performance */
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct IdentifyNamespace {
+    pub nsze: u64,  /* Namespace Size */
+    pub ncap: u64,  /* Namespace Capacity */
+    pub nuse: u64,  /* Namespace Utilization */
+    pub nsfeat: u8, /* Namespace Features */
+    pub nlbaf: u8,  /* Number of LBA Formats */
+    pub flbas: u8,  /* Formatted LBA Size */
+    pub mc: u8,     /* Metadata Capabilities */
+    pub dpc: u8,    /* End-to-end Data Protection Capabilities */
+    pub dps: u8,    /* End-to-end Data Protection Type Settings */
+    pub _reserved1: [u8; 74],
+    pub nguid: [u8; 16],
+    pub eui64: [u8; 8],              /* BIG-endian */
+    pub lbaf: [NamespaceFormat; 16], /* LBA Format Support */
+    pub _reserved2: [u8; 192],
+    pub vs: [u8; 3712], /* Vendor Specific */
+}
+
+pub const NVME_ID_NS_NSFEAT_THIN_PROV: u8 = 1 << 0;
+
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IdentifyController {
     /* Controller Capabilities and Features */
@@ -114,12 +155,13 @@ pub struct IdentifyController {
     pub vs: [u8; 1024],         /* Vendor Specific */
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub union Entry {
     pub prp: [u64; 2],
     pub sgl: Sge,
 }
+
 impl Default for Entry {
     fn default() -> Self {
         Self { prp: [0, 0] }
@@ -129,19 +171,20 @@ impl Default for Entry {
 impl core::fmt::Debug for Entry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         unsafe {
-            let Entry { prp } = self;
+            let prp = self.prp;
             write!(f, "PRP: [{:#x}, {:#x}]", prp[0], prp[1])
         }
     }
 }
 
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Sge {
     pub _id: u8,
     pub _reserved: [u8; 15],
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SubQueueEntry {
     pub opcode: u8,
@@ -159,12 +202,30 @@ pub struct SubQueueEntry {
     pub cdw15: u32,
 }
 
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubQueueEntryQ {
+    pub opcode: u8,
+    pub flags: u8,
+    pub cid: u16,
+    pub _reserved1: [u8; 20],
+    pub prp1: u64,
+    pub _reserved2: [u8; 8],
+    pub qid: u16,
+    pub qsize: u16,
+    pub qflags: u8,
+    pub _reserved3: u8,
+    pub cqid: u16,
+    pub _reserved4: [u8; 16],
+}
+
 pub struct SubQueue {
     pub sub_ring: DMAPool<SubRing>,
     pub _sqtdbl: usize,
     pub _tail: u32,
 }
-#[repr(C)]
+
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ComQueueEntry {
     pub cdw0: u32,
