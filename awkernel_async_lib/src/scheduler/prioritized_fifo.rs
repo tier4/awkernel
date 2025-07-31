@@ -120,8 +120,7 @@ impl PrioritizedFIFOScheduler {
             .iter()
             .filter_map(|rt| {
                 get_task(rt.task_id).map(|t| {
-                    let highest_pending =
-                        peek_preemption_pending(rt.cpu_id).unwrap_or_else(|| t.clone());
+                    let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
                     (max(t, highest_pending), rt.cpu_id)
                 })
             })
