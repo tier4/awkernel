@@ -1,6 +1,6 @@
 use crate::{
     scheduler::{move_preemption_pending, peek_preemption_pending, remove_preemption_pending},
-    task::{get_current_task, set_current_task, Task},
+    task::{get_current_task, get_task, set_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
@@ -136,11 +136,9 @@ unsafe fn do_preemption() {
     };
 
     {
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
+        let current_task = get_task(current_task_id).unwrap();
 
-        if current_task > &next {
+        if current_task > next {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;
