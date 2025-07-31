@@ -1,3 +1,7 @@
+ltl eventually_terminate {
+	<> (num_terminated == TASK_NUM)
+}
+
 ltl eventually_prerequisites {
 	[]<>
 	(waking[0] == 0 && waking[1] == 0 && waking[2] == 0 && waking[3] == 0 &&
