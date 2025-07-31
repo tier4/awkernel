@@ -23,7 +23,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -214,6 +214,7 @@ impl NvmeInner {
             nn: 0,
             identify: None,
             namespaces: Vec::new(),
+            pcie_int: PCIeInt::None,
         })
     }
 
@@ -766,7 +767,7 @@ impl NvmeInner {
         let msix = self.info.get_msix_mut().unwrap();
         msix.enable();
 
-        Ok(PCIeInt::MsiX(irq))
+        Ok(PCIeInt::_MsiX(irq))
     }
 
     fn allocate_msi(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
@@ -802,7 +803,7 @@ impl NvmeInner {
         irq.enable();
         msi.enable();
 
-        Ok(PCIeInt::Msi(irq))
+        Ok(PCIeInt::_Msi(irq))
     }
 }
 
@@ -838,11 +839,12 @@ impl Nvme {
         inner.ccbs_free();
         inner.ccbs_alloc(64)?;
 
+        inner.setup_interrupts();
+        write_reg(&inner.info, NVME_INTMC, 0x1)?;
+
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
         inner.create_io_queue(&admin_q, &io_q)?;
-
-        write_reg(&inner.info, NVME_INTMC, 1)?;
 
         let nn = inner.nn;
         if nn > 0 {
@@ -900,10 +902,11 @@ pub enum NvmeDriverErr {
     NoCallback,
 }
 
+#[allow(dead_code)]
 enum PCIeInt {
     None,
-    Msi(IRQ),
-    MsiX(IRQ),
+    _Msi(IRQ),
+    _MsiX(IRQ),
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
