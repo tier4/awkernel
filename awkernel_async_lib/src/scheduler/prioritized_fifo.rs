@@ -112,7 +112,7 @@ impl PrioritizedFIFOScheduler {
             .collect::<Vec<_>>();
 
         // If the task has already been running, preempt is not required.
-        if tasks_running.iter().any(|rt| rt.task_id == task.id) {
+        if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
             return false;
         }
 
