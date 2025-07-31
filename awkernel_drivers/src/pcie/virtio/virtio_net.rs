@@ -294,6 +294,7 @@ impl Virtq {
         // set the new event index: avail_ring->used_event = idx
         self.vq_dma.as_mut().avail.used_event = idx;
         membar_sync();
+
         // number of slots in the used ring available to be supplied to the avail ring.
         let nused = self.vq_dma.as_ref().used.idx - self.vq_used_idx;
         debug_assert!(nused < self.vq_num as u16);
