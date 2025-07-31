@@ -19,6 +19,7 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
+    barrier::{membar_consumer, membar_producer, membar_sync},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::net_device::{
@@ -271,6 +272,8 @@ impl Virtq {
         let used_idx = self.vq_used_idx & self.vq_mask as u16;
         self.vq_used_idx += 1;
 
+        membar_consumer();
+
         let used_ring = &self.vq_dma.as_ref().used.ring[used_idx as usize];
         Some((used_ring.id as usize, used_ring.len))
     }
@@ -290,7 +293,7 @@ impl Virtq {
 
         // set the new event index: avail_ring->used_event = idx
         self.vq_dma.as_mut().avail.used_event = idx;
-
+        membar_sync();
         // number of slots in the used ring available to be supplied to the avail ring.
         let nused = self.vq_dma.as_ref().used.idx - self.vq_used_idx;
         debug_assert!(nused < self.vq_num as u16);
@@ -348,7 +351,14 @@ impl Virtq {
             self.vq_dma.as_mut().avail.flags &= !VRING_AVAIL_F_NO_INTERRUPT;
         }
 
+        membar_sync();
+
         self.vq_used_idx != self.vq_dma.as_ref().used.idx
+    }
+
+    fn publish_avail_idx(&mut self) {
+        membar_producer();
+        self.vq_dma.as_mut().avail.idx = self.vq_avail_idx;
     }
 
     /// add mbufs for all the empty receive slots
@@ -987,11 +997,13 @@ impl VirtioNetInner {
             if self.virtio_has_feature(VIRTIO_F_EVENT_IDX) {
                 let old_idx = vq.vq_dma.as_ref().avail.idx;
                 let new_idx = vq.vq_avail_idx;
-                vq.vq_dma.as_mut().avail.idx = new_idx;
+                vq.publish_avail_idx();
+                membar_sync();
                 let event_idx = vq.vq_dma.as_ref().used.avail_event + 1;
                 (new_idx - event_idx) < (new_idx - old_idx)
             } else {
-                vq.vq_dma.as_mut().avail.idx = vq.vq_avail_idx;
+                vq.publish_avail_idx();
+                membar_sync();
                 vq.vq_dma.as_ref().used.flags & VIRTQ_USED_F_NO_NOTIFY == 0
             }
         };
