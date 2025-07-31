@@ -331,7 +331,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::PrioritizedFIFO(31));
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
