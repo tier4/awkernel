@@ -61,6 +61,13 @@ pub fn pop_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
     pending_tasks.get_mut(&cpu_id).and_then(|heap| heap.pop())
 }
 
+#[inline(always)]
+pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
+    let mut node = MCSNode::new();
+    let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    pending_tasks.remove(&cpu_id)
+}
+
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
 /// 0 is the highest priority and 31 is the lowest priority.
