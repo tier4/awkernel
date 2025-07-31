@@ -9,9 +9,7 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::scheduler::{
-    self, get_scheduler, len_preemption_pending, pop_preemption_pending, Scheduler, SchedulerType,
-};
+use crate::scheduler::{self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -680,13 +678,8 @@ pub fn run_main() {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         if RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
             // Re-wake all preemption-pending tasks, because the preemption is no longer required.
-            // The length of PREEMPTION_PENDING_TASKS[cpu_id] may increase, so we use a fixed length in the for loop.
-            for _ in 0..len_preemption_pending(cpu_id) {
-                if let Some(p) = pop_preemption_pending(cpu_id) {
-                    p.scheduler.wake_task(p);
-                } else {
-                    break;
-                }
+            while let Some(p) = pop_preemption_pending(cpu_id) {
+                p.scheduler.wake_task(p);
             }
         }
 

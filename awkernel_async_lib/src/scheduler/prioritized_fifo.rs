@@ -8,7 +8,6 @@ use crate::task::{get_task, get_tasks_running, set_current_task, set_need_preemp
 use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use awkernel_lib::cpu::num_cpu;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -51,10 +50,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
             }
         };
 
-        if !self.invoke_preemption(
-            internal_data.queue.count_higher_priority(priority),
-            task.clone(),
-        ) {
+        if !self.invoke_preemption(task.clone()) {
             internal_data.queue.push(
                 priority,
                 PrioritizedFIFOTask {
@@ -109,41 +105,28 @@ impl Scheduler for PrioritizedFIFOScheduler {
 }
 
 impl PrioritizedFIFOScheduler {
-    fn invoke_preemption(&self, num_hp_tasks_in_queue: usize, task: Arc<Task>) -> bool {
-        let tasks_running = get_tasks_running();
+    fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        let tasks_running = get_tasks_running()
+            .into_iter()
+            .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
+            .collect::<Vec<_>>();
 
         // If the task has already been running, preempt is not required.
         if tasks_running.iter().any(|rt| rt.task_id == task.id) {
             return false;
         }
 
-        let mut num_idle_cpus = 0;
         let preemption_target = tasks_running
             .iter()
             .filter_map(|rt| {
-                if rt.task_id == 0 {
-                    match peek_preemption_pending(rt.cpu_id) {
-                        None => {
-                            num_idle_cpus += 1;
-                            None
-                        }
-                        Some(highest_pending) => Some((highest_pending, rt.cpu_id)),
-                    }
-                } else {
-                    get_task(rt.task_id).map(|t| {
-                        let highest_pending =
-                            peek_preemption_pending(rt.cpu_id).unwrap_or_else(|| t.clone());
-                        (max(t, highest_pending), rt.cpu_id)
-                    })
-                }
+                get_task(rt.task_id).map(|t| {
+                    let highest_pending =
+                        peek_preemption_pending(rt.cpu_id).unwrap_or_else(|| t.clone());
+                    (max(t, highest_pending), rt.cpu_id)
+                })
             })
             .min()
             .unwrap();
-
-        // If there is sufficient number of idle CPUs, no preemption is required.
-        if num_hp_tasks_in_queue < num_idle_cpus {
-            return false;
-        }
 
         let (target_task, target_cpu) = preemption_target;
         if task > target_task {

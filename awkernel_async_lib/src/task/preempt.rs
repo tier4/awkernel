@@ -1,8 +1,5 @@
 use crate::{
-    scheduler::{
-        len_preemption_pending, peek_preemption_pending, pop_preemption_pending,
-        remove_preemption_pending,
-    },
+    scheduler::{move_preemption_pending, peek_preemption_pending, remove_preemption_pending},
     task::{get_current_task, set_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
@@ -126,7 +123,7 @@ unsafe fn do_preemption() {
     super::perf::start_context_switch();
 
     let cpu_id = awkernel_lib::cpu::cpu_id();
-    let Some(next) = peek_preemption_pending(cpu_id) else {
+    let Some(mut next) = peek_preemption_pending(cpu_id) else {
         return;
     };
 
@@ -150,18 +147,17 @@ unsafe fn do_preemption() {
         }
     }
 
+    // If a new preemption-pending task with the highest priority is pushed from peek_preemption_pending() to here, the subsequent re-wake may cause a infinite loop.
+    // Therefore, we move the preemption-pending tasks to a temporary queue and re-wake from there.
+    let mut moved_preemption_pending = move_preemption_pending(cpu_id).unwrap();
+    next = moved_preemption_pending.pop().unwrap(); // Use latest highest priority task.
+
     set_current_task(cpu_id, next.id);
-    remove_preemption_pending(cpu_id, next.id);
 
     // Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
     // This is necessary to handle cases where the number of IPI sends differs from the number of executions of this function.
-    // The length of PREEMPTION_PENDING_TASKS[cpu_id] may increase, so we use a fixed length in the for loop.
-    for _ in 0..len_preemption_pending(cpu_id) {
-        if let Some(p) = pop_preemption_pending(cpu_id) {
-            p.scheduler.wake_task(p);
-        } else {
-            break;
-        }
+    while let Some(p) = moved_preemption_pending.pop() {
+        p.scheduler.wake_task(p);
     }
 
     // If there is a task to be invoked next, execute the task.

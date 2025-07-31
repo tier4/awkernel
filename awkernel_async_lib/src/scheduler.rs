@@ -62,10 +62,10 @@ pub fn pop_preemption_pending(cpu_id: usize) -> Option<Arc<Task>> {
 }
 
 #[inline(always)]
-pub fn len_preemption_pending(cpu_id: usize) -> usize {
+pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
     let mut node = MCSNode::new();
-    let pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
-    pending_tasks.get(&cpu_id).map_or(0, |heap| heap.len())
+    let mut pending_tasks = PREEMPTION_PENDING_TASKS.lock(&mut node);
+    pending_tasks.remove(&cpu_id)
 }
 
 /// Type of scheduler.
