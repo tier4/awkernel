@@ -18,16 +18,14 @@ mod nvme_regs;
 use nvme_regs::*;
 
 const DEVICE_NAME: &str = " NVMe Controller";
-const _DEVICE_SHORT_NAME: &str = "nvme";
+const DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be considered. */
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-// Global NVMe device instance (single device assumption)
-pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None);
-
+pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -719,41 +717,6 @@ impl NvmeInner {
         }
     }
 
-    /// Main interrupt handler for MSI/MSI-X interrupts
-    fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> bool {
-        let mut rv = false;
-
-        // Process I/O queue completions first
-        if let Some(ccbs) = self.ccbs.as_mut() {
-            match io_q.complete(&self.info, ccbs) {
-                Ok(completed) => {
-                    if completed {
-                        rv = true;
-                    }
-                }
-                Err(e) => {
-                    log::error!("intr: Error processing I/O completions: {:?}", e);
-                }
-            }
-        }
-
-        // Process admin queue completions
-        if let Some(ccbs) = self.ccbs.as_mut() {
-            match admin_q.complete(&self.info, ccbs) {
-                Ok(completed) => {
-                    if completed {
-                        rv = true;
-                    }
-                }
-                Err(e) => {
-                    log::error!("intr: Error processing admin completions: {:?}", e);
-                }
-            }
-        }
-
-        rv
-    }
-
     /// Fill I/O command in submission queue entry
     /// Based on OpenBSD's nvme_scsi_io_fill()
     fn io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
@@ -947,117 +910,107 @@ impl NvmeInner {
         }
     }
 
-    /// Setup interrupts by trying MSI-X first, then MSI, then falling back to polling
+    fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
+        let mut rv = false;
+
+        if let Some(ccbs) = self.ccbs.as_mut() {
+            rv = io_q.complete(&self.info, ccbs)?;
+        }
+
+        if let Some(ccbs) = self.ccbs.as_mut() {
+            if admin_q.complete(&self.info, ccbs)? {
+                rv = true;
+            }
+        }
+
+        Ok(rv)
+    }
+
     fn setup_interrupts(&mut self) {
-        // Try MSI-X first
-        if let Ok(pcie_int) = Self::allocate_msix(&mut self.info) {
-            log::info!("NVMe: MSI-X interrupts configured successfully");
+        if let Ok(pcie_int) = self.allocate_msix() {
             self.pcie_int = pcie_int;
-        } else if let Ok(pcie_int) = Self::allocate_msi(&mut self.info) {
-            log::info!("NVMe: MSI interrupts configured successfully");
+        } else if let Ok(pcie_int) = self.allocate_msi() {
             self.pcie_int = pcie_int;
         } else {
-            log::warn!("NVMe: No MSI-X/MSI support, falling back to polling mode");
             self.pcie_int = PCIeInt::None;
         }
     }
 
-    /// Allocate MSI-X interrupts
-    fn allocate_msix(info: &mut PCIeInfo) -> Result<PCIeInt, NvmeDriverErr> {
-        let segment_group = info.get_segment_group();
-        let bfd = info.get_bfd();
-        
-        let msix = info.get_msix_mut().ok_or(NvmeDriverErr::InitFailure)?;
-        
-        log::info!("MSI-X capability found for NVMe {}", bfd);
-        
+    fn allocate_msix(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
+        let segment_group = self.info.get_segment_group();
+        let bfd = self.info.get_bfd();
+
+        let msix = self.info.get_msix_mut().ok_or(NvmeDriverErr::InitFailure)?;
+
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
         // Register single interrupt for both admin and I/O queues (like OpenBSD)
         // ENHANCE: It better to use a separate interrupt vector for I/O queues
-        let mut irq = msix.register_handler(
-            Cow::from(format!("nvme-{}", bfd)),
-            Box::new(|irq| {
-                let device = NVME_DEVICE.read();
-                if let Some(nvme) = device.as_ref() {
-                    let _ = nvme.process_interrupt(irq);
-                }
-            }),
-            segment_group as usize,
-            0, // target CPU
-            0, // MSI-X entry 0 for both queues
-        ).map_err(|e| {
-            log::error!("Failed to register MSI-X handler: {:?}", e);
-            NvmeDriverErr::InitFailure
-        })?;
-        
-        // Enable the interrupt
+        let mut irq = msix
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.interrupt(irq);
+                    }
+                }),
+                segment_group as usize,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                0,
+            )
+            .map_err(|e| {
+                log::error!("Failed to register MSI-X handler: {:?}", e);
+                NvmeDriverErr::InitFailure
+            })?;
+
         irq.enable();
-        
-        // Disable MSI and legacy interrupts before enabling MSI-X (following igb pattern)
-        if let Some(msi) = info.get_msi_mut() {
+
+        if let Some(msi) = self.info.get_msi_mut() {
             msi.disable();
         }
-        info.disable_legacy_interrupt();
-        
-        // Get MSI-X again and enable it
-        let msix = info.get_msix_mut().unwrap();
+        self.info.disable_legacy_interrupt();
+
+        let msix = self.info.get_msix_mut().unwrap();
         msix.enable();
-        
-        log::info!("Registered NVMe MSI-X interrupt: IRQ {}", irq.get_irq());
-        
-        let mut irqs = Vec::new();
-        irqs.push(irq);
-        Ok(PCIeInt::MsiX(irqs))
+
+        Ok(PCIeInt::MsiX(irq))
     }
 
-    /// Allocate MSI interrupts
-    fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, NvmeDriverErr> {
-        // Disable MSI-X if present
-        if let Some(msix) = info.get_msix_mut() {
+    fn allocate_msi(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
+        if let Some(msix) = self.info.get_msix_mut() {
             msix.disable();
         }
-        
-        let segment_group = info.get_segment_group();
-        let bfd = info.get_bfd();
-        
-        let msi = info.get_msi_mut().ok_or(NvmeDriverErr::InitFailure)?;
-        
-        log::info!("MSI capability found for NVMe {}", bfd);
-        
-        // Disable then re-enable MSI
+
+        let segment_group = self.info.get_segment_group();
+        let bfd = self.info.get_bfd();
+
+        let msi = self.info.get_msi_mut().ok_or(NvmeDriverErr::InitFailure)?;
+
         msi.disable();
-        
-        let mut irq = msi.register_handler(
-            Cow::from(format!("nvme-{}", bfd)),
-            Box::new(|irq| {
-                let device = NVME_DEVICE.read();
-                if let Some(nvme) = device.as_ref() {
-                    let _ = nvme.process_interrupt(irq);
-                }
-            }),
-            segment_group as usize,
-            0, // target CPU
-        ).map_err(|e| {
-            log::error!("Failed to register MSI handler: {:?}", e);
-            NvmeDriverErr::InitFailure
-        })?;
-        
-        // Enable the interrupt and MSI
+
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
+        let mut irq = msi
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.interrupt(irq);
+                    }
+                }),
+                segment_group as usize,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+            )
+            .map_err(|e| {
+                log::error!("Failed to register MSI handler: {:?}", e);
+                NvmeDriverErr::InitFailure
+            })?;
+
         irq.enable();
         msi.enable();
-        
-        log::info!("Registered NVMe MSI interrupt: IRQ {}", irq.get_irq());
-        
+
         Ok(PCIeInt::Msi(irq))
     }
-}
-
-// Interrupt configuration for the NVMe device
-// The IRQ values are stored here for record-keeping, while actual interrupt
-// routing uses the irq_to_queue map for efficiency
-enum PCIeInt {
-    None,
-    Msi(IRQ),
-    MsiX(Vec<IRQ>),
 }
 
 pub struct Nvme {
@@ -1134,13 +1087,6 @@ impl Nvme {
         Ok(nvme)
     }
 
-    fn process_interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
-        // Process both admin and I/O completions
-        let mut inner = self.inner.write();
-        inner.intr(&self.admin_q, &self.io_q);
-        Ok(())
-    }
-
     /// Debug function to log interrupt configuration
     pub fn debug_interrupt_config(&self) {
         let inner = self.inner.read();
@@ -1153,11 +1099,9 @@ impl Nvme {
             PCIeInt::Msi(irq) => {
                 log::info!("MSI interrupt configured with IRQ {:?}", irq);
             }
-            PCIeInt::MsiX(irqs) => {
+            PCIeInt::MsiX(irq) => {
                 log::info!("MSI-X interrupt configured:");
-                for irq in irqs {
-                    log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
-                }
+                log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
             }
         }
 
@@ -1271,6 +1215,12 @@ impl Nvme {
 
         Ok(())
     }
+
+    fn interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
+        let _ = inner.intr(&self.admin_q, &self.io_q)?;
+        Ok(())
+    }
 }
 
 impl PCIeDevice for Nvme {
@@ -1302,6 +1252,12 @@ pub enum NvmeDriverErr {
     NoCcb,
     IncompatiblePageSize,
     NoCallback,
+}
+
+enum PCIeInt {
+    None,
+    Msi(IRQ),
+    MsiX(IRQ),
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {

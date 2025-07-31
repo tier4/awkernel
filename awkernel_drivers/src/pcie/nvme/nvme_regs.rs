@@ -165,6 +165,7 @@ pub union Entry {
     pub prp: [u64; 2],
     pub sgl: Sge,
 }
+
 impl Default for Entry {
     fn default() -> Self {
         Self { prp: [0, 0] }
