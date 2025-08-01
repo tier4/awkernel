@@ -24,6 +24,7 @@ mod sleep_task;
 pub mod sync;
 pub mod task;
 pub mod time;
+mod time_interval;
 mod timeout_call;
 pub mod utils;
 mod yield_task;
