@@ -747,7 +747,7 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                // This is unnecessary if the task is scheduled by PrioritizedFIFO or FIFO. This remains for other schedulers.
+                // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
