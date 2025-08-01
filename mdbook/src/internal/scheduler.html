@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>scheduler.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="scheduler">Scheduler</h1>
+<p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">pub</span>(<span class="hljs-keyword">crate</span>) <span class="hljs-class"><span class="hljs-keyword">trait</span> <span class="hljs-title">Scheduler</span></span> {
+    <span class="hljs-comment">/// Enqueue an executable task.</span>
+    <span class="hljs-comment">/// The enqueued task will be taken by `get_next()`.</span>
+    <span class="hljs-function"><span class="hljs-keyword">fn</span> <span class="hljs-title">wake_task</span></span>(&amp;<span class="hljs-keyword">self</span>, task: Arc&lt;Task&gt;);
+
+    <span class="hljs-comment">/// Get the next executable task.</span>
+    <span class="hljs-function"><span class="hljs-keyword">fn</span> <span class="hljs-title">get_next</span></span>(&amp;<span class="hljs-keyword">self</span>) -&gt; <span class="hljs-built_in">Option</span>&lt;Arc&lt;Task&gt;&gt;;
+
+    <span class="hljs-comment">/// Get the scheduler name.</span>
+    <span class="hljs-function"><span class="hljs-keyword">fn</span> <span class="hljs-title">scheduler_name</span></span>(&amp;<span class="hljs-keyword">self</span>) -&gt; SchedulerType;
+
+    <span class="hljs-meta">#[allow(dead_code)]</span> <span class="hljs-comment">// <span class="hljs-doctag">TODO:</span> to be removed</span>
+    <span class="hljs-function"><span class="hljs-keyword">fn</span> <span class="hljs-title">priority</span></span>(&amp;<span class="hljs-keyword">self</span>) -&gt; <span class="hljs-built_in">u8</span>;
+}
+</div></code></pre>
+<p>There are several functions regarding the scheduler in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a>.</p>
+<table>
+<thead>
+<tr>
+<th>function</th>
+<th>description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fn get_next_task()</code></td>
+<td>Get the next executable task.</td>
+</tr>
+<tr>
+<td><code>fn get_scheduler(sched_type: SchedulerType)</code></td>
+<td>Get a scheduler.</td>
+</tr>
+</tbody>
+</table>
+<p><code>SchedulerType</code> is an enum for the scheduler type and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">pub</span> <span class="hljs-class"><span class="hljs-keyword">enum</span> <span class="hljs-title">SchedulerType</span></span> {
+    GEDF(<span class="hljs-built_in">u64</span>), <span class="hljs-comment">// relative deadline</span>
+    PrioritizedFIFO(<span class="hljs-built_in">u8</span>),
+    PrioritizedRR(<span class="hljs-built_in">u8</span>),
+    Panicked,
+}
+</div></code></pre>
+<h2 id="sleepingtasks">SleepingTasks</h2>
+<p><code>SleepingTasks</code> is a struct for managing sleeping tasks and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre class="hljs"><code><div><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SleepingTasks</span></span> {
+    delta_list: DeltaList&lt;<span class="hljs-built_in">Box</span>&lt;<span class="hljs-keyword">dyn</span> <span class="hljs-built_in">FnOnce</span>() + <span class="hljs-built_in">Send</span>&gt;&gt;,
+    base_time: <span class="hljs-built_in">u64</span>,
+}
+</div></code></pre>
+<p><code>SleepingTasks</code> struct has the following functions.</p>
+<table>
+<thead>
+<tr>
+<th>function</th>
+<th>description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fn new()</code></td>
+<td>Create a new <code>SleepingTasks</code> instance.</td>
+</tr>
+<tr>
+<td><code>fn sleep_task(&amp;mut self, handler: Box&lt;dyn FnOnce() + Send&gt;, mut dur: u64)</code></td>
+<td>Sleep a task for a certain duration.</td>
+</tr>
+<tr>
+<td><code>fn wake_task(&amp;mut self)</code></td>
+<td>Wake up tasks after sleep.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="scheduler-implementation">Scheduler Implementation</h2>
+<p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
+<pre class="hljs"><code><div><span class="hljs-meta">$</span><span class="bash"> ls awkernel_async_lib/src/scheduler</span>
+<span class="hljs-meta">&gt;</span><span class="bash"> gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs</span>
+</div></code></pre>
+<p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
+Each scheduler must be registered in the following three locations.
+<code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
+
+</body>
+</html>
