@@ -103,7 +103,7 @@ impl Queue {
 
             let cid = cqe.cid;
             if cid as usize >= ccbs.len() {
-                log::error!("Invalid CCB ID: {}", cid);
+                log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
             let ccb = &mut ccbs[cid as usize];
