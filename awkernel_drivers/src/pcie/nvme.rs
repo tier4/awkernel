@@ -102,6 +102,10 @@ impl Queue {
             membar_consumer();
 
             let cid = cqe.cid;
+            if cid as usize >= ccbs.len() {
+                log::error!("Invalid CCB ID: {}", cid);
+                return Err(NvmeDriverErr::InvalidCcbId);
+            }
             let ccb = &mut ccbs[cid as usize];
 
             if let Some(done_fn) = ccb.done {
@@ -795,6 +799,7 @@ pub enum NvmeDriverErr {
     NoCcb,
     IncompatiblePageSize,
     NoCallback,
+    InvalidCcbId,
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
@@ -813,6 +818,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::NoCcb => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
         }
     }
 }
