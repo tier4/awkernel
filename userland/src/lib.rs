@@ -52,7 +52,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_voluntary_preemption")]
     test_voluntary_preemption::run().await; // test for voluntary preemption
 
-
     #[cfg(feature = "test_block_device_fatfs")]
     test_block_device_fatfs::run().await; // test for block device FAT filesystem integration
 
@@ -64,6 +63,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
     #[cfg(feature = "test_memory_fatfs_simple")]
     test_memory_fatfs_simple::run().await; // test for memory FatFS mount
+
+    #[cfg(feature = "test_nvme")]
+    test_nvme::run().await; // test for NVMe driver
 
     Ok(())
 }

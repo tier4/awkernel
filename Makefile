@@ -171,6 +171,8 @@ QEMU_X86_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
 QEMU_X86_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
 QEMU_X86_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
 QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
+QEMU_X86_ARGS+= -drive file=nvme_disk.img,if=none,id=nvme0,format=raw
+QEMU_X86_ARGS+= -device nvme,drive=nvme0,serial=deadbeef
 QEMU_X86_ARGS+= -nographic
 # QEMU_X86_ARGS+= -d int # debug interrupt
 # QEMU_X86_ARGS+= --trace apic_mem_writel # debug APIC

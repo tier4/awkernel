@@ -74,7 +74,6 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
-
 [dependencies.test_block_device_fatfs]
 path = "../applications/tests/test_block_device_fatfs"
 optional = true
@@ -91,8 +90,12 @@ optional = true
 path = "../applications/tests/test_memory_fatfs_simple"
 optional = true
 
+[dependencies.test_nvme]
+path = "../applications/tests/test_nvme"
+optional = true
+
 [features]
-default = ["test_memory_fatfs_simple"]
+default = []
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -116,3 +119,4 @@ test_block_device_fatfs = ["dep:test_block_device_fatfs"]
 test_memfatfs = ["dep:test_memfatfs"]
 test_vfs_registry = ["dep:test_vfs_registry"]
 test_memory_fatfs_simple = ["dep:test_memory_fatfs_simple"]
+test_nvme = ["dep:test_nvme"]
