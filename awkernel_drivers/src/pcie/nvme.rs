@@ -105,6 +105,10 @@ impl Queue {
             membar_consumer();
 
             let cid = cqe.cid;
+            if cid as usize >= ccbs.len() {
+                log::error!("Invalid CCB ID: {cid}");
+                return Err(NvmeDriverErr::InvalidCcbId);
+            }
             let ccb = &mut ccbs[cid as usize];
 
             if let Some(done_fn) = ccb.done {
@@ -306,8 +310,12 @@ impl NvmeInner {
     fn allocate_queue(&self, id: u16, entries: u32, dstrd: u32) -> Result<Queue, NvmeDriverErr> {
         let subq_size = core::mem::size_of::<SubRing>();
         let sub_ring_pages = subq_size.div_ceil(PAGESIZE);
-        let sub_ring = DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
-            .ok_or(NvmeDriverErr::DMAPool)?;
+        let mut sub_ring: DMAPool<[SubQueueEntry; 128]> =
+            DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
+                .ok_or(NvmeDriverErr::DMAPool)?;
+        for i in 0..QUEUE_SIZE {
+            sub_ring.as_mut()[i] = SubQueueEntry::default();
+        }
         let sqtdbl = NVME_SQTDBL(id, dstrd);
 
         let subq = SubQueue {
@@ -318,8 +326,13 @@ impl NvmeInner {
 
         let comq_size = core::mem::size_of::<ComRing>();
         let com_ring_pages = comq_size.div_ceil(PAGESIZE);
-        let com_ring = DMAPool::new(self.info.segment_group as usize, com_ring_pages)
-            .ok_or(NvmeDriverErr::DMAPool)?;
+        let mut com_ring: DMAPool<[ComQueueEntry; 128]> =
+            DMAPool::new(self.info.segment_group as usize, com_ring_pages)
+                .ok_or(NvmeDriverErr::DMAPool)?;
+        for i in 0..QUEUE_SIZE {
+            com_ring.as_mut()[i] = ComQueueEntry::default();
+        }
+
         let cqhdbl = NVME_CQHDBL(id, dstrd);
 
         let comq = ComQueue {
@@ -900,6 +913,7 @@ pub enum NvmeDriverErr {
     NoCcb,
     IncompatiblePageSize,
     NoCallback,
+    InvalidCcbId,
 }
 
 #[allow(dead_code)]
@@ -925,6 +939,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::NoCcb => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
         }
     }
 }
