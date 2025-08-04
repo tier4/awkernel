@@ -1324,8 +1324,42 @@ pub(super) fn attach(
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
 
-// BlockDevice implementation for NVMe
-impl BlockDevice for Nvme {
+
+// StorageDevice implementation for NVMe
+impl StorageDevice for Nvme {
+    fn device_name(&self) -> Cow<'static, str> {
+        let inner = self.inner.read();
+        let bfd = inner.info.get_bfd();
+        format!("{bfd}: NVMe Controller").into()
+    }
+    
+    fn device_short_name(&self) -> Cow<'static, str> {
+        DEVICE_SHORT_NAME.into()
+    }
+    
+    fn device_type(&self) -> StorageDeviceType {
+        StorageDeviceType::NVMe
+    }
+    
+    fn irqs(&self) -> Vec<u16> {
+        let inner = self.inner.read();
+        match &inner.pcie_int {
+            PCIeInt::None => vec![],
+            PCIeInt::_Msi(irq) => vec![irq.get_irq()],
+            PCIeInt::_MsiX(irq) => vec![irq.get_irq()],
+        }
+    }
+    
+    fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
+        let mut inner = self.inner.write();
+        match inner.intr(&self.admin_q, &self.io_q) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(StorageDevError::IoError),
+        }
+    }
+    
+    // Block device methods
+    
     fn block_size(&self) -> usize {
         // For now, assume 512 byte sectors
         // TODO: Read actual block size from namespace data
@@ -1385,63 +1419,5 @@ impl BlockDevice for Nvme {
             Ok(_) => Ok(()),
             Err(_) => Err(BlockDeviceError::IoError),
         }
-    }
-}
-
-// StorageDevice implementation for NVMe
-impl StorageDevice for Nvme {
-    fn device_name(&self) -> Cow<'static, str> {
-        let inner = self.inner.read();
-        let bfd = inner.info.get_bfd();
-        format!("{bfd}: NVMe Controller").into()
-    }
-    
-    fn device_short_name(&self) -> Cow<'static, str> {
-        DEVICE_SHORT_NAME.into()
-    }
-    
-    fn device_type(&self) -> StorageDeviceType {
-        StorageDeviceType::NVMe
-    }
-    
-    fn irqs(&self) -> Vec<u16> {
-        let inner = self.inner.read();
-        match &inner.pcie_int {
-            PCIeInt::None => vec![],
-            PCIeInt::_Msi(irq) => vec![irq.get_irq()],
-            PCIeInt::_MsiX(irq) => vec![irq.get_irq()],
-        }
-    }
-    
-    fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
-        let mut inner = self.inner.write();
-        match inner.intr(&self.admin_q, &self.io_q) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(StorageDevError::IoError),
-        }
-    }
-    
-    fn is_ready(&self) -> bool {
-        // Check if controller is ready
-        let inner = self.inner.read();
-        if let Ok(csts) = read_reg(&inner.info, NVME_CSTS) {
-            (csts & NVME_CSTS_RDY) != 0
-        } else {
-            false
-        }
-    }
-    
-    fn up(&self) -> Result<(), StorageDevError> {
-        // NVMe is already initialized during attach
-        if self.is_ready() {
-            Ok(())
-        } else {
-            Err(StorageDevError::DeviceNotReady)
-        }
-    }
-    
-    fn down(&self) -> Result<(), StorageDevError> {
-        // TODO: Implement controller shutdown sequence
-        Ok(())
     }
 }
