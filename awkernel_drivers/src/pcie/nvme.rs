@@ -66,7 +66,6 @@ enum CcbCookie {
         blocks: u32,
         nsid: u32,
         read: bool,
-        data_phys: u64,
     },
     Flush {
         nsid: u32,
@@ -82,6 +81,8 @@ struct Ccb {
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
+    // DMA mapping - physical address of data buffer (like OpenBSD's ccb_dmamap)
+    data_phys: u64,
     // Completion tracking for async operations (testing support)
     completed: AtomicBool,
 }
@@ -410,6 +411,7 @@ impl NvmeInner {
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
+                data_phys: 0,
                 completed: AtomicBool::new(true), // Initially completed (not in use)
             };
             ccbs.push(ccb);
@@ -443,6 +445,7 @@ impl NvmeInner {
         let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
         let ccb = &mut ccbs[ccb_id as usize];
         ccb.done = None;
+        ccb.data_phys = 0; // Clear the physical address
 
         let mut node = MCSNode::new();
         let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
@@ -763,7 +766,6 @@ impl NvmeInner {
             blocks,
             nsid,
             read,
-            data_phys,
         }) = &ccb.cookie
         {
             // Cast to I/O-specific SQE type
@@ -781,8 +783,9 @@ impl NvmeInner {
 
             // Set PRP entries directly (following OpenBSD's nvme_scsi_io_fill)
             // For single page transfers, only PRP[0] is used
+            // Physical address comes from CCB (like OpenBSD's dmamap)
             unsafe {
-                sqe_io.entry.prp[0] = *data_phys;
+                sqe_io.entry.prp[0] = ccb.data_phys;
             }
             // TODO: For multi-page transfers:
             // - 2 pages: set prp[1] to second page
@@ -804,7 +807,6 @@ impl NvmeInner {
                 blocks,
                 nsid,
                 read,
-                data_phys: _,
             }) = &ccb.cookie
             {
                 log::debug!(
@@ -867,14 +869,13 @@ impl NvmeInner {
             blocks: xfer.blocks,
             nsid: xfer.nsid,
             read: xfer.read,
-            data_phys: xfer.data_phys,
         });
 
         // Set up done callback (following OpenBSD's nvme_scsi_io)
         ccb.done = Some(Self::io_done);
 
-        // Store the physical address in the cookie for io_fill to use
-        // (OpenBSD stores this in the dmamap, we store it in the cookie)
+        // Store the physical address in the CCB (like OpenBSD's ccb_dmamap)
+        ccb.data_phys = xfer.data_phys;
 
         if xfer.poll {
             // Synchronous polling mode - use the poll() function like OpenBSD
@@ -1052,15 +1053,15 @@ impl NvmeInner {
             blocks: xfer.blocks,
             nsid: xfer.nsid,
             read: xfer.read,
-            data_phys: xfer.data_phys,
         });
 
         ccb.done = Some(Self::io_done);
+        
+        // Store the physical address in the CCB (like OpenBSD's ccb_dmamap)
+        ccb.data_phys = xfer.data_phys;
 
-        if let Some(prpl_ptr) = ccb._prpl {
-            let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
-            prp_list[0] = xfer.data_phys;
-        }
+        // Note: For single page transfers, we don't use the PRP list
+        // The physical address is stored in ccb.data_phys and will be used directly in io_fill
 
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::io_fill, xfer.timeout_ms)?;
