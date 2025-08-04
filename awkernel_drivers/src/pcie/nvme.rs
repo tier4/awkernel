@@ -36,7 +36,7 @@ enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
     _QueueCmd(SubQueueEntryQ),
-    Io {
+    _Io {
         lba: u64,
         blocks: u32,
         nsid: u32,
@@ -53,7 +53,7 @@ struct Ccb {
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
-    completed: Arc<AtomicBool>,
+    _completed: Arc<AtomicBool>,
 }
 
 struct CcbList {
@@ -371,7 +371,7 @@ impl NvmeInner {
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
-                completed: Arc::new(AtomicBool::new(true)), // Initially completed (not in use)
+                _completed: Arc::new(AtomicBool::new(true)), // Initially completed (not in use)
             };
             ccbs.push(ccb);
             free_list.push_back(i);
@@ -815,8 +815,8 @@ impl NvmeInner {
         Ok(PCIeInt::_Msi(irq))
     }
 
-    fn io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Io {
+    fn _io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_Io {
             lba,
             blocks,
             nsid,
@@ -827,7 +827,7 @@ impl NvmeInner {
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
 
             // Set opcode based on direction (from OpenBSD)
-            sqe_io.opcode = if *read { NVM_CMD_READ } else { NVM_CMD_WRITE };
+            sqe_io.opcode = if *read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
 
             // Set namespace ID
             sqe_io.nsid = u32::to_le(*nsid);
@@ -849,12 +849,12 @@ impl NvmeInner {
         }
     }
 
-    fn io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn _io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
         let status = (flags >> 1) & 0x7ff; // Extract status code
 
-        if status == NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::Io {
+        if status == _NVME_CQE_SC_SUCCESS {
+            if let Some(CcbCookie::_Io {
                 lba,
                 blocks,
                 nsid,
@@ -874,11 +874,11 @@ impl NvmeInner {
         }
 
         // Mark the operation as completed for async waiting
-        ccb.completed.store(true, Ordering::Release);
+        ccb._completed.store(true, Ordering::Release);
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn submit_io(
+    pub fn _submit_io(
         &mut self,
         io_q: &Queue,
         nsid: u32,
@@ -888,43 +888,34 @@ impl NvmeInner {
         read: bool,
         poll: bool,
     ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
-        // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
-        // Set up the I/O cookie
-        ccb.cookie = Some(CcbCookie::Io {
+        ccb.cookie = Some(CcbCookie::_Io {
             lba,
             blocks,
             nsid,
             read,
         });
 
-        ccb.done = Some(Self::io_done);
+        ccb.done = Some(Self::_io_done);
 
-        // Store the physical address in the PRPL
         if let Some(prpl_ptr) = ccb._prpl {
             let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
             prp_list[0] = data_phys;
         }
 
         if poll {
-            // Synchronous polling mode - use the poll() function like OpenBSD
-            self.poll(io_q, ccb_id, Self::io_fill, 30000)?; // 30 second timeout
+            self.poll(io_q, ccb_id, Self::_io_fill, 30000)?; // 30 second timeout
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
         } else {
-            // Asynchronous mode - just submit and return like OpenBSD
-            // Clear the completion flag before submitting
-            ccb.completed.store(false, Ordering::Release);
+            ccb._completed.store(false, Ordering::Release);
 
-            // Get a clone of the completion flag to return
-            let completion_flag = ccb.completed.clone();
+            let completion_flag = ccb._completed.clone();
 
-            // Submit the command
-            io_q.submit(&self.info, ccb, Self::io_fill)?;
+            io_q.submit(&self.info, ccb, Self::_io_fill)?;
 
-            // Return the CCB ID and completion flag so the caller can wait and free it later
             Ok((ccb_id, Some(completion_flag)))
         }
     }

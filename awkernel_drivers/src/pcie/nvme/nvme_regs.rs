@@ -47,7 +47,7 @@ pub const NVME_SQTDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32)) * 
 pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1) * s;
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
-pub const NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
+pub const _NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
 
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
 pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
@@ -178,9 +178,9 @@ impl core::fmt::Debug for Entry {
     }
 }
 
-pub const NVM_CMD_FLUSH: u8 = 0x00;
-pub const NVM_CMD_WRITE: u8 = 0x01;
-pub const NVM_CMD_READ: u8 = 0x02;
+pub const _NVM_CMD_FLUSH: u8 = 0x00;
+pub const _NVM_CMD_WRITE: u8 = 0x01;
+pub const _NVM_CMD_READ: u8 = 0x02;
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
