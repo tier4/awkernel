@@ -745,7 +745,7 @@ impl NvmeInner {
                 Box::new(|irq| {
                     let device = NVME_DEVICE.read();
                     if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
                     }
                 }),
                 segment_group as usize,
@@ -789,7 +789,7 @@ impl NvmeInner {
                 Box::new(|irq| {
                     let device = NVME_DEVICE.read();
                     if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
                     }
                 }),
                 segment_group as usize,
