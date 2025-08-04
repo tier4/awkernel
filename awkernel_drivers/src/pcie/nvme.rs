@@ -36,7 +36,7 @@ pub struct Xfer {
     pub nsid: u32,
     pub lba: u64,
     pub blocks: u32,
-    pub data_phys: u64,
+    pub data_phys: usize,
     pub read: bool,
     pub poll: bool,
     pub timeout_ms: u32,
@@ -69,7 +69,7 @@ enum CcbCookie {
 }
 
 struct Ccb {
-    //_dmamap - TODO - this is not used for IdenifyController, so it is removed for now.
+    data_phys: usize, // TODO: This might be removed in the future, when we support multiple pages.
     cookie: Option<CcbCookie>,
 
     done: Option<fn(&mut Ccb, &ComQueueEntry)>,
@@ -77,7 +77,7 @@ struct Ccb {
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
-    _completed: Arc<AtomicBool>,
+    _completed: AtomicBool, // TODO: This might be deleted in the future, when the interrupt handler task is implemented.
 }
 
 struct CcbList {
@@ -402,13 +402,14 @@ impl NvmeInner {
         let mut off = 0;
         for i in 0..nccbs {
             let ccb = Ccb {
+                data_phys: 0,
                 cookie: None,
                 done: None,
                 _prpl_off: off,
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
-                _completed: Arc::new(AtomicBool::new(true)), // Initially completed (not in use)
+                _completed: AtomicBool::new(true), // Initially completed (not in use)
             };
             ccbs.push(ccb);
             free_list.push_back(i);
@@ -440,6 +441,7 @@ impl NvmeInner {
     fn ccb_put(&mut self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
         let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
         let ccb = &mut ccbs[ccb_id as usize];
+        ccb.data_phys = 0;
         ccb.done = None;
 
         let mut node = MCSNode::new();
@@ -860,27 +862,18 @@ impl NvmeInner {
             read,
         }) = &ccb.cookie
         {
-            // Cast to I/O-specific SQE type
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
-
-            // Set opcode based on direction (from OpenBSD)
             sqe_io.opcode = if *read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
-
-            // Set namespace ID
             sqe_io.nsid = u32::to_le(*nsid);
 
-            // Set LBA and block count
-            sqe_io.slba = u64::to_le(*lba);
-            sqe_io.nlb = u16::to_le((*blocks - 1) as u16); // NLB is 0-based
-
-            // For now, we'll use PRP1 only (single page transfers)
+            // For now, we'll use PRP0 only
             // TODO: Add PRPL support for multi-page transfers
-            if let Some(prpl_ptr) = ccb._prpl {
-                let prp_list = unsafe { core::slice::from_raw_parts(prpl_ptr as *const u64, 1) };
-                unsafe {
-                    sqe_io.entry.prp[0] = prp_list[0];
-                }
+            unsafe {
+                sqe_io.entry.prp[0] = ccb.data_phys as u64;
             }
+
+            sqe_io.slba = u64::to_le(*lba);
+            sqe_io.nlb = u16::to_le((*blocks - 1) as u16);
         } else {
             log::error!("io_fill called with non-IO cookie");
         }
@@ -888,37 +881,17 @@ impl NvmeInner {
 
     fn _io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
+        let status = _NVME_CQE_SC(flags);
 
-        if status == _NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::_Io {
-                lba,
-                blocks,
-                nsid,
-                read,
-            }) = &ccb.cookie
-            {
-                log::debug!(
-                    "NVMe I/O completed: {} {} blocks at LBA {} on nsid {}",
-                    if *read { "read" } else { "write" },
-                    blocks,
-                    lba,
-                    nsid
-                );
-            }
-        } else {
+        if status != _NVME_CQE_SC_SUCCESS {
             log::error!("NVMe I/O failed with status: 0x{status:x}");
         }
 
-        // Mark the operation as completed for async waiting
+        // Mark the operation as completed for the task waiting interrupt
         ccb._completed.store(true, Ordering::Release);
     }
 
-    pub fn _submit_io(
-        &mut self,
-        io_q: &Queue,
-        xfer: &Xfer,
-    ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
+    pub fn _submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -929,25 +902,19 @@ impl NvmeInner {
             read: xfer.read,
         });
 
+        ccb.data_phys = xfer.data_phys;
         ccb.done = Some(Self::_io_done);
-
-        if let Some(prpl_ptr) = ccb._prpl {
-            let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
-            prp_list[0] = xfer.data_phys;
-        }
 
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
-            Ok((ccb_id, None))
+            Ok(ccb_id)
         } else {
             ccb._completed.store(false, Ordering::Release);
 
-            let completion_flag = ccb._completed.clone();
-
             io_q.submit(&self.info, ccb, Self::_io_fill)?;
 
-            Ok((ccb_id, Some(completion_flag)))
+            Ok(ccb_id)
         }
     }
 }

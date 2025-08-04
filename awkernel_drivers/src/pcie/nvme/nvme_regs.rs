@@ -46,6 +46,7 @@ pub const NVME_SQTDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32)) * 
 /* Completion Queue Head Doorbell */
 pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1) * s;
 
+pub const _NVME_CQE_SC: fn(u16) -> u16 = |v| v & (0xff << 1);
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 pub const _NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
 
