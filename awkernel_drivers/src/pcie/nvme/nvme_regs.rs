@@ -49,7 +49,15 @@ pub const NVME_SQTDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32)) * 
 pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1) * s;
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
-#[allow(dead_code)]
+
+// NVMe Completion Queue Entry Status Field
+// Extract status code from CQE flags (like OpenBSD's NVME_CQE_SC macro)
+#[inline]
+#[allow(non_snake_case)]
+pub const fn NVME_CQE_SC(flags: u16) -> u16 {
+    flags & (0xff << 1)
+}
+
 pub const NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
 
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
@@ -282,26 +290,6 @@ pub struct SubQueueEntryIo {
 }
 
 pub const QUEUE_SIZE: usize = 128;
-// Based on OpenBSD's struct nvme_sqe_io (nvmereg.h)
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SubQueueEntryIo {
-    pub opcode: u8,
-    pub flags: u8,
-    pub cid: u16,
-    pub nsid: u32,
-    pub _reserved: [u8; 8],
-    pub mptr: u64,
-    pub entry: Entry, // PRP entries
-    pub slba: u64,    // Starting LBA
-    pub nlb: u16,     // Number of Logical Blocks
-    pub ioflags: u16,
-    pub dsm: u8, // Dataset Management
-    pub _reserved2: [u8; 3],
-    pub eilbrt: u32, // Expected Initial Logical Block Reference Tag
-    pub elbat: u16,  // Expected Logical Block Application Tag
-    pub elbatm: u16, // Expected Logical Block Application Tag Mask
-}
 
 pub type SubRing = [SubQueueEntry; QUEUE_SIZE];
 pub type ComRing = [ComQueueEntry; QUEUE_SIZE];

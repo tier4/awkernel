@@ -1,5 +1,5 @@
 use super::{registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -25,7 +25,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -794,7 +794,7 @@ impl NvmeInner {
     /// Based on OpenBSD's nvme_scsi_io_done()
     fn io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
+        let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
             if let Some(CcbCookie::Io {
@@ -824,7 +824,7 @@ impl NvmeInner {
     /// Based on OpenBSD's nvme_scsi_sync_done()
     fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
+        let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
             if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
@@ -853,16 +853,10 @@ impl NvmeInner {
 
     /// Submit I/O command to the I/O queue
     /// Based on OpenBSD's nvme_scsi_io()
-    #[allow(clippy::too_many_arguments)]
     pub fn submit_io(
         &mut self,
         io_q: &Queue,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
-        data_phys: u64,
-        read: bool,
-        poll: bool,
+        xfer: &Xfer,
     ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
         // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
@@ -870,10 +864,10 @@ impl NvmeInner {
 
         // Set up the I/O cookie
         ccb.cookie = Some(CcbCookie::Io {
-            lba,
-            blocks,
-            nsid,
-            read,
+            lba: xfer.lba,
+            blocks: xfer.blocks,
+            nsid: xfer.nsid,
+            read: xfer.read,
         });
 
         // Set up done callback (following OpenBSD's nvme_scsi_io)
@@ -882,12 +876,12 @@ impl NvmeInner {
         // Store the physical address in the PRPL
         if let Some(prpl_ptr) = ccb._prpl {
             let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
-            prp_list[0] = data_phys;
+            prp_list[0] = xfer.data_phys;
         }
 
-        if poll {
+        if xfer.poll {
             // Synchronous polling mode - use the poll() function like OpenBSD
-            self.poll(io_q, ccb_id, Self::io_fill, 30000)?; // 30 second timeout
+            self.poll(io_q, ccb_id, Self::io_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
         } else {
@@ -1049,68 +1043,6 @@ impl NvmeInner {
         Ok(PCIeInt::_Msi(irq))
     }
 
-    fn _io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::_Io {
-            lba,
-            blocks,
-            nsid,
-            read,
-        }) = &ccb.cookie
-        {
-            // Cast to I/O-specific SQE type
-            let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
-
-            // Set opcode based on direction (from OpenBSD)
-            sqe_io.opcode = if *read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
-
-            // Set namespace ID
-            sqe_io.nsid = u32::to_le(*nsid);
-
-            // Set LBA and block count
-            sqe_io.slba = u64::to_le(*lba);
-            sqe_io.nlb = u16::to_le((*blocks - 1) as u16); // NLB is 0-based
-
-            // For now, we'll use PRP1 only (single page transfers)
-            // TODO: Add PRPL support for multi-page transfers
-            if let Some(prpl_ptr) = ccb._prpl {
-                let prp_list = unsafe { core::slice::from_raw_parts(prpl_ptr as *const u64, 1) };
-                unsafe {
-                    sqe_io.entry.prp[0] = prp_list[0];
-                }
-            }
-        } else {
-            log::error!("io_fill called with non-IO cookie");
-        }
-    }
-
-    fn _io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
-        let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
-
-        if status == _NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::_Io {
-                lba,
-                blocks,
-                nsid,
-                read,
-            }) = &ccb.cookie
-            {
-                log::debug!(
-                    "NVMe I/O completed: {} {} blocks at LBA {} on nsid {}",
-                    if *read { "read" } else { "write" },
-                    blocks,
-                    lba,
-                    nsid
-                );
-            }
-        } else {
-            log::error!("NVMe I/O failed with status: 0x{status:x}");
-        }
-
-        // Mark the operation as completed for async waiting
-        ccb._completed.store(true, Ordering::Release);
-    }
-
     pub fn _submit_io(
         &mut self,
         io_q: &Queue,
@@ -1119,14 +1051,14 @@ impl NvmeInner {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
-        ccb.cookie = Some(CcbCookie::_Io {
+        ccb.cookie = Some(CcbCookie::Io {
             lba: xfer.lba,
             blocks: xfer.blocks,
             nsid: xfer.nsid,
             read: xfer.read,
         });
 
-        ccb.done = Some(Self::_io_done);
+        ccb.done = Some(Self::io_done);
 
         if let Some(prpl_ptr) = ccb._prpl {
             let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
@@ -1134,15 +1066,15 @@ impl NvmeInner {
         }
 
         if xfer.poll {
-            self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
+            self.poll(io_q, ccb_id, Self::io_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
         } else {
-            ccb._completed.store(false, Ordering::Release);
+            ccb.completed.store(false, Ordering::Release);
 
-            let completion_flag = ccb._completed.clone();
+            let completion_flag = ccb.completed.clone();
 
-            io_q.submit(&self.info, ccb, Self::_io_fill)?;
+            io_q.submit(&self.info, ccb, Self::io_fill)?;
 
             Ok((ccb_id, Some(completion_flag)))
         }
@@ -1290,9 +1222,17 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
+        let xfer = Xfer {
+            nsid,
+            lba,
+            blocks,
+            data_phys,
+            read: true,
+            poll,
+            ..Default::default()
+        };
         let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) =
-            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, true, poll)?;
+        let (ccb_id, completion_flag) = inner.submit_io(&self.io_q, &xfer)?;
         drop(inner);
 
         let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
@@ -1315,9 +1255,17 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
+        let xfer = Xfer {
+            nsid,
+            lba,
+            blocks,
+            data_phys,
+            read: false,
+            poll,
+            ..Default::default()
+        };
         let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) =
-            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, false, poll)?;
+        let (ccb_id, completion_flag) = inner.submit_io(&self.io_q, &xfer)?;
         drop(inner);
 
         let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
