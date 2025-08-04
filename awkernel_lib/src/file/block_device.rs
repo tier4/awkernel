@@ -1,12 +1,12 @@
 //! Block device abstraction for AWKernel
 //!
-//! This module provides traits and types for block device operations
+//! This module provides types for block device operations
 //! that will be used by filesystems like ext4.
 
 use super::error::IoError;
 use super::io::{IoBase, Read, Seek, SeekFrom, Write};
+use crate::storage::StorageDevice;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
-use core::any::Any;
 use core::cmp::min;
 use core::fmt::{self, Debug, Display};
 
@@ -26,60 +26,6 @@ pub enum BlockDeviceError {
 /// Result type for block device operations
 pub type BlockResult<T> = Result<T, BlockDeviceError>;
 
-/// Trait for block devices
-///
-/// This trait defines the interface that block devices must implement
-/// to be used by filesystems.
-pub trait BlockDevice: Send + Sync {
-    /// Get the block size in bytes
-    fn block_size(&self) -> usize;
-    
-    /// Get a reference to self as Any for downcasting
-    fn as_any(&self) -> &dyn Any;
-    
-    /// Get the total number of blocks
-    fn num_blocks(&self) -> u64;
-    
-    /// Read a single block into the provided buffer
-    ///
-    /// The buffer must be at least `block_size()` bytes.
-    fn read_block(&self, block_num: u64, buf: &mut [u8]) -> BlockResult<()>;
-    
-    /// Write a single block from the provided buffer
-    ///
-    /// The buffer must be exactly `block_size()` bytes.
-    fn write_block(&mut self, block_num: u64, buf: &[u8]) -> BlockResult<()>;
-    
-    /// Read multiple blocks into the provided buffer
-    ///
-    /// Default implementation calls `read_block` multiple times.
-    fn read_blocks(&self, start_block: u64, num_blocks: u32, buf: &mut [u8]) -> BlockResult<()> {
-        let block_size = self.block_size();
-        for i in 0..num_blocks as u64 {
-            let offset = (i as usize) * block_size;
-            self.read_block(start_block + i, &mut buf[offset..offset + block_size])?;
-        }
-        Ok(())
-    }
-    
-    /// Write multiple blocks from the provided buffer
-    ///
-    /// Default implementation calls `write_block` multiple times.
-    fn write_blocks(&mut self, start_block: u64, num_blocks: u32, buf: &[u8]) -> BlockResult<()> {
-        let block_size = self.block_size();
-        for i in 0..num_blocks as u64 {
-            let offset = (i as usize) * block_size;
-            self.write_block(start_block + i, &buf[offset..offset + block_size])?;
-        }
-        Ok(())
-    }
-    
-    /// Flush any cached writes to the device
-    fn flush(&mut self) -> BlockResult<()> {
-        Ok(())
-    }
-}
-
 
 /// Information about a block device
 #[derive(Debug, Clone)]
@@ -96,7 +42,7 @@ pub struct BlockDeviceInfo {
 
 /// Adapter that provides file I/O interface for block devices
 #[derive(Debug)]
-pub struct BlockDeviceAdapter<D: BlockDevice> {
+pub struct BlockDeviceAdapter<D: StorageDevice> {
     /// The underlying block device
     device: Arc<D>,
     /// Current position in the virtual file
@@ -118,7 +64,7 @@ struct BlockCache {
     dirty: bool,
 }
 
-impl<D: BlockDevice> BlockDeviceAdapter<D> {
+impl<D: StorageDevice> BlockDeviceAdapter<D> {
     /// Create a new block device adapter
     pub fn new(device: Arc<D>) -> Self {
         Self {
@@ -195,11 +141,11 @@ impl<D: BlockDevice> BlockDeviceAdapter<D> {
     }
 }
 
-impl<D: BlockDevice> IoBase for BlockDeviceAdapter<D> {
+impl<D: StorageDevice> IoBase for BlockDeviceAdapter<D> {
     type Error = BlockDeviceAdapterError;
 }
 
-impl<D: BlockDevice> Read for BlockDeviceAdapter<D> {
+impl<D: StorageDevice> Read for BlockDeviceAdapter<D> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             return Ok(0);
@@ -236,7 +182,7 @@ impl<D: BlockDevice> Read for BlockDeviceAdapter<D> {
     }
 }
 
-impl<D: BlockDevice> Write for BlockDeviceAdapter<D> {
+impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if self.read_only {
             return Err(BlockDeviceAdapterError::ReadOnly);
@@ -293,7 +239,7 @@ impl<D: BlockDevice> Write for BlockDeviceAdapter<D> {
     }
 }
 
-impl<D: BlockDevice> Seek for BlockDeviceAdapter<D> {
+impl<D: StorageDevice> Seek for BlockDeviceAdapter<D> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let size = self.size() as i64;
         let new_position = match pos {

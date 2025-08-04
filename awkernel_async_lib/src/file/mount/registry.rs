@@ -16,8 +16,8 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::{
+    storage::StorageDevice,
     file::{
-        block_device::BlockDevice,
         fatfs::create_fatfs_from_block_device,
         memfs::MemoryBlockDevice,
         mount_types::{
@@ -215,7 +215,7 @@ pub async fn mount(
     path: impl Into<String>,
     source: impl Into<String>,
     fs_type: impl Into<String>,
-    device: Arc<dyn BlockDevice>,
+    device: Arc<dyn StorageDevice>,
     options: MountOptions,
 ) -> MountResult<()> {
     let path = path.into();
@@ -241,7 +241,7 @@ pub fn unmount(path: impl AsRef<str>) -> MountResult<()> {
 /// Create a filesystem based on type
 async fn create_filesystem(
     fs_type: &str,
-    device: Arc<dyn BlockDevice>,
+    device: Arc<dyn StorageDevice>,
     options: &MountOptions,
 ) -> MountResult<Box<dyn AsyncFileSystem>> {
     match fs_type {

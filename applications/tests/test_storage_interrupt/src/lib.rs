@@ -61,7 +61,6 @@ fn test_storage_service_running() -> bool {
             device.device_type
         );
         log::info!("    IRQs: {:?}", device.irqs);
-        log::info!("    Ready: {}", device.is_ready);
         log::info!("    Block size: {}, Blocks: {}", device.block_size, device.num_blocks);
     }
     

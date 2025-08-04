@@ -9,8 +9,9 @@ pub mod time;
 
 use crate::{
     allocator::System,
+    storage::StorageDevice,
     file::{
-        block_device::{BlockDevice, BlockDeviceAdapter},
+        block_device::BlockDeviceAdapter,
         fatfs::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
             time::NullTimeProvider,
@@ -82,7 +83,7 @@ pub fn get_memory_fatfs() -> Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice
 }
 
 /// Create a FAT filesystem from a block device
-pub fn create_fatfs_from_block_device<D: BlockDevice + Debug + 'static>(
+pub fn create_fatfs_from_block_device<D: StorageDevice + Debug + 'static>(
     device: Arc<D>,
     format: bool,
 ) -> Result<FileSystem<BlockDeviceAdapter<D>, NullTimeProvider, LossyOemCpConverter>, String> {
@@ -98,7 +99,7 @@ pub fn create_fatfs_from_block_device<D: BlockDevice + Debug + 'static>(
 }
 
 /// Format a block device with FAT filesystem
-pub fn format_block_device_as_fat<D: BlockDevice + Debug + 'static>(
+pub fn format_block_device_as_fat<D: StorageDevice + Debug + 'static>(
     device: Arc<D>,
 ) -> Result<(), String> {
     let mut adapter = BlockDeviceAdapter::new(device);

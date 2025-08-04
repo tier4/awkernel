@@ -16,10 +16,8 @@ pub async fn run() {
     let mut ch_irq_handlers = BTreeMap::new();
 
     for storage_status in awkernel_lib::storage::get_all_storage_devices() {
-        log::info!("Waking {} up.", storage_status.device_name);
-        if awkernel_lib::storage::up(storage_status.interface_id).is_ok() {
-            spawn_handlers(storage_status, &mut ch_irq_handlers).await;
-        }
+        log::info!("Initializing interrupt handlers for {}.", storage_status.device_name);
+        spawn_handlers(storage_status, &mut ch_irq_handlers).await;
     }
 
     let subscriber = pubsub::create_subscriber::<(&'static str, u64)>(
@@ -37,34 +35,10 @@ pub async fn run() {
         let data = subscriber.recv().await;
 
         match data.data {
-            ("up", id) => {
-                let Ok(storage_status) = awkernel_lib::storage::get_storage_device(id) else {
-                    continue;
-                };
-
-                let Ok(_) = awkernel_lib::storage::up(id) else {
-                    continue;
-                };
-
-                spawn_handlers(storage_status, &mut ch_irq_handlers).await;
-            }
-            ("down", id) => {
-                let Ok(storage_status) = awkernel_lib::storage::get_storage_device(id) else {
-                    continue;
-                };
-
-                let Ok(_) = awkernel_lib::storage::down(id) else {
-                    continue;
-                };
-
-                // Close interrupt handlers.
-                for irq in storage_status.irqs {
-                    if let Some(ch) = ch_irq_handlers.remove(&irq) {
-                        let ch = ch.send(()).await;
-                        let (ch, _) = ch.recv().await;
-                        ch.close();
-                    }
-                }
+            // Storage devices don't support runtime up/down like network devices
+            // Following the OpenBSD model: storage devices are operational once attached
+            ("up", _id) | ("down", _id) => {
+                log::warn!("Storage devices don't support runtime up/down operations");
             }
             _ => (),
         }

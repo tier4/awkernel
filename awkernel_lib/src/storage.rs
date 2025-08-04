@@ -5,8 +5,9 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use core::any::Any;
 
-use crate::file::block_device::BlockDevice;
+use crate::file::block_device::BlockResult;
 
 #[derive(Debug)]
 pub enum StorageManagerError {
@@ -30,7 +31,6 @@ pub struct StorageStatus {
     pub irqs: Vec<u16>,
     pub block_size: usize,
     pub num_blocks: u64,
-    pub is_ready: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,9 +39,10 @@ pub enum StorageDeviceType {
     SATA,
     USB,
     VirtIO,
+    Memory,
 }
 
-pub trait StorageDevice: BlockDevice + Send + Sync {
+pub trait StorageDevice: Send + Sync {
     /// Get the device name
     fn device_name(&self) -> Cow<'static, str>;
     
@@ -57,14 +58,55 @@ pub trait StorageDevice: BlockDevice + Send + Sync {
     /// Handle an interrupt for this device
     fn interrupt(&self, irq: u16) -> Result<(), StorageDevError>;
     
-    /// Check if the device is ready for I/O
-    fn is_ready(&self) -> bool;
+    // Block device methods
     
-    /// Bring the device up (enable it)
-    fn up(&self) -> Result<(), StorageDevError>;
+    /// Get the block size in bytes
+    fn block_size(&self) -> usize;
     
-    /// Bring the device down (disable it)
-    fn down(&self) -> Result<(), StorageDevError>;
+    /// Get a reference to self as Any for downcasting
+    fn as_any(&self) -> &dyn Any;
+    
+    /// Get the total number of blocks  
+    fn num_blocks(&self) -> u64;
+    
+    /// Read a single block into the provided buffer
+    ///
+    /// The buffer must be at least `block_size()` bytes.
+    fn read_block(&self, block_num: u64, buf: &mut [u8]) -> BlockResult<()>;
+    
+    /// Write a single block from the provided buffer
+    ///
+    /// The buffer must be exactly `block_size()` bytes.
+    fn write_block(&mut self, block_num: u64, buf: &[u8]) -> BlockResult<()>;
+    
+    /// Read multiple blocks into the provided buffer
+    ///
+    /// Default implementation calls `read_block` multiple times.
+    fn read_blocks(&self, start_block: u64, num_blocks: u32, buf: &mut [u8]) -> BlockResult<()> {
+        let block_size = self.block_size();
+        for i in 0..num_blocks as u64 {
+            let offset = (i as usize) * block_size;
+            self.read_block(start_block + i, &mut buf[offset..offset + block_size])?;
+        }
+        Ok(())
+    }
+    
+    /// Write multiple blocks from the provided buffer
+    ///
+    /// Default implementation calls `write_block` multiple times.
+    fn write_blocks(&mut self, start_block: u64, num_blocks: u32, buf: &[u8]) -> BlockResult<()> {
+        let block_size = self.block_size();
+        for i in 0..num_blocks as u64 {
+            let offset = (i as usize) * block_size;
+            self.write_block(start_block + i, &buf[offset..offset + block_size])?;
+        }
+        Ok(())
+    }
+    
+    /// Flush any cached writes to the device
+    fn flush(&mut self) -> BlockResult<()> {
+        Ok(())
+    }
 }
 
 static STORAGE_MANAGER: RwLock<StorageManager> = RwLock::new(StorageManager {
@@ -116,7 +158,6 @@ pub fn get_storage_device(interface_id: u64) -> Result<StorageStatus, StorageMan
         irqs: device.irqs(),
         block_size: device.block_size(),
         num_blocks: device.num_blocks(),
-        is_ready: device.is_ready(),
     };
     
     Ok(status)
@@ -207,27 +248,6 @@ pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
     false
 }
 
-/// Enable a storage device
-pub fn up(interface_id: u64) -> Result<(), StorageManagerError> {
-    let manager = STORAGE_MANAGER.read();
-    
-    let Some(device) = manager.devices.get(&interface_id) else {
-        return Err(StorageManagerError::InvalidInterfaceID);
-    };
-    
-    device.up().map_err(StorageManagerError::DeviceError)
-}
-
-/// Disable a storage device
-pub fn down(interface_id: u64) -> Result<(), StorageManagerError> {
-    let manager = STORAGE_MANAGER.read();
-    
-    let Some(device) = manager.devices.get(&interface_id) else {
-        return Err(StorageManagerError::InvalidInterfaceID);
-    };
-    
-    device.down().map_err(StorageManagerError::DeviceError)
-}
 
 /// Get a reference to a storage device for block operations
 pub fn get_block_device(interface_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {

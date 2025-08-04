@@ -1,7 +1,8 @@
 //! Memory-based filesystem implementations
 
-use super::block_device::{BlockDevice, BlockDeviceError, BlockResult};
-use alloc::{sync::Arc, vec, vec::Vec};
+use super::block_device::{BlockDeviceError, BlockResult};
+use crate::storage::{StorageDevice, StorageDevError, StorageDeviceType};
+use alloc::{borrow::Cow, sync::Arc, vec, vec::Vec};
 use core::any::Any;
 
 /// Default block size for block devices
@@ -46,7 +47,32 @@ impl MemoryBlockDevice {
     }
 }
 
-impl BlockDevice for MemoryBlockDevice {
+impl StorageDevice for MemoryBlockDevice {
+    // Storage device specific methods
+    
+    fn device_name(&self) -> Cow<'static, str> {
+        "Memory Block Device".into()
+    }
+    
+    fn device_short_name(&self) -> Cow<'static, str> {
+        "memory".into()
+    }
+    
+    fn device_type(&self) -> StorageDeviceType {
+        StorageDeviceType::Memory
+    }
+    
+    fn irqs(&self) -> Vec<u16> {
+        // Memory device has no IRQs
+        vec![]
+    }
+    
+    fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
+        // Memory device doesn't handle interrupts
+        Ok(())
+    }
+    
+    // Block device methods
     fn block_size(&self) -> usize {
         self.block_size
     }
@@ -73,7 +99,7 @@ impl BlockDevice for MemoryBlockDevice {
 }
 
 /// Create a memory block device with the specified size
-pub fn create_memory_block_device(size: usize, block_size: usize) -> Result<Arc<dyn BlockDevice>, &'static str> {
+pub fn create_memory_block_device(size: usize, block_size: usize) -> Result<Arc<dyn StorageDevice>, &'static str> {
     // Validate parameters
     if size == 0 {
         return Err("Size must be greater than 0");
@@ -89,5 +115,5 @@ pub fn create_memory_block_device(size: usize, block_size: usize) -> Result<Arc<
     // Create a MemoryBlockDevice
     let memory_device = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
     
-    Ok(memory_device as Arc<dyn BlockDevice>)
+    Ok(memory_device as Arc<dyn StorageDevice>)
 }
