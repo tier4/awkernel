@@ -32,6 +32,30 @@ struct PollState {
     _cqe: ComQueueEntry,
 }
 
+pub struct Xfer {
+    pub nsid: u32,
+    pub lba: u64,
+    pub blocks: u32,
+    pub data_phys: u64,
+    pub read: bool,
+    pub poll: bool,
+    pub timeout_ms: u32,
+}
+
+impl Default for Xfer {
+    fn default() -> Self {
+        Self {
+            nsid: 0,
+            lba: 0,
+            blocks: 0,
+            data_phys: 0,
+            read: true,
+            poll: false,
+            timeout_ms: 30000,
+        }
+    }
+}
+
 enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
@@ -890,36 +914,30 @@ impl NvmeInner {
         ccb._completed.store(true, Ordering::Release);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn _submit_io(
         &mut self,
         io_q: &Queue,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
-        data_phys: u64,
-        read: bool,
-        poll: bool,
+        xfer: &Xfer,
     ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
         ccb.cookie = Some(CcbCookie::_Io {
-            lba,
-            blocks,
-            nsid,
-            read,
+            lba: xfer.lba,
+            blocks: xfer.blocks,
+            nsid: xfer.nsid,
+            read: xfer.read,
         });
 
         ccb.done = Some(Self::_io_done);
 
         if let Some(prpl_ptr) = ccb._prpl {
             let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
-            prp_list[0] = data_phys;
+            prp_list[0] = xfer.data_phys;
         }
 
-        if poll {
-            self.poll(io_q, ccb_id, Self::_io_fill, 30000)?; // 30 second timeout
+        if xfer.poll {
+            self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
             Ok((ccb_id, None))
         } else {
