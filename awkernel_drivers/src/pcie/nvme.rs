@@ -69,7 +69,7 @@ enum CcbCookie {
 }
 
 struct Ccb {
-    data_phys: usize, // TODO: This might be removed in the future, when we support multiple pages.
+    data_phys: usize, // TODO: Support multiple pages. Only single page is supported now.
     cookie: Option<CcbCookie>,
 
     done: Option<fn(&mut Ccb, &ComQueueEntry)>,
