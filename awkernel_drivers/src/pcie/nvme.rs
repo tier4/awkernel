@@ -1,5 +1,5 @@
 use super::{registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::VecDeque, format, sync::Arc, vec, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -8,8 +8,10 @@ use awkernel_lib::{
     },
     delay::wait_microsec,
     dma_pool::DMAPool,
+    file::block_device::{BlockDevice, BlockDeviceError, BlockResult},
     interrupt::IRQ,
     paging::PAGESIZE,
+    storage::{StorageDevice, StorageDevError, StorageDeviceType},
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +27,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -949,10 +951,7 @@ impl NvmeInner {
             .register_handler(
                 irq_name.into(),
                 Box::new(|irq| {
-                    let device = NVME_DEVICE.read();
-                    if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
-                    }
+                    awkernel_lib::storage::storage_interrupt(irq);
                 }),
                 segment_group as usize,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
@@ -993,10 +992,7 @@ impl NvmeInner {
             .register_handler(
                 irq_name.into(),
                 Box::new(|irq| {
-                    let device = NVME_DEVICE.read();
-                    if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
-                    }
+                    awkernel_lib::storage::storage_interrupt(irq);
                 }),
                 segment_group as usize,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
@@ -1211,12 +1207,6 @@ impl Nvme {
 
         Ok(())
     }
-
-    fn interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
-        let mut inner = self.inner.write();
-        let _ = inner.intr(&self.admin_q, &self.io_q)?;
-        Ok(())
-    }
 }
 
 impl PCIeDevice for Nvme {
@@ -1230,7 +1220,7 @@ impl PCIeDevice for Nvme {
 
 impl PCIeDevice for Arc<Nvme> {
     fn device_name(&self) -> alloc::borrow::Cow<'static, str> {
-        (**self).device_name()
+        PCIeDevice::device_name(&**self)
     }
 }
 
@@ -1327,5 +1317,131 @@ pub(super) fn attach(
     let mut device = NVME_DEVICE.write();
     *device = Some(nvme_arc.clone());
 
+    // Register with storage manager
+    let storage_id = awkernel_lib::storage::add_storage_device(nvme_arc.clone() as Arc<dyn StorageDevice>);
+    log::info!("NVMe: Registered with storage manager, interface_id={}", storage_id);
+
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
+}
+
+// BlockDevice implementation for NVMe
+impl BlockDevice for Nvme {
+    fn block_size(&self) -> usize {
+        // For now, assume 512 byte sectors
+        // TODO: Read actual block size from namespace data
+        512
+    }
+    
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+    
+    fn num_blocks(&self) -> u64 {
+        // TODO: Read actual capacity from namespace data
+        // For now return a placeholder
+        1024 * 1024 // 512 MB with 512 byte blocks
+    }
+    
+    fn read_block(&self, _block_num: u64, buf: &mut [u8]) -> BlockResult<()> {
+        if buf.len() < self.block_size() {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // TODO: Implement read_block properly
+        // The current NVMe driver expects physical addresses, not buffers
+        // Need to:
+        // 1. Allocate DMA buffer
+        // 2. Get physical address of buffer
+        // 3. Call read_sectors with physical address
+        // 4. Copy data from DMA buffer to user buffer
+        // 5. Handle async completion
+        
+        Err(BlockDeviceError::NotSupported)
+    }
+    
+    fn write_block(&mut self, _block_num: u64, buf: &[u8]) -> BlockResult<()> {
+        if buf.len() != self.block_size() {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // TODO: Implement write_block properly
+        // The current NVMe driver expects physical addresses, not buffers
+        // Need to:
+        // 1. Allocate DMA buffer
+        // 2. Copy data from user buffer to DMA buffer
+        // 3. Get physical address of buffer
+        // 4. Call write_sectors with physical address
+        // 5. Handle async completion
+        
+        Err(BlockDeviceError::NotSupported)
+    }
+    
+    fn flush(&mut self) -> BlockResult<()> {
+        let nsid = 1; // Default namespace
+        
+        // Call the NVMe-specific flush method
+        let mut inner = self.inner.write();
+        match inner.submit_flush(&self.io_q, nsid, false) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(BlockDeviceError::IoError),
+        }
+    }
+}
+
+// StorageDevice implementation for NVMe
+impl StorageDevice for Nvme {
+    fn device_name(&self) -> Cow<'static, str> {
+        let inner = self.inner.read();
+        let bfd = inner.info.get_bfd();
+        format!("{bfd}: NVMe Controller").into()
+    }
+    
+    fn device_short_name(&self) -> Cow<'static, str> {
+        DEVICE_SHORT_NAME.into()
+    }
+    
+    fn device_type(&self) -> StorageDeviceType {
+        StorageDeviceType::NVMe
+    }
+    
+    fn irqs(&self) -> Vec<u16> {
+        let inner = self.inner.read();
+        match &inner.pcie_int {
+            PCIeInt::None => vec![],
+            PCIeInt::_Msi(irq) => vec![irq.get_irq()],
+            PCIeInt::_MsiX(irq) => vec![irq.get_irq()],
+        }
+    }
+    
+    fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
+        let mut inner = self.inner.write();
+        match inner.intr(&self.admin_q, &self.io_q) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(StorageDevError::IoError),
+        }
+    }
+    
+    fn is_ready(&self) -> bool {
+        // Check if controller is ready
+        let inner = self.inner.read();
+        if let Ok(csts) = read_reg(&inner.info, NVME_CSTS) {
+            (csts & NVME_CSTS_RDY) != 0
+        } else {
+            false
+        }
+    }
+    
+    fn up(&self) -> Result<(), StorageDevError> {
+        // NVMe is already initialized during attach
+        if self.is_ready() {
+            Ok(())
+        } else {
+            Err(StorageDevError::DeviceNotReady)
+        }
+    }
+    
+    fn down(&self) -> Result<(), StorageDevError> {
+        // TODO: Implement controller shutdown sequence
+        Ok(())
+    }
 }

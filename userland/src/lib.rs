@@ -67,5 +67,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_nvme")]
     test_nvme::run().await; // test for NVMe driver
 
+    #[cfg(feature = "test_storage_interrupt")]
+    test_storage_interrupt::run().await; // test for storage interrupt handler
+
     Ok(())
 }
