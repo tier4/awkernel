@@ -139,23 +139,87 @@ impl DmaMap {
             return Err(DmaError::BadAlignment);
         }
 
-        // Try direct mapping first
-        if let Some(paddr) = paging::vm_to_phy(vaddr) {
-            if paddr.as_usize() as u64 <= self.tag.boundary {
-                // Direct mapping is possible
-                self.segments.clear();
+        // Clear existing segments
+        self.segments.clear();
+        
+        // Build scatter-gather list by checking each page
+        let mut offset = 0;
+        
+        while offset < size {
+            // Calculate size within current page
+            let page_offset = (vaddr.as_usize() + offset) % PAGESIZE;
+            let chunk_size = core::cmp::min(PAGESIZE - page_offset, size - offset);
+            
+            // Get physical address for this chunk
+            let current_vaddr = VirtAddr::new(vaddr.as_usize() + offset);
+            let Some(paddr) = paging::vm_to_phy(current_vaddr) else {
+                // Cannot get physical address, need bounce buffer
+                return self.load_with_bounce(vaddr, size);
+            };
+            
+            // Check if address exceeds device boundary
+            if paddr.as_usize() as u64 > self.tag.boundary {
+                return self.load_with_bounce(vaddr, size);
+            }
+            
+            // Check if we can coalesce with previous segment
+            if let Some(last_seg) = self.segments.last_mut() {
+                let expected_paddr = PhyAddr::new(last_seg.ds_addr.as_usize() + last_seg.ds_len);
+                if paddr == expected_paddr && last_seg.ds_len + chunk_size <= self.tag.maxsegsz {
+                    // Extend the last segment
+                    last_seg.ds_len += chunk_size;
+                } else {
+                    // Check if adding new segment would exceed nsegments
+                    if self.segments.len() >= self.tag.nsegments {
+                        return self.load_with_bounce(vaddr, size);
+                    }
+                    
+                    // Check segment size constraint
+                    if chunk_size > self.tag.maxsegsz {
+                        return self.load_with_bounce(vaddr, size);
+                    }
+                    
+                    // Add new segment
+                    self.segments.push(DmaSegment {
+                        ds_addr: paddr,
+                        ds_len: chunk_size,
+                    });
+                }
+            } else {
+                // First segment
+                if chunk_size > self.tag.maxsegsz {
+                    return self.load_with_bounce(vaddr, size);
+                }
+                
                 self.segments.push(DmaSegment {
                     ds_addr: paddr,
-                    ds_len: size,
+                    ds_len: chunk_size,
                 });
-                self.orig_vaddr = Some(vaddr);
-                self.mapsize = size;
-                return Ok(());
             }
+            
+            // Check boundary crossing within segment
+            if let Some(last_seg) = self.segments.last() {
+                let seg_start = last_seg.ds_addr.as_usize() as u64;
+                let seg_end = seg_start + last_seg.ds_len as u64 - 1;
+                
+                // Check if segment crosses a boundary
+                if self.tag.boundary != 0 && self.tag.boundary != u64::MAX {
+                    let start_boundary = seg_start / (self.tag.boundary + 1);
+                    let end_boundary = seg_end / (self.tag.boundary + 1);
+                    if start_boundary != end_boundary {
+                        // Segment crosses boundary, need bounce buffer
+                        return self.load_with_bounce(vaddr, size);
+                    }
+                }
+            }
+            
+            offset += chunk_size;
         }
-
-        // Need bounce buffer
-        self.load_with_bounce(vaddr, size)
+        
+        // Successfully mapped
+        self.orig_vaddr = Some(vaddr);
+        self.mapsize = size;
+        Ok(())
     }
 
     /// Load buffer using bounce buffer
@@ -173,14 +237,8 @@ impl DmaMap {
             return Err(DmaError::AddressTooHigh);
         }
 
-        // Copy data to bounce buffer (equivalent to PREWRITE)
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                vaddr.as_ptr::<u8>(),
-                bounce.get_virt_addr().as_mut_ptr::<u8>(),
-                size,
-            );
-        }
+        // NOTE: Data copying happens in sync(), not here!
+        // This matches OpenBSD's design where load only sets up mappings
 
         self.segments.clear();
         self.segments.push(DmaSegment {
@@ -211,6 +269,11 @@ impl DmaMap {
             return Err(DmaError::NotLoaded);
         }
 
+        // Validate offset and length
+        if offset + len > self.mapsize {
+            return Err(DmaError::SizeTooLarge);
+        }
+
         // If using bounce buffer, handle data copying
         if let (Some(ref bounce), Some(orig_vaddr)) = (&self.bounce_buffer, self.orig_vaddr) {
             match op {
@@ -229,6 +292,7 @@ impl DmaMap {
                 }
                 DmaSyncOp::PreWrite => {
                     // Copy from original to bounce buffer
+                    // This is now the ONLY place where data is copied for writes
                     unsafe {
                         core::ptr::copy_nonoverlapping(
                             orig_vaddr.as_ptr::<u8>().add(offset),
