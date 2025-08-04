@@ -721,13 +721,8 @@ impl NvmeInner {
         let mut rv = false;
 
         if let Some(ccbs) = self.ccbs.as_mut() {
-            rv = io_q.complete(&self.info, ccbs)?;
-        }
-
-        if let Some(ccbs) = self.ccbs.as_mut() {
-            if admin_q.complete(&self.info, ccbs)? {
-                rv = true;
-            }
+            rv |= io_q.complete(&self.info, ccbs)?;
+            rv |= admin_q.complete(&self.info, ccbs)?;
         }
 
         Ok(rv)
