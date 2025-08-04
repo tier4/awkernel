@@ -1,6 +1,6 @@
 use crate::{
-    scheduler::{peek_preemption_pending, pop_preemption_pending, remove_preemption_pending},
-    task::{get_current_task, set_current_task, Task},
+    scheduler::{move_preemption_pending, peek_preemption_pending, remove_preemption_pending},
+    task::{get_current_task, get_task, set_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
@@ -123,7 +123,7 @@ unsafe fn do_preemption() {
     super::perf::start_context_switch();
 
     let cpu_id = awkernel_lib::cpu::cpu_id();
-    let Some(next) = peek_preemption_pending(cpu_id) else {
+    let Some(mut next) = peek_preemption_pending(cpu_id) else {
         return;
     };
 
@@ -136,23 +136,25 @@ unsafe fn do_preemption() {
     };
 
     {
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
+        let current_task = get_task(current_task_id).unwrap();
 
-        if current_task > &next {
+        if current_task > next {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;
         }
     }
 
+    // If a new preemption-pending task with the highest priority is pushed from peek_preemption_pending() to here, the subsequent re-wake may cause a infinite loop.
+    // Therefore, we move the preemption-pending tasks to a temporary queue and re-wake from there.
+    let mut moved_preemption_pending = move_preemption_pending(cpu_id).unwrap();
+    next = moved_preemption_pending.pop().unwrap(); // Use latest highest priority task.
+
     set_current_task(cpu_id, next.id);
-    remove_preemption_pending(cpu_id, next.id);
 
     // Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
     // This is necessary to handle cases where the number of IPI sends differs from the number of executions of this function.
-    while let Some(p) = pop_preemption_pending(cpu_id) {
+    while let Some(p) = moved_preemption_pending.pop() {
         p.scheduler.wake_task(p);
     }
 
