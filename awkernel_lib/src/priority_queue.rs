@@ -1,7 +1,9 @@
 use alloc::collections::VecDeque;
 
+pub const LOWEST_PRIORITY: u8 = 31;
+
 pub struct PriorityQueue<T> {
-    queue: [VecDeque<T>; 32],
+    queue: [VecDeque<T>; LOWEST_PRIORITY as usize + 1],
     has_entry: u32,
 }
 
@@ -14,10 +16,10 @@ impl<T> PriorityQueue<T> {
     }
 
     /// Push the value with the specified priority
-    /// Note: the priority is set to min(priority, 31)
+    /// Note: the priority is set to min(priority, LOWEST_PRIORITY)
     #[inline(always)]
-    pub fn push(&mut self, priority: u32, val: T) {
-        let priority = priority.min(31);
+    pub fn push(&mut self, priority: u8, val: T) {
+        let priority = priority.min(LOWEST_PRIORITY);
         let queue = &mut self.queue[priority as usize];
         queue.push_back(val);
         self.has_entry |= 1 << priority;
@@ -27,7 +29,7 @@ impl<T> PriorityQueue<T> {
     #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
         let next_priority = self.has_entry.trailing_zeros();
-        if next_priority == 32 {
+        if next_priority == LOWEST_PRIORITY as u32 + 1 {
             return None;
         }
 
@@ -39,13 +41,6 @@ impl<T> PriorityQueue<T> {
         }
 
         next
-    }
-
-    /// Count the number of elements with higher priority than the specified one
-    #[inline(always)]
-    pub fn count_higher_priority(&self, priority: u8) -> usize {
-        let p = priority.min(31) as usize;
-        self.queue[..p].iter().map(VecDeque::len).sum()
     }
 }
 
@@ -86,10 +81,10 @@ mod tests {
             assert_eq!(actual, expected);
         }
 
-        //  The priority is set to min(priority, 31)
+        //  The priority is set to min(priority, LOWEST_PRIORITY)
         for id in (0..10).step_by(2) {
-            q.push(31, id);
-            q.push(32, id + 1);
+            q.push(LOWEST_PRIORITY, id);
+            q.push(LOWEST_PRIORITY + 1, id + 1);
         }
 
         for expected in 0..10 {

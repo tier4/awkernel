@@ -18,6 +18,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
+    priority_queue::LOWEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -337,6 +338,14 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > LOWEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {LOWEST_PRIORITY}. It is addressed as {LOWEST_PRIORITY}."
+            );
+        }
+    }
+
     let future = future.boxed();
 
     let scheduler = get_scheduler(sched_type);
@@ -666,15 +675,16 @@ pub fn run_main() {
         #[cfg(feature = "perf")]
         perf::start_kernel();
 
-        if RUNNING[awkernel_lib::cpu::cpu_id()].load(Ordering::Relaxed) == 0 {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        if RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
             // Re-wake all preemption-pending tasks, because the preemption is no longer required.
-            while let Some(p) = pop_preemption_pending(awkernel_lib::cpu::cpu_id()) {
+            while let Some(p) = pop_preemption_pending(cpu_id) {
                 p.scheduler.wake_task(p);
             }
         }
 
         if let Some(task) = get_next_task() {
-            PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+            PREEMPTION_REQUEST[cpu_id].store(false, Ordering::Relaxed);
 
             #[cfg(not(feature = "no_preempt"))]
             {
