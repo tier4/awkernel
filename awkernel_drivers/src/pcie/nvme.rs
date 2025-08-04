@@ -767,7 +767,7 @@ impl NvmeInner {
                 Box::new(|irq| {
                     let device = NVME_DEVICE.read();
                     if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
                     }
                 }),
                 segment_group as usize,
@@ -775,7 +775,7 @@ impl NvmeInner {
                 0,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI-X handler: {:?}", e);
+                log::error!("Failed to register MSI-X handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -811,14 +811,14 @@ impl NvmeInner {
                 Box::new(|irq| {
                     let device = NVME_DEVICE.read();
                     if let Some(nvme) = device.as_ref() {
-                        let _ = nvme.interrupt(irq);
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
                     }
                 }),
                 segment_group as usize,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI handler: {:?}", e);
+                log::error!("Failed to register MSI handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
