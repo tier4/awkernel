@@ -82,7 +82,7 @@ struct Ccb {
     _prpl: Option<usize>,
     _id: u16,
     // Completion tracking for async operations (testing support)
-    completed: Arc<AtomicBool>,
+    completed: AtomicBool,
 }
 
 struct CcbList {
@@ -409,7 +409,7 @@ impl NvmeInner {
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
-                completed: Arc::new(AtomicBool::new(true)), // Initially completed (not in use)
+                completed: AtomicBool::new(true), // Initially completed (not in use)
             };
             ccbs.push(ccb);
             free_list.push_back(i);
@@ -853,11 +853,7 @@ impl NvmeInner {
 
     /// Submit I/O command to the I/O queue
     /// Based on OpenBSD's nvme_scsi_io()
-    pub fn submit_io(
-        &mut self,
-        io_q: &Queue,
-        xfer: &Xfer,
-    ) -> Result<u16, NvmeDriverErr> {
+    pub fn submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
         // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
@@ -1046,11 +1042,7 @@ impl NvmeInner {
         Ok(PCIeInt::_Msi(irq))
     }
 
-    pub fn _submit_io(
-        &mut self,
-        io_q: &Queue,
-        xfer: &Xfer,
-    ) -> Result<u16, NvmeDriverErr> {
+    pub fn _submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -1183,10 +1175,7 @@ impl Nvme {
 
     /// Wait for I/O completion and cleanup CCB
     /// This is for testing purposes - in a real system, the upper layer would handle this
-    fn wait_for_completion(
-        &self,
-        ccb_id: u16,
-    ) -> Result<(), NvmeDriverErr> {
+    fn wait_for_completion(&self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
         // For testing purposes, wait for async completion
         // In a real system, the upper layer (SCSI) would handle this
         let mut iterations = 0;
