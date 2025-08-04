@@ -28,7 +28,7 @@ use core::{
 };
 
 /// Monotonically increasing time.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time {
     uptime: u128,
 }
@@ -86,6 +86,16 @@ impl Time {
             Duration::from_nanos((now - self.uptime) as u64)
         } else {
             Duration::from_nanos(0)
+        }
+    }
+
+    pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
+        if self.uptime > earlier.uptime {
+            Duration::from_nanos(
+                ((self.uptime.saturating_sub(earlier.uptime)).min(u64::MAX as u128)) as u64,
+            )
+        } else {
+            Duration::new(0, 0)
         }
     }
 }

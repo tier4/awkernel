@@ -261,6 +261,26 @@ pub struct ComQueue {
     pub _phase: u16,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubQueueEntryIo {
+    pub opcode: u8,
+    pub flags: u8,
+    pub cid: u16,
+    pub nsid: u32,
+    pub _reserved: [u8; 8],
+    pub mptr: u64,
+    pub entry: Entry, // PRP entries
+    pub slba: u64,    // Starting LBA
+    pub nlb: u16,     // Number of Logical Blocks
+    pub ioflags: u16,
+    pub dsm: u8, // Dataset Management
+    pub _reserved2: [u8; 3],
+    pub eilbrt: u32, // Expected Initial Logical Block Reference Tag
+    pub elbat: u16,  // Expected Logical Block Application Tag
+    pub elbatm: u16, // Expected Logical Block Application Tag Mask
+}
+
 pub const QUEUE_SIZE: usize = 128;
 // Based on OpenBSD's struct nvme_sqe_io (nvmereg.h)
 #[repr(C)]

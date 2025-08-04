@@ -8,7 +8,6 @@ use crate::task::{get_task, get_tasks_running, set_current_task, set_need_preemp
 use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use awkernel_lib::cpu::num_cpu;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -51,10 +50,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
             }
         };
 
-        if !self.invoke_preemption(
-            internal_data.queue.count_higher_priority(priority),
-            task.clone(),
-        ) {
+        if !self.invoke_preemption(task.clone()) {
             internal_data.queue.push(
                 priority,
                 PrioritizedFIFOTask {
@@ -109,17 +105,14 @@ impl Scheduler for PrioritizedFIFOScheduler {
 }
 
 impl PrioritizedFIFOScheduler {
-    fn invoke_preemption(&self, num_hp_tasks_in_queue: usize, task: Arc<Task>) -> bool {
+    fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         let tasks_running = get_tasks_running()
             .into_iter()
-            .filter(|rt| rt.task_id != 0)
+            .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
             .collect::<Vec<_>>();
 
-        // If there are sufficient idle CPUs or the task has already been running, preempt is not required.
-        let num_idle_cpus = num_cpu() - 1 - tasks_running.len();
-        if num_hp_tasks_in_queue < num_idle_cpus
-            || tasks_running.iter().any(|rt| rt.task_id == task.id)
-        {
+        // If the task has already been running, preempt is not required.
+        if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
             return false;
         }
 
@@ -140,6 +133,10 @@ impl PrioritizedFIFOScheduler {
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, target_cpu);
             awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
+
+            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+            // Therefore, a more sophisticated implementation will be considered in the future.
 
             return true;
         }
