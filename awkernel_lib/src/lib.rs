@@ -45,6 +45,9 @@ pub mod heap;
 pub mod dma_pool;
 
 #[cfg(not(feature = "std"))]
+pub mod dma_map;
+
+#[cfg(not(feature = "std"))]
 pub mod context;
 
 pub mod paging;
