@@ -766,7 +766,7 @@ impl NvmeInner {
                 0,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI-X handler: {:?}", e);
+                log::error!("Failed to register MSI-X handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -809,7 +809,7 @@ impl NvmeInner {
                 awkernel_lib::cpu::raw_cpu_id() as u32,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI handler: {:?}", e);
+                log::error!("Failed to register MSI handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
