@@ -32,13 +32,14 @@ struct PollState {
     _cqe: ComQueueEntry,
 }
 
+// TODO: This is a temporary structure to transfer data to/from NVMe. This will be replaced with a more generic structure in the future and will be defined in the `awkernel_lib`.
 pub struct Xfer {
     pub nsid: u32,
-    pub lba: u64,
-    pub blocks: u32,
-    pub data_phys: usize,
-    pub read: bool,
-    pub poll: bool,
+    pub lba: u64,         // Logical Block Address
+    pub blocks: u32,      // Number of blocks to read/write
+    pub data_phys: usize, // Physical address of the data buffer.
+    pub read: bool,       // true for read, false for write
+    pub poll: bool,       // true for poll, false for interrupt
     pub timeout_ms: u32,
 }
 
@@ -855,11 +856,11 @@ impl NvmeInner {
             blocks,
             nsid,
             read,
-        }) = &ccb.cookie
+        }) = ccb.cookie
         {
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
-            sqe_io.opcode = if *read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
-            sqe_io.nsid = u32::to_le(*nsid);
+            sqe_io.opcode = if read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
+            sqe_io.nsid = u32::to_le(nsid);
 
             // For now, we'll use PRP0 only
             // TODO: Add PRPL support for multi-page transfers
@@ -867,8 +868,8 @@ impl NvmeInner {
                 sqe_io.entry.prp[0] = ccb.data_phys as u64;
             }
 
-            sqe_io.slba = u64::to_le(*lba);
-            sqe_io.nlb = u16::to_le((*blocks - 1) as u16);
+            sqe_io.slba = u64::to_le(lba);
+            sqe_io.nlb = u16::to_le((blocks - 1) as u16);
         } else {
             log::error!("io_fill called with non-IO cookie");
         }
@@ -880,6 +881,7 @@ impl NvmeInner {
 
         if status != _NVME_CQE_SC_SUCCESS {
             log::error!("NVMe I/O failed with status: 0x{status:x}");
+            // TODO: Handle error status codes properly
         }
 
         // Mark the operation as completed for the task waiting interrupt
@@ -890,15 +892,14 @@ impl NvmeInner {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
+        ccb.data_phys = xfer.data_phys;
+        ccb.done = Some(Self::_io_done);
         ccb.cookie = Some(CcbCookie::_Io {
             lba: xfer.lba,
             blocks: xfer.blocks,
             nsid: xfer.nsid,
             read: xfer.read,
         });
-
-        ccb.data_phys = xfer.data_phys;
-        ccb.done = Some(Self::_io_done);
 
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
@@ -1008,6 +1009,7 @@ pub enum NvmeDriverErr {
     IncompatiblePageSize,
     NoCallback,
     InvalidCcbId,
+    CcbCookieUnexpected,
 }
 
 #[allow(dead_code)]
@@ -1034,6 +1036,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
             NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::CcbCookieUnexpected => PCIeDeviceErr::CommandFailure,
         }
     }
 }
