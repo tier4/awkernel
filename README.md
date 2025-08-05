@@ -36,7 +36,7 @@ It can execute async/await applications in kernel space safely.
   - [ ] Reboot
 - [ ] Schedulers
   - [x] Prioritized FIFO scheduler
-  - [x] Prioritized Round robin scheduler
+  - [ ] Prioritized Round robin scheduler
   - [ ] EDF scheduler
   - [ ] DAG scheduler
 - [ ] Memory allocators
