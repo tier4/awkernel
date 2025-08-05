@@ -1,0 +1,12 @@
+name: auto assign author to assignee
+
+on:
+  pull_request:
+    types: opened
+
+jobs:
+  assign:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Assign author to assignee on PR
+        uses: technote-space/assign-author@v1
