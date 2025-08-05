@@ -258,9 +258,9 @@ pub struct SubQueueEntryIo {
     pub nsid: u32,
     pub _reserved: [u8; 8],
     pub mptr: u64,
-    pub entry: Entry, // PRP entries
-    pub slba: u64,    // Starting LBA
-    pub nlb: u16,     // Number of Logical Blocks
+    pub entry: Entry,
+    pub slba: u64, // Starting LBA
+    pub nlb: u16,  // Number of Logical Blocks
     pub ioflags: u16,
     pub dsm: u8, // Dataset Management
     pub _reserved2: [u8; 3],
