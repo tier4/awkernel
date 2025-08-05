@@ -77,7 +77,7 @@ impl Mc146818Rtc {
             );
             
             // DELAY(1) - small delay
-            Self::delay();
+            awkernel_lib::delay::wait_microsec(1);
             
             // return inb(IO_RTC+1);
             let value: u8;
@@ -104,7 +104,7 @@ impl Mc146818Rtc {
             );
             
             // DELAY(1)
-            Self::delay();
+            awkernel_lib::delay::wait_microsec(1);
             
             // outb(IO_RTC+1, datum);
             asm!(
@@ -115,16 +115,7 @@ impl Mc146818Rtc {
             );
             
             // DELAY(1)
-            Self::delay();
-        }
-    }
-
-    /// Small delay function (OpenBSD uses DELAY(1))
-    #[inline]
-    fn delay() {
-        // Simple delay using nop instructions
-        unsafe {
-            asm!("nop; nop; nop; nop", options(nostack, preserves_flags));
+            awkernel_lib::delay::wait_microsec(1);
         }
     }
 
