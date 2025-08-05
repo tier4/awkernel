@@ -69,6 +69,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
     #[cfg(feature = "test_storage_interrupt")]
     test_storage_interrupt::run().await; // test for storage interrupt handler
+    
+    #[cfg(feature = "test_nvme_namespace")]
+    test_nvme_namespace::run().await; // test for NVMe namespace StorageDevice
 
     Ok(())
 }

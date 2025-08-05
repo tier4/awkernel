@@ -248,7 +248,7 @@ async fn create_filesystem(
         FS_TYPE_FATFS => {
             // Try to downcast to concrete types that FatFS supports
             if let Some(memory_device) = device.as_any().downcast_ref::<MemoryBlockDevice>() {
-                // Memory block device
+                // Memory block device - use direct approach
                 let device_arc = Arc::new(memory_device.clone());
                 let format = options.fs_options.get("format")
                     .map(|v| v == "true")
@@ -259,10 +259,10 @@ async fn create_filesystem(
                 
                 Ok(Box::new(AsyncFatFs { fs: Arc::new(fs) }))
             } else {
-                // Future: Add support for other block device types here
-                // e.g., if let Some(disk_device) = device.as_any().downcast_ref::<DiskBlockDevice>() { ... }
+                // For other devices, we would need a concrete type wrapper
+                // Currently only MemoryBlockDevice is supported directly
                 Err(MountError::FilesystemError(
-                    "FatFS currently only supports MemoryBlockDevice".to_string()
+                    "FatFS currently only supports MemoryBlockDevice directly. Other devices need concrete type wrappers.".to_string()
                 ))
             }
         }

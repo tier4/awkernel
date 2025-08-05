@@ -8,13 +8,15 @@ use awkernel_lib::{
     },
     delay::wait_microsec,
     dma_pool::DMAPool,
-    file::block_device::{BlockDevice, BlockDeviceError, BlockResult},
+    dma_map::{DmaMap, DmaTag, DmaSyncOp},
+    file::block_device::{BlockDeviceError, BlockResult},
     interrupt::IRQ,
     paging::PAGESIZE,
     storage::{StorageDevice, StorageDevError, StorageDeviceType},
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::any::Any;
 
 mod nvme_regs;
 use nvme_regs::*;
@@ -755,12 +757,31 @@ impl NvmeInner {
             sqe_io.slba = u64::to_le(*lba);
             sqe_io.nlb = u16::to_le((*blocks - 1) as u16); // NLB is 0-based
 
-            // For now, we'll use PRP1 only (single page transfers)
-            // TODO: Add PRPL support for multi-page transfers
+            // Handle PRP entries based on transfer size
             if let Some(prpl_ptr) = ccb._prpl {
-                let prp_list = unsafe { core::slice::from_raw_parts(prpl_ptr as *const u64, 1) };
+                // First PRP is always stored at the beginning of the PRP list
+                let first_prp = unsafe { *(prpl_ptr as *const u64) };
                 unsafe {
-                    sqe_io.entry.prp[0] = prp_list[0];
+                    sqe_io.entry.prp[0] = first_prp;
+                }
+                
+                // Check if we need PRP2 (more than one page)
+                // The number of blocks tells us how many pages we need
+                let pages_needed = *blocks as usize; // Assuming 1 block = 1 page for now
+                
+                if pages_needed > 1 {
+                    if pages_needed == 2 {
+                        // For exactly 2 pages, PRP2 points directly to the second page
+                        let second_prp = unsafe { *((prpl_ptr as *const u64).add(1)) };
+                        unsafe {
+                            sqe_io.entry.prp[1] = second_prp;
+                        }
+                    } else {
+                        // For > 2 pages, PRP2 points to the PRP list (starting from second entry)
+                        unsafe {
+                            sqe_io.entry.prp[1] = ccb._prpl_dva + core::mem::size_of::<u64>() as u64;
+                        }
+                    }
                 }
             }
         } else {
@@ -829,7 +850,61 @@ impl NvmeInner {
         }
     }
 
-    /// Submit I/O command to the I/O queue
+    /// Submit I/O command with DMA map for multi-page support
+    /// This version supports scatter-gather transfers using PRP lists
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_io_dma(
+        &mut self,
+        io_q: &Queue,
+        nsid: u32,
+        lba: u64,
+        blocks: u32,
+        dma_map: &DmaMap,
+        read: bool,
+        poll: bool,
+    ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
+        // Get a CCB
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
+
+        // Set up the I/O cookie
+        ccb.cookie = Some(CcbCookie::Io {
+            lba,
+            blocks,
+            nsid,
+            read,
+        });
+
+        // Set up done callback
+        ccb.done = Some(Self::io_done);
+
+        // Fill PRP list from DMA segments
+        if let Some(prpl_ptr) = ccb._prpl {
+            let segments = dma_map.get_segments();
+            let num_segments = segments.len().min(self._max_prpl);
+            
+            let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, num_segments) };
+            
+            for (i, seg) in segments.iter().take(num_segments).enumerate() {
+                prp_list[i] = seg.ds_addr.as_usize() as u64;
+            }
+        }
+
+        if poll {
+            // Synchronous polling mode
+            self.poll(io_q, ccb_id, Self::io_fill, 30000)?; // 30 second timeout
+            let _ = self.ccb_put(ccb_id);
+            Ok((ccb_id, None))
+        } else {
+            // Asynchronous mode
+            ccb.completed.store(false, Ordering::Release);
+            let completion_flag = ccb.completed.clone();
+            io_q.submit(&self.info, ccb, Self::io_fill)?;
+            Ok((ccb_id, Some(completion_flag)))
+        }
+    }
+
+    /// Submit I/O command to the I/O queue (legacy single-page version)
     /// Based on OpenBSD's nvme_scsi_io()
     #[allow(clippy::too_many_arguments)]
     pub fn submit_io(
@@ -858,6 +933,7 @@ impl NvmeInner {
         ccb.done = Some(Self::io_done);
 
         // Store the physical address in the PRPL
+        // For now, still using single page - multi-page support requires DmaMap
         if let Some(prpl_ptr) = ccb._prpl {
             let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
             prp_list[0] = data_phys;
@@ -1154,7 +1230,37 @@ impl Nvme {
         Ok(())
     }
 
-    /// Submit a read command
+    /// Submit a read command using DMA map
+    /// Supports multi-page transfers through PRP lists
+    pub fn read_sectors_dma(
+        &self,
+        nsid: u32,
+        lba: u64,
+        blocks: u32,
+        dma_map: &DmaMap,
+        poll: bool,
+    ) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
+        let (ccb_id, completion_flag) =
+            inner.submit_io_dma(&self.io_q, nsid, lba, blocks, dma_map, true, poll)?;
+        drop(inner);
+
+        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
+
+        if !poll {
+            // Wait for completion
+            while !completion_flag.load(Ordering::Acquire) {
+                core::hint::spin_loop();
+            }
+            // Free the CCB after completion
+            let mut inner = self.inner.write();
+            let _ = inner.ccb_put(ccb_id);
+        }
+
+        Ok(())
+    }
+
+    /// Submit a read command (legacy single-page version)
     pub fn read_sectors(
         &self,
         nsid: u32,
@@ -1179,7 +1285,37 @@ impl Nvme {
         Ok(())
     }
 
-    /// Submit a write command
+    /// Submit a write command using DMA map
+    /// Supports multi-page transfers through PRP lists
+    pub fn write_sectors_dma(
+        &self,
+        nsid: u32,
+        lba: u64,
+        blocks: u32,
+        dma_map: &DmaMap,
+        poll: bool,
+    ) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
+        let (ccb_id, completion_flag) =
+            inner.submit_io_dma(&self.io_q, nsid, lba, blocks, dma_map, false, poll)?;
+        drop(inner);
+
+        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
+
+        if !poll {
+            // Wait for completion
+            while !completion_flag.load(Ordering::Acquire) {
+                core::hint::spin_loop();
+            }
+            // Free the CCB after completion
+            let mut inner = self.inner.write();
+            let _ = inner.ccb_put(ccb_id);
+        }
+
+        Ok(())
+    }
+
+    /// Submit a write command (legacy single-page version)
     pub fn write_sectors(
         &self,
         nsid: u32,
@@ -1332,9 +1468,21 @@ pub(super) fn attach(
     let mut device = NVME_DEVICE.write();
     *device = Some(nvme_arc.clone());
 
-    // Register with storage manager
-    let storage_id = awkernel_lib::storage::add_storage_device(nvme_arc.clone() as Arc<dyn StorageDevice>);
-    log::info!("NVMe: Registered with storage manager, interface_id={}", storage_id);
+    // Register each namespace as a separate storage device
+    {
+        let inner = nvme_arc.inner.read();
+        for nsid in 1..=inner.nn {
+            if inner.namespaces.get(nsid as usize - 1)
+                .and_then(|ns| ns.as_ref())
+                .is_some() 
+            {
+                let namespace = NvmeNamespace::new(nvme_arc.clone(), nsid);
+                let storage_id = awkernel_lib::storage::add_storage_device(Arc::new(namespace));
+                log::info!("NVMe: Registered namespace {} as storage device {}", 
+                    nsid, storage_id);
+            }
+        }
+    }
 
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
@@ -1434,5 +1582,181 @@ impl StorageDevice for Nvme {
             Ok(_) => Ok(()),
             Err(_) => Err(BlockDeviceError::IoError),
         }
+    }
+}
+
+/// Represents a single NVMe namespace
+pub struct NvmeNamespace {
+    /// Shared reference to the NVMe controller
+    controller: Arc<Nvme>,
+    /// Namespace ID (1-based)
+    namespace_id: u32,
+}
+
+impl NvmeNamespace {
+    pub fn new(controller: Arc<Nvme>, namespace_id: u32) -> Self {
+        Self {
+            controller,
+            namespace_id,
+        }
+    }
+}
+
+// StorageDevice implementation for NvmeNamespace
+impl StorageDevice for NvmeNamespace {
+    fn device_name(&self) -> Cow<'static, str> {
+        let inner = self.controller.inner.read();
+        let bfd = inner.info.get_bfd();
+        format!("{}: NVMe Namespace {}", bfd, self.namespace_id).into()
+    }
+    
+    fn device_short_name(&self) -> Cow<'static, str> {
+        // Extract controller number from device name
+        let inner = self.controller.inner.read();
+        let bfd = inner.info.get_bfd();
+        format!("nvme{}n{}", bfd.split(':').next().unwrap_or("nvme0"), self.namespace_id).into()
+    }
+    
+    fn device_type(&self) -> StorageDeviceType {
+        StorageDeviceType::NVMe
+    }
+    
+    fn irqs(&self) -> Vec<u16> {
+        self.controller.irqs()
+    }
+    
+    fn interrupt(&self, irq: u16) -> Result<(), StorageDevError> {
+        self.controller.interrupt(irq)
+    }
+    
+    fn block_size(&self) -> usize {
+        let inner = self.controller.inner.read();
+        if let Some(Some(ident)) = inner.namespaces.get(self.namespace_id as usize - 1) {
+            let lbaf = nvme_id_ns_flbas(ident.flbas);
+            if ident.nlbaf as usize > 16 {
+                // Extended format
+                let lbaf = lbaf | ((ident.flbas >> 1) & 0x3f);
+                1 << ident.lbaf[lbaf as usize].lbads
+            } else {
+                1 << ident.lbaf[lbaf as usize].lbads
+            }
+        } else {
+            512 // default
+        }
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    
+    fn num_blocks(&self) -> u64 {
+        let inner = self.controller.inner.read();
+        if let Some(Some(ident)) = inner.namespaces.get(self.namespace_id as usize - 1) {
+            NvmeInner::namespace_size(ident)
+        } else {
+            0
+        }
+    }
+    
+    fn read_block(&self, block_num: u64, buf: &mut [u8]) -> BlockResult<()> {
+        self.read_blocks(block_num, 1, buf)
+    }
+    
+    fn read_blocks(&self, start_block: u64, num_blocks: u32, buf: &mut [u8]) -> BlockResult<()> {
+        let total_size = self.block_size() * num_blocks as usize;
+        if buf.len() < total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // Allocate DMA buffer for all blocks
+        let pages = (total_size + PAGESIZE - 1) / PAGESIZE;
+        let dma_pool = DMAPool::<u8>::new(0, pages) // TODO: get proper NUMA node
+            .ok_or(BlockDeviceError::IoError)?;
+        
+        // Create DmaMap with appropriate tag
+        let tag = DmaTag::new_64bit(); // NVMe supports 64-bit addressing
+        let mut dma_map = DmaMap::new(tag, 0)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Load the DMA buffer
+        dma_map.load(dma_pool.get_virt_addr(), total_size)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Sync for DMA read
+        dma_map.sync(0, total_size, DmaSyncOp::PreRead)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Use the new DMA-aware read_sectors method for multi-page support
+        self.controller.read_sectors_dma(self.namespace_id, start_block, num_blocks, &dma_map, false)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Sync after DMA read
+        dma_map.sync(0, total_size, DmaSyncOp::PostRead)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Copy from DMA buffer to user buffer
+        let dma_slice = unsafe {
+            core::slice::from_raw_parts(
+                dma_pool.get_virt_addr().as_ptr::<u8>(),
+                total_size
+            )
+        };
+        buf[..total_size].copy_from_slice(dma_slice);
+        
+        Ok(())
+    }
+    
+    fn write_block(&mut self, block_num: u64, buf: &[u8]) -> BlockResult<()> {
+        self.write_blocks(block_num, 1, buf)
+    }
+    
+    fn write_blocks(&mut self, start_block: u64, num_blocks: u32, buf: &[u8]) -> BlockResult<()> {
+        let total_size = self.block_size() * num_blocks as usize;
+        if buf.len() != total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // Allocate DMA buffer for all blocks
+        let pages = (total_size + PAGESIZE - 1) / PAGESIZE;
+        let dma_pool = DMAPool::<u8>::new(0, pages)
+            .ok_or(BlockDeviceError::IoError)?;
+        
+        // Copy user data to DMA buffer
+        let dma_slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                dma_pool.get_virt_addr().as_mut_ptr::<u8>(),
+                total_size
+            )
+        };
+        dma_slice.copy_from_slice(buf);
+        
+        // Create DmaMap
+        let tag = DmaTag::new_64bit();
+        let mut dma_map = DmaMap::new(tag, 0)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Load the DMA buffer
+        dma_map.load(dma_pool.get_virt_addr(), total_size)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Sync for DMA write
+        dma_map.sync(0, total_size, DmaSyncOp::PreWrite)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Use the new DMA-aware write_sectors method for multi-page support
+        self.controller.write_sectors_dma(self.namespace_id, start_block, num_blocks, &dma_map, false)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Sync after DMA write
+        dma_map.sync(0, total_size, DmaSyncOp::PostWrite)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        Ok(())
+    }
+    
+    fn flush(&mut self) -> BlockResult<()> {
+        // Call the controller's flush method
+        self.controller.flush(self.namespace_id, false)
+            .map_err(|_| BlockDeviceError::IoError)
     }
 }

@@ -98,8 +98,12 @@ optional = true
 path = "../applications/tests/test_storage_interrupt"
 optional = true
 
+[dependencies.test_nvme_namespace]
+path = "../applications/tests/test_nvme_namespace"
+optional = true
+
 [features]
-default = ["test_nvme", "test_storage_interrupt"]
+default = ["test_nvme", "test_storage_interrupt", "test_nvme_namespace"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -125,3 +129,4 @@ test_vfs_registry = ["dep:test_vfs_registry"]
 test_memory_fatfs_simple = ["dep:test_memory_fatfs_simple"]
 test_nvme = ["dep:test_nvme"]
 test_storage_interrupt = ["dep:test_storage_interrupt"]
+test_nvme_namespace = ["dep:test_nvme_namespace"]
