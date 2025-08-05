@@ -865,13 +865,14 @@ impl NvmeInner {
             // For now, we'll use PRP0 only
             // TODO: Add PRPL support for multi-page transfers
             unsafe {
-                sqe_io.entry.prp[0] = ccb.data_phys as u64;
+                sqe_io.entry.prp[0] = u64::to_le(ccb.data_phys as u64);
             }
 
             sqe_io.slba = u64::to_le(lba);
             sqe_io.nlb = u16::to_le((blocks - 1) as u16);
         } else {
             log::error!("io_fill called with non-IO cookie");
+            // TODO: Consider returning an error or handling this case more gracefully
         }
     }
 
