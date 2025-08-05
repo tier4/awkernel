@@ -58,7 +58,6 @@ pub async fn run() {
                 loop {
                     rx1.recv().await.unwrap();
                     tx2.send(()).await.unwrap();
-                    log::debug!("server {i} received a message");
                 }
             },
             SchedulerType::PrioritizedFIFO(31),
@@ -78,7 +77,6 @@ pub async fn run() {
 
                     for _ in 0..1_000_000 {
                         unsafe { core::arch::asm!("nop") };
-                        log::debug!("client {i} sent a message");
                     }
                 }
             },
@@ -98,7 +96,6 @@ pub async fn run() {
             async move {
                 loop {
                     subscriber.recv().await;
-                    log::debug!("subscriber {i} received a message");
                 }
             },
             SchedulerType::PrioritizedFIFO(31),
@@ -111,7 +108,6 @@ pub async fn run() {
                 loop {
                     sleep(Duration::from_secs(1)).await;
                     publisher.send(()).await;
-                    log::debug!("publisher {i} sent a message");
                 }
             },
             SchedulerType::PrioritizedFIFO(31),
