@@ -1,5 +1,5 @@
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{collections::VecDeque, format, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
@@ -7,6 +7,7 @@ use awkernel_lib::{
     },
     delay::wait_microsec,
     dma_pool::DMAPool,
+    interrupt::IRQ,
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
@@ -15,12 +16,14 @@ mod nvme_regs;
 use nvme_regs::*;
 
 const DEVICE_NAME: &str = " NVMe Controller";
-const _DEVICE_SHORT_NAME: &str = "nvme";
+const DEVICE_SHORT_NAME: &str = "nvme";
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be considered. */
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
+
+static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -102,6 +105,10 @@ impl Queue {
             membar_consumer();
 
             let cid = cqe.cid;
+            if cid as usize >= ccbs.len() {
+                log::error!("Invalid CCB ID: {cid}");
+                return Err(NvmeDriverErr::InvalidCcbId);
+            }
             let ccb = &mut ccbs[cid as usize];
 
             if let Some(done_fn) = ccb.done {
@@ -160,6 +167,7 @@ struct NvmeInner {
     nn: u32,
     identify: Option<IdentifyController>,
     namespaces: Vec<Option<IdentifyNamespace>>,
+    pcie_int: PCIeInt,
 }
 
 impl NvmeInner {
@@ -210,6 +218,7 @@ impl NvmeInner {
             nn: 0,
             identify: None,
             namespaces: Vec::new(),
+            pcie_int: PCIeInt::None,
         })
     }
 
@@ -301,8 +310,12 @@ impl NvmeInner {
     fn allocate_queue(&self, id: u16, entries: u32, dstrd: u32) -> Result<Queue, NvmeDriverErr> {
         let subq_size = core::mem::size_of::<SubRing>();
         let sub_ring_pages = subq_size.div_ceil(PAGESIZE);
-        let sub_ring = DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
-            .ok_or(NvmeDriverErr::DMAPool)?;
+        let mut sub_ring: DMAPool<[SubQueueEntry; 128]> =
+            DMAPool::new(self.info.segment_group as usize, sub_ring_pages)
+                .ok_or(NvmeDriverErr::DMAPool)?;
+        for i in 0..QUEUE_SIZE {
+            sub_ring.as_mut()[i] = SubQueueEntry::default();
+        }
         let sqtdbl = NVME_SQTDBL(id, dstrd);
 
         let subq = SubQueue {
@@ -313,8 +326,13 @@ impl NvmeInner {
 
         let comq_size = core::mem::size_of::<ComRing>();
         let com_ring_pages = comq_size.div_ceil(PAGESIZE);
-        let com_ring = DMAPool::new(self.info.segment_group as usize, com_ring_pages)
-            .ok_or(NvmeDriverErr::DMAPool)?;
+        let mut com_ring: DMAPool<[ComQueueEntry; 128]> =
+            DMAPool::new(self.info.segment_group as usize, com_ring_pages)
+                .ok_or(NvmeDriverErr::DMAPool)?;
+        for i in 0..QUEUE_SIZE {
+            com_ring.as_mut()[i] = ComQueueEntry::default();
+        }
+
         let cqhdbl = NVME_CQHDBL(id, dstrd);
 
         let comq = ComQueue {
@@ -698,6 +716,103 @@ impl NvmeInner {
             Ok(false)
         }
     }
+
+    fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
+        let mut rv = false;
+
+        if let Some(ccbs) = self.ccbs.as_mut() {
+            rv |= io_q.complete(&self.info, ccbs)?;
+            rv |= admin_q.complete(&self.info, ccbs)?;
+        }
+
+        Ok(rv)
+    }
+
+    fn setup_interrupts(&mut self) {
+        if let Ok(pcie_int) = self.allocate_msix() {
+            self.pcie_int = pcie_int;
+        } else if let Ok(pcie_int) = self.allocate_msi() {
+            self.pcie_int = pcie_int;
+        } else {
+            self.pcie_int = PCIeInt::None;
+        }
+    }
+
+    fn allocate_msix(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
+        let segment_group = self.info.get_segment_group();
+        let bfd = self.info.get_bfd();
+
+        let msix = self.info.get_msix_mut().ok_or(NvmeDriverErr::InitFailure)?;
+
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
+        // Register single interrupt for both admin and I/O queues (like OpenBSD)
+        // ENHANCE: It better to use a separate interrupt vector for I/O queues
+        let mut irq = msix
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
+                    }
+                }),
+                segment_group as usize,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                0,
+            )
+            .map_err(|e| {
+                log::error!("Failed to register MSI-X handler: {e:?}");
+                NvmeDriverErr::InitFailure
+            })?;
+
+        irq.enable();
+
+        if let Some(msi) = self.info.get_msi_mut() {
+            msi.disable();
+        }
+        self.info.disable_legacy_interrupt();
+
+        let msix = self.info.get_msix_mut().unwrap();
+        msix.enable();
+
+        Ok(PCIeInt::_MsiX(irq))
+    }
+
+    fn allocate_msi(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
+        if let Some(msix) = self.info.get_msix_mut() {
+            msix.disable();
+        }
+
+        let segment_group = self.info.get_segment_group();
+        let bfd = self.info.get_bfd();
+
+        let msi = self.info.get_msi_mut().ok_or(NvmeDriverErr::InitFailure)?;
+
+        msi.disable();
+
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
+        let mut irq = msi
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    let device = NVME_DEVICE.read();
+                    if let Some(nvme) = device.as_ref() {
+                        let _ = nvme.interrupt(irq); // TODO: Register a storage interrupt handler
+                    }
+                }),
+                segment_group as usize,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+            )
+            .map_err(|e| {
+                log::error!("Failed to register MSI handler: {e:?}");
+                NvmeDriverErr::InitFailure
+            })?;
+
+        irq.enable();
+        msi.enable();
+
+        Ok(PCIeInt::_Msi(irq))
+    }
 }
 
 struct Nvme {
@@ -709,8 +824,8 @@ struct Nvme {
     // 4. `NvmeInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    _admin_q: Queue,
-    _io_q: Queue,
+    admin_q: Queue,
+    io_q: Queue,
     inner: RwLock<NvmeInner>,
 }
 
@@ -732,11 +847,12 @@ impl Nvme {
         inner.ccbs_free();
         inner.ccbs_alloc(64)?;
 
+        inner.setup_interrupts();
+        write_reg(&inner.info, NVME_INTMC, 0x1)?;
+
         let io_q = inner.allocate_queue(1, QUEUE_SIZE as u32, inner.dstrd)?;
 
         inner.create_io_queue(&admin_q, &io_q)?;
-
-        write_reg(&inner.info, NVME_INTMC, 1)?;
 
         let nn = inner.nn;
         if nn > 0 {
@@ -754,12 +870,18 @@ impl Nvme {
         }
 
         let nvme = Self {
-            _admin_q: admin_q,
-            _io_q: io_q,
+            admin_q,
+            io_q,
             inner: RwLock::new(inner),
         };
 
         Ok(nvme)
+    }
+
+    fn interrupt(&self, _irq: u16) -> Result<(), NvmeDriverErr> {
+        let mut inner = self.inner.write();
+        let _ = inner.intr(&self.admin_q, &self.io_q)?;
+        Ok(())
     }
 }
 
@@ -786,6 +908,14 @@ pub enum NvmeDriverErr {
     NoCcb,
     IncompatiblePageSize,
     NoCallback,
+    InvalidCcbId,
+}
+
+#[allow(dead_code)]
+enum PCIeInt {
+    None,
+    _Msi(IRQ),
+    _MsiX(IRQ),
 }
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
@@ -804,6 +934,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::NoCcb => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
         }
     }
 }

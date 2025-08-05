@@ -298,8 +298,8 @@ impl NetDevice for Igc {
     }
 
     fn flags(&self) -> net_device::NetFlags {
-        // TODO
-        net_device::NetFlags::empty()
+        let inner = self.inner.read();
+        inner.if_flags
     }
 
     fn interrupt(&self, _irq: u16) -> Result<(), net_device::NetDevError> {
@@ -358,8 +358,23 @@ impl NetDevice for Igc {
     }
 
     fn up(&self) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+        let mut inner = self.inner.write();
+
+        if !inner.if_flags.contains(NetFlags::UP) {
+            if let Err(err_init) = inner.igc_init() {
+                if let Err(err_stop) = inner.igc_stop() {
+                    log::error!("igc: stop failed: {err_stop:?}");
+                }
+
+                log::error!("igc: init failed: {err_init:?}");
+                Err(net_device::NetDevError::DeviceError)
+            } else {
+                inner.if_flags.insert(NetFlags::UP);
+                Ok(())
+            }
+        } else {
+            Err(net_device::NetDevError::AlreadyUp)
+        }
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
@@ -777,7 +792,7 @@ impl IgcInner {
             write_reg(
                 &self.info,
                 IGC_RDT(i),
-                ((rx.last_desc_filled + 1) % rx.slots) as u32,
+                ((rx.last_desc_filled + 1) % rx.rx_desc_ring.as_ref().len()) as u32,
             )?;
         }
 
