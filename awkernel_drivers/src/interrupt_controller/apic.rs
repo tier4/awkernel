@@ -537,11 +537,13 @@ impl InterruptController for X2Apic {
     ) -> Result<IRQ, &'static str> {
         assert!(irq < 256);
 
+        log::debug!("x2APIC: Setting MSI for IRQ #{irq} on target {target}.");
+
         let remap_info = interrupt_remap::allocate_remapping_entry(
             segment_number,
             target,
             irq as u8,
-            false,
+            true,
             false,
         )
         .ok_or("Failed to allocate an Interrupt Remapping Table Entry.")?;

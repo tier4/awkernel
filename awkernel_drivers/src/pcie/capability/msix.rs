@@ -87,7 +87,7 @@ impl Msix {
         msi_x_entry: usize,
     ) -> Result<IRQ, PCIeDeviceErr>
     where
-        F: Fn(u16) + Send + 'static,
+        F: FnMut(u16) + Send + 'static,
     {
         // Because the table size in the config space represents the number of entries minus one,
         // `self.table_size == msi_x_entry` is valid.
