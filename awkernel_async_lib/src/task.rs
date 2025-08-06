@@ -331,7 +331,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::PrioritizedFIFO(31));
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
@@ -747,7 +747,7 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                // This is unnecessary if the task is scheduled by PrioritizedFIFO or FIFO. This remains for other schedulers.
+                // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.

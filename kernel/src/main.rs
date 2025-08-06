@@ -61,7 +61,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         task::spawn(
             "main".into(),
             async move { userland::main().await },
-            SchedulerType::FIFO,
+            SchedulerType::PrioritizedFIFO(31),
         );
 
         PRIMARY_READY.store(true, Ordering::SeqCst);

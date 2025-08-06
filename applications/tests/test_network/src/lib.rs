@@ -37,35 +37,35 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         "test udp".into(),
         udp_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test tcp listen".into(),
         tcp_listen_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test tcp connect".into(),
         tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test IPv4 multicast recv".into(),
         ipv4_multicast_recv_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test IPv4 multicast send".into(),
         ipv4_multicast_send_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 }
@@ -219,7 +219,7 @@ async fn tcp_listen_test() {
         awkernel_async_lib::spawn(
             "bogus HTTP server".into(),
             bogus_http_server(tcp_stream),
-            awkernel_async_lib::scheduler::SchedulerType::FIFO,
+            awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
         )
         .await;
     }

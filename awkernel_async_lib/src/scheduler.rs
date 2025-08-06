@@ -17,7 +17,6 @@ use awkernel_lib::{
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
-mod fifo;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
@@ -74,7 +73,6 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
-    FIFO,
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -85,7 +83,6 @@ impl SchedulerType {
         matches!(
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
-                | (SchedulerType::FIFO, SchedulerType::FIFO)
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
@@ -106,17 +103,15 @@ impl SchedulerType {
 /// - The highest priority.
 ///   - GEDF scheduler.
 /// - The second highest priority.
-///   - FIFO scheduler.
 ///   - Prioritized FIFO scheduler.
 /// - The third highest priority.
 ///   - Round-Robin scheduler.
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 5] = [
+static PRIORITY_LIST: [SchedulerType; 4] = [
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
-    SchedulerType::FIFO,
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
 ];
@@ -153,7 +148,6 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
 /// Get a scheduler.
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
-        SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,

@@ -24,7 +24,7 @@ pub async fn run() {
                     *data += 1;
                     wait_millisec(10);
                 },
-                SchedulerType::FIFO,
+                SchedulerType::PrioritizedFIFO(31),
             )
             .await;
         }
