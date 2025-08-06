@@ -8,6 +8,8 @@ pub const NVME_CAP_TO: fn(u64) -> u32 = |r| 500 * ((r >> 24) & 0xff) as u32; /* 
 
 pub const NVME_VS: usize = 0x0008; /* Version */
 
+#[allow(dead_code)]
+pub const NVME_INTMS: usize = 0x000c; /* Interrupt Mask Set */
 pub const NVME_INTMC: usize = 0x0010; /* Interrupt Mask Clear */
 
 pub const NVME_CC: usize = 0x0014; /* Controller Configuration */
@@ -49,6 +51,16 @@ pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1
 pub const _NVME_CQE_SC: fn(u16) -> u16 = |v| v & (0xff << 1);
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
 pub const _NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
+
+// NVMe Completion Queue Entry Status Field
+// Extract status code from CQE flags (like OpenBSD's NVME_CQE_SC macro)
+#[inline]
+#[allow(non_snake_case)]
+pub const fn NVME_CQE_SC(flags: u16) -> u16 {
+    flags & (0xff << 1)
+}
+
+pub const NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
 
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
 pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
@@ -179,9 +191,19 @@ impl core::fmt::Debug for Entry {
     }
 }
 
-pub const _NVM_CMD_FLUSH: u8 = 0x00;
-pub const _NVM_CMD_WRITE: u8 = 0x01;
-pub const _NVM_CMD_READ: u8 = 0x02;
+/* Formatted LBA Size helpers */
+#[allow(dead_code)]
+pub fn nvme_id_ns_flbas(flbas: u8) -> u8 {
+    flbas & 0x0f
+}
+
+#[allow(dead_code)]
+pub const NVME_ID_NS_FLBAS_MD: u8 = 0x10;
+
+// I/O Command Opcodes (from OpenBSD's nvmereg.h)
+pub const NVM_CMD_FLUSH: u8 = 0x00;
+pub const NVM_CMD_WRITE: u8 = 0x01;
+pub const NVM_CMD_READ: u8 = 0x02;
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -270,5 +292,6 @@ pub struct SubQueueEntryIo {
 }
 
 pub const QUEUE_SIZE: usize = 128;
+
 pub type SubRing = [SubQueueEntry; QUEUE_SIZE];
 pub type ComRing = [ComQueueEntry; QUEUE_SIZE];
