@@ -17,6 +17,105 @@ use core::sync::atomic::{AtomicBool, Ordering};
 mod nvme_regs;
 use nvme_regs::*;
 
+// Type alias for done callback function
+type DoneCallback = fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>);
+
+// Global Xfer pool - acts as a SCSI layer
+// This would normally be in the SCSI layer, but for now we keep it here
+const MAX_XFERS: usize = 256; // Same as typical CCB count
+
+// We use Option and initialize it at runtime
+static mut XFER_POOL: Option<Mutex<XferPool>> = None;
+
+fn get_xfer_pool() -> &'static Mutex<XferPool> {
+    unsafe {
+        if XFER_POOL.is_none() {
+            XFER_POOL = Some(Mutex::new(XferPool::new()));
+        }
+        XFER_POOL.as_ref().unwrap()
+    }
+}
+
+struct XferPool {
+    xfers: Vec<Xfer>,
+    free_list: Vec<bool>, // true if free, false if in use
+}
+
+impl XferPool {
+    fn new() -> Self {
+        let mut xfers = Vec::with_capacity(MAX_XFERS);
+        let mut free_list = Vec::with_capacity(MAX_XFERS);
+
+        for _ in 0..MAX_XFERS {
+            xfers.push(Xfer {
+                nsid: 0,
+                lba: 0,
+                blocks: 0,
+                data_phys: 0,
+                read: false,
+                poll: false,
+                timeout_ms: 0,
+                completed: AtomicBool::new(false),
+            });
+            free_list.push(true);
+        }
+
+        Self { xfers, free_list }
+    }
+
+    fn allocate(&mut self) -> Option<u16> {
+        for (i, free) in self.free_list.iter_mut().enumerate() {
+            if *free {
+                *free = false;
+                self.xfers[i].completed.store(false, Ordering::Release);
+                return Some(i as u16);
+            }
+        }
+        None
+    }
+
+    fn get(&self, id: u16) -> Option<&Xfer> {
+        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+            Some(&self.xfers[id as usize])
+        } else {
+            None
+        }
+    }
+
+    fn get_mut(&mut self, id: u16) -> Option<&mut Xfer> {
+        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+            Some(&mut self.xfers[id as usize])
+        } else {
+            None
+        }
+    }
+
+    fn free(&mut self, id: u16) {
+        if (id as usize) < MAX_XFERS {
+            self.free_list[id as usize] = true;
+        }
+    }
+}
+
+// Free function for returning CCBs to the pool
+fn ccb_put_free(
+    ccbs: &mut [Ccb],
+    ccb_list: &Mutex<CcbList>,
+    ccb_id: u16,
+) -> Result<(), NvmeDriverErr> {
+    let ccb = &mut ccbs[ccb_id as usize];
+
+    ccb.data_phys = 0;
+    ccb.done = None;
+    ccb.xfer_id = None;
+
+    let mut node = MCSNode::new();
+    let mut list = ccb_list.lock(&mut node);
+    list._free_list.push_front(ccb_id);
+
+    Ok(())
+}
+
 const DEVICE_NAME: &str = " NVMe Controller";
 const DEVICE_SHORT_NAME: &str = "nvme";
 
@@ -42,6 +141,7 @@ pub struct Xfer {
     pub read: bool,       // true for read, false for write
     pub poll: bool,       // true for poll, false for interrupt
     pub timeout_ms: u32,
+    pub completed: AtomicBool, // Track completion at the transfer level
 }
 
 impl Default for Xfer {
@@ -54,6 +154,7 @@ impl Default for Xfer {
             read: true,
             poll: false,
             timeout_ms: 30000,
+            completed: AtomicBool::new(false),
         }
     }
 }
@@ -74,12 +175,12 @@ struct Ccb {
     data_phys: usize, // TODO: Support multiple pages. Only single page is supported now.
     cookie: Option<CcbCookie>,
 
-    done: Option<fn(&mut Ccb, &ComQueueEntry)>,
+    done: Option<DoneCallback>,
     _prpl_off: usize,
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
-    completed: AtomicBool, // TODO: This might be deleted in the future, when the interrupt handler task is implemented.
+    xfer_id: Option<u16>, // Index into the global Xfer pool
 }
 
 struct CcbList {
@@ -125,7 +226,12 @@ impl Queue {
         Ok(())
     }
 
-    fn complete(&self, info: &PCIeInfo, ccbs: &mut [Ccb]) -> Result<bool, NvmeDriverErr> {
+    fn complete(
+        &self,
+        info: &PCIeInfo,
+        ccbs: &mut [Ccb],
+        ccb_list: &Mutex<CcbList>,
+    ) -> Result<bool, NvmeDriverErr> {
         let mut node = MCSNode::new();
         let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
             guard
@@ -150,12 +256,10 @@ impl Queue {
                 log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
-            let ccb = &mut ccbs[cid as usize];
+            let done_fn = ccbs[cid as usize].done;
 
-            if let Some(done_fn) = ccb.done {
-                done_fn(ccb, cqe);
-            } else {
-                return Err(NvmeDriverErr::NoCallback);
+            if let Some(done_fn) = done_fn {
+                done_fn(cid, cqe, ccbs, ccb_list);
             }
 
             head += 1;
@@ -407,7 +511,7 @@ impl NvmeInner {
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
-                completed: AtomicBool::new(true), // Initially completed (not in use)
+                xfer_id: None,
             };
             ccbs.push(ccb);
             free_list.push_back(i);
@@ -438,17 +542,8 @@ impl NvmeInner {
 
     fn ccb_put(&mut self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
         let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-        let ccb = &mut ccbs[ccb_id as usize];
-        ccb.data_phys = 0;
-        ccb.done = None;
-        ccb.data_phys = 0; // Clear the physical address
-
-        let mut node = MCSNode::new();
         let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-        let mut list = ccb_list.lock(&mut node);
-        list._free_list.push_front(ccb_id);
-
-        Ok(())
+        ccb_put_free(ccbs, ccb_list, ccb_id)
     }
 
     fn poll_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
@@ -457,7 +552,8 @@ impl NvmeInner {
         }
     }
 
-    fn poll_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn poll_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], _ccb_list: &Mutex<CcbList>) {
+        let ccb = &mut ccbs[ccb_id as usize];
         if let Some(CcbCookie::_State(state)) = &mut ccb.cookie {
             state._cqe = *cqe;
             state._cqe.flags |= NVME_CQE_PHASE.to_le();
@@ -509,7 +605,8 @@ impl NvmeInner {
                 break;
             }
 
-            if !q.complete(&self.info, ccbs)? {
+            let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            if !q.complete(&self.info, ccbs, ccb_list)? {
                 wait_microsec(NVME_TIMO_DELAYNS);
             }
 
@@ -532,7 +629,8 @@ impl NvmeInner {
             };
             ccb.cookie = original_cookie;
             if let Some(done_fn) = original_done {
-                done_fn(ccb, &cqe);
+                let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+                done_fn(ccb_id, &cqe, ccbs, ccb_list);
             }
             cqe
         };
@@ -754,21 +852,13 @@ impl NvmeInner {
         }
     }
 
-    /// Check if a CCB has completed
-    pub fn ccb_is_completed(&self, ccb_id: u16) -> Result<bool, NvmeDriverErr> {
-        let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-        if ccb_id as usize >= ccbs.len() {
-            return Err(NvmeDriverErr::InvalidCcbId);
-        }
-        Ok(ccbs[ccb_id as usize].completed.load(Ordering::Acquire))
-    }
-
     fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
         let mut rv = false;
 
         if let Some(ccbs) = self.ccbs.as_mut() {
-            rv |= io_q.complete(&self.info, ccbs)?;
-            rv |= admin_q.complete(&self.info, ccbs)?;
+            let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            rv |= io_q.complete(&self.info, ccbs, ccb_list)?;
+            rv |= admin_q.complete(&self.info, ccbs, ccb_list)?;
         }
 
         Ok(rv)
@@ -886,7 +976,7 @@ impl NvmeInner {
         }
     }
 
-    fn _io_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn _io_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], ccb_list: &Mutex<CcbList>) {
         let flags = u16::from_le(cqe.flags);
         let status = _NVME_CQE_SC(flags);
 
@@ -895,11 +985,27 @@ impl NvmeInner {
             // TODO: Handle error status codes properly
         }
 
+        let ccb = &mut ccbs[ccb_id as usize];
+
         // Mark the operation as completed for the task waiting interrupt
-        ccb.completed.store(true, Ordering::Release);
+        if let Some(xfer_id) = ccb.xfer_id {
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(true, Ordering::Release);
+            }
+        }
+
+        // Return CCB to pool (this also frees the Xfer)
+        let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
     }
 
-    pub fn submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
+    pub fn submit_io(&mut self, io_q: &Queue, xfer_id: u16) -> Result<(), NvmeDriverErr> {
+        // Get the Xfer from the pool
+        let mut node = MCSNode::new();
+        let pool = get_xfer_pool().lock(&mut node);
+        let xfer = pool.get(xfer_id).ok_or(NvmeDriverErr::InvalidInput)?;
+
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -911,27 +1017,36 @@ impl NvmeInner {
             nsid: xfer.nsid,
             read: xfer.read,
         });
+        ccb.xfer_id = Some(xfer_id);
 
-        if xfer.poll {
-            self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
-            let _ = self.ccb_put(ccb_id);
+        let poll = xfer.poll;
+        let timeout_ms = xfer.timeout_ms;
+        drop(pool); // Release the lock before poll/submit
+
+        if poll {
+            self.poll(io_q, ccb_id, Self::_io_fill, timeout_ms)?;
         } else {
-            ccb.completed.store(false, Ordering::Release);
-
+            // Mark as not completed
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(false, Ordering::Release);
+            }
+            drop(pool);
             io_q.submit(&self.info, ccb, Self::_io_fill)?;
         }
-        Ok(ccb_id)
+        Ok(())
     }
 
     fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::_Io {
+        if let Some(CcbCookie::Io {
             nsid,
             lba: _,
             blocks: _,
             read: _,
         }) = &ccb.cookie
         {
-            sqe.opcode = _NVM_CMD_FLUSH;
+            sqe.opcode = NVM_CMD_FLUSH;
             sqe.nsid = u32::to_le(*nsid);
         } else {
             log::error!("sync_fill called with non-flush cookie");
@@ -939,7 +1054,7 @@ impl NvmeInner {
         }
     }
 
-    fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn sync_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], ccb_list: &Mutex<CcbList>) {
         let flags = u16::from_le(cqe.flags);
         let status = _NVME_CQE_SC(flags);
 
@@ -948,30 +1063,56 @@ impl NvmeInner {
             // TODO: Handle error status codes properly
         }
 
+        let ccb = &mut ccbs[ccb_id as usize];
+
         // Mark the operation as completed for the task waiting interrupt
-        ccb.completed.store(true, Ordering::Release);
+        if let Some(xfer_id) = ccb.xfer_id {
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(true, Ordering::Release);
+            }
+        }
+
+        // Return CCB to pool (this also frees the Xfer)
+        let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
     }
 
-    pub fn submit_flush(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
+    pub fn submit_flush(&mut self, io_q: &Queue, xfer_id: u16) -> Result<(), NvmeDriverErr> {
+        // Get the Xfer from the pool
+        let mut node = MCSNode::new();
+        let pool = get_xfer_pool().lock(&mut node);
+        let xfer = pool.get(xfer_id).ok_or(NvmeDriverErr::InvalidInput)?;
+
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
         ccb.done = Some(Self::sync_done);
-        ccb.cookie = Some(CcbCookie::_Io {
+        ccb.cookie = Some(CcbCookie::Io {
             nsid: xfer.nsid,
             lba: 0,
             blocks: 0,
             read: false,
         });
+        ccb.xfer_id = Some(xfer_id);
 
-        if xfer.poll {
-            self.poll(io_q, ccb_id, Self::sync_fill, xfer.timeout_ms)?;
-            let _ = self.ccb_put(ccb_id);
+        let poll = xfer.poll;
+        let timeout_ms = xfer.timeout_ms;
+        drop(pool); // Release the lock before poll/submit
+
+        if poll {
+            self.poll(io_q, ccb_id, Self::sync_fill, timeout_ms)?;
         } else {
-            ccb.completed.store(false, Ordering::Release);
+            // Mark as not completed
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(false, Ordering::Release);
+            }
+            drop(pool);
             io_q.submit(&self.info, ccb, Self::sync_fill)?;
         }
-        Ok(ccb_id)
+        Ok(())
     }
 }
 
@@ -991,6 +1132,7 @@ pub struct Nvme {
 
 impl Nvme {
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        log::info!("NVMe::new called");
         // Enable bus mastering and interrupts in PCIe command register
         let mut cmd = info.read_status_command();
         cmd.set(registers::StatusCommand::BUS_MASTER, true); // Enable DMA
@@ -1045,54 +1187,28 @@ impl Nvme {
         Ok(nvme)
     }
 
-    /// Debug function to log interrupt configuration
-    pub fn debug_interrupt_config(&self) {
-        let inner = self.inner.read();
-        log::info!("=== NVMe Interrupt Configuration Debug ===");
-
-        match &inner.pcie_int {
-            PCIeInt::None => {
-                log::warn!("No interrupts configured - device in polling mode only!");
-            }
-            PCIeInt::_Msi(irq) => {
-                log::info!("MSI interrupt configured with IRQ {irq:?}");
-            }
-            PCIeInt::_MsiX(irq) => {
-                log::info!("MSI-X interrupt configured:");
-                log::info!("  IRQ {} -> Both Admin and I/O queues", irq.get_irq());
-            }
-        }
-
-        // Check controller interrupt mask register
-        if let Ok(intms) = read_reg(&inner.info, NVME_INTMS) {
-            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{intms:08x}");
-        }
-        if let Ok(intmc) = read_reg(&inner.info, NVME_INTMC) {
-            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{intmc:08x}");
-        }
-
-        log::info!("==========================================");
-    }
-
-    /// Wait for I/O completion and cleanup CCB
+    /// Wait for I/O completion
     /// This is for testing purposes - in a real system, the upper layer would handle this
-    fn wait_for_completion(&self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
+    fn wait_for_completion(&self, xfer_id: u16) -> Result<(), NvmeDriverErr> {
         // For testing purposes, wait for async completion
         // In a real system, the upper layer (SCSI) would handle this
         let mut iterations = 0;
         const MAX_ITERATIONS: u32 = 4_000_000; // 40 seconds with 10us delays
 
         loop {
-            let inner = self.inner.read();
-            if inner.ccb_is_completed(ccb_id)? {
-                drop(inner);
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            let completed = pool
+                .get(xfer_id)
+                .map(|xfer| xfer.completed.load(Ordering::Acquire))
+                .unwrap_or(true);
+            drop(pool);
+
+            if completed {
                 break;
             }
-            drop(inner);
 
             if iterations >= MAX_ITERATIONS {
-                let mut inner = self.inner.write();
-                let _ = inner.ccb_put(ccb_id);
                 return Err(NvmeDriverErr::CommandTimeout);
             }
 
@@ -1100,9 +1216,7 @@ impl Nvme {
             iterations += 1;
         }
 
-        // Free the CCB
-        let mut inner = self.inner.write();
-        let _ = inner.ccb_put(ccb_id);
+        // CCB and Xfer are already freed in the done callback
         Ok(())
     }
 
@@ -1115,24 +1229,38 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
-        let xfer = Xfer {
-            nsid,
-            lba,
-            blocks,
-            data_phys: data_phys as usize,
-            read: true,
-            poll,
-            ..Default::default()
-        };
+        // Allocate an Xfer from the pool
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        let xfer_id = pool.allocate().ok_or(NvmeDriverErr::NoCcb)?;
+
+        // Initialize the Xfer
+        if let Some(xfer) = pool.get_mut(xfer_id) {
+            xfer.nsid = nsid;
+            xfer.lba = lba;
+            xfer.blocks = blocks;
+            xfer.data_phys = data_phys as usize;
+            xfer.read = true;
+            xfer.poll = poll;
+            xfer.timeout_ms = 0;
+        }
+        drop(pool);
+
         let mut inner = self.inner.write();
-        let ccb_id = inner.submit_io(&self.io_q, &xfer)?;
+        inner.submit_io(&self.io_q, xfer_id)?;
         drop(inner);
 
         if !poll {
             // For testing, wait for completion
             // In a real system, we'd return immediately like OpenBSD
-            self.wait_for_completion(ccb_id)?;
+            self.wait_for_completion(xfer_id)?;
         }
+
+        // Free the Xfer back to the pool now that we're done with it
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        pool.free(xfer_id);
+        drop(pool);
 
         Ok(())
     }
@@ -1146,39 +1274,76 @@ impl Nvme {
         data_phys: u64,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
-        let xfer = Xfer {
-            nsid,
-            lba,
-            blocks,
-            data_phys: data_phys as usize,
-            read: false,
-            poll,
-            ..Default::default()
-        };
+        // Allocate an Xfer from the pool
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        let xfer_id = pool.allocate().ok_or(NvmeDriverErr::NoCcb)?;
+
+        // Initialize the Xfer
+        if let Some(xfer) = pool.get_mut(xfer_id) {
+            xfer.nsid = nsid;
+            xfer.lba = lba;
+            xfer.blocks = blocks;
+            xfer.data_phys = data_phys as usize;
+            xfer.read = false;
+            xfer.poll = poll;
+            xfer.timeout_ms = 0;
+        }
+        drop(pool);
+
         let mut inner = self.inner.write();
-        let ccb_id = inner.submit_io(&self.io_q, &xfer)?;
+        inner.submit_io(&self.io_q, xfer_id)?;
         drop(inner);
 
         if !poll {
             // For testing, wait for completion
             // In a real system, we'd return immediately like OpenBSD
-            self.wait_for_completion(ccb_id)?;
+            self.wait_for_completion(xfer_id)?;
         }
+
+        // Free the Xfer back to the pool now that we're done with it
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        pool.free(xfer_id);
+        drop(pool);
 
         Ok(())
     }
 
     /// Submit a flush command
     pub fn flush(&self, nsid: u32, poll: bool) -> Result<(), NvmeDriverErr> {
+        // Allocate an Xfer from the pool
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        let xfer_id = pool.allocate().ok_or(NvmeDriverErr::NoCcb)?;
+
+        // Initialize the Xfer
+        if let Some(xfer) = pool.get_mut(xfer_id) {
+            xfer.nsid = nsid;
+            xfer.poll = poll;
+            xfer.lba = 0;
+            xfer.blocks = 0;
+            xfer.data_phys = 0;
+            xfer.read = false;
+            xfer.timeout_ms = 0;
+        }
+        drop(pool);
+
         let mut inner = self.inner.write();
-        let ccb_id = inner.submit_flush(&self.io_q, nsid, poll)?;
+        inner.submit_flush(&self.io_q, xfer_id)?;
         drop(inner);
 
         if !poll {
             // For testing, wait for completion
             // In a real system, we'd return immediately like OpenBSD
-            self.wait_for_completion(ccb_id)?;
+            self.wait_for_completion(xfer_id)?;
         }
+
+        // Free the Xfer back to the pool now that we're done with it
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        pool.free(xfer_id);
+        drop(pool);
 
         Ok(())
     }
@@ -1220,6 +1385,7 @@ pub enum NvmeDriverErr {
     IncompatiblePageSize,
     NoCallback,
     InvalidCcbId,
+    InvalidInput,
     CcbCookieUnexpected,
 }
 
@@ -1248,6 +1414,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::NoCallback => PCIeDeviceErr::CommandFailure,
             NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
             NvmeDriverErr::CcbCookieUnexpected => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::InvalidInput => PCIeDeviceErr::CommandFailure,
         }
     }
 }
@@ -1295,12 +1462,19 @@ pub(super) fn attach(
     // Read capabilities of PCIe.
     info.read_capability();
 
-    let nvme = Nvme::new(info)?;
+    let nvme = match Nvme::new(info) {
+        Ok(n) => n,
+        Err(e) => {
+            log::error!("Failed to create NVMe device: {:?}", e);
+            return Err(e);
+        }
+    };
     let nvme_arc = Arc::new(nvme);
 
     // Store the device globally
     let mut device = NVME_DEVICE.write();
     *device = Some(nvme_arc.clone());
+    log::info!("NVMe device stored globally");
 
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
