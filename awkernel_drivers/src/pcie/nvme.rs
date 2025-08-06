@@ -25,7 +25,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -64,7 +64,7 @@ enum CcbCookie {
     _Controller(DMAPool<IdentifyController>),
     _State(PollState),
     _QueueCmd(SubQueueEntryQ),
-    Io {
+    _Io {
         lba: u64,
         blocks: u32,
         nsid: u32,
@@ -149,10 +149,13 @@ impl Queue {
                 log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
-            let done_fn = ccbs[cid as usize].done;
 
-            if let Some(done_fn) = done_fn {
+            let ccb = &mut ccbs[cid as usize];
+
+            if let Some(done_fn) = ccb.done {
                 done_fn(cid, cqe, ccbs, ccb_list);
+            } else {
+                return Err(NvmeDriverErr::NoCallback);
             }
 
             head += 1;
@@ -171,6 +174,25 @@ impl Queue {
 
         Ok(rv)
     }
+}
+
+pub(super) fn attach(
+    mut info: PCIeInfo,
+) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+    // Initialize PCIeInfo
+
+    // Map the memory regions of MMIO.
+    if let Err(e) = info.map_bar() {
+        log::warn!("NVMe: Failed to map the memory regions of MMIO: {e:?}");
+        return Err(PCIeDeviceErr::PageTableFailure);
+    }
+
+    // Read capabilities of PCIe.
+    info.read_capability();
+
+    let nvme = Nvme::new(info)?;
+
+    Ok(Arc::new(nvme))
 }
 
 struct NvmeInner {
@@ -259,12 +281,8 @@ impl NvmeInner {
             let subq = admin_q.subq.lock(&mut node);
             subq.sub_ring.get_phy_addr().as_usize()
         };
-        write_reg(&self.info, NVME_ASQ, subq_phy_addr as u32)?;
-        write_reg(
-            &self.info,
-            NVME_ASQ + 4,
-            (subq_phy_addr as u64 >> 32) as u32,
-        )?;
+        write_reg(&self.info, NVME_ASQ, (subq_phy_addr & 0xFFFFFFFF) as u32)?;
+        write_reg(&self.info, NVME_ASQ + 4, (subq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
         let comq_phy_addr = {
@@ -272,12 +290,8 @@ impl NvmeInner {
             let comq = admin_q.comq.lock(&mut node);
             comq.com_ring.get_phy_addr().as_usize()
         };
-        write_reg(&self.info, NVME_ACQ, comq_phy_addr as u32)?;
-        write_reg(
-            &self.info,
-            NVME_ACQ + 4,
-            (comq_phy_addr as u64 >> 32) as u32,
-        )?;
+        write_reg(&self.info, NVME_ACQ, (comq_phy_addr & 0xFFFFFFFF) as u32)?;
+        write_reg(&self.info, NVME_ACQ + 4, (comq_phy_addr >> 32) as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
 
         cc &= !(NVME_CC_IOCQES_MASK
@@ -841,7 +855,7 @@ impl NvmeInner {
     }
 
     fn _io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Io {
+        if let Some(CcbCookie::_Io {
             lba,
             blocks,
             nsid,
@@ -849,7 +863,7 @@ impl NvmeInner {
         }) = ccb.cookie
         {
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
-            sqe_io.opcode = if read { NVM_CMD_READ } else { NVM_CMD_WRITE };
+            sqe_io.opcode = if read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
             sqe_io.nsid = u32::to_le(nsid);
 
             // For now, we'll use PRP0 only
@@ -895,7 +909,7 @@ impl NvmeInner {
 
         ccb.data_phys = xfer.data_phys;
         ccb.done = Some(Self::_io_done);
-        ccb.cookie = Some(CcbCookie::Io {
+        ccb.cookie = Some(CcbCookie::_Io {
             lba: xfer.lba,
             blocks: xfer.blocks,
             nsid: xfer.nsid,
@@ -946,14 +960,7 @@ pub struct Nvme {
 }
 
 impl Nvme {
-    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        // Enable bus mastering and interrupts in PCIe command register
-        let mut cmd = info.read_status_command();
-        cmd.set(registers::StatusCommand::BUS_MASTER, true); // Enable DMA
-        cmd.set(registers::StatusCommand::INTERRUPT_DISABLE, false); // Enable interrupts
-        info.write_status_command(cmd);
-        log::info!("NVMe: Enabled bus mastering and interrupts in PCIe command register");
-
+    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut inner = NvmeInner::new(info)?;
 
         inner.disable()?;
