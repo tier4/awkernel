@@ -265,7 +265,7 @@ pub fn register_handler_pcie_msi<F>(
     message_address_upper: Option<&mut u32>,
 ) -> Result<IRQ, &'static str>
 where
-    F: FnMut(u16) + Send + 'static,
+    F: Fn(u16) + Send + 'static,
 {
     let mut controller = INTERRUPT_CONTROLLER.write();
 
@@ -317,8 +317,8 @@ where
 pub fn handle_irq(irq: u16) {
     use crate::{heap, unwind::catch_unwind};
 
-    let mut handlers = IRQ_HANDLERS.write();
-    if let Some((name, handler)) = handlers.get_mut(&irq) {
+    let handlers = IRQ_HANDLERS.read();
+    if let Some((name, handler)) = handlers.get(&irq) {
         // Use the primary allocator.
         #[cfg(not(feature = "std"))]
         let _guard = {
