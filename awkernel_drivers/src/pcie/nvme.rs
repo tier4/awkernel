@@ -1,10 +1,9 @@
-use super::{registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
+use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{boxed::Box, collections::VecDeque, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
     barrier::{
-        bus_space_barrier, membar_consumer, membar_producer, BUS_SPACE_BARRIER_READ,
-        BUS_SPACE_BARRIER_WRITE,
+        bus_space_barrier, membar_consumer, BUS_SPACE_BARRIER_READ, BUS_SPACE_BARRIER_WRITE,
     },
     delay::wait_microsec,
     dma_pool::DMAPool,
@@ -903,7 +902,7 @@ impl NvmeInner {
         let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
     }
 
-    pub fn submit_io(&mut self, io_q: &Queue, xfer: &mut Xfer) -> Result<(), NvmeDriverErr> {
+    pub fn _submit_io(&mut self, io_q: &Queue, xfer: &mut Xfer) -> Result<(), NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
