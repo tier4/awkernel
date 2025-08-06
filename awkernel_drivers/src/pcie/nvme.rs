@@ -85,7 +85,7 @@ struct Ccb {
 }
 
 struct CcbList {
-    _free_list: VecDeque<u16>,
+    _free_list: VecDeque<u16>, // TODO: Better to use a set to avoid duplicates.
 }
 
 struct Queue {
@@ -903,7 +903,7 @@ impl NvmeInner {
         let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
     }
 
-    pub fn submit_io(&mut self, io_q: &Queue, xfer: &mut Xfer) -> Result<u16, NvmeDriverErr> {
+    pub fn submit_io(&mut self, io_q: &Queue, xfer: &mut Xfer) -> Result<(), NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -919,12 +919,11 @@ impl NvmeInner {
 
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
-            let _ = self.ccb_put(ccb_id);
         } else {
             xfer.completed.store(false, Ordering::Release);
             io_q.submit(&self.info, ccb, Self::_io_fill)?;
         }
-        Ok(ccb_id)
+        Ok(())
     }
 }
 
