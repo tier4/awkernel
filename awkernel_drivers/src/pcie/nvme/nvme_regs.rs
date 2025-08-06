@@ -46,7 +46,9 @@ pub const NVME_SQTDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32)) * 
 /* Completion Queue Head Doorbell */
 pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1) * s;
 
+pub const _NVME_CQE_SC: fn(u16) -> u16 = |v| v & (0xff << 1);
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
+pub const _NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
 
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
 pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */
@@ -177,6 +179,10 @@ impl core::fmt::Debug for Entry {
     }
 }
 
+pub const _NVM_CMD_FLUSH: u8 = 0x00;
+pub const _NVM_CMD_WRITE: u8 = 0x01;
+pub const _NVM_CMD_READ: u8 = 0x02;
+
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Sge {
@@ -241,6 +247,26 @@ pub struct ComQueue {
     pub _cqhdbl: usize,
     pub _head: u32,
     pub _phase: u16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubQueueEntryIo {
+    pub opcode: u8,
+    pub flags: u8,
+    pub cid: u16,
+    pub nsid: u32,
+    pub _reserved: [u8; 8],
+    pub mptr: u64,
+    pub entry: Entry,
+    pub slba: u64, // Starting LBA
+    pub nlb: u16,  // Number of Logical Blocks
+    pub ioflags: u16,
+    pub dsm: u8, // Dataset Management
+    pub _reserved2: [u8; 3],
+    pub eilbrt: u32, // Expected Initial Logical Block Reference Tag
+    pub elbat: u16,  // Expected Logical Block Application Tag
+    pub elbatm: u16, // Expected Logical Block Application Tag Mask
 }
 
 pub const QUEUE_SIZE: usize = 128;
