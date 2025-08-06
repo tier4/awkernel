@@ -2,7 +2,12 @@
 
 extern crate alloc;
 
-use awkernel_lib::{addr::Addr, dma_pool::DMAPool, paging::PAGESIZE};
+use awkernel_lib::{
+    addr::Addr,
+    dma_pool::DMAPool,
+    dma_map::{DmaMap, DmaTag, DmaSyncOp},
+    paging::PAGESIZE,
+};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 // Import NVMe types
@@ -115,15 +120,41 @@ async fn test_read_write_mode(poll: bool) -> bool {
     for (i, byte) in write_slice.iter_mut().enumerate() {
         *byte = ((i % 256) as u8) ^ 0xAA; // Simple pattern: index XOR 0xAA
     }
-    let write_phys = write_dma.get_phy_addr().as_usize() as u64;
+    // Create DmaMap for write operation
+    let tag = DmaTag::new_64bit();
+    let mut write_dma_map = match DmaMap::new(tag, 0) {
+        Ok(map) => map,
+        Err(e) => {
+            log::error!("Failed to create write DMA map: {e:?}");
+            return false;
+        }
+    };
+
+    // Load the write buffer into the DMA map
+    if let Err(e) = write_dma_map.load(write_dma.get_virt_addr(), buffer_size) {
+        log::error!("Failed to load write DMA map: {e:?}");
+        return false;
+    }
+
+    // Sync before write
+    if let Err(e) = write_dma_map.sync(0, buffer_size, DmaSyncOp::PreWrite) {
+        log::error!("Failed to sync write DMA map: {e:?}");
+        return false;
+    }
 
     // Write data
     log::info!("Writing {TEST_BLOCKS} blocks to LBA {TEST_LBA} (poll={poll})...");
-    if let Err(e) = nvme.write_sectors(NSID, TEST_LBA, TEST_BLOCKS, write_phys, poll) {
+    if let Err(e) = nvme.write_sectors(NSID, TEST_LBA, TEST_BLOCKS, &write_dma_map, poll) {
         log::error!("Write failed: {e:?}");
         return false;
     }
     log::info!("Write completed successfully");
+
+    // Sync after write
+    if let Err(e) = write_dma_map.sync(0, buffer_size, DmaSyncOp::PostWrite) {
+        log::error!("Failed to sync write DMA map after write: {e:?}");
+        return false;
+    }
 
     // Allocate read buffer
     let read_dma = match DMAPool::<u8>::new(0, pages_needed) {
@@ -140,15 +171,40 @@ async fn test_read_write_mode(poll: bool) -> bool {
     for byte in read_slice.iter_mut() {
         *byte = 0;
     }
-    let read_phys = read_dma.get_phy_addr().as_usize() as u64;
+    // Create DmaMap for read operation
+    let mut read_dma_map = match DmaMap::new(tag, 0) {
+        Ok(map) => map,
+        Err(e) => {
+            log::error!("Failed to create read DMA map: {e:?}");
+            return false;
+        }
+    };
+
+    // Load the read buffer into the DMA map
+    if let Err(e) = read_dma_map.load(read_dma.get_virt_addr(), buffer_size) {
+        log::error!("Failed to load read DMA map: {e:?}");
+        return false;
+    }
+
+    // Sync before read
+    if let Err(e) = read_dma_map.sync(0, buffer_size, DmaSyncOp::PreRead) {
+        log::error!("Failed to sync read DMA map: {e:?}");
+        return false;
+    }
 
     // Read data back
     log::info!("Reading {TEST_BLOCKS} blocks from LBA {TEST_LBA} (poll={poll})...");
-    if let Err(e) = nvme.read_sectors(NSID, TEST_LBA, TEST_BLOCKS, read_phys, poll) {
+    if let Err(e) = nvme.read_sectors(NSID, TEST_LBA, TEST_BLOCKS, &read_dma_map, poll) {
         log::error!("Read failed: {e:?}");
         return false;
     }
     log::info!("Read completed successfully");
+
+    // Sync after read
+    if let Err(e) = read_dma_map.sync(0, buffer_size, DmaSyncOp::PostRead) {
+        log::error!("Failed to sync read DMA map after read: {e:?}");
+        return false;
+    }
 
     // Verify data
     log::info!("Verifying data...");
@@ -208,12 +264,38 @@ async fn test_flush_mode(poll: bool) -> bool {
     for (i, byte) in write_slice.iter_mut().enumerate() {
         *byte = (i % 256) as u8;
     }
-    let write_phys = write_dma.get_phy_addr().as_usize() as u64;
+    // Create DmaMap for write operation
+    let tag = DmaTag::new_64bit();
+    let mut write_dma_map = match DmaMap::new(tag, 0) {
+        Ok(map) => map,
+        Err(e) => {
+            log::error!("Failed to create write DMA map for flush test: {e:?}");
+            return false;
+        }
+    };
+
+    // Load the write buffer into the DMA map
+    if let Err(e) = write_dma_map.load(write_dma.get_virt_addr(), SECTOR_SIZE) {
+        log::error!("Failed to load write DMA map for flush test: {e:?}");
+        return false;
+    }
+
+    // Sync before write
+    if let Err(e) = write_dma_map.sync(0, SECTOR_SIZE, DmaSyncOp::PreWrite) {
+        log::error!("Failed to sync write DMA map for flush test: {e:?}");
+        return false;
+    }
 
     // Write data
     log::info!("Writing data before flush (poll={poll})...");
-    if let Err(e) = nvme.write_sectors(NSID, TEST_LBA, TEST_BLOCKS, write_phys, poll) {
+    if let Err(e) = nvme.write_sectors(NSID, TEST_LBA, TEST_BLOCKS, &write_dma_map, poll) {
         log::error!("Write before flush failed: {e:?}");
+        return false;
+    }
+
+    // Sync after write
+    if let Err(e) = write_dma_map.sync(0, SECTOR_SIZE, DmaSyncOp::PostWrite) {
+        log::error!("Failed to sync write DMA map after write for flush test: {e:?}");
         return false;
     }
 

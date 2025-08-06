@@ -9,7 +9,7 @@ use awkernel_async_lib::{
     file::{
         mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
-        mount_aware_vfs_path::MountAwareAsyncVfsPath,
+        path::AsyncVfsPath,
     },
 };
 use alloc::collections::BTreeMap;
@@ -46,10 +46,10 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         
         // Create a directory structure
         println!("\nCreating directory structure...");
-        let docs_dir = MountAwareAsyncVfsPath::new("/data/documents");
+        let docs_dir = AsyncVfsPath::new("/data/documents");
         docs_dir.create_dir().await.expect("Failed to create documents dir");
         
-        let images_dir = MountAwareAsyncVfsPath::new("/data/images");
+        let images_dir = AsyncVfsPath::new("/data/images");
         images_dir.create_dir().await.expect("Failed to create images dir");
         println!("✓ Created /data/documents and /data/images");
         
@@ -57,7 +57,7 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         println!("\nWriting files...");
         
         // Write a text file
-        let readme_path = MountAwareAsyncVfsPath::new("/data/documents/readme.txt");
+        let readme_path = AsyncVfsPath::new("/data/documents/readme.txt");
         let mut readme = readme_path.create_file().await.expect("Failed to create readme");
         readme.write_all(b"Welcome to AWKernel Memory FatFS!\n").await.expect("Failed to write");
         readme.write_all(b"This filesystem is stored entirely in memory.\n").await.expect("Failed to write");
@@ -66,7 +66,7 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         println!("✓ Created /data/documents/readme.txt");
         
         // Write a config file
-        let config_path = MountAwareAsyncVfsPath::new("/data/config.ini");
+        let config_path = AsyncVfsPath::new("/data/config.ini");
         let mut config = config_path.create_file().await.expect("Failed to create config");
         config.write_all(b"[system]\n").await.expect("Failed to write");
         config.write_all(b"version=1.0\n").await.expect("Failed to write");
@@ -77,7 +77,7 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         
         // List directory contents
         println!("\nListing /data contents:");
-        let data_dir = MountAwareAsyncVfsPath::new("/data");
+        let data_dir = AsyncVfsPath::new("/data");
         let entries = data_dir.read_dir().await.expect("Failed to read directory");
         
         for entry in entries {
@@ -128,7 +128,7 @@ fn kernel_entry(_platform_info: awkernel_lib::platform::PlatformInfo) -> ! {
         
         // Copy file between filesystems
         println!("\nCopying readme.txt to /backup...");
-        let backup_readme = MountAwareAsyncVfsPath::new("/backup/readme.txt");
+        let backup_readme = AsyncVfsPath::new("/backup/readme.txt");
         readme_path.copy_file(&backup_readme).await.expect("Failed to copy file");
         println!("✓ File copied successfully");
         

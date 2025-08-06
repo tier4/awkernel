@@ -9,7 +9,7 @@ use awkernel_async_lib::{
     file::{
         mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
-        mount_aware_vfs_path::MountAwareAsyncVfsPath,
+        path::AsyncVfsPath,
     },
 };
 use awkernel_lib::{print, println, file::memfs::create_memory_block_device};
@@ -87,7 +87,7 @@ fn test_mount_aware_path_operations() {
         println!("All filesystems mounted");
         
         // Test file operations on root
-        let root_file = MountAwareAsyncVfsPath::new("/test.txt");
+        let root_file = AsyncVfsPath::new("/test.txt");
         let mut writer = root_file.create_file().await.expect("Failed to create file");
         writer.write_all(b"Root file content").await.expect("Failed to write");
         writer.flush().await.expect("Failed to flush");
@@ -97,10 +97,10 @@ fn test_mount_aware_path_operations() {
         println!("Root file created successfully");
         
         // Test file operations on disk1
-        let disk1_dir = MountAwareAsyncVfsPath::new("/mnt/disk1/data");
+        let disk1_dir = AsyncVfsPath::new("/mnt/disk1/data");
         disk1_dir.create_dir().await.expect("Failed to create directory");
         
-        let disk1_file = MountAwareAsyncVfsPath::new("/mnt/disk1/data/file.txt");
+        let disk1_file = AsyncVfsPath::new("/mnt/disk1/data/file.txt");
         let mut writer = disk1_file.create_file().await.expect("Failed to create file");
         writer.write_all(b"Disk1 file content").await.expect("Failed to write");
         writer.flush().await.expect("Failed to flush");
@@ -110,13 +110,13 @@ fn test_mount_aware_path_operations() {
         println!("Disk1 file created successfully");
         
         // Test directory listing
-        let disk1_data = MountAwareAsyncVfsPath::new("/mnt/disk1/data");
+        let disk1_data = AsyncVfsPath::new("/mnt/disk1/data");
         let entries = disk1_data.read_dir().await.expect("Failed to read directory");
         assert_eq!(entries.len(), 1);
         println!("Directory listing works correctly");
         
         // Test that files are isolated between filesystems
-        let disk2_file = MountAwareAsyncVfsPath::new("/mnt/disk2/data/file.txt");
+        let disk2_file = AsyncVfsPath::new("/mnt/disk2/data/file.txt");
         assert!(!disk2_file.exists().await.expect("Failed to check existence"));
         println!("Filesystem isolation verified");
     });
@@ -149,14 +149,14 @@ fn test_cross_filesystem_operations() {
             .await.expect("Failed to mount backup");
         
         // Create source file
-        let src_file = MountAwareAsyncVfsPath::new("/source.txt");
+        let src_file = AsyncVfsPath::new("/source.txt");
         let mut writer = src_file.create_file().await.expect("Failed to create source");
         writer.write_all(b"Source content for copy test").await.expect("Failed to write");
         writer.flush().await.expect("Failed to flush");
         drop(writer);
         
         // Copy to different filesystem
-        let dest_file = MountAwareAsyncVfsPath::new("/backup/copy.txt");
+        let dest_file = AsyncVfsPath::new("/backup/copy.txt");
         src_file.copy_file(&dest_file).await.expect("Failed to copy file");
         
         // Verify copy
@@ -207,17 +207,17 @@ fn test_nested_mount_points() {
             .await.expect("Failed to mount /mnt/usb");
         
         // Create files at each level
-        let root_file = MountAwareAsyncVfsPath::new("/root.txt");
+        let root_file = AsyncVfsPath::new("/root.txt");
         let mut writer = root_file.create_file().await.expect("Failed to create root file");
         writer.write_all(b"Root").await.expect("Failed to write");
         drop(writer);
         
-        let mnt_file = MountAwareAsyncVfsPath::new("/mnt/mnt.txt");
+        let mnt_file = AsyncVfsPath::new("/mnt/mnt.txt");
         let mut writer = mnt_file.create_file().await.expect("Failed to create mnt file");
         writer.write_all(b"Mnt").await.expect("Failed to write");
         drop(writer);
         
-        let usb_file = MountAwareAsyncVfsPath::new("/mnt/usb/usb.txt");
+        let usb_file = AsyncVfsPath::new("/mnt/usb/usb.txt");
         let mut writer = usb_file.create_file().await.expect("Failed to create usb file");
         writer.write_all(b"USB").await.expect("Failed to write");
         drop(writer);
@@ -228,7 +228,7 @@ fn test_nested_mount_points() {
         assert!(usb_file.exists().await.expect("Failed to check"));
         
         // Verify files don't exist in wrong filesystems
-        let wrong_path = MountAwareAsyncVfsPath::new("/mnt.txt");
+        let wrong_path = AsyncVfsPath::new("/mnt.txt");
         assert!(!wrong_path.exists().await.expect("Failed to check"));
         
         println!("Nested mount points work correctly!");

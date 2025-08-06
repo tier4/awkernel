@@ -1,9 +1,9 @@
 //! The async filesystem trait definitions needed to implement new async virtual filesystems
-use super::path::AsyncVfsPath;
 use crate::time::Time;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::file::{
+    fs_capabilities::FsCapabilities,
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
     vfs::path::VfsMetadata,
@@ -111,6 +111,11 @@ impl AsyncSeekAndWrite for Box<dyn AsyncSeekAndWrite + Send + Unpin> {
 /// Please use the test_macros [test_macros::test_async_vfs!] and [test_macros::test_async_vfs_readonly!]
 #[async_trait]
 pub trait AsyncFileSystem: Sync + Send + Debug {
+    /// Get the filesystem type name (e.g., "fatfs", "ext4", "memory")
+    fn fs_type(&self) -> &'static str;
+    
+    /// Get the capabilities of this filesystem
+    fn capabilities(&self) -> FsCapabilities;
     /// Iterates over all direct children of this directory path
     /// NOTE: the returned String items denote the local bare filenames, i.e. they should not contain "/" anywhere
     async fn read_dir(
@@ -172,8 +177,3 @@ pub trait AsyncFileSystem: Sync + Send + Debug {
     }
 }
 
-impl From<Box<dyn AsyncFileSystem>> for AsyncVfsPath {
-    fn from(filesystem: Box<dyn AsyncFileSystem>) -> Self {
-        AsyncVfsPath::new(filesystem)
-    }
-}

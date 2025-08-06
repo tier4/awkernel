@@ -3,8 +3,14 @@
 extern crate alloc;
 
 use alloc::vec;
-use awkernel_async_lib::file::path::AsyncVfsPath;
-use awkernel_lib::file::fatfs::init_memory_fatfs;
+use awkernel_async_lib::file::{
+    mount::{mount, MountOptions},
+    path::AsyncVfsPath,
+};
+use awkernel_lib::file::{
+    fatfs::init_memory_fatfs,
+    memfs::create_memory_block_device,
+};
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -16,16 +22,24 @@ pub async fn run() {
 }
 
 async fn memfatfs_test() {
-    // TODO - Remove this when the filesystem is fully ready. This will be done in the kernel initialization.
-    match init_memory_fatfs() {
-        Ok(_) => log::info!("In-memory FAT filesystem initialized successfully."),
-        Err(e) => {
-            log::error!("Failed to initialize in-memory FAT filesystem: {e:?}");
+    // Create a memory block device
+    let device = match create_memory_block_device(1024 * 1024, 512) {
+        Some(dev) => dev,
+        None => {
+            log::error!("Failed to create memory block device");
             return;
         }
-    }
+    };
 
-    let root_path = AsyncVfsPath::new_in_memory_fatfs();
+    // Mount the FAT filesystem
+    let mount_options = MountOptions::new();
+    if let Err(e) = mount("/", device, "fatfs", mount_options).await {
+        log::error!("Failed to mount FAT filesystem: {e:?}");
+        return;
+    }
+    log::info!("In-memory FAT filesystem mounted successfully.");
+
+    let root_path = AsyncVfsPath::new("/");
     let file_name = "test.txt";
     let data_to_write = b"Hello from the in-memory FAT filesystem!";
     let bytes_written;

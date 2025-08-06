@@ -9,7 +9,7 @@ use awkernel_async_lib::{
             MountOptions,
         },
         filesystem::AsyncSeekAndWrite,
-        mount_aware_vfs_path::MountAwareAsyncVfsPath,
+        path::AsyncVfsPath,
     },
 };
 use awkernel_lib::file::memfs::{
@@ -59,7 +59,7 @@ async fn memory_fatfs_test() {
     }
     
     // Create and write a file
-    let file_path = MountAwareAsyncVfsPath::new("/test/hello.txt");
+    let file_path = AsyncVfsPath::new("/test/hello.txt");
     
     match file_path.create_file().await {
         Ok(mut writer) => {

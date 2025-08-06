@@ -6,7 +6,7 @@ use awkernel_async_lib::{
     file::{
         mount::{mount, MountOptions},
         filesystem::AsyncSeekAndWrite,
-        mount_aware_vfs_path::MountAwareAsyncVfsPath,
+        path::AsyncVfsPath,
     },
 };
 use awkernel_lib::file::memfs::create_memory_block_device;
@@ -60,7 +60,7 @@ async fn multiple_mounts_test() {
     }
     
     // Write to first filesystem
-    let data_file = MountAwareAsyncVfsPath::new("/data/config.txt");
+    let data_file = AsyncVfsPath::new("/data/config.txt");
     match data_file.create_file().await {
         Ok(mut writer) => {
             match writer.write_all(b"System configuration data").await {
@@ -79,7 +79,7 @@ async fn multiple_mounts_test() {
     }
     
     // Write to second filesystem
-    let temp_file = MountAwareAsyncVfsPath::new("/temp/log.txt");
+    let temp_file = AsyncVfsPath::new("/temp/log.txt");
     match temp_file.create_file().await {
         Ok(mut writer) => {
             match writer.write_all(b"Temporary log data").await {

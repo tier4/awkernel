@@ -1,6 +1,7 @@
 pub mod block_device;
 pub mod error;
 pub mod fatfs;
+pub mod fs_capabilities;
 pub mod io;
 pub mod memfs;
 pub mod mount_types;

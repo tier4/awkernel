@@ -850,10 +850,10 @@ impl NvmeInner {
         }
     }
 
-    /// Submit I/O command with DMA map for multi-page support
-    /// This version supports scatter-gather transfers using PRP lists
+    /// Submit I/O command with DMA map
+    /// Supports both single-page and multi-page transfers using PRP lists
     #[allow(clippy::too_many_arguments)]
-    pub fn submit_io_dma(
+    pub fn submit_io(
         &mut self,
         io_q: &Queue,
         nsid: u32,
@@ -904,61 +904,6 @@ impl NvmeInner {
         }
     }
 
-    /// Submit I/O command to the I/O queue (legacy single-page version)
-    /// Based on OpenBSD's nvme_scsi_io()
-    #[allow(clippy::too_many_arguments)]
-    pub fn submit_io(
-        &mut self,
-        io_q: &Queue,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
-        data_phys: u64,
-        read: bool,
-        poll: bool,
-    ) -> Result<(u16, Option<Arc<AtomicBool>>), NvmeDriverErr> {
-        // Get a CCB
-        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
-
-        // Set up the I/O cookie
-        ccb.cookie = Some(CcbCookie::Io {
-            lba,
-            blocks,
-            nsid,
-            read,
-        });
-
-        // Set up done callback (following OpenBSD's nvme_scsi_io)
-        ccb.done = Some(Self::io_done);
-
-        // Store the physical address in the PRPL
-        // For now, still using single page - multi-page support requires DmaMap
-        if let Some(prpl_ptr) = ccb._prpl {
-            let prp_list = unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, 1) };
-            prp_list[0] = data_phys;
-        }
-
-        if poll {
-            // Synchronous polling mode - use the poll() function like OpenBSD
-            self.poll(io_q, ccb_id, Self::io_fill, 30000)?; // 30 second timeout
-            let _ = self.ccb_put(ccb_id);
-            Ok((ccb_id, None))
-        } else {
-            // Asynchronous mode - just submit and return like OpenBSD
-            // Clear the completion flag before submitting
-            ccb.completed.store(false, Ordering::Release);
-
-            // Get a clone of the completion flag to return
-            let completion_flag = ccb.completed.clone();
-
-            // Submit the command
-            io_q.submit(&self.info, ccb, Self::io_fill)?;
-
-            // Return the CCB ID and completion flag so the caller can wait and free it later
-            Ok((ccb_id, Some(completion_flag)))
-        }
-    }
 
     /// Submit flush command
     /// Based on OpenBSD's nvme_scsi_sync()
@@ -1232,72 +1177,17 @@ impl Nvme {
 
     /// Submit a read command using DMA map
     /// Supports multi-page transfers through PRP lists
-    pub fn read_sectors_dma(
-        &self,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
-        dma_map: &DmaMap,
-        poll: bool,
-    ) -> Result<(), NvmeDriverErr> {
-        let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) =
-            inner.submit_io_dma(&self.io_q, nsid, lba, blocks, dma_map, true, poll)?;
-        drop(inner);
-
-        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
-
-        if !poll {
-            // Wait for completion
-            while !completion_flag.load(Ordering::Acquire) {
-                core::hint::spin_loop();
-            }
-            // Free the CCB after completion
-            let mut inner = self.inner.write();
-            let _ = inner.ccb_put(ccb_id);
-        }
-
-        Ok(())
-    }
-
-    /// Submit a read command (legacy single-page version)
     pub fn read_sectors(
         &self,
         nsid: u32,
         lba: u64,
         blocks: u32,
-        data_phys: u64,
-        poll: bool,
-    ) -> Result<(), NvmeDriverErr> {
-        let mut inner = self.inner.write();
-        let (ccb_id, completion_flag) =
-            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, true, poll)?;
-        drop(inner);
-
-        let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
-
-        if !poll {
-            // For testing, wait for completion
-            // In a real system, we'd return immediately like OpenBSD
-            self.wait_for_completion(ccb_id, completion_flag)?;
-        }
-
-        Ok(())
-    }
-
-    /// Submit a write command using DMA map
-    /// Supports multi-page transfers through PRP lists
-    pub fn write_sectors_dma(
-        &self,
-        nsid: u32,
-        lba: u64,
-        blocks: u32,
         dma_map: &DmaMap,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
         let mut inner = self.inner.write();
         let (ccb_id, completion_flag) =
-            inner.submit_io_dma(&self.io_q, nsid, lba, blocks, dma_map, false, poll)?;
+            inner.submit_io(&self.io_q, nsid, lba, blocks, dma_map, true, poll)?;
         drop(inner);
 
         let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
@@ -1315,30 +1205,37 @@ impl Nvme {
         Ok(())
     }
 
-    /// Submit a write command (legacy single-page version)
+
+    /// Submit a write command using DMA map
+    /// Supports multi-page transfers through PRP lists
     pub fn write_sectors(
         &self,
         nsid: u32,
         lba: u64,
         blocks: u32,
-        data_phys: u64,
+        dma_map: &DmaMap,
         poll: bool,
     ) -> Result<(), NvmeDriverErr> {
         let mut inner = self.inner.write();
         let (ccb_id, completion_flag) =
-            inner.submit_io(&self.io_q, nsid, lba, blocks, data_phys, false, poll)?;
+            inner.submit_io(&self.io_q, nsid, lba, blocks, dma_map, false, poll)?;
         drop(inner);
 
         let completion_flag = completion_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
 
         if !poll {
-            // For testing, wait for completion
-            // In a real system, we'd return immediately like OpenBSD
-            self.wait_for_completion(ccb_id, completion_flag)?;
+            // Wait for completion
+            while !completion_flag.load(Ordering::Acquire) {
+                core::hint::spin_loop();
+            }
+            // Free the CCB after completion
+            let mut inner = self.inner.write();
+            let _ = inner.ccb_put(ccb_id);
         }
 
         Ok(())
     }
+
 
     /// Submit a flush command
     pub fn flush(&self, nsid: u32, poll: bool) -> Result<(), NvmeDriverErr> {
@@ -1686,8 +1583,8 @@ impl StorageDevice for NvmeNamespace {
         dma_map.sync(0, total_size, DmaSyncOp::PreRead)
             .map_err(|_| BlockDeviceError::IoError)?;
         
-        // Use the new DMA-aware read_sectors method for multi-page support
-        self.controller.read_sectors_dma(self.namespace_id, start_block, num_blocks, &dma_map, false)
+        // Use the DMA-aware read_sectors method for multi-page support
+        self.controller.read_sectors(self.namespace_id, start_block, num_blocks, &dma_map, false)
             .map_err(|_| BlockDeviceError::IoError)?;
         
         // Sync after DMA read
@@ -1743,8 +1640,8 @@ impl StorageDevice for NvmeNamespace {
         dma_map.sync(0, total_size, DmaSyncOp::PreWrite)
             .map_err(|_| BlockDeviceError::IoError)?;
         
-        // Use the new DMA-aware write_sectors method for multi-page support
-        self.controller.write_sectors_dma(self.namespace_id, start_block, num_blocks, &dma_map, false)
+        // Use the DMA-aware write_sectors method for multi-page support
+        self.controller.write_sectors(self.namespace_id, start_block, num_blocks, &dma_map, false)
             .map_err(|_| BlockDeviceError::IoError)?;
         
         // Sync after DMA write

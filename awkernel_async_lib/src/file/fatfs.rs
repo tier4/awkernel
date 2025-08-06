@@ -10,6 +10,7 @@ use awkernel_lib::{
             get_memory_fatfs,
             time::{Date, DateTime, NullTimeProvider, TimeProvider},
         },
+        fs_capabilities::FsCapabilities,
         io::{Read, Seek, SeekFrom, Write},
         block_device::BlockDeviceAdapter,
         memfs::MemoryBlockDevice,
@@ -121,6 +122,13 @@ where
     TP: TimeProvider + Send + Sync + 'static,
     OCC: OemCpConverter + Send + Sync + 'static,
 {
+    fn fs_type(&self) -> &'static str {
+        "fatfs"
+    }
+    
+    fn capabilities(&self) -> FsCapabilities {
+        FsCapabilities::fat()
+    }
     async fn read_dir(
         &self,
         path: &str,
