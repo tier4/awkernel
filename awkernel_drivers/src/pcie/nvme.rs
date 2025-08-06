@@ -11,13 +11,105 @@ use awkernel_lib::{
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
-use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 mod nvme_regs;
 use nvme_regs::*;
 
 const DEVICE_NAME: &str = " NVMe Controller";
 const DEVICE_SHORT_NAME: &str = "nvme";
+
+// Global Xfer pool - acts as a SCSI layer
+const MAX_XFERS: usize = 256;
+static mut XFER_POOL: Option<Mutex<XferPool>> = None;
+
+fn get_xfer_pool() -> &'static Mutex<XferPool> {
+    unsafe {
+        if XFER_POOL.is_none() {
+            XFER_POOL = Some(Mutex::new(XferPool::new()));
+        }
+        XFER_POOL.as_ref().unwrap()
+    }
+}
+
+struct XferPool {
+    xfers: Vec<Xfer>,
+    free_list: Vec<bool>,
+}
+
+impl XferPool {
+    fn new() -> Self {
+        let mut xfers = Vec::with_capacity(MAX_XFERS);
+        let mut free_list = Vec::with_capacity(MAX_XFERS);
+        
+        for _ in 0..MAX_XFERS {
+            xfers.push(Xfer::default());
+            free_list.push(true);
+        }
+        
+        Self { xfers, free_list }
+    }
+    
+    pub fn allocate(&mut self) -> Option<u16> {
+        for (i, free) in self.free_list.iter_mut().enumerate() {
+            if *free {
+                *free = false;
+                self.xfers[i].completed.store(false, Ordering::Release);
+                return Some(i as u16);
+            }
+        }
+        None
+    }
+    
+    pub fn get(&self, id: u16) -> Option<&Xfer> {
+        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+            Some(&self.xfers[id as usize])
+        } else {
+            None
+        }
+    }
+    
+    pub fn get_mut(&mut self, id: u16) -> Option<&mut Xfer> {
+        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+            Some(&mut self.xfers[id as usize])
+        } else {
+            None
+        }
+    }
+    
+    pub fn free(&mut self, id: u16) {
+        if (id as usize) < MAX_XFERS {
+            self.free_list[id as usize] = true;
+        }
+    }
+}
+
+// Helper functions for Xfer pool management
+pub fn xfer_alloc() -> Option<u16> {
+    let mut node = MCSNode::new();
+    let mut pool = get_xfer_pool().lock(&mut node);
+    pool.allocate()
+}
+
+pub fn xfer_get_mut(id: u16) -> Option<&'static mut Xfer> {
+    unsafe {
+        let mut node = MCSNode::new();
+        let mut pool = get_xfer_pool().lock(&mut node);
+        if let Some(xfer) = pool.get_mut(id) {
+            // This is unsafe but necessary to return a mutable reference
+            // The caller must ensure proper synchronization
+            Some(&mut *(xfer as *mut Xfer))
+        } else {
+            None
+        }
+    }
+}
+
+pub fn xfer_free(id: u16) {
+    let mut node = MCSNode::new();
+    let mut pool = get_xfer_pool().lock(&mut node);
+    pool.free(id);
+}
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be considered. */
@@ -80,7 +172,7 @@ struct Ccb {
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
-    xfer: AtomicPtr<Xfer>, // Reference to the associated transfer
+    xfer_id: Option<u16>, // Index into the global Xfer pool
 }
 
 struct CcbList {
@@ -148,7 +240,6 @@ impl Queue {
                 log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
-
             let ccb = &mut ccbs[cid as usize];
 
             if let Some(done_fn) = ccb.done {
@@ -417,7 +508,7 @@ impl NvmeInner {
                 _prpl_dva: prpl_phys_base + off as u64,
                 _prpl: Some(prpl_virt_base + off),
                 _id: i,
-                xfer: AtomicPtr::new(core::ptr::null_mut()),
+                xfer_id: None,
             };
             ccbs.push(ccb);
             free_list.push_back(i);
@@ -889,20 +980,25 @@ impl NvmeInner {
         }
 
         let ccb = &mut ccbs[ccb_id as usize];
-
+        
         // Mark the operation as completed for the task waiting interrupt
-        let xfer_ptr = ccb.xfer.load(Ordering::Acquire);
-        if !xfer_ptr.is_null() {
-            unsafe {
-                (*xfer_ptr).completed.store(true, Ordering::Release);
+        if let Some(xfer_id) = ccb.xfer_id {
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(true, Ordering::Release);
             }
-            ccb.xfer.store(core::ptr::null_mut(), Ordering::Release);
         }
 
         let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
     }
 
-    pub fn _submit_io(&mut self, io_q: &Queue, xfer: &mut Xfer) -> Result<(), NvmeDriverErr> {
+    pub fn _submit_io(&mut self, io_q: &Queue, xfer_id: u16) -> Result<(), NvmeDriverErr> {
+        // Get the Xfer from the pool
+        let mut node = MCSNode::new();
+        let pool = get_xfer_pool().lock(&mut node);
+        let xfer = pool.get(xfer_id).ok_or(NvmeDriverErr::NoCcb)?;
+        
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -914,12 +1010,22 @@ impl NvmeInner {
             nsid: xfer.nsid,
             read: xfer.read,
         });
-        ccb.xfer.store(xfer as *mut Xfer, Ordering::Release);
+        ccb.xfer_id = Some(xfer_id);
 
-        if xfer.poll {
-            self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
+        let poll = xfer.poll;
+        let timeout_ms = xfer.timeout_ms;
+        drop(pool);
+        
+        if poll {
+            self.poll(io_q, ccb_id, Self::_io_fill, timeout_ms)?;
         } else {
-            xfer.completed.store(false, Ordering::Release);
+            // Mark as not completed
+            let mut node = MCSNode::new();
+            let pool = get_xfer_pool().lock(&mut node);
+            if let Some(xfer) = pool.get(xfer_id) {
+                xfer.completed.store(false, Ordering::Release);
+            }
+            drop(pool);
             io_q.submit(&self.info, ccb, Self::_io_fill)?;
         }
         Ok(())
@@ -934,7 +1040,7 @@ fn ccb_put_free(
     let ccb = &mut ccbs[ccb_id as usize];
     ccb.data_phys = 0;
     ccb.done = None;
-    ccb.xfer.store(core::ptr::null_mut(), Ordering::Release);
+    ccb.xfer_id = None;
 
     let mut node = MCSNode::new();
     let mut list = ccb_list.lock(&mut node);
