@@ -71,11 +71,11 @@ enum CcbCookie {
     },
 }
 
+type DoneCallback = fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>);
 struct Ccb {
     data_phys: usize, // TODO: Support multiple pages. Only single page is supported now.
     cookie: Option<CcbCookie>,
-
-    done: Option<fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>)>,
+    done: Option<DoneCallback>,
     _prpl_off: usize,
     _prpl_dva: u64,
     _prpl: Option<usize>,
