@@ -543,7 +543,7 @@ impl InterruptController for X2Apic {
             segment_number,
             target,
             irq as u8,
-            true,
+            false,
             false,
         )
         .ok_or("Failed to allocate an Interrupt Remapping Table Entry.")?;

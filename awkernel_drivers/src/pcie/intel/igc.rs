@@ -249,6 +249,32 @@ impl Igc {
 
         Ok(igc)
     }
+
+    fn intr(&self, _irq: Option<u16>) -> Result<(), IgcDriverErr> {
+        // TODO: Handle Tx/Rx interrupts.
+
+        let mut inner = self.inner.read();
+        let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
+
+        if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
+            // Link status change interrupt.
+            drop(inner);
+            {
+                let mut inner = self.inner.write();
+                inner.igc_intr_link()?;
+            }
+            inner = self.inner.read();
+        }
+
+        write_reg(&inner.info, igc_regs::IGC_IMS, igc_defines::IGC_IMS_LSC)?;
+        write_reg(
+            &inner.info,
+            igc_regs::IGC_EIMS,
+            1 << inner.queue_info.que.len(),
+        )?;
+
+        Ok(())
+    }
 }
 
 impl PCIeDevice for Igc {
@@ -258,6 +284,15 @@ impl PCIeDevice for Igc {
 }
 
 impl NetDevice for Igc {
+    fn tick_msec(&self) -> Option<u64> {
+        Some(200)
+    }
+
+    fn tick(&self) -> Result<(), net_device::NetDevError> {
+        self.intr(None)
+            .or(Err(net_device::NetDevError::DeviceError))
+    }
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
         let mut inner = self.inner.write();
         inner.multicast_addrs.add_addr(*addr);
@@ -302,9 +337,9 @@ impl NetDevice for Igc {
         inner.if_flags
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+    fn interrupt(&self, irq: u16) -> Result<(), net_device::NetDevError> {
+        self.intr(Some(irq))
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn irqs(&self) -> Vec<u16> {
@@ -642,6 +677,16 @@ impl IgcInner {
         }
     }
 
+    #[inline(always)]
+    fn igc_intr_link(&mut self) -> Result<(), IgcDriverErr> {
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )
+    }
+
     fn igc_iff(&mut self) -> Result<(), IgcDriverErr> {
         use igc_regs::*;
 
@@ -879,7 +924,6 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
 fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PCIeDeviceErr> {
     let bfd = info.get_bfd();
     let segment_number = info.segment_group as usize;
-    let mut bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 
     let msix = info.get_msix_mut().ok_or(PCIeDeviceErr::InitFailure)?;
 
@@ -924,17 +968,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
         .register_handler(
             irq_name_other.into(),
             Box::new(move |irq| {
-                log::debug!("igc: irq {irq} received");
-
-                let igc_icr = bar0.read32(igc_regs::IGC_ICR).unwrap_or(0);
-                if igc_icr & igc_defines::IGC_ICR_LSC != 0 {
-                    log::debug!("igc: Link status change interrupt received");
-                    // Handle link status change.
-                    awkernel_lib::net::net_interrupt(irq);
-                }
-
-                bar0.write32(igc_regs::IGC_IMS, igc_defines::IGC_IMS_LSC);
-                bar0.write32(igc_regs::IGC_EIMS, 1 << nqueues);
+                awkernel_lib::net::net_interrupt(irq);
             }),
             segment_number,
             awkernel_lib::cpu::raw_cpu_id() as u32,
