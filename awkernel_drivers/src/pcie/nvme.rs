@@ -67,9 +67,6 @@ enum CcbCookie {
         nsid: u32,
         read: bool,
     },
-    _Flush {
-        nsid: u32,
-    },
 }
 
 struct Ccb {
@@ -919,7 +916,13 @@ impl NvmeInner {
     }
 
     fn _sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
+        if let Some(CcbCookie::_Io {
+            nsid,
+            lba: _,
+            blocks: _,
+            read: _,
+        }) = &ccb.cookie
+        {
             sqe.opcode = _NVM_CMD_FLUSH;
             sqe.nsid = u32::to_le(*nsid);
         } else {
@@ -945,9 +948,13 @@ impl NvmeInner {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
-        ccb.cookie = Some(CcbCookie::_Flush { nsid: xfer.nsid });
-
         ccb.done = Some(Self::_sync_done);
+        ccb.cookie = Some(CcbCookie::_Io {
+            nsid: xfer.nsid,
+            lba: 0,
+            blocks: 0,
+            read: false,
+        });
 
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::_sync_fill, xfer.timeout_ms)?;
