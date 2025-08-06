@@ -65,7 +65,7 @@ pub trait InterruptController: Sync + Send {
     }
 }
 
-type NameAndCallback = (Cow<'static, str>, Box<dyn FnMut(u16) + Send>);
+type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
