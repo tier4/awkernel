@@ -19,7 +19,7 @@ use nvme_regs::*;
 const DEVICE_NAME: &str = " NVMe Controller";
 const DEVICE_SHORT_NAME: &str = "nvme";
 
-// Global Xfer pool - acts as a SCSI layer
+// TODO: XFER_POOL is a pseudo-representation of a data structure that a future Storage Device Interface Layer will likely have. It is, of course, scheduled to be removed from the NVMe device driver in the future.
 const MAX_XFERS: usize = 256;
 static mut XFER_POOL: Option<Mutex<XferPool>> = None;
 
@@ -41,15 +41,15 @@ impl XferPool {
     fn new() -> Self {
         let mut xfers = Vec::with_capacity(MAX_XFERS);
         let mut free_list = Vec::with_capacity(MAX_XFERS);
-        
+
         for _ in 0..MAX_XFERS {
             xfers.push(Xfer::default());
             free_list.push(true);
         }
-        
+
         Self { xfers, free_list }
     }
-    
+
     pub fn allocate(&mut self) -> Option<u16> {
         for (i, free) in self.free_list.iter_mut().enumerate() {
             if *free {
@@ -60,7 +60,7 @@ impl XferPool {
         }
         None
     }
-    
+
     pub fn get(&self, id: u16) -> Option<&Xfer> {
         if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
             Some(&self.xfers[id as usize])
@@ -68,7 +68,7 @@ impl XferPool {
             None
         }
     }
-    
+
     pub fn get_mut(&mut self, id: u16) -> Option<&mut Xfer> {
         if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
             Some(&mut self.xfers[id as usize])
@@ -76,39 +76,12 @@ impl XferPool {
             None
         }
     }
-    
+
     pub fn free(&mut self, id: u16) {
         if (id as usize) < MAX_XFERS {
             self.free_list[id as usize] = true;
         }
     }
-}
-
-// Helper functions for Xfer pool management
-pub fn xfer_alloc() -> Option<u16> {
-    let mut node = MCSNode::new();
-    let mut pool = get_xfer_pool().lock(&mut node);
-    pool.allocate()
-}
-
-pub fn xfer_get_mut(id: u16) -> Option<&'static mut Xfer> {
-    unsafe {
-        let mut node = MCSNode::new();
-        let mut pool = get_xfer_pool().lock(&mut node);
-        if let Some(xfer) = pool.get_mut(id) {
-            // This is unsafe but necessary to return a mutable reference
-            // The caller must ensure proper synchronization
-            Some(&mut *(xfer as *mut Xfer))
-        } else {
-            None
-        }
-    }
-}
-
-pub fn xfer_free(id: u16) {
-    let mut node = MCSNode::new();
-    let mut pool = get_xfer_pool().lock(&mut node);
-    pool.free(id);
 }
 
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
@@ -172,7 +145,7 @@ struct Ccb {
     _prpl_dva: u64,
     _prpl: Option<usize>,
     _id: u16,
-    xfer_id: Option<u16>, // Index into the global Xfer pool
+    xfer_id: Option<u16>,
 }
 
 struct CcbList {
@@ -980,7 +953,7 @@ impl NvmeInner {
         }
 
         let ccb = &mut ccbs[ccb_id as usize];
-        
+
         // Mark the operation as completed for the task waiting interrupt
         if let Some(xfer_id) = ccb.xfer_id {
             let mut node = MCSNode::new();
@@ -994,11 +967,10 @@ impl NvmeInner {
     }
 
     pub fn _submit_io(&mut self, io_q: &Queue, xfer_id: u16) -> Result<(), NvmeDriverErr> {
-        // Get the Xfer from the pool
         let mut node = MCSNode::new();
         let pool = get_xfer_pool().lock(&mut node);
         let xfer = pool.get(xfer_id).ok_or(NvmeDriverErr::NoCcb)?;
-        
+
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
@@ -1015,11 +987,10 @@ impl NvmeInner {
         let poll = xfer.poll;
         let timeout_ms = xfer.timeout_ms;
         drop(pool);
-        
+
         if poll {
             self.poll(io_q, ccb_id, Self::_io_fill, timeout_ms)?;
         } else {
-            // Mark as not completed
             let mut node = MCSNode::new();
             let pool = get_xfer_pool().lock(&mut node);
             if let Some(xfer) = pool.get(xfer_id) {
