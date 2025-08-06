@@ -20,15 +20,15 @@ const DEVICE_NAME: &str = " NVMe Controller";
 const DEVICE_SHORT_NAME: &str = "nvme";
 
 // TODO: XFER_POOL is a pseudo-representation of a data structure that a future Storage Device Interface Layer will likely have. It is, of course, scheduled to be removed from the NVMe device driver in the future.
-const MAX_XFERS: usize = 256;
-static mut XFER_POOL: Option<Mutex<XferPool>> = None;
+const _MAX_XFERS: usize = 256;
+static mut _XFER_POOL: Option<Mutex<XferPool>> = None;
 
 fn get_xfer_pool() -> &'static Mutex<XferPool> {
     unsafe {
-        if XFER_POOL.is_none() {
-            XFER_POOL = Some(Mutex::new(XferPool::new()));
+        if _XFER_POOL.is_none() {
+            _XFER_POOL = Some(Mutex::new(XferPool::_new()));
         }
-        XFER_POOL.as_ref().unwrap()
+        _XFER_POOL.as_ref().unwrap()
     }
 }
 
@@ -38,11 +38,11 @@ struct XferPool {
 }
 
 impl XferPool {
-    fn new() -> Self {
-        let mut xfers = Vec::with_capacity(MAX_XFERS);
-        let mut free_list = Vec::with_capacity(MAX_XFERS);
+    fn _new() -> Self {
+        let mut xfers = Vec::with_capacity(_MAX_XFERS);
+        let mut free_list = Vec::with_capacity(_MAX_XFERS);
 
-        for _ in 0..MAX_XFERS {
+        for _ in 0.._MAX_XFERS {
             xfers.push(Xfer::default());
             free_list.push(true);
         }
@@ -50,7 +50,7 @@ impl XferPool {
         Self { xfers, free_list }
     }
 
-    pub fn allocate(&mut self) -> Option<u16> {
+    pub fn _allocate(&mut self) -> Option<u16> {
         for (i, free) in self.free_list.iter_mut().enumerate() {
             if *free {
                 *free = false;
@@ -61,24 +61,24 @@ impl XferPool {
         None
     }
 
-    pub fn get(&self, id: u16) -> Option<&Xfer> {
-        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+    pub fn _get(&self, id: u16) -> Option<&Xfer> {
+        if (id as usize) < _MAX_XFERS && !self.free_list[id as usize] {
             Some(&self.xfers[id as usize])
         } else {
             None
         }
     }
 
-    pub fn get_mut(&mut self, id: u16) -> Option<&mut Xfer> {
-        if (id as usize) < MAX_XFERS && !self.free_list[id as usize] {
+    pub fn _get_mut(&mut self, id: u16) -> Option<&mut Xfer> {
+        if (id as usize) < _MAX_XFERS && !self.free_list[id as usize] {
             Some(&mut self.xfers[id as usize])
         } else {
             None
         }
     }
 
-    pub fn free(&mut self, id: u16) {
-        if (id as usize) < MAX_XFERS {
+    pub fn _free(&mut self, id: u16) {
+        if (id as usize) < _MAX_XFERS {
             self.free_list[id as usize] = true;
         }
     }
