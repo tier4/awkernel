@@ -67,6 +67,9 @@ enum CcbCookie {
         nsid: u32,
         read: bool,
     },
+    _Flush {
+        nsid: u32,
+    },
 }
 
 struct Ccb {
@@ -915,71 +918,46 @@ impl NvmeInner {
         }
     }
 
-    /// Process flush command completion
-    /// Based on OpenBSD's nvme_scsi_sync_done()
-    fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+    fn _sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
+            sqe.opcode = _NVM_CMD_FLUSH;
+            sqe.nsid = u32::to_le(*nsid);
+        } else {
+            log::error!("sync_fill called with non-flush cookie");
+            // TODO: Consider returning an error or handling this case more gracefully
+        }
+    }
+
+    fn _sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
         let flags = u16::from_le(cqe.flags);
         let status = _NVME_CQE_SC(flags);
 
-        if status == _NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-                log::debug!("NVMe flush completed on nsid {nsid}");
-            }
-        } else {
+        if status != _NVME_CQE_SC_SUCCESS {
             log::error!("NVMe flush failed with status: 0x{status:x}");
+            // TODO: Handle error status codes properly
         }
 
         // Mark the operation as completed for the task waiting interrupt
         ccb._completed.store(true, Ordering::Release);
     }
 
-    /// Fill flush command in submission queue entry
-    /// Based on OpenBSD's nvme_scsi_sync_fill()
-    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-            // Clear the SQE first (following OpenBSD's pattern)
-            *sqe = SubQueueEntry::default();
-            sqe.opcode = _NVM_CMD_FLUSH;
-            sqe.nsid = u32::to_le(*nsid);
-        } else {
-            log::error!("sync_fill called with non-flush cookie");
-        }
-    }
-
-    /// Submit flush command
-    /// Based on OpenBSD's nvme_scsi_sync()
-    pub fn submit_flush(
-        &mut self,
-        io_q: &Queue,
-        nsid: u32,
-        poll: bool,
-    ) -> Result<u16, NvmeDriverErr> {
-        // Get a CCB
+    pub fn _submit_flush(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
-        // Set up the flush cookie
-        ccb.cookie = Some(CcbCookie::Flush { nsid });
+        ccb.cookie = Some(CcbCookie::_Flush { nsid: xfer.nsid });
 
-        // Set up done callback (following OpenBSD's nvme_scsi_sync)
-        ccb.done = Some(Self::sync_done);
+        ccb.done = Some(Self::_sync_done);
 
-        if poll {
-            // Synchronous polling mode - use the poll() function like OpenBSD
-            log::info!("Polling for flush completion, ccb_id={ccb_id}");
-            self.poll(io_q, ccb_id, Self::sync_fill, 10000)?; // 10 second timeout
-            log::info!("Flush completed successfully");
+        if xfer.poll {
+            self.poll(io_q, ccb_id, Self::_sync_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
             Ok(ccb_id)
         } else {
-            // Asynchronous mode - just submit and return like OpenBSD
-            // Clear the completion flag before submitting
             ccb._completed.store(false, Ordering::Release);
 
-            // Submit the command
-            io_q.submit(&self.info, ccb, Self::sync_fill)?;
+            io_q.submit(&self.info, ccb, Self::_sync_fill)?;
 
-            // Return the CCB ID so the caller can check completion status later
             Ok(ccb_id)
         }
     }
