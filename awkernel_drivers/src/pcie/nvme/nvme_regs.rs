@@ -191,7 +191,6 @@ impl core::fmt::Debug for Entry {
     }
 }
 
-<<<<<<< HEAD
 /* Formatted LBA Size helpers */
 #[allow(dead_code)]
 pub fn nvme_id_ns_flbas(flbas: u8) -> u8 {
@@ -205,11 +204,6 @@ pub const NVME_ID_NS_FLBAS_MD: u8 = 0x10;
 pub const NVM_CMD_FLUSH: u8 = 0x00;
 pub const NVM_CMD_WRITE: u8 = 0x01;
 pub const NVM_CMD_READ: u8 = 0x02;
-=======
-pub const _NVM_CMD_FLUSH: u8 = 0x00;
-pub const _NVM_CMD_WRITE: u8 = 0x01;
-pub const _NVM_CMD_READ: u8 = 0x02;
->>>>>>> main
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -286,15 +280,9 @@ pub struct SubQueueEntryIo {
     pub nsid: u32,
     pub _reserved: [u8; 8],
     pub mptr: u64,
-<<<<<<< HEAD
-    pub entry: Entry, // PRP entries
-    pub slba: u64,    // Starting LBA
-    pub nlb: u16,     // Number of Logical Blocks
-=======
     pub entry: Entry,
     pub slba: u64, // Starting LBA
     pub nlb: u16,  // Number of Logical Blocks
->>>>>>> main
     pub ioflags: u16,
     pub dsm: u8, // Dataset Management
     pub _reserved2: [u8; 3],

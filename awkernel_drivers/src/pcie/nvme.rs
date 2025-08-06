@@ -25,7 +25,7 @@ pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
 pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
 
-static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PollState {
@@ -67,9 +67,6 @@ enum CcbCookie {
         blocks: u32,
         nsid: u32,
         read: bool,
-    },
-    Flush {
-        nsid: u32,
     },
 }
 
@@ -757,75 +754,6 @@ impl NvmeInner {
         }
     }
 
-    /// Process flush command completion
-    /// Based on OpenBSD's nvme_scsi_sync_done()
-    fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
-        let flags = u16::from_le(cqe.flags);
-        let status = NVME_CQE_SC(flags);
-
-        if status == NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-                log::debug!("NVMe flush completed on nsid {}", nsid);
-            }
-        } else {
-            log::error!("NVMe flush failed with status: 0x{status:x}");
-        }
-
-        // Mark the operation as completed for async waiting
-        ccb.completed.store(true, Ordering::Release);
-    }
-
-    /// Fill flush command in submission queue entry
-    /// Based on OpenBSD's nvme_scsi_sync_fill()
-    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-            // Clear the SQE first (following OpenBSD's pattern)
-            *sqe = SubQueueEntry::default();
-            sqe.opcode = NVM_CMD_FLUSH;
-            sqe.nsid = u32::to_le(*nsid);
-        } else {
-            log::error!("sync_fill called with non-flush cookie");
-        }
-    }
-
-    /// Submit flush command
-    /// Based on OpenBSD's nvme_scsi_sync()
-    pub fn submit_flush(
-        &mut self,
-        io_q: &Queue,
-        nsid: u32,
-        poll: bool,
-    ) -> Result<u16, NvmeDriverErr> {
-        // Get a CCB
-        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
-
-        // Set up the flush cookie
-        ccb.cookie = Some(CcbCookie::Flush { nsid });
-
-        // Set up done callback (following OpenBSD's nvme_scsi_sync)
-        ccb.done = Some(Self::sync_done);
-
-        if poll {
-            // Synchronous polling mode - use the poll() function like OpenBSD
-            log::info!("Polling for flush completion, ccb_id={ccb_id}");
-            self.poll(io_q, ccb_id, Self::sync_fill, 10000)?; // 10 second timeout
-            log::info!("Flush completed successfully");
-            let _ = self.ccb_put(ccb_id);
-            Ok(ccb_id)
-        } else {
-            // Asynchronous mode - just submit and return like OpenBSD
-            // Clear the completion flag before submitting
-            ccb.completed.store(false, Ordering::Release);
-
-            // Submit the command
-            io_q.submit(&self.info, ccb, Self::sync_fill)?;
-
-            // Return the CCB ID so the caller can check completion status later
-            Ok(ccb_id)
-        }
-    }
-
     /// Check if a CCB has completed
     pub fn ccb_is_completed(&self, ccb_id: u16) -> Result<bool, NvmeDriverErr> {
         let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
@@ -933,7 +861,7 @@ impl NvmeInner {
     }
 
     fn _io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::_Io {
+        if let Some(CcbCookie::Io {
             lba,
             blocks,
             nsid,
@@ -941,7 +869,7 @@ impl NvmeInner {
         }) = ccb.cookie
         {
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
-            sqe_io.opcode = if read { _NVM_CMD_READ } else { _NVM_CMD_WRITE };
+            sqe_io.opcode = if read { NVM_CMD_READ } else { NVM_CMD_WRITE };
             sqe_io.nsid = u32::to_le(nsid);
 
             // For now, we'll use PRP0 only
@@ -968,16 +896,16 @@ impl NvmeInner {
         }
 
         // Mark the operation as completed for the task waiting interrupt
-        ccb._completed.store(true, Ordering::Release);
+        ccb.completed.store(true, Ordering::Release);
     }
 
-    pub fn _submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
+    pub fn submit_io(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
         ccb.data_phys = xfer.data_phys;
         ccb.done = Some(Self::_io_done);
-        ccb.cookie = Some(CcbCookie::_Io {
+        ccb.cookie = Some(CcbCookie::Io {
             lba: xfer.lba,
             blocks: xfer.blocks,
             nsid: xfer.nsid,
@@ -987,14 +915,63 @@ impl NvmeInner {
         if xfer.poll {
             self.poll(io_q, ccb_id, Self::_io_fill, xfer.timeout_ms)?;
             let _ = self.ccb_put(ccb_id);
-            Ok(ccb_id)
         } else {
             ccb.completed.store(false, Ordering::Release);
 
             io_q.submit(&self.info, ccb, Self::_io_fill)?;
-
-            Ok(ccb_id)
         }
+        Ok(ccb_id)
+    }
+
+    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::_Io {
+            nsid,
+            lba: _,
+            blocks: _,
+            read: _,
+        }) = &ccb.cookie
+        {
+            sqe.opcode = _NVM_CMD_FLUSH;
+            sqe.nsid = u32::to_le(*nsid);
+        } else {
+            log::error!("sync_fill called with non-flush cookie");
+            // TODO: Consider returning an error or handling this case more gracefully
+        }
+    }
+
+    fn sync_done(ccb: &mut Ccb, cqe: &ComQueueEntry) {
+        let flags = u16::from_le(cqe.flags);
+        let status = _NVME_CQE_SC(flags);
+
+        if status != _NVME_CQE_SC_SUCCESS {
+            log::error!("NVMe flush failed with status: 0x{status:x}");
+            // TODO: Handle error status codes properly
+        }
+
+        // Mark the operation as completed for the task waiting interrupt
+        ccb.completed.store(true, Ordering::Release);
+    }
+
+    pub fn submit_flush(&mut self, io_q: &Queue, xfer: &Xfer) -> Result<u16, NvmeDriverErr> {
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
+
+        ccb.done = Some(Self::sync_done);
+        ccb.cookie = Some(CcbCookie::_Io {
+            nsid: xfer.nsid,
+            lba: 0,
+            blocks: 0,
+            read: false,
+        });
+
+        if xfer.poll {
+            self.poll(io_q, ccb_id, Self::sync_fill, xfer.timeout_ms)?;
+            let _ = self.ccb_put(ccb_id);
+        } else {
+            ccb.completed.store(false, Ordering::Release);
+            io_q.submit(&self.info, ccb, Self::sync_fill)?;
+        }
+        Ok(ccb_id)
     }
 }
 
@@ -1078,7 +1055,7 @@ impl Nvme {
                 log::warn!("No interrupts configured - device in polling mode only!");
             }
             PCIeInt::_Msi(irq) => {
-                log::info!("MSI interrupt configured with IRQ {:?}", irq);
+                log::info!("MSI interrupt configured with IRQ {irq:?}");
             }
             PCIeInt::_MsiX(irq) => {
                 log::info!("MSI-X interrupt configured:");
@@ -1088,10 +1065,10 @@ impl Nvme {
 
         // Check controller interrupt mask register
         if let Ok(intms) = read_reg(&inner.info, NVME_INTMS) {
-            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{:08x}", intms);
+            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{intms:08x}");
         }
         if let Ok(intmc) = read_reg(&inner.info, NVME_INTMC) {
-            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{:08x}", intmc);
+            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{intmc:08x}");
         }
 
         log::info!("==========================================");
@@ -1142,7 +1119,7 @@ impl Nvme {
             nsid,
             lba,
             blocks,
-            data_phys,
+            data_phys: data_phys as usize,
             read: true,
             poll,
             ..Default::default()
@@ -1173,7 +1150,7 @@ impl Nvme {
             nsid,
             lba,
             blocks,
-            data_phys,
+            data_phys: data_phys as usize,
             read: false,
             poll,
             ..Default::default()
@@ -1244,13 +1221,6 @@ pub enum NvmeDriverErr {
     NoCallback,
     InvalidCcbId,
     CcbCookieUnexpected,
-}
-
-#[allow(dead_code)]
-enum PCIeInt {
-    None,
-    _Msi(IRQ),
-    _MsiX(IRQ),
 }
 
 #[allow(dead_code)]
