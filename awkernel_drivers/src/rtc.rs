@@ -6,14 +6,6 @@ pub mod mc146818;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", feature = "x86"))]
 pub use mc146818::Mc146818Rtc;
 
-#[derive(Debug)]
-pub enum RtcError {
-    NotPresent,
-    InvalidTime,
-    HardwareError,
-    NotSupported,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct DateTime {
     pub year: u16,  // Full year (e.g., 2024)

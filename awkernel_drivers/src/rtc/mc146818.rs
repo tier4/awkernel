@@ -1,4 +1,4 @@
-//! MC146818-compatible CMOS RTC driver for x86_64
+//! MC146818-compatible CMOS RTC driver for x86_64, x86
 
 use super::{DateTime, RtcError};
 use core::arch::asm;
@@ -121,99 +121,7 @@ impl Mc146818Rtc {
                 options(nostack, preserves_flags)
             );
 
-            // DELAY(1)
             awkernel_lib::delay::wait_microsec(1);
         }
-    }
-
-    fn bcdtobin(bcd: u8) -> u8 {
-        ((bcd >> 4) * 10) + (bcd & 0x0f)
-    }
-
-    fn bintobcd(bin: u8) -> u8 {
-        ((bin / 10) << 4) | (bin % 10)
-    }
-
-    fn rtcget() -> Result<McTodRegs, RtcError> {
-        let mut regs = [0u8; MC_NTODREGS];
-
-        if (Self::mc146818_read(MC_REGD) & MC_REGD_VRT) == 0 {
-            return Err(RtcError::HardwareError);
-        }
-
-        // update in progress; spin loop
-        while (Self::mc146818_read(MC_REGA) & MC_REGA_UIP) != 0 {
-            continue;
-        }
-
-        loop {
-            // read all of the tod/alarm regs
-            for (i, reg) in regs.iter_mut().enumerate().take(MC_NTODREGS) {
-                *reg = Self::mc146818_read(i as u8);
-            }
-
-            if regs[MC_SEC as usize] == Self::mc146818_read(MC_SEC) {
-                break;
-            }
-        }
-
-        Ok(regs)
-    }
-
-    fn rtcput(regs: &McTodRegs) -> Result<(), RtcError> {
-        // stop updates while setting
-        Self::mc146818_write(MC_REGB, Self::mc146818_read(MC_REGB) | MC_REGB_SET);
-
-        // write all of the tod/alarm regs
-        for (i, &reg) in regs.iter().enumerate().take(MC_NTODREGS) {
-            Self::mc146818_write(i as u8, reg);
-        }
-
-        // reenable updates
-        Self::mc146818_write(MC_REGB, Self::mc146818_read(MC_REGB) & !MC_REGB_SET);
-
-        Ok(())
-    }
-
-    pub fn read_time(&self) -> Result<DateTime, RtcError> {
-        let regs = Self::rtcget()?;
-
-        let second = Self::bcdtobin(regs[MC_SEC as usize]);
-        let minute = Self::bcdtobin(regs[MC_MIN as usize]);
-        let hour = Self::bcdtobin(regs[MC_HOUR as usize]);
-        let day = Self::bcdtobin(regs[MC_DOM as usize]);
-        let month = Self::bcdtobin(regs[MC_MONTH as usize]);
-        let year = Self::bcdtobin(regs[MC_YEAR as usize]);
-
-        // TODO: clock_expandyear()
-        let full_year = 2000 + year as u16;
-
-        Ok(DateTime::new(full_year, month, day, hour, minute, second))
-    }
-
-    pub fn set_time(&self, time: &DateTime) -> Result<(), RtcError> {
-        let mut regs = [0u8; MC_NTODREGS];
-
-        regs[MC_SEC as usize] = Self::bintobcd(time.second);
-        regs[MC_MIN as usize] = Self::bintobcd(time.minute);
-        regs[MC_HOUR as usize] = Self::bintobcd(time.hour);
-        // NOTE: Day of week is not calculated correctly - just using placeholder value
-        regs[MC_DOW as usize] = 1;
-        regs[MC_YEAR as usize] = Self::bintobcd((time.year % 100) as u8);
-        regs[MC_MONTH as usize] = Self::bintobcd(time.month);
-        regs[MC_DOM as usize] = Self::bintobcd(time.day);
-
-        Self::rtcput(&regs)?;
-
-        // NOTE: century byte update
-
-        Ok(())
-    }
-
-    pub fn init(&self) -> Result<(), RtcError> {
-        let regb = Self::mc146818_read(MC_REGB);
-        Self::mc146818_write(MC_REGB, regb | MC_REGB_24HR);
-
-        Ok(())
     }
 }
