@@ -58,10 +58,6 @@ optional = true
 path = "../applications/tests/test_measure_channel_heavy"
 optional = true
 
-[dependencies.test_sched_preempt]
-path = "../applications/tests/test_sched_preempt"
-optional = true
-
 [dependencies.test_dag]
 path = "../applications/tests/test_dag"
 optional = true
@@ -92,6 +88,5 @@ test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
-test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]

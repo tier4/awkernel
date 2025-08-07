@@ -1,5 +1,9 @@
 #![no_std]
 
+extern crate alloc;
+
+use alloc::format;
+
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::{cpu::num_cpu, delay::wait_millisec};
 
@@ -10,38 +14,24 @@ pub async fn run() {
 
     for i in 1..num_cpu() {
         spawn(
-            "sleep".into(),
+            format!("low_priority {i}").into(),
             async move {
-                log::debug!("sleeping, core={i}");
-                wait_millisec(1000);
-            },
-            SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
-    }
-
-    wait_millisec(500);
-
-    for i in 1..num_cpu() {
-        spawn(
-            "low_priority".into(),
-            async move {
-                log::debug!("low priority task started.");
+                log::debug!("low priority {i} task started.");
                 wait_millisec(100);
                 spawn(
-                    "high_priority".into(),
+                    format!("high_priority {i}").into(),
                     async move {
-                        log::debug!("high priority task started.");
+                        log::debug!("high priority {i} task started.");
                         wait_millisec(100);
-                        log::debug!("high priority task finished.");
+                        log::debug!("high priority {i} task finished.");
                     },
                     SchedulerType::PrioritizedFIFO(0),
                 )
                 .await;
                 wait_millisec(100);
-                log::debug!("low priority task finished.");
+                log::debug!("low priority {i} task finished.");
             },
-            SchedulerType::PrioritizedFIFO(255),
+            SchedulerType::PrioritizedFIFO(31),
         )
         .await;
     }
