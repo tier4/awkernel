@@ -10,7 +10,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_LEVEL run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_LEVEL run" >> result.txt
     fi
@@ -21,7 +21,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU0 TIMER=TIMER_LEVEL run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU0 TIMER=TIMER_LEVEL run" >> result.txt
     fi
@@ -32,7 +32,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU1 TIMER=TIMER_LEVEL run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU1 TIMER=TIMER_LEVEL run" >> result.txt
     fi
@@ -43,7 +43,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_LEVEL run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_LEVEL run" >> result.txt
     fi
@@ -55,7 +55,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CONCURRENT_WORK_CONSERVATION TIMER=TIMER_EDGE run" >> result.txt
     fi
@@ -66,7 +66,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU0 TIMER=TIMER_EDGE run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU0 TIMER=TIMER_EDGE run" >> result.txt
     fi
@@ -77,7 +77,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU1 TIMER=TIMER_EDGE run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=CPU_WAKING_TO_ACTIVE_CPU1 TIMER=TIMER_EDGE run" >> result.txt
     fi
@@ -88,7 +88,7 @@ for i in $(seq 0 3); do
 
     if [ -e "wake_workers.pml.trail" ]; then
         echo "false make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_EDGE run" >> result.txt
-        echo "wake_workers.pml.trail ファイルが存在します。"
+        echo "Found wake_workers.pml.trail."
     else
         echo "true make IRQ_POS=$i TARGET=EVENTUALLY_EXECUTE TIMER=TIMER_EDGE run" >> result.txt
     fi
