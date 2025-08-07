@@ -1252,14 +1252,9 @@ impl NetDevice for VirtioNet {
         };
 
         match irq_type {
-            IRQType::Config => {
-                log::info!("virtio-net: config irq");
-                Ok(())
-            }
+            IRQType::Config => Ok(()),
             IRQType::Control => {
                 drop(inner);
-                log::info!("virtio-net: control irq");
-
                 let mut inner = self.inner.write();
 
                 if let Some(ctrl_vq) = &mut inner.ctrl_vq {
