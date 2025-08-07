@@ -953,16 +953,27 @@ impl VirtioNetInner {
 
         // DMAPool for virtqueues
         let allocsize = core::mem::size_of::<VirtqDMA>();
-        let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut vq_dma = DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        unsafe {
+            core::ptr::write_bytes(vq_dma.as_mut(), 0, 1);
+        }
 
         // DMAPool for sent/received data
         let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
-        let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut data_buf = DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        unsafe {
+            core::ptr::write_bytes(data_buf.as_mut(), 0, 1);
+        }
 
         // DMAPool for tx headers
         let allocsize = core::mem::size_of::<VirtioNetHdr>() * MAX_VQ_SIZE;
-        debug_assert!(allocsize <= PAGESIZE);
-        let tx_hdrs = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut tx_hdrs = DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        unsafe {
+            core::ptr::write_bytes(tx_hdrs.as_mut(), 0, 1);
+        }
 
         let mut vq = Virtq {
             vq_dma,
@@ -1241,9 +1252,14 @@ impl NetDevice for VirtioNet {
         };
 
         match irq_type {
-            IRQType::Config => Ok(()),
+            IRQType::Config => {
+                log::info!("virtio-net: config irq");
+                Ok(())
+            }
             IRQType::Control => {
                 drop(inner);
+                log::info!("virtio-net: control irq");
+
                 let mut inner = self.inner.write();
 
                 if let Some(ctrl_vq) = &mut inner.ctrl_vq {
