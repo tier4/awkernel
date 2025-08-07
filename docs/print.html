@@ -1600,7 +1600,6 @@ in <code>primary_cpu</code> function defined in
 </span><span class="boring">fn main() {
 </span>pub enum SchedulerType {
     GEDF(u64), // relative deadline
-    FIFO,
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -1625,7 +1624,7 @@ in <code>primary_cpu</code> function defined in
 <h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
 <p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
 <pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
-&gt; fifo.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+&gt; gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 </code></pre>
 <p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
 Each scheduler must be registered in the following three locations.
