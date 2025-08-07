@@ -1,9 +1,9 @@
 //! Real-Time Clock (RTC) driver support
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", feature = "x86"))]
+#[cfg(any(target_arch = "x86_64", feature = "x86"))]
 pub mod mc146818;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", feature = "x86"))]
+#[cfg(any(target_arch = "x86_64", feature = "x86"))]
 pub use mc146818::Mc146818Rtc;
 
 #[derive(Debug, Clone, Copy)]
