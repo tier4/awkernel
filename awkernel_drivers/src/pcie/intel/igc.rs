@@ -8,7 +8,7 @@ use awkernel_lib::{
     net::{
         ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
-        net_device::{self, LinkStatus, NetDevice, NetFlags},
+        net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags},
         toeplitz::stoeplitz_to_key,
     },
     paging::PAGESIZE,
@@ -21,11 +21,12 @@ use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{
     intel::igc::{
-        i225::{IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
+        i225::{igc_set_eee_i225, IGC_MRQC_ENABLE_RSS_4Q, IGC_SRRCTL_DROP_EN},
         igc_base::{
             IgcAdvRxDesc, IgcAdvTxDesc, IGC_RXDCTL_QUEUE_ENABLE, IGC_SRRCTL_BSIZEPKT_SHIFT,
             IGC_SRRCTL_DESCTYPE_ADV_ONEBUF,
         },
+        igc_mac::igc_clear_hw_cntrs_base_generic,
     },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
@@ -172,6 +173,7 @@ pub struct IgcInner {
     multicast_addrs: MulticastAddrs,
     if_flags: NetFlags,
     queue_info: QueueInfo,
+    capabilities: net_device::NetCapabilities,
 }
 
 pub struct Igc {
@@ -247,6 +249,32 @@ impl Igc {
 
         Ok(igc)
     }
+
+    fn intr(&self, _irq: Option<u16>) -> Result<(), IgcDriverErr> {
+        // TODO: Handle Tx/Rx interrupts.
+
+        let mut inner = self.inner.read();
+        let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
+
+        if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
+            // Link status change interrupt.
+            drop(inner);
+            {
+                let mut inner = self.inner.write();
+                inner.igc_intr_link()?;
+            }
+            inner = self.inner.read();
+        }
+
+        write_reg(&inner.info, igc_regs::IGC_IMS, igc_defines::IGC_IMS_LSC)?;
+        write_reg(
+            &inner.info,
+            igc_regs::IGC_EIMS,
+            1 << inner.queue_info.que.len(),
+        )?;
+
+        Ok(())
+    }
 }
 
 impl PCIeDevice for Igc {
@@ -256,6 +284,15 @@ impl PCIeDevice for Igc {
 }
 
 impl NetDevice for Igc {
+    fn tick_msec(&self) -> Option<u64> {
+        Some(200)
+    }
+
+    fn tick(&self) -> Result<(), net_device::NetDevError> {
+        self.intr(None)
+            .or(Err(net_device::NetDevError::DeviceError))
+    }
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
         let mut inner = self.inner.write();
         inner.multicast_addrs.add_addr(*addr);
@@ -296,13 +333,13 @@ impl NetDevice for Igc {
     }
 
     fn flags(&self) -> net_device::NetFlags {
-        // TODO
-        net_device::NetFlags::empty()
+        let inner = self.inner.read();
+        inner.if_flags
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+    fn interrupt(&self, irq: u16) -> Result<(), net_device::NetDevError> {
+        self.intr(Some(irq))
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn irqs(&self) -> Vec<u16> {
@@ -356,8 +393,23 @@ impl NetDevice for Igc {
     }
 
     fn up(&self) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+        let mut inner = self.inner.write();
+
+        if !inner.if_flags.contains(NetFlags::UP) {
+            if let Err(err_init) = inner.igc_init() {
+                if let Err(err_stop) = inner.igc_stop() {
+                    log::error!("igc: stop failed: {err_stop:?}");
+                }
+
+                log::error!("igc: init failed: {err_init:?}");
+                Err(net_device::NetDevError::DeviceError)
+            } else {
+                inner.if_flags.insert(NetFlags::UP);
+                Ok(())
+            }
+        } else {
+            Err(net_device::NetDevError::AlreadyUp)
+        }
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
@@ -615,7 +667,24 @@ impl IgcInner {
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
             queue_info,
+            capabilities: NetCapabilities::CSUM_IPv4
+                | NetCapabilities::CSUM_TCPv4
+                | NetCapabilities::CSUM_UDPv4
+                | NetCapabilities::CSUM_TCPv6
+                | NetCapabilities::CSUM_UDPv6
+                | NetCapabilities::VLAN_MTU
+                | NetCapabilities::VLAN_HWTAGGING,
         }
+    }
+
+    #[inline(always)]
+    fn igc_intr_link(&mut self) -> Result<(), IgcDriverErr> {
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )
     }
 
     fn igc_iff(&mut self) -> Result<(), IgcDriverErr> {
@@ -668,7 +737,14 @@ impl IgcInner {
         self.ops.reset_hw(&mut self.info, &mut self.hw)?;
         write_reg(&self.info, IGC_WUC, 0)?;
 
-        // TODO: Free transmit and receive structures.
+        // TODO: Free transmit structures.
+
+        // Free receive structures.
+        for q in self.queue_info.que.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut rx = q.rx.lock(&mut node);
+            rx.read_buf = None; // Free the read buffer
+        }
 
         // Update link status.
         igc_update_link_status(
@@ -677,6 +753,117 @@ impl IgcInner {
             &mut self.hw,
             &mut self.link_info,
         )?;
+
+        Ok(())
+    }
+
+    fn igc_init(&mut self) -> Result<(), IgcDriverErr> {
+        use igc_regs::*;
+
+        self.igc_stop()?;
+
+        // Put the address into the receive address array.
+        self.ops.rar_set(&mut self.info, &self.hw.mac.addr, 0)?;
+
+        // Initialize the hardware.
+        let sc_fc = IgcFcMode::None; // No flow control request.
+        let sc_dmac = 0; // DMA Coalescing is disabled by default.
+
+        igc_reset(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            sc_fc,
+            sc_dmac,
+        )?;
+        igc_update_link_status(
+            self.ops.as_ref(),
+            &mut self.info,
+            &mut self.hw,
+            &mut self.link_info,
+        )?;
+
+        // Setup VLAN support, basic and offload if available.
+        write_reg(&self.info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
+
+        // Prepare transmit descriptors and buffers.
+        if let Err(e) = self.igc_setup_transmit_structures() {
+            log::error!("igc: Could not setup transmit structures: {e:?}");
+            self.igc_stop()?;
+            return Err(e);
+        }
+        igc_initialize_transmit_unit(&self.info, &self.queue_info.que)?;
+
+        // Prepare receive descriptors and buffers.
+        if let Err(e) = self.igc_setup_receive_structures() {
+            log::error!("igc: Could not setup receive structures: {e:?}");
+            self.igc_stop()?;
+            return Err(e);
+        }
+        igc_initialize_receive_unit(&self.info, &self.hw, &self.queue_info.que, sc_fc)?;
+
+        if self.capabilities.contains(NetCapabilities::VLAN_HWTAGGING) {
+            let mut ctrl = read_reg(&self.info, IGC_CTRL)?;
+            ctrl |= IGC_CTRL_VME;
+            write_reg(&self.info, IGC_CTRL, ctrl)?;
+        }
+
+        // Setup multicast table.
+        self.igc_iff()?;
+
+        igc_clear_hw_cntrs_base_generic(&self.info)?;
+
+        let (msix_queuesmask, msix_linkmask) =
+            igc_configure_queues(&self.info, &self.queue_info.que)?;
+
+        // This clears any pending interrupts
+        read_reg(&self.info, IGC_ICR)?;
+        write_reg(&self.info, IGC_ICS, IGC_ICS_LSC)?;
+
+        // The driver can now take control from firmware.
+        igc_get_hw_control(&mut self.info)?;
+
+        igc_set_eee_i225(&self.info, &self.hw, true, true, true)?;
+
+        for (i, q) in self.queue_info.que.iter().enumerate() {
+            let mut node = MCSNode::new();
+            let mut rx = q.rx.lock(&mut node);
+            if let Err(e) = rx.igc_rxfill() {
+                log::error!("igc: Unable to fill any rx descriptors");
+                drop(rx);
+                self.igc_stop()?;
+                return Err(e);
+            }
+            write_reg(
+                &self.info,
+                IGC_RDT(i),
+                ((rx.last_desc_filled + 1) % rx.rx_desc_ring.as_ref().len()) as u32,
+            )?;
+        }
+
+        igc_enable_intr(&mut self.info, msix_queuesmask, msix_linkmask)?;
+
+        self.if_flags.insert(NetFlags::RUNNING);
+
+        Ok(())
+    }
+
+    fn igc_setup_transmit_structures(&mut self) -> Result<(), IgcDriverErr> {
+        for q in self.queue_info.que.iter() {
+            let mut node = MCSNode::new();
+            let mut tx = q.tx.lock(&mut node);
+            tx.igc_setup_transmit_ring()?;
+        }
+
+        Ok(())
+    }
+
+    fn igc_setup_receive_structures(&mut self) -> Result<(), IgcDriverErr> {
+        for q in self.queue_info.que.iter() {
+            let mut node = MCSNode::new();
+            let mut rx = q.rx.lock(&mut node);
+            rx.igc_setup_receive_ring(&self.info)?;
+        }
 
         Ok(())
     }
@@ -878,7 +1065,7 @@ enum QueueType {
 }
 
 fn igc_set_queues(
-    info: &mut PCIeInfo,
+    info: &PCIeInfo,
     entry: u32,
     vector: u32,
     qtype: QueueType,
@@ -939,7 +1126,7 @@ fn igc_disable_intr(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
     Ok(())
 }
 
-fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), IgcDriverErr> {
+fn igc_configure_queues(info: &PCIeInfo, queues: &[Queue]) -> Result<(u32, u32), IgcDriverErr> {
     use igc_regs::*;
 
     // First turn on RSS capability
@@ -952,20 +1139,24 @@ fn igc_configure_queues(info: &mut PCIeInfo, queues: &[Queue]) -> Result<(), Igc
     // Set the starting interrupt rate
     let newitr = (4000000 / MAX_INTS_PER_SEC) & 0x7FFC | IGC_EITR_CNT_IGNR;
 
+    let mut msix_queuesmask = 0;
+
     // Turn on MSI-X
     for q in queues.iter() {
         // RX entries
         igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Rx)?;
         // TX entries
         igc_set_queues(info, q.me as u32, q.me as u32, QueueType::Tx)?;
+        msix_queuesmask |= 1 << q.me;
         write_reg(info, IGC_EITR(q.me), newitr)?;
     }
 
     // And for the link interrupt
     let ivar = (queues.len() as u32 | IGC_IVAR_VALID) << 8;
+    let msix_linkmask = 1 << queues.len();
     write_reg(info, IGC_IVAR_MISC, ivar)?;
 
-    Ok(())
+    Ok((msix_queuesmask, msix_linkmask))
 }
 
 impl Tx {

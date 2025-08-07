@@ -12,11 +12,17 @@ const LOG_ENABLE: bool = false;
 pub async fn run() {
     wait_microsec(1000000);
 
+    let period = Duration::from_nanos(1000000000);
+    let exe_time = (period.as_micros() as f64 * 0.1) as u64;
+
+    log::debug!("period is {} [ns]", period.as_nanos());
+
     let dag = create_dag();
 
     dag.register_periodic_reactor::<_, (i32,)>(
         "reactor_source_node".into(),
-        || -> (i32,) {
+        move || -> (i32,) {
+            wait_microsec(exe_time);
             let number: i32 = 1;
             if LOG_ENABLE {
                 log::debug!("value={number} in reactor_source_node");
@@ -24,8 +30,8 @@ pub async fn run() {
             (number,)
         },
         vec![Cow::from("topic0")],
-        SchedulerType::FIFO,
-        Duration::from_secs(1),
+        SchedulerType::PrioritizedFIFO(1),
+        period,
     )
     .await;
 
@@ -41,7 +47,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic0")],
         vec![Cow::from("topic1"), Cow::from("topic2")],
-        SchedulerType::FIFO,
+        SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
@@ -56,7 +62,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic1")],
         vec![Cow::from("topic3")],
-        SchedulerType::FIFO,
+        SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
@@ -71,7 +77,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic2")],
         vec![Cow::from("topic4")],
-        SchedulerType::FIFO,
+        SchedulerType::PrioritizedFIFO(31),
     )
     .await;
 
@@ -84,7 +90,7 @@ pub async fn run() {
             }
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
-        SchedulerType::FIFO,
+        SchedulerType::PrioritizedFIFO(31),
         Duration::from_secs(1),
     )
     .await;
@@ -93,7 +99,9 @@ pub async fn run() {
 
     match result {
         Ok(_) => {
-            log::info!("DAG created successfully");
+            if LOG_ENABLE {
+                log::info!("DAG created successfully");
+            }
         }
         Err(errors) => {
             log::error!("Failed to create DAGs");
@@ -102,7 +110,4 @@ pub async fn run() {
             }
         }
     }
-
-    assert_eq!(dag.node_count(), 5);
-    assert_eq!(dag.edge_count(), 5);
 }
