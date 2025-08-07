@@ -57,6 +57,7 @@ inline set_need_preemption(tid,task) {
 	unlock(tid,lock_info[task])
 }
 
+/* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::invoke_preemption()*/ 
 inline invoke_preemption(tid,task,ret) {
 	short lp_task;short lp_cpu_id;
 	get_lowest_priority_task(task,lp_task,lp_cpu_id);
