@@ -16,35 +16,50 @@ const MC_YEAR: u8 = 0x09; // Time of year: year in century (0-99)
 
 const MC_REGA: u8 = 0x0a; // Control register A
 const MC_REGB: u8 = 0x0b; // Control register B
+#[allow(dead_code)]
 const MC_REGC: u8 = 0x0c; // Control register C
 const MC_REGD: u8 = 0x0d; // Control register D
 
 // Control register B bits
 const MC_REGB_SET: u8 = 0x80; // Allow time to be set; stops updates
+#[allow(dead_code)]
 const MC_REGB_PIE: u8 = 0x40; // Periodic interrupt enable
+#[allow(dead_code)]
 const MC_REGB_AIE: u8 = 0x20; // Alarm interrupt enable
+#[allow(dead_code)]
 const MC_REGB_UIE: u8 = 0x10; // Update End interrupt enable
+#[allow(dead_code)]
 const MC_REGB_SQWE: u8 = 0x08; // Square wave enable, ONLY in BQ3285E
+#[allow(dead_code)]
 const MC_REGB_DM: u8 = 0x04; // Binary mode (BCD mode when clear)
 const MC_REGB_24HR: u8 = 0x02; // 24-hour mode (AM/PM mode when clear)
+#[allow(dead_code)]
 const MC_REGB_DSE: u8 = 0x01; // Daylight Saving Enable
 
 // Control register A bits
 const MC_REGA_UIP: u8 = 0x80; // Update in progress; read only
+#[allow(dead_code)]
 const MC_REGA_RSMASK: u8 = 0x0f; // Interrupt rate select mask
+#[allow(dead_code)]
 const MC_REGA_DVMASK: u8 = 0x70; // Divisor select mask
+#[allow(dead_code)]
 const MC_BASE_32_KHZ: u8 = 0x20; // 32.768 KHz timebase
 
 // Control register C bits (read-only, cleared by read)
+#[allow(dead_code)]
 const MC_REGC_IRQF: u8 = 0x80; // Interrupt request pending flag
+#[allow(dead_code)]
 const MC_REGC_PF: u8 = 0x40; // Periodic interrupt flag
+#[allow(dead_code)]
 const MC_REGC_AF: u8 = 0x20; // Alarm interrupt flag
+#[allow(dead_code)]
 const MC_REGC_UF: u8 = 0x10; // Update End interrupt flag
 
 // Control register D bits
 const MC_REGD_VRT: u8 = 0x80; // Valid RAM and Time bit
 
 // NVRAM offset for century byte
+#[allow(dead_code)]
 const NVRAM_CENTURY: u8 = 0x32;
 
 // Number of TOD registers
@@ -133,8 +148,8 @@ impl Mc146818Rtc {
 
         loop {
             // read all of the tod/alarm regs
-            for i in 0..MC_NTODREGS {
-                regs[i] = Self::mc146818_read(i as u8);
+            for (i, reg) in regs.iter_mut().enumerate().take(MC_NTODREGS) {
+                *reg = Self::mc146818_read(i as u8);
             }
 
             if regs[MC_SEC as usize] == Self::mc146818_read(MC_SEC) {
@@ -150,8 +165,8 @@ impl Mc146818Rtc {
         Self::mc146818_write(MC_REGB, Self::mc146818_read(MC_REGB) | MC_REGB_SET);
 
         // write all of the tod/alarm regs
-        for i in 0..MC_NTODREGS {
-            Self::mc146818_write(i as u8, regs[i]);
+        for (i, &reg) in regs.iter().enumerate().take(MC_NTODREGS) {
+            Self::mc146818_write(i as u8, reg);
         }
 
         // reenable updates
