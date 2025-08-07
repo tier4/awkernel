@@ -197,19 +197,15 @@ impl Mc146818Rtc {
         regs[MC_SEC as usize] = Self::bintobcd(time.second);
         regs[MC_MIN as usize] = Self::bintobcd(time.minute);
         regs[MC_HOUR as usize] = Self::bintobcd(time.hour);
-        regs[MC_DOM as usize] = Self::bintobcd(time.day);
-        regs[MC_MONTH as usize] = Self::bintobcd(time.month);
-        regs[MC_YEAR as usize] = Self::bintobcd((time.year % 100) as u8);
-
+        // NOTE: Day of week is not calculated correctly - just using placeholder value
         regs[MC_DOW as usize] = 1;
-
-        regs[7] = 0;
-        regs[8] = 0;
-        regs[9] = 0;
+        regs[MC_YEAR as usize] = Self::bintobcd((time.year % 100) as u8);
+        regs[MC_MONTH as usize] = Self::bintobcd(time.month);
+        regs[MC_DOM as usize] = Self::bintobcd(time.day);
 
         Self::rtcput(&regs)?;
 
-        // TODO: century byte update
+        // NOTE: century byte update
 
         Ok(())
     }
