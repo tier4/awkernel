@@ -862,7 +862,7 @@ impl PCIeInfo {
         self.msi.as_mut()
     }
 
-    pub fn get_msix(&mut self) -> Option<&capability::msix::Msix> {
+    pub fn get_msix(&self) -> Option<&capability::msix::Msix> {
         self.msix.as_ref()
     }
 

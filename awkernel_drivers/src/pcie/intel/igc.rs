@@ -677,6 +677,36 @@ impl IgcInner {
         }
     }
 
+    fn dump(&self) {
+        let mut msg = alloc::string::String::new();
+
+        let eims = read_reg(&self.info, igc_regs::IGC_EIMS).unwrap_or(0);
+        msg = format!("{msg}EIMS: 0x{eims:#08x}\r\n");
+
+        let ims = read_reg(&self.info, igc_regs::IGC_IMS).unwrap_or(0);
+        msg = format!("{msg}IMS: 0x{ims:#08x}\r\n");
+
+        let eiac = read_reg(&self.info, igc_regs::IGC_EIAC).unwrap_or(0);
+        msg = format!("{msg}EIAC: 0x{eiac:#08x}\r\n");
+
+        let eiam = read_reg(&self.info, igc_regs::IGC_EIAM).unwrap_or(0);
+        msg = format!("{msg}EIAM: 0x{eiam:#08x}\r\n");
+
+        let ivar0 = read_reg(&self.info, igc_regs::IGC_IVAR0).unwrap_or(0);
+        msg = format!("{msg}IVAR0: 0x{ivar0:#08x}\r\n");
+        let ivar1 = read_reg(&self.info, igc_regs::IGC_IVAR0 + 4).unwrap_or(0);
+        msg = format!("{msg}IVAR1: 0x{ivar1:#08x}\r\n");
+        let ivar_misc = read_reg(&self.info, igc_regs::IGC_IVAR_MISC).unwrap_or(0);
+        msg = format!("{msg}IVAR_MISC: 0x{ivar_misc:#08x}\r\n");
+
+        if let Some(msix) = self.info.get_msix() {
+            let msix_msg = msix.dump(&self.info);
+            msg = format!("{msg}{msix_msg}");
+        }
+
+        log::debug!("igc: dump:\r\n{msg}");
+    }
+
     #[inline(always)]
     fn igc_intr_link(&mut self) -> Result<(), IgcDriverErr> {
         igc_update_link_status(
@@ -844,6 +874,8 @@ impl IgcInner {
         igc_enable_intr(&mut self.info, msix_queuesmask, msix_linkmask)?;
 
         self.if_flags.insert(NetFlags::RUNNING);
+
+        self.dump();
 
         Ok(())
     }
