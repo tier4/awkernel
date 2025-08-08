@@ -316,8 +316,18 @@ impl Virtq {
 
     /// dequeue_commit: complete dequeue; the slot is recycled for future use.
     /// if you forget to call this the slot will be leaked.
-    fn virtio_dequeue_commit(&mut self, slot: usize) {
-        self.vq_free_entry(slot);
+    fn virtio_dequeue_commit(&mut self, slot: usize) -> u16 {
+        let mut freed = 1;
+        let mut s = slot;
+
+        while self.vq_dma.as_ref().desc[s].flags & VIRTQ_DESC_F_NEXT != 0 {
+            self.vq_free_entry(s);
+            s = self.vq_dma.as_ref().desc[s].next as usize;
+            freed += 1;
+        }
+        self.vq_free_entry(s);
+
+        freed
     }
 
     /// Increase the event index in order to delay interrupts.
@@ -447,8 +457,7 @@ impl Virtq {
                 .push(EtherFrameBuf { data, vlan: None })
                 .unwrap();
 
-            self.virtio_dequeue_commit(slot);
-            freed += 1;
+            freed += self.virtio_dequeue_commit(slot);
         }
 
         freed
@@ -466,8 +475,7 @@ impl Virtq {
     fn vio_tx_dequeue(&mut self) -> u16 {
         let mut freed = 0;
         while let Some((slot, _len)) = self.virtio_dequeue() {
-            self.virtio_dequeue_commit(slot);
-            freed += 1;
+            freed += self.virtio_dequeue_commit(slot);
         }
 
         freed
