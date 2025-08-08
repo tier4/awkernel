@@ -109,6 +109,7 @@ struct VirtqueueEnrty {
 // Virtio ring descriptors: 16 bytes.
 // These can chain together via "next".
 #[repr(C, packed)]
+#[derive(Default, Copy, Clone)]
 struct VirtqDesc {
     addr: u64,  // Address (guest-physical).
     len: u32,   // Length.
@@ -124,8 +125,20 @@ struct VirtqAvail {
     used_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
+impl Default for VirtqAvail {
+    fn default() -> Self {
+        VirtqAvail {
+            flags: 0,
+            idx: 0,
+            ring: [0; MAX_VQ_SIZE],
+            used_event: 0,
+        }
+    }
+}
+
 // u32 is used here for ids for padding reasons.
 #[repr(C, packed)]
+#[derive(Default, Copy, Clone)]
 struct VirtqUsedElem {
     id: u32, // Index of start of used descriptor chain.
     len: u32, // The number of bytes written into the device writable portion of
@@ -140,6 +153,17 @@ struct VirtqUsed {
     avail_event: u16, // Only if VIRTIO_F_EVENT_IDX
 }
 
+impl Default for VirtqUsed {
+    fn default() -> Self {
+        VirtqUsed {
+            flags: 0,
+            idx: 0,
+            ring: [VirtqUsedElem::default(); MAX_VQ_SIZE],
+            avail_event: 0,
+        }
+    }
+}
+
 // This is the memory layout on DMA
 #[repr(C, packed)]
 struct VirtqDMA {
@@ -149,6 +173,18 @@ struct VirtqDMA {
     used: VirtqUsed,                // 2054 bytes
     _pad2: [u8; 2042],              // 4096 - 2054 = 2042 bytes
 } // 4096 * 3 = 12288 bytes in total
+
+impl Default for VirtqDMA {
+    fn default() -> Self {
+        VirtqDMA {
+            desc: [VirtqDesc::default(); MAX_VQ_SIZE],
+            avail: VirtqAvail::default(),
+            _pad: [0; 3578],
+            used: VirtqUsed::default(),
+            _pad2: [0; 2042],
+        }
+    }
+}
 
 struct Virtq {
     vq_dma: DMAPool<VirtqDMA>,
@@ -507,6 +543,7 @@ impl Virtq {
 
 /// Packet header structure
 #[repr(C, packed)]
+#[derive(Default, Copy, Clone)]
 struct VirtioNetHdr {
     flags: u8,
     gso_type: u8,
@@ -953,16 +990,28 @@ impl VirtioNetInner {
 
         // DMAPool for virtqueues
         let allocsize = core::mem::size_of::<VirtqDMA>();
-        let vq_dma = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut vq_dma: DMAPool<VirtqDMA> =
+            DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        *vq_dma.as_mut() = VirtqDMA::default();
 
         // DMAPool for sent/received data
         let allocsize = MCLBYTES as usize * MAX_VQ_SIZE;
-        let data_buf = DMAPool::new(0, allocsize / PAGESIZE).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut data_buf: DMAPool<RxTxBuffer> =
+            DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        for i in 0..MAX_VQ_SIZE {
+            for j in 0..MCLBYTES as usize {
+                data_buf.as_mut()[i][j] = 0u8;
+            }
+        }
 
         // DMAPool for tx headers
         let allocsize = core::mem::size_of::<VirtioNetHdr>() * MAX_VQ_SIZE;
-        debug_assert!(allocsize <= PAGESIZE);
-        let tx_hdrs = DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+        let pages = allocsize.div_ceil(PAGESIZE);
+        let mut tx_hdrs: DMAPool<[VirtioNetHdr; MAX_VQ_SIZE]> =
+            DMAPool::new(0, pages).ok_or(VirtioDriverErr::DMAPool)?;
+        *tx_hdrs.as_mut() = [VirtioNetHdr::default(); MAX_VQ_SIZE];
 
         let mut vq = Virtq {
             vq_dma,
