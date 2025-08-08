@@ -28,3 +28,9 @@ impl DateTime {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum RtcError {
+    HardwareError,
+    NotSupported,
+}

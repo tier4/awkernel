@@ -1,5 +1,6 @@
 //! MC146818-compatible CMOS RTC driver for x86_64, x86
 
+use super::RtcError;
 use core::arch::asm;
 
 const _IO_RTC: u16 = 0x070;
@@ -46,6 +47,8 @@ const _MC_REGD_VRT: u8 = 0x80; // Valid RAM and Time bit
 // Number of TOD registers
 const _MC_NREGS: usize = 0xe; // 14 registers; CMOS follows
 const _MC_NTODREGS: usize = 0xa; // 10 of those are for TOD and alarm
+
+type _McTodRegs = [u8; _MC_NTODREGS];
 
 pub struct Mc146818Rtc;
 
@@ -103,5 +106,54 @@ impl Mc146818Rtc {
 
             awkernel_lib::delay::wait_microsec(1);
         }
+    }
+
+    fn _bcdtobin(bcd: u8) -> u8 {
+        ((bcd >> 4) * 10) + (bcd & 0x0f)
+    }
+
+    fn _bintobcd(bin: u8) -> u8 {
+        ((bin / 10) << 4) | (bin % 10)
+    }
+
+    fn _rtcget() -> Result<_McTodRegs, RtcError> {
+        let mut regs = [0u8; _MC_NTODREGS];
+
+        if (Self::_mc146818_read(_MC_REGD) & _MC_REGD_VRT) == 0 {
+            return Err(RtcError::HardwareError);
+        }
+
+        // update in progress; spin loop
+        while (Self::_mc146818_read(_MC_REGA) & _MC_REGA_UIP) != 0 {
+            continue;
+        }
+
+        loop {
+            // read all of the tod/alarm regs
+            for i in 0.._MC_NTODREGS {
+                regs[i] = Self::_mc146818_read(i as u8);
+            }
+
+            if regs[_MC_SEC as usize] == Self::_mc146818_read(_MC_SEC) {
+                break;
+            }
+        }
+
+        Ok(regs)
+    }
+
+    fn _rtcput(regs: &_McTodRegs) -> Result<(), RtcError> {
+        // stop updates while setting
+        Self::_mc146818_write(_MC_REGB, Self::_mc146818_read(_MC_REGB) | _MC_REGB_SET);
+
+        // write all of the tod/alarm regs
+        for i in 0.._MC_NTODREGS {
+            Self::_mc146818_write(i as u8, regs[i]);
+        }
+
+        // reenable updates
+        Self::_mc146818_write(_MC_REGB, Self::_mc146818_read(_MC_REGB) & !_MC_REGB_SET);
+
+        Ok(())
     }
 }
