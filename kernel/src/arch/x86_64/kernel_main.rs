@@ -340,6 +340,27 @@ fn kernel_main2(
         num_cpu: non_primary_cpus.len() + 1,
     };
 
+    // 19. Initialize RTC.
+    use awkernel_drivers::rtc::Mc146818Rtc;
+    let rtc = Mc146818Rtc::new();
+    rtc.init();
+    match rtc.read_time() {
+        Ok(time) => {
+            log::info!(
+                "RTC time: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                time.year,
+                time.month,
+                time.day,
+                time.hour,
+                time.minute,
+                time.second
+            );
+        }
+        Err(e) => {
+            log::warn!("Failed to read RTC time: {e:?}");
+        }
+    }
+
     // 19. Call `crate::main()`.
     crate::main(kernel_info);
 }
