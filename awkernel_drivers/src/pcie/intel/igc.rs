@@ -977,6 +977,14 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
         .or(Err(PCIeDeviceErr::InitFailure))?;
     irq_other.enable();
 
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+    }
+    info.disable_legacy_interrupt();
+
+    let msix = info.get_msix_mut().unwrap();
+    msix.enable();
+
     Ok((irqs_queues, irq_other))
 }
 
