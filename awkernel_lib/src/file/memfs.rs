@@ -50,6 +50,11 @@ impl MemoryBlockDevice {
 impl StorageDevice for MemoryBlockDevice {
     // Storage device specific methods
     
+    fn device_id(&self) -> u64 {
+        // Use a fixed ID for memory device
+        0xFFFFFFFF_FFFFFFFF
+    }
+    
     fn device_name(&self) -> Cow<'static, str> {
         "Memory Block Device".into()
     }
@@ -85,13 +90,13 @@ impl StorageDevice for MemoryBlockDevice {
         self.num_blocks
     }
     
-    fn read_block(&self, block_num: u64, buf: &mut [u8]) -> BlockResult<()> {
+    fn read_block(&self, block_num: u64, buf: &mut [u8], _transfer_id: u16) -> BlockResult<()> {
         let offset = self.block_offset(block_num).ok_or(BlockDeviceError::InvalidBlock)?;
         buf[..self.block_size].copy_from_slice(&self.data[offset..offset + self.block_size]);
         Ok(())
     }
     
-    fn write_block(&mut self, block_num: u64, buf: &[u8]) -> BlockResult<()> {
+    fn write_block(&mut self, block_num: u64, buf: &[u8], _transfer_id: u16) -> BlockResult<()> {
         let offset = self.block_offset(block_num).ok_or(BlockDeviceError::InvalidBlock)?;
         self.data[offset..offset + self.block_size].copy_from_slice(&buf[..self.block_size]);
         Ok(())

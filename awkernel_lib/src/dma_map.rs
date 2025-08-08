@@ -126,6 +126,11 @@ impl DmaMap {
             numa_id,
         })
     }
+    
+    /// Get the size of the mapped region
+    pub fn mapsize(&self) -> usize {
+        self.mapsize
+    }
 
     /// Load a buffer into the DMA map
     /// Corresponds to OpenBSD's bus_dmamap_load()

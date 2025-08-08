@@ -73,5 +73,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_nvme_namespace")]
     test_nvme_namespace::run().await; // test for NVMe namespace StorageDevice
 
+    #[cfg(feature = "test_storage_async")]
+    test_storage_async::run().await; // test for async storage operations
+
     Ok(())
 }

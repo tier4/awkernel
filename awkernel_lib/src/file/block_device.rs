@@ -5,7 +5,7 @@
 
 use super::error::IoError;
 use super::io::{IoBase, Read, Seek, SeekFrom, Write};
-use crate::storage::StorageDevice;
+use crate::storage::{StorageDevice, StorageDeviceType, allocate_transfer_sync, get_transfer_mut, free_transfer};
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
 use core::cmp::min;
 use core::fmt::{self, Debug, Display};
@@ -41,6 +41,10 @@ pub struct BlockDeviceInfo {
 }
 
 /// Adapter that provides file I/O interface for block devices
+/// 
+/// This adapter works with both:
+/// - MemoryBlockDevice: Uses dummy transfer_id (0)
+/// - Real devices (NVMe, etc.): Properly allocates and manages transfers with polling
 #[derive(Debug)]
 pub struct BlockDeviceAdapter<D: StorageDevice> {
     /// The underlying block device
@@ -101,9 +105,36 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                 let block_size = self.device.block_size();
                 let mut data = vec![0u8; block_size];
                 
-                self.device
-                    .read_block(block_num, &mut data)
-                    .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                // Check device type and handle transfers accordingly
+                match self.device.device_type() {
+                    StorageDeviceType::Memory => {
+                        // Memory devices don't need real transfers
+                        self.device
+                            .read_block(block_num, &mut data, 0)
+                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                    }
+                    _ => {
+                        // Real devices (NVMe, etc.) need proper transfer management
+                        let transfer_id = allocate_transfer_sync(self.device.device_id())
+                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                        
+                        // Set up transfer for synchronous/polling mode
+                        if let Ok(transfer) = get_transfer_mut(transfer_id) {
+                            transfer.poll = true;  // Use polling for synchronous operation
+                            transfer.timeout_ms = 5000;  // 5 second timeout
+                        }
+                        
+                        // Perform the read
+                        let result = self.device
+                            .read_block(block_num, &mut data, transfer_id)
+                            .map_err(|_| BlockDeviceAdapterError::IoError);
+                        
+                        // Always free the transfer
+                        free_transfer(transfer_id);
+                        
+                        result?;
+                    }
+                }
                 
                 self.block_cache = Some(BlockCache {
                     block_num,
@@ -125,9 +156,37 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                 let device = Arc::get_mut(&mut self.device)
                     .ok_or(BlockDeviceAdapterError::DeviceBusy)?;
                 
-                device
-                    .write_block(cache.block_num, &cache.data)
-                    .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                // Check device type and handle transfers accordingly
+                match device.device_type() {
+                    StorageDeviceType::Memory => {
+                        // Memory devices don't need real transfers
+                        device
+                            .write_block(cache.block_num, &cache.data, 0)
+                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                    }
+                    _ => {
+                        // Real devices need proper transfer management
+                        let device_id = device.device_id();
+                        let transfer_id = allocate_transfer_sync(device_id)
+                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                        
+                        // Set up transfer for synchronous/polling mode
+                        if let Ok(transfer) = get_transfer_mut(transfer_id) {
+                            transfer.poll = true;  // Use polling for synchronous operation
+                            transfer.timeout_ms = 5000;  // 5 second timeout
+                        }
+                        
+                        // Perform the write
+                        let result = device
+                            .write_block(cache.block_num, &cache.data, transfer_id)
+                            .map_err(|_| BlockDeviceAdapterError::IoError);
+                        
+                        // Always free the transfer
+                        free_transfer(transfer_id);
+                        
+                        result?;
+                    }
+                }
             }
         }
         Ok(())
@@ -232,7 +291,8 @@ impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
         if !self.read_only {
             let device = Arc::get_mut(&mut self.device)
                 .ok_or(BlockDeviceAdapterError::DeviceBusy)?;
-            device.flush().map_err(|_| BlockDeviceAdapterError::IoError)?;
+            // Memory devices don't need real transfers, pass dummy value
+            device.flush(0).map_err(|_| BlockDeviceAdapterError::IoError)?;
         }
         
         Ok(())
