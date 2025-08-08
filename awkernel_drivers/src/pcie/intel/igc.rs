@@ -689,6 +689,9 @@ impl IgcInner {
         let eiac = read_reg(&self.info, igc_regs::IGC_EIAC).unwrap_or(0);
         msg = format!("{msg}EIAC: 0x{eiac:#08x}\r\n");
 
+        let eiam = read_reg(&self.info, igc_regs::IGC_EIAM).unwrap_or(0);
+        msg = format!("{msg}EIAM: 0x{eiam:#08x}\r\n");
+
         let ivar0 = read_reg(&self.info, igc_regs::IGC_IVAR0).unwrap_or(0);
         msg = format!("{msg}IVAR0: 0x{ivar0:#08x}\r\n");
         let ivar1 = read_reg(&self.info, igc_regs::IGC_IVAR0 + 4).unwrap_or(0);
