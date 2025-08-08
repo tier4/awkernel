@@ -89,7 +89,7 @@ async fn ipv4_multicast_send_test() {
             .send(b"Hello Awkernel!", &dst_addr, MULTICAST_PORT1)
             .await
         {
-            log::error!("Failed to send a UDP packet: {:?}", e);
+            log::error!("Failed to send a UDP packet: {e:?}");
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -193,7 +193,7 @@ async fn tcp_connect_test() {
     let mut buf = [0u8; 1024 * 2];
     let n = stream.recv(&mut buf).await.unwrap();
     let response = core::str::from_utf8(&buf[..n]).unwrap();
-    log::debug!("Received TCP response: {}", response);
+    log::debug!("Received TCP response: {response}");
 }
 
 async fn tcp_listen_test() {
@@ -231,7 +231,7 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
     let n = stream.recv(&mut buf).await.unwrap();
 
     let request = core::str::from_utf8(&buf[..n]).unwrap();
-    log::debug!("Received HTTP request: {}", request);
+    log::debug!("Received HTTP request: {request}");
 
     static MSG: &str = "<html><body><h1>Hello, Awkernel!</h1></body></html>\r\n";
 
@@ -258,10 +258,10 @@ async fn udp_test() {
         let t0 = awkernel_lib::time::Time::now();
 
         // Send a UDP packet.
-        let msg = format!("Hello Awkernel! {}", i);
+        let msg = format!("Hello Awkernel! {i}");
 
         if let Err(e) = socket.send(msg.as_bytes(), &dst_addr, UDP_DST_PORT).await {
-            log::error!("Failed to send a UDP packet: {:?}", e);
+            log::error!("Failed to send a UDP packet: {e:?}");
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;
         }
