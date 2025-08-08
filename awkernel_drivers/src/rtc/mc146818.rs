@@ -131,8 +131,8 @@ impl Mc146818Rtc {
 
         loop {
             // read all of the tod/alarm regs
-            for i in 0.._MC_NTODREGS {
-                regs[i] = Self::_mc146818_read(i as u8);
+            for (i, reg) in regs.iter_mut().enumerate().take(_MC_NTODREGS) {
+                *reg = Self::_mc146818_read(i as u8);
             }
 
             if regs[_MC_SEC as usize] == Self::_mc146818_read(_MC_SEC) {
@@ -148,8 +148,8 @@ impl Mc146818Rtc {
         Self::_mc146818_write(_MC_REGB, Self::_mc146818_read(_MC_REGB) | _MC_REGB_SET);
 
         // write all of the tod/alarm regs
-        for i in 0.._MC_NTODREGS {
-            Self::_mc146818_write(i as u8, regs[i]);
+        for (i, &reg) in regs.iter().enumerate().take(_MC_NTODREGS) {
+            Self::_mc146818_write(i as u8, reg);
         }
 
         // reenable updates
