@@ -21,3 +21,6 @@ pub mod pcie;
 
 #[cfg(feature = "mii")]
 pub mod mii;
+
+#[cfg(feature = "x86")]
+pub mod rtc;
