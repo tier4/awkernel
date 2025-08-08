@@ -108,11 +108,11 @@ impl Mc146818Rtc {
         }
     }
 
-    fn bcdtobin(bcd: u8) -> u8 {
+    fn _bcdtobin(bcd: u8) -> u8 {
         (((bcd >> 4) & 0x0f) * 10) + (bcd & 0x0f)
     }
 
-    fn bintobcd(bin: u8) -> u8 {
+    fn _bintobcd(bin: u8) -> u8 {
         (((bin / 10) << 4) & 0xf0) | ((bin % 10) & 0x0f)
     }
 
