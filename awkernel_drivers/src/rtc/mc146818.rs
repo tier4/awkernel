@@ -48,7 +48,8 @@ const _MC_REGD_VRT: u8 = 0x80; // Valid RAM and Time bit
 const _MC_NREGS: usize = 0xe; // 14 registers; CMOS follows
 const _MC_NTODREGS: usize = 0xa; // 10 of those are for TOD and alarm
 
-type _McTodRegs = [u8; _MC_NTODREGS];
+#[allow(dead_code)]
+type McTodRegs = [u8; _MC_NTODREGS];
 
 pub struct Mc146818Rtc;
 
@@ -116,7 +117,7 @@ impl Mc146818Rtc {
         (((bin / 10) << 4) & 0xf0) | ((bin % 10) & 0x0f)
     }
 
-    fn _rtcget() -> Result<_McTodRegs, RtcError> {
+    fn _rtcget() -> Result<McTodRegs, RtcError> {
         let mut regs = [0u8; _MC_NTODREGS];
 
         if (Self::_mc146818_read(_MC_REGD) & _MC_REGD_VRT) == 0 {
@@ -142,7 +143,7 @@ impl Mc146818Rtc {
         Ok(regs)
     }
 
-    fn _rtcput(regs: &_McTodRegs) -> Result<(), RtcError> {
+    fn _rtcput(regs: &McTodRegs) -> Result<(), RtcError> {
         // stop updates while setting
         Self::_mc146818_write(_MC_REGB, Self::_mc146818_read(_MC_REGB) | _MC_REGB_SET);
 
