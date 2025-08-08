@@ -108,12 +108,12 @@ impl Mc146818Rtc {
         }
     }
 
-    fn _bcdtobin(bcd: u8) -> u8 {
-        ((bcd >> 4) * 10) + (bcd & 0x0f)
+    fn bcdtobin(bcd: u8) -> u8 {
+        (((bcd >> 4) & 0x0f) * 10) + (bcd & 0x0f)
     }
 
-    fn _bintobcd(bin: u8) -> u8 {
-        ((bin / 10) << 4) | (bin % 10)
+    fn bintobcd(bin: u8) -> u8 {
+        (((bin / 10) << 4) & 0xf0) | ((bin % 10) & 0x0f)
     }
 
     fn _rtcget() -> Result<_McTodRegs, RtcError> {
