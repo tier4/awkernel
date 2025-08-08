@@ -9,9 +9,10 @@ use core::{
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SleepTag {
-    Active = 0,  // CPU is running or just woke up
-    Waiting = 1, // CPU is halted waiting for wakeup
-    Waking = 2,  // Wake-up pending or in progress
+    Active = 0,   // CPU is running or just woke up
+    Waiting = 1,  // CPU is halted waiting for wakeup
+    Waking = 2,   // Wake-up pending or in progress
+    Continue = 3, // Continue activity
 }
 
 /// Ready flag for initialization
@@ -52,7 +53,7 @@ impl SleepCpu for SleepCpuNoStd {
         let cpu_id = super::cpu_id();
 
         // if wake-up already pending, consume and return
-        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waking as u32 {
+        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Continue as u32 {
             CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
             return;
         }
@@ -69,7 +70,7 @@ impl SleepCpu for SleepCpuNoStd {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => (),
-                Err(x) if x == SleepTag::Waking as u32 => {
+                Err(x) if x == SleepTag::Waking as u32 || x == SleepTag::Continue as u32 => {
                     CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
                     return;
                 }
@@ -138,7 +139,7 @@ impl SleepCpu for SleepCpuNoStd {
                     if CPU_SLEEP_TAG[cpu_id]
                         .compare_exchange(
                             SleepTag::Active as u32,
-                            SleepTag::Waking as u32,
+                            SleepTag::Continue as u32,
                             Ordering::AcqRel,
                             Ordering::Acquire,
                         )
@@ -167,6 +168,10 @@ impl SleepCpu for SleepCpuNoStd {
                     // wake-up already pending
                     let irq = crate::interrupt::get_wakeup_irq();
                     crate::interrupt::send_ipi(irq, cpu_id as u32);
+                    return false;
+                }
+                x if x == SleepTag::Continue as u32 => {
+                    // already in continue state, no action needed
                     return false;
                 }
                 _ => {
@@ -211,7 +216,9 @@ pub(super) fn wait_init() {
 pub fn reset_wakeup_timer() {
     let cpu_id = crate::cpu::cpu_id();
 
-    if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waiting as u32 {
+    let state = CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed);
+
+    if state == SleepTag::Waiting as u32 || state == SleepTag::Waking as u32 {
         crate::timer::reset(core::time::Duration::from_micros(100));
     }
 }
