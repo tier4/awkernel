@@ -1,6 +1,6 @@
 //! MC146818-compatible CMOS RTC driver for x86_64, x86
 
-use super::RtcError;
+use super::{DateTime, RtcError};
 use core::arch::asm;
 
 const _IO_RTC: u16 = 0x070;
@@ -154,6 +154,52 @@ impl Mc146818Rtc {
 
         // reenable updates
         Self::_mc146818_write(_MC_REGB, Self::_mc146818_read(_MC_REGB) & !_MC_REGB_SET);
+
+        Ok(())
+    }
+
+    pub fn read_time(&self) -> Result<DateTime, RtcError> {
+        let regs = Self::_rtcget()?;
+
+        let second = Self::_bcdtobin(regs[_MC_SEC as usize]);
+        let minute = Self::_bcdtobin(regs[_MC_MIN as usize]);
+        let hour = Self::_bcdtobin(regs[_MC_HOUR as usize]);
+        let day = Self::_bcdtobin(regs[_MC_DOM as usize]);
+        let month = Self::_bcdtobin(regs[_MC_MONTH as usize]);
+        let year = Self::_bcdtobin(regs[_MC_YEAR as usize]);
+
+        // TODO: clock_expandyear()
+        let full_year = 2000 + year as u16;
+
+        Ok(DateTime::new(full_year, month, day, hour, minute, second))
+    }
+
+    pub fn set_time(&self, time: &DateTime) -> Result<(), RtcError> {
+        let mut regs = [0u8; _MC_NTODREGS];
+
+        regs[_MC_SEC as usize] = Self::_bintobcd(time.second);
+        regs[_MC_MIN as usize] = Self::_bintobcd(time.minute);
+        regs[_MC_HOUR as usize] = Self::_bintobcd(time.hour);
+        regs[_MC_DOM as usize] = Self::_bintobcd(time.day);
+        regs[_MC_MONTH as usize] = Self::_bintobcd(time.month);
+        regs[_MC_YEAR as usize] = Self::_bintobcd((time.year % 100) as u8);
+
+        regs[_MC_DOW as usize] = 1;
+
+        regs[7] = 0;
+        regs[8] = 0;
+        regs[9] = 0;
+
+        Self::_rtcput(&regs)?;
+
+        // TODO: century byte update
+
+        Ok(())
+    }
+
+    pub fn init(&self) -> Result<(), RtcError> {
+        let regb = Self::_mc146818_read(_MC_REGB);
+        Self::_mc146818_write(_MC_REGB, regb | _MC_REGB_24HR);
 
         Ok(())
     }
