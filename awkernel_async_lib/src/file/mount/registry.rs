@@ -246,25 +246,12 @@ async fn create_filesystem(
 ) -> MountResult<Box<dyn AsyncFileSystem>> {
     match fs_type {
         FS_TYPE_FATFS => {
-            // Try to downcast to concrete types that FatFS supports
-            if let Some(memory_device) = device.as_any().downcast_ref::<MemoryBlockDevice>() {
-                // Memory block device - use direct approach
-                let device_arc = Arc::new(memory_device.clone());
-                let format = options.fs_options.get("format")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                
-                let fs = create_fatfs_from_block_device(device_arc, format)
-                    .map_err(MountError::FilesystemError)?;
-                
-                Ok(Box::new(AsyncFatFs { fs: Arc::new(fs) }))
-            } else {
-                // For other devices, we would need a concrete type wrapper
-                // Currently only MemoryBlockDevice is supported directly
-                Err(MountError::FilesystemError(
-                    "FatFS currently only supports MemoryBlockDevice directly. Other devices need concrete type wrappers.".to_string()
-                ))
-            }
+            // For now, FatFS requires a concrete type that we can't provide through dyn trait
+            // This is a limitation of the current design where FatFS needs static typing
+            // We would need to refactor FatFS to work with dyn StorageDevice
+            Err(MountError::FilesystemError(
+                "FatFS mounting through storage manager is not yet supported. Use direct device creation.".to_string()
+            ))
         }
         
         // Future filesystems can be added here

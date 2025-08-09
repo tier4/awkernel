@@ -1,7 +1,8 @@
 //! Memory-based filesystem implementations
 
 use super::block_device::{BlockDeviceError, BlockResult};
-use crate::storage::{StorageDevice, StorageDevError, StorageDeviceType};
+use crate::storage::{transfer_get_info, transfer_mark_completed, StorageDevice, StorageDevError, StorageDeviceType};
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{borrow::Cow, sync::Arc, vec, vec::Vec};
 use core::any::Any;
 
@@ -9,11 +10,20 @@ use core::any::Any;
 pub const DEFAULT_BLOCK_SIZE: usize = 512;
 
 /// A memory-backed block device for testing and in-memory filesystems
-#[derive(Debug, Clone)]
 pub struct MemoryBlockDevice {
-    data: Vec<u8>,
+    data: Mutex<Vec<u8>>,
     block_size: usize,
     num_blocks: u64,
+}
+
+impl core::fmt::Debug for MemoryBlockDevice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MemoryBlockDevice")
+            .field("block_size", &self.block_size)
+            .field("num_blocks", &self.num_blocks)
+            .field("total_size", &(self.block_size * self.num_blocks as usize))
+            .finish()
+    }
 }
 
 impl MemoryBlockDevice {
@@ -21,7 +31,7 @@ impl MemoryBlockDevice {
     pub fn new(block_size: usize, num_blocks: u64) -> Self {
         let total_size = block_size * num_blocks as usize;
         Self {
-            data: vec![0; total_size],
+            data: Mutex::new(vec![0; total_size]),
             block_size,
             num_blocks,
         }
@@ -31,7 +41,7 @@ impl MemoryBlockDevice {
     pub fn from_vec(data: Vec<u8>, block_size: usize) -> Self {
         let num_blocks = (data.len() / block_size) as u64;
         Self {
-            data,
+            data: Mutex::new(data),
             block_size,
             num_blocks,
         }
@@ -90,15 +100,63 @@ impl StorageDevice for MemoryBlockDevice {
         self.num_blocks
     }
     
-    fn read_block(&self, block_num: u64, buf: &mut [u8], _transfer_id: u16) -> BlockResult<()> {
-        let offset = self.block_offset(block_num).ok_or(BlockDeviceError::InvalidBlock)?;
-        buf[..self.block_size].copy_from_slice(&self.data[offset..offset + self.block_size]);
+    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()> {
+        // Get transfer parameters
+        let (start_lba, num_blocks, _nsid, _is_read) = transfer_get_info(transfer_id)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Validate buffer size
+        let total_size = self.block_size * num_blocks as usize;
+        if buf.len() < total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // Lock data once for all blocks
+        let mut node = MCSNode::new();
+        let data = self.data.lock(&mut node);
+        
+        // Read all blocks
+        for i in 0..num_blocks {
+            let lba = start_lba + i as u64;
+            let offset = self.block_offset(lba).ok_or(BlockDeviceError::InvalidBlock)?;
+            let buf_offset = (i as usize) * self.block_size;
+            buf[buf_offset..buf_offset + self.block_size]
+                .copy_from_slice(&data[offset..offset + self.block_size]);
+        }
+        
+        // Mark transfer as completed successfully
+        let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
+        
         Ok(())
     }
     
-    fn write_block(&mut self, block_num: u64, buf: &[u8], _transfer_id: u16) -> BlockResult<()> {
-        let offset = self.block_offset(block_num).ok_or(BlockDeviceError::InvalidBlock)?;
-        self.data[offset..offset + self.block_size].copy_from_slice(&buf[..self.block_size]);
+    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()> {
+        // Get transfer parameters
+        let (start_lba, num_blocks, _nsid, _is_read) = transfer_get_info(transfer_id)
+            .map_err(|_| BlockDeviceError::IoError)?;
+        
+        // Validate buffer size
+        let total_size = self.block_size * num_blocks as usize;
+        if buf.len() < total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
+        
+        // Lock data once for all blocks
+        let mut node = MCSNode::new();
+        let mut data = self.data.lock(&mut node);
+        
+        // Write all blocks
+        for i in 0..num_blocks {
+            let lba = start_lba + i as u64;
+            let offset = self.block_offset(lba).ok_or(BlockDeviceError::InvalidBlock)?;
+            let buf_offset = (i as usize) * self.block_size;
+            data[offset..offset + self.block_size]
+                .copy_from_slice(&buf[buf_offset..buf_offset + self.block_size]);
+        }
+        
+        // Mark transfer as completed successfully
+        let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
+        
         Ok(())
     }
 }

@@ -7,7 +7,7 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     dma_map::{DmaMap, DmaTag, DmaSyncOp},
     paging::PAGESIZE,
-    storage::get_transfer,
+    storage::transfer_is_completed,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,8 +19,8 @@ static TEST_PASSED: AtomicBool = AtomicBool::new(false);
 /// Helper function to wait for transfer completion synchronously
 fn wait_for_transfer_completion(transfer_id: u16) {
     loop {
-        if let Ok(transfer) = get_transfer(transfer_id) {
-            if transfer.completed.load(Ordering::Acquire) {
+        if let Ok(completed) = transfer_is_completed(transfer_id) {
+            if completed {
                 break;
             }
         }
@@ -330,11 +330,8 @@ async fn test_flush_mode(poll: bool) -> bool {
     };
     
     // Set up the transfer for polling mode if requested
-    if let Ok(transfer) = awkernel_lib::storage::get_transfer_mut(transfer_id) {
-        transfer.nsid = NSID;
-        transfer.poll = poll;
-        transfer.timeout_ms = 5000;  // 5 second timeout for flush
-    }
+    let _ = awkernel_lib::storage::transfer_set_params(transfer_id, 0, 0, false, NSID);
+    let _ = awkernel_lib::storage::transfer_set_poll_mode(transfer_id, poll, 5000);  // 5 second timeout for flush
     
     if let Err(e) = nvme.flush(NSID, transfer_id) {
         log::error!("Flush failed: {e:?}");

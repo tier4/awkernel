@@ -5,7 +5,7 @@
 
 use super::error::IoError;
 use super::io::{IoBase, Read, Seek, SeekFrom, Write};
-use crate::storage::{StorageDevice, StorageDeviceType, allocate_transfer_sync, get_transfer_mut, free_transfer};
+use crate::storage::{StorageDevice, allocate_transfer_sync, transfer_set_params, transfer_is_completed, free_transfer, DEFAULT_IO_TIMEOUT_MS};
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
 use core::cmp::min;
 use core::fmt::{self, Debug, Display};
@@ -105,36 +105,38 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                 let block_size = self.device.block_size();
                 let mut data = vec![0u8; block_size];
                 
-                // Check device type and handle transfers accordingly
-                match self.device.device_type() {
-                    StorageDeviceType::Memory => {
-                        // Memory devices don't need real transfers
-                        self.device
-                            .read_block(block_num, &mut data, 0)
-                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
-                    }
-                    _ => {
-                        // Real devices (NVMe, etc.) need proper transfer management
-                        let transfer_id = allocate_transfer_sync(self.device.device_id())
-                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
-                        
-                        // Set up transfer for synchronous/polling mode
-                        if let Ok(transfer) = get_transfer_mut(transfer_id) {
-                            transfer.poll = true;  // Use polling for synchronous operation
-                            transfer.timeout_ms = 5000;  // 5 second timeout
+                // All devices now use transfers uniformly
+                let transfer_id = allocate_transfer_sync(self.device.device_id())
+                    .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                
+                // Set up transfer parameters
+                let nsid = crate::storage::get_device_namespace(self.device.device_id()).unwrap_or(1);
+                let _ = transfer_set_params(transfer_id, block_num, 1, true, nsid);
+                let _ = crate::storage::transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS);
+                
+                // Perform the read (read_blocks works for single blocks too)
+                let result = self.device
+                    .read_blocks(&mut data, transfer_id)
+                    .map_err(|_| BlockDeviceAdapterError::IoError);
+                
+                // Wait for completion if device didn't mark it complete
+                if let Ok(completed) = transfer_is_completed(transfer_id) {
+                    if !completed {
+                        // For async devices, we need to wait
+                        // For sync devices like MemoryBlockDevice, it's already complete
+                        for _ in 0..50000 {  // 5 second timeout with 100us intervals
+                            if let Ok(true) = transfer_is_completed(transfer_id) {
+                                break;
+                            }
+                            core::hint::spin_loop();
                         }
-                        
-                        // Perform the read
-                        let result = self.device
-                            .read_block(block_num, &mut data, transfer_id)
-                            .map_err(|_| BlockDeviceAdapterError::IoError);
-                        
-                        // Always free the transfer
-                        free_transfer(transfer_id);
-                        
-                        result?;
                     }
                 }
+                
+                // Always free the transfer
+                free_transfer(transfer_id);
+                
+                result?;
                 
                 self.block_cache = Some(BlockCache {
                     block_num,
@@ -156,37 +158,39 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                 let device = Arc::get_mut(&mut self.device)
                     .ok_or(BlockDeviceAdapterError::DeviceBusy)?;
                 
-                // Check device type and handle transfers accordingly
-                match device.device_type() {
-                    StorageDeviceType::Memory => {
-                        // Memory devices don't need real transfers
-                        device
-                            .write_block(cache.block_num, &cache.data, 0)
-                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
-                    }
-                    _ => {
-                        // Real devices need proper transfer management
-                        let device_id = device.device_id();
-                        let transfer_id = allocate_transfer_sync(device_id)
-                            .map_err(|_| BlockDeviceAdapterError::IoError)?;
-                        
-                        // Set up transfer for synchronous/polling mode
-                        if let Ok(transfer) = get_transfer_mut(transfer_id) {
-                            transfer.poll = true;  // Use polling for synchronous operation
-                            transfer.timeout_ms = 5000;  // 5 second timeout
+                // All devices now use transfers uniformly
+                let device_id = device.device_id();
+                let transfer_id = allocate_transfer_sync(device_id)
+                    .map_err(|_| BlockDeviceAdapterError::IoError)?;
+                
+                // Set up transfer parameters
+                let nsid = crate::storage::get_device_namespace(device.device_id()).unwrap_or(1);
+                let _ = transfer_set_params(transfer_id, cache.block_num, 1, false, nsid);
+                let _ = crate::storage::transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS);
+                
+                // Perform the write (write_blocks works for single blocks too)
+                let result = device
+                    .write_blocks(&cache.data, transfer_id)
+                    .map_err(|_| BlockDeviceAdapterError::IoError);
+                
+                // Wait for completion if device didn't mark it complete
+                if let Ok(completed) = transfer_is_completed(transfer_id) {
+                    if !completed {
+                        // For async devices, we need to wait
+                        // For sync devices like MemoryBlockDevice, it's already complete
+                        for _ in 0..50000 {  // 5 second timeout with 100us intervals
+                            if let Ok(true) = transfer_is_completed(transfer_id) {
+                                break;
+                            }
+                            core::hint::spin_loop();
                         }
-                        
-                        // Perform the write
-                        let result = device
-                            .write_block(cache.block_num, &cache.data, transfer_id)
-                            .map_err(|_| BlockDeviceAdapterError::IoError);
-                        
-                        // Always free the transfer
-                        free_transfer(transfer_id);
-                        
-                        result?;
                     }
                 }
+                
+                // Always free the transfer
+                free_transfer(transfer_id);
+                
+                result?;
             }
         }
         Ok(())

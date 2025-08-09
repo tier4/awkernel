@@ -24,12 +24,12 @@ use super::time::TimeProvider;
 #[cfg(feature = "lfn")]
 const LFN_PADDING: u16 = 0xFFFF;
 
-pub(crate) enum DirRawStream<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+pub(crate) enum DirRawStream<IO: ReadWriteSeek + Send, TP, OCC> {
     File(File<IO, TP, OCC>),
     Root(DiskSlice<FsIoAdapter<IO, TP, OCC>, FsIoAdapter<IO, TP, OCC>>),
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> DirRawStream<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> DirRawStream<IO, TP, OCC> {
     fn abs_pos(&self) -> Option<u64> {
         match self {
             DirRawStream::File(file) => file.abs_pos(),
@@ -62,11 +62,11 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Clone for DirRawStream<IO, TP, O
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> IoBase for DirRawStream<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> IoBase for DirRawStream<IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for DirRawStream<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Read for DirRawStream<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.read(buf),
@@ -75,7 +75,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for DirRawStr
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for DirRawStream<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Write for DirRawStream<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.write(buf),
@@ -90,7 +90,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for DirRawSt
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for DirRawStream<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for DirRawStream<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match self {
             DirRawStream::File(file) => file.seek(pos),
@@ -106,7 +106,7 @@ fn split_path(path: &str) -> (&str, Option<&str>) {
     })
 }
 
-enum DirEntryOrShortName<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+enum DirEntryOrShortName<IO: ReadWriteSeek + Send, TP, OCC> {
     DirEntry(DirEntry<IO, TP, OCC>),
     ShortName([u8; SFN_SIZE]),
 }
@@ -115,16 +115,18 @@ enum DirEntryOrShortName<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
 ///
 /// This struct is created by the `open_dir` or `create_dir` methods on `Dir`.
 /// The root directory is returned by the `root_dir` method on `FileSystem`.
-pub struct Dir<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+pub struct Dir<IO: ReadWriteSeek + Send, TP, OCC> {
     stream: DirRawStream<IO, TP, OCC>,
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Dir<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Dir<IO, TP, OCC> {
     pub(crate) fn new(stream: DirRawStream<IO, TP, OCC>, fs: Arc<FileSystem<IO, TP, OCC>>) -> Self {
         Dir { stream, fs }
     }
+}
 
+impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Dir<IO, TP, OCC> {
     /// Creates directory entries iterator.
     #[must_use]
     #[allow(clippy::iter_not_returning_iterator)]
@@ -634,14 +636,14 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC: OemCpConverter> Cl
 /// An iterator over the directory entries.
 ///
 /// This struct is created by the `iter` method on `Dir`.
-pub struct DirIter<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+pub struct DirIter<IO: ReadWriteSeek + Send, TP, OCC> {
     stream: DirRawStream<IO, TP, OCC>,
     fs: Arc<FileSystem<IO, TP, OCC>>,
     skip_volume: bool,
     err: bool,
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> DirIter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> DirIter<IO, TP, OCC> {
     fn new(
         stream: DirRawStream<IO, TP, OCC>,
         fs: Arc<FileSystem<IO, TP, OCC>>,
@@ -656,7 +658,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> DirIter<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> DirIter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> DirIter<IO, TP, OCC> {
     fn should_skip_entry(&self, raw_entry: &DirEntryData) -> bool {
         if raw_entry.is_deleted() {
             return true;
@@ -734,7 +736,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Clone for DirIter<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Iterator for DirIter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP: TimeProvider, OCC> Iterator for DirIter<IO, TP, OCC> {
     type Item = Result<DirEntry<IO, TP, OCC>, Error<IO::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

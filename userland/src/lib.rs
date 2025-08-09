@@ -76,5 +76,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_storage_async")]
     test_storage_async::run().await; // test for async storage operations
 
+    #[cfg(feature = "test_nvme_fatfs")]
+    test_nvme_fatfs::run().await; // test for NVMe with FatFS
+
     Ok(())
 }

@@ -3,7 +3,8 @@ use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
 use core::convert::TryInto;
-use core::fmt::{self, Debug};
+use core::fmt;
+use core::fmt::Debug;
 #[cfg(not(feature = "unicode"))]
 use core::iter;
 
@@ -525,7 +526,7 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek + Send + Debug, TP, OCC>(
+    pub(crate) fn flush<IO: ReadWriteSeek + Send, TP, OCC>(
         &mut self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -536,7 +537,7 @@ impl DirEntryEditor {
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek + Send + Debug, TP, OCC>(
+    fn write<IO: ReadWriteSeek + Send, TP, OCC>(
         &self,
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
@@ -551,7 +552,7 @@ impl DirEntryEditor {
 ///
 /// `DirEntry` is returned by `DirIter` when reading a directory.
 #[derive(Clone)]
-pub struct DirEntry<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+pub struct DirEntry<IO: ReadWriteSeek + Send, TP, OCC> {
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
     #[cfg(feature = "lfn")]
@@ -741,7 +742,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> DirEntry<IO, TP,
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> fmt::Debug for DirEntry<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> fmt::Debug for DirEntry<IO, TP, OCC> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
     }

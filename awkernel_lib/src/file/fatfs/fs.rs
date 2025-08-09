@@ -3,6 +3,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use core::borrow::BorrowMut;
 use core::convert::TryFrom;
+use core::fmt;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
@@ -341,7 +342,7 @@ impl FileSystemStats {
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
 pub struct FileSystem<
-    IO: ReadWriteSeek + Send + Debug,
+    IO: ReadWriteSeek + Send,
     TP = DefaultTimeProvider,
     OCC = LossyOemCpConverter,
 > {
@@ -358,11 +359,11 @@ pub struct FileSystem<
     pub(crate) metadata_cache: Mutex<BTreeMap<u64, Arc<Mutex<DirEntryEditor>>>>,
 }
 
-impl<IO, TP, OCC> Debug for FileSystem<IO, TP, OCC>
+impl<IO, TP, OCC> fmt::Debug for FileSystem<IO, TP, OCC>
 where
-    IO: ReadWriteSeek + Send + Debug,
-    TP: Debug,
-    OCC: Debug,
+    IO: ReadWriteSeek + Send,
+    TP: fmt::Debug,
+    OCC: fmt::Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FileSystem")
@@ -390,7 +391,7 @@ impl<T: Read + Write + Seek> IntoStorage<T> for T {
     }
 }
 
-impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
+impl<IO: Read + Write + Seek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Creates a new filesystem object instance.
     ///
     /// Supplied `storage` parameter cannot be seeked. If there is a need to read a fragment of disk
@@ -731,7 +732,7 @@ impl<IO: Read + Write + Seek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from BPB in the Boot Sector as `String`.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -746,7 +747,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC: OemCpConverter> FileSystem<IO, T
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> FileSystem<IO, TP, OCC> {
     pub(crate) fn get_or_create_metadata(
         &self,
         entry_pos: u64,
@@ -822,7 +823,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC: OemCpConverter>
 }
 
 /// `Drop` implementation tries to unmount the filesystem when dropping.
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
             log::error!("unmount failed {err:?}");
@@ -830,15 +831,15 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Drop for FileSystem<IO, TP, OCC>
     }
 }
 
-pub(crate) struct FsIoAdapter<IO: ReadWriteSeek + Send + Debug, TP, OCC> {
+pub(crate) struct FsIoAdapter<IO: ReadWriteSeek + Send, TP, OCC> {
     fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> IoBase for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> IoBase for FsIoAdapter<IO, TP, OCC> {
     type Error = IO::Error;
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Read for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Read for FsIoAdapter<IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -846,7 +847,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Read for FsIoAdapter<IO, TP, OCC
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Write for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Write for FsIoAdapter<IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
@@ -865,7 +866,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Write for FsIoAdapter<IO, TP, OC
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Debug, TP, OCC> Seek for FsIoAdapter<IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send, TP, OCC> Seek for FsIoAdapter<IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
