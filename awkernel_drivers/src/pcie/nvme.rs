@@ -16,7 +16,6 @@ use awkernel_lib::{
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 use core::any::Any;
-use core::sync::atomic::Ordering;
 
 mod nvme_regs;
 use nvme_regs::*;
@@ -53,11 +52,15 @@ const NVME_CQ_ENTRY_SIZE_SHIFT: u32 = 4; // Completion queue entry size == 2^4 (
 
 // Default values for block devices
 const DEFAULT_BLOCK_SIZE: usize = 512;
-const DEFAULT_NUM_BLOCKS: u64 = 1024 * 1024; // 1M blocks = 512MB with 512 byte blocks
 const DEFAULT_IO_TIMEOUT_MS: u32 = 5000; // 5 seconds
-const DEFAULT_TRANSFER_TIMEOUT_MS: u32 = 10000; // 10 seconds
 
 pub static NVME_DEVICE: RwLock<Option<Arc<Nvme>>> = RwLock::new(None); // TODO - this will be removed in the future, after the interrupt handller task for storage device is implemented.
+
+// State for polling operations
+struct PollState {
+    _sqe: SubQueueEntry,
+    _cqe: ComQueueEntry,
+}
 
 enum CcbCookie {
     Io {
@@ -69,6 +72,9 @@ enum CcbCookie {
     Flush {
         nsid: u32,
     },
+    _State(PollState),
+    _Controller(u64), // Physical address for controller identify
+    _QueueCmd(SubQueueEntryQ), // Queue command
 }
 
 struct Ccb {
@@ -88,6 +94,7 @@ struct CcbList {
 }
 
 struct Queue {
+    _id: u16, // Queue ID
     subq: Mutex<SubQueue>,
     comq: Mutex<ComQueue>,
     entries: u32,
@@ -376,6 +383,7 @@ impl NvmeInner {
         };
 
         let que = Queue {
+            _id: id,
             subq: Mutex::new(subq),
             comq: Mutex::new(comq),
             entries,
@@ -565,9 +573,9 @@ impl NvmeInner {
 
     fn fill_identify(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         sqe.opcode = NVM_ADMIN_IDENTIFY;
-        if let Some(CcbCookie::_Controller(mem)) = ccb.cookie.as_ref() {
+        if let Some(CcbCookie::_Controller(phy_addr)) = ccb.cookie.as_ref() {
             unsafe {
-                sqe.entry.prp[0] = (mem.get_phy_addr().as_usize() as u64).to_le();
+                sqe.entry.prp[0] = phy_addr.to_le();
             }
         }
         sqe.cdw10 = 1_u32.to_le();
@@ -667,7 +675,7 @@ impl NvmeInner {
         {
             let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut sc_ccbs[ccb_id as usize];
-            ccb.cookie = Some(CcbCookie::_Controller(mem));
+            ccb.cookie = Some(CcbCookie::_Controller(mem.get_phy_addr().as_usize() as u64));
             ccb.done = None;
         }
 
@@ -1365,8 +1373,8 @@ pub(super) fn attach(
     // Register the controller with storage manager to get device_id
     // We need to temporarily wrap in Arc for registration
     let temp_arc = Arc::new(nvme);
-    // Controller doesn't have a specific namespace, so pass None
-    let device_id = storage::add_storage_device(temp_arc.clone() as Arc<dyn StorageDevice>, None);
+    // Controller doesn't have a specific namespace, so pass None (pass concrete type)
+    let device_id = storage::add_storage_device(temp_arc.clone(), None);
 
     // Get mutable access back to set device_id
     // This is safe because we're the only owner at this point
@@ -1393,9 +1401,8 @@ pub(super) fn attach(
             {
                 let namespace = NvmeNamespace::new(nvme_arc.clone(), nsid);
                 let ns_arc = Arc::new(namespace);
-                // Register with the specific namespace ID
-                let storage_id =
-                    storage::add_storage_device(ns_arc.clone() as Arc<dyn StorageDevice>, Some(nsid));
+                // Register with the specific namespace ID (pass concrete type)
+                let storage_id = storage::add_storage_device(ns_arc.clone(), Some(nsid));
 
                 // Set the device_id in the namespace
                 let ns_ptr = Arc::as_ptr(&ns_arc) as *mut NvmeNamespace;
@@ -1422,11 +1429,11 @@ fn validate_io_buffer(
     buf_len: usize,
     is_write: bool,
 ) -> BlockResult<u32> {
-    // Get transfer to verify buffer size
-    let transfer = storage::get_transfer(transfer_id)
+    // Get transfer info to verify buffer size
+    let (_lba, blocks, _nsid, _is_read) = storage::transfer_get_info(transfer_id)
         .map_err(|_| BlockDeviceError::IoError)?;
     
-    let total_size = block_size * transfer.blocks as usize;
+    let total_size = block_size * blocks as usize;
     
     // For writes, buffer must be exactly the right size
     // For reads, buffer must be at least the required size
@@ -1440,7 +1447,7 @@ fn validate_io_buffer(
         }
     }
     
-    Ok(transfer.blocks)
+    Ok(blocks)
 }
 
 // StorageDevice implementation for NVMe
@@ -1534,7 +1541,6 @@ impl StorageDevice for Nvme {
 }
 
 /// Represents a single NVMe namespace
-#[derive(Debug)]
 pub struct NvmeNamespace {
     /// Shared reference to the NVMe controller
     controller: Arc<Nvme>,
@@ -1542,6 +1548,15 @@ pub struct NvmeNamespace {
     namespace_id: u32,
     /// Storage device ID
     device_id: u64,
+}
+
+impl core::fmt::Debug for NvmeNamespace {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NvmeNamespace")
+            .field("namespace_id", &self.namespace_id)
+            .field("device_id", &self.device_id)
+            .finish()
+    }
 }
 
 impl NvmeNamespace {

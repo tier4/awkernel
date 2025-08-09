@@ -1,6 +1,6 @@
 //! Common mount table types and traits shared between sync and async implementations
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::collections::BTreeMap;
 use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -66,6 +66,30 @@ impl MountOptions {
     /// Add a filesystem-specific option
     pub fn add_option(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.fs_options.insert(key.into(), value.into());
+    }
+    
+    /// Builder method to set the format option
+    pub fn with_format(mut self) -> Self {
+        self.fs_options.insert("format".to_string(), "true".to_string());
+        self
+    }
+    
+    /// Builder method to set read-only flag
+    pub fn with_readonly(mut self) -> Self {
+        self.flags.readonly = true;
+        self
+    }
+    
+    /// Builder method to set noexec flag
+    pub fn with_noexec(mut self) -> Self {
+        self.flags.noexec = true;
+        self
+    }
+    
+    /// Builder method to add a custom option
+    pub fn with_option(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.fs_options.insert(key.into(), value.into());
+        self
     }
 }
 

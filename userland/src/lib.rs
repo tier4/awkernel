@@ -79,5 +79,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_nvme_fatfs")]
     test_nvme_fatfs::run().await; // test for NVMe with FatFS
 
+    #[cfg(feature = "test_nvme_fatfs_rw")]
+    test_nvme_fatfs_rw::run().await; // test for NVMe with FatFS read/write operations
+
     Ok(())
 }

@@ -94,6 +94,24 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
         self.device.num_blocks() * self.device.block_size() as u64
     }
 
+    /// Helper function to wait for transfer completion
+    fn wait_for_transfer_completion(transfer_id: u16) -> Result<(), BlockDeviceAdapterError> {
+        // Wait for completion if device didn't mark it complete
+        if let Ok(completed) = transfer_is_completed(transfer_id) {
+            if !completed {
+                // For async devices, we need to wait
+                // For sync devices like MemoryBlockDevice, it's already complete
+                for _ in 0..50000 {  // 5 second timeout with 100us intervals
+                    if let Ok(true) = transfer_is_completed(transfer_id) {
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Load a block into the cache if not already cached
     fn ensure_block_cached(&mut self, block_num: u64) -> Result<(), BlockDeviceAdapterError> {
         match &self.block_cache {
@@ -119,19 +137,8 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                     .read_blocks(&mut data, transfer_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
-                // Wait for completion if device didn't mark it complete
-                if let Ok(completed) = transfer_is_completed(transfer_id) {
-                    if !completed {
-                        // For async devices, we need to wait
-                        // For sync devices like MemoryBlockDevice, it's already complete
-                        for _ in 0..50000 {  // 5 second timeout with 100us intervals
-                            if let Ok(true) = transfer_is_completed(transfer_id) {
-                                break;
-                            }
-                            core::hint::spin_loop();
-                        }
-                    }
-                }
+                // Wait for completion
+                Self::wait_for_transfer_completion(transfer_id)?;
                 
                 // Always free the transfer
                 free_transfer(transfer_id);
@@ -173,19 +180,8 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                     .write_blocks(&cache.data, transfer_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
-                // Wait for completion if device didn't mark it complete
-                if let Ok(completed) = transfer_is_completed(transfer_id) {
-                    if !completed {
-                        // For async devices, we need to wait
-                        // For sync devices like MemoryBlockDevice, it's already complete
-                        for _ in 0..50000 {  // 5 second timeout with 100us intervals
-                            if let Ok(true) = transfer_is_completed(transfer_id) {
-                                break;
-                            }
-                            core::hint::spin_loop();
-                        }
-                    }
-                }
+                // Wait for completion
+                Self::wait_for_transfer_completion(transfer_id)?;
                 
                 // Always free the transfer
                 free_transfer(transfer_id);

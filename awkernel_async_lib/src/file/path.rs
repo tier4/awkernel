@@ -5,7 +5,7 @@
 
 use super::{
     filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite},
-    mount::registry::resolve_filesystem_for_path,
+    mount::resolve_filesystem_for_path,
 };
 use crate::time::Time;
 use alloc::{
@@ -62,7 +62,7 @@ impl AsyncVfsPath {
     /// Resolve the filesystem and relative path for this path
     fn resolve(&self) -> VfsResult<(Arc<dyn AsyncFileSystem>, String)> {
         let (fs, _mount_path, relative_path) = resolve_filesystem_for_path(&self.path)
-            .map_err(|e| VfsError::from(VfsErrorKind::Other(format!("{e}"))))?;
+            .ok_or_else(|| VfsError::from(VfsErrorKind::Other(format!("No filesystem mounted for path: {}", self.path))))?;
         Ok((fs, relative_path))
     }
     
