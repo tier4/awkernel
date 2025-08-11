@@ -13,7 +13,6 @@ use awkernel_lib::{
         fs_capabilities::FsCapabilities,
         io::{Read, Seek, SeekFrom, Write},
         block_device::BlockDeviceAdapter,
-        memfs::MemoryBlockDevice,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsIoError, VfsResult},
             path::{VfsFileType, VfsMetadata},
@@ -106,7 +105,7 @@ where
     pub(crate) fs: Arc<FileSystem<IO, TP, OCC>>,
 }
 
-impl AsyncFatFs<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter> {
+impl AsyncFatFs<BlockDeviceAdapter, NullTimeProvider, LossyOemCpConverter> {
     pub fn new_in_memory() -> Self {
         Self {
             fs: get_memory_fatfs(),

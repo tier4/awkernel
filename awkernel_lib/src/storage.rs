@@ -1,3 +1,14 @@
+mod transfer;
+
+// Re-export commonly used transfer functions
+pub use transfer::{
+    allocate_transfer_sync, free_transfer, init_transfer_pool, transfer_get_blocks,
+    transfer_get_info, transfer_get_lba, transfer_get_nsid, transfer_get_status,
+    transfer_get_timeout_ms, transfer_is_completed, transfer_is_poll_mode, transfer_is_read,
+    transfer_mark_completed, transfer_set_params, transfer_set_poll_mode, transfer_set_waker,
+    wake_completed_transfers, DEFAULT_IO_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS,
+};
+
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use alloc::{
     borrow::Cow,
@@ -8,14 +19,9 @@ use alloc::{
 use core::any::Any;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 
 use crate::file::block_device::BlockResult;
-
-// Default timeout values for storage operations
-pub const DEFAULT_IO_TIMEOUT_MS: u32 = 5000; // 5 seconds for I/O operations
-pub const DEFAULT_TRANSFER_TIMEOUT_MS: u32 = 10000; // 10 seconds for transfers
 
 #[derive(Debug)]
 pub enum StorageManagerError {
@@ -49,380 +55,6 @@ pub enum StorageDeviceType {
     USB,
     VirtIO,
     Memory,
-}
-
-/// Storage transfer structure for async I/O operations
-pub struct StorageTransfer {
-    pub nsid: u32,
-    pub lba: u64,
-    pub blocks: u32,
-    pub read: bool,
-    pub completed: AtomicBool,
-    pub waker: Mutex<Option<Waker>>,
-    pub status: AtomicU16,
-    pub device_id: u64,
-    pub poll: bool,
-    pub timeout_ms: u32,
-    pub start_time_ms: AtomicU64, // Time when transfer started (in milliseconds)
-}
-
-use core::sync::atomic::AtomicU64;
-
-impl Default for StorageTransfer {
-    fn default() -> Self {
-        Self {
-            nsid: 0,
-            lba: 0,
-            blocks: 0,
-            read: true,
-            completed: AtomicBool::new(false),
-            waker: Mutex::new(None),
-            status: AtomicU16::new(0),
-            device_id: 0,
-            poll: false,
-            timeout_ms: DEFAULT_TRANSFER_TIMEOUT_MS,
-            start_time_ms: AtomicU64::new(0),
-        }
-    }
-}
-
-/// Global storage transfer pool
-pub struct StorageTransferPool {
-    transfers: Vec<StorageTransfer>,
-    free_list: Mutex<Vec<u16>>,
-}
-
-// Maximum number of concurrent transfers that can be allocated from the pool.
-// This value is chosen to balance memory usage with concurrent I/O capability:
-// - 256 allows for reasonable parallelism in multi-queue NVMe devices
-// - Each transfer uses minimal memory (< 100 bytes)
-// - Typical workloads rarely exceed 64 concurrent I/Os
-// This could be made configurable in the future based on system requirements.
-const MAX_TRANSFERS: usize = 256;
-
-// Error message for uninitialized transfer pool
-const POOL_NOT_INITIALIZED: &str =
-    "Storage transfer pool not initialized. Call init_transfer_pool() first";
-
-static STORAGE_TRANSFER_POOL: Mutex<Option<StorageTransferPool>> = Mutex::new(None);
-
-/// Initialize the storage transfer pool
-pub fn init_transfer_pool() {
-    let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    if pool_guard.is_none() {
-        let mut transfers = Vec::with_capacity(MAX_TRANSFERS);
-        let mut free_list = Vec::with_capacity(MAX_TRANSFERS);
-
-        for i in 0..MAX_TRANSFERS {
-            transfers.push(StorageTransfer::default());
-            free_list.push(i as u16);
-        }
-
-        *pool_guard = Some(StorageTransferPool {
-            transfers,
-            free_list: Mutex::new(free_list),
-        });
-    }
-}
-
-/// Allocate a transfer from the pool (synchronous)
-pub fn allocate_transfer_sync(device_id: u64) -> Result<u16, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_mut() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    let mut free_node = MCSNode::new();
-    let mut free_list = pool.free_list.lock(&mut free_node);
-
-    if let Some(id) = free_list.pop() {
-        // Reset the transfer
-        let transfer = &mut pool.transfers[id as usize];
-        transfer.completed.store(false, Ordering::Release);
-        transfer.status.store(0, Ordering::Release);
-        transfer.device_id = device_id;
-        transfer.nsid = 0; // Will be set explicitly by caller
-
-        // Clear waker
-        let mut waker_node = MCSNode::new();
-        let mut waker = transfer.waker.lock(&mut waker_node);
-        *waker = None;
-
-        Ok(id)
-    } else {
-        Err(StorageManagerError::DeviceError(
-            StorageDevError::DeviceNotReady,
-        ))
-    }
-}
-
-/// Set transfer parameters
-pub fn transfer_set_params(
-    id: u16,
-    lba: u64,
-    blocks: u32,
-    read: bool,
-    nsid: u32,
-) -> Result<(), StorageManagerError> {
-    let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_mut() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    let transfer = &mut pool.transfers[id as usize];
-    transfer.lba = lba;
-    transfer.blocks = blocks;
-    transfer.read = read;
-    transfer.nsid = nsid;
-    Ok(())
-}
-
-/// Set polling mode and timeout
-pub fn transfer_set_poll_mode(
-    id: u16,
-    poll: bool,
-    timeout_ms: u32,
-) -> Result<(), StorageManagerError> {
-    let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_mut() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    let transfer = &mut pool.transfers[id as usize];
-    transfer.poll = poll;
-    transfer.timeout_ms = timeout_ms;
-    Ok(())
-}
-
-/// Get LBA
-pub fn transfer_get_lba(id: u16) -> Result<u64, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].lba)
-}
-
-/// Get block count
-pub fn transfer_get_blocks(id: u16) -> Result<u32, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].blocks)
-}
-
-/// Get namespace ID
-pub fn transfer_get_nsid(id: u16) -> Result<u32, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].nsid)
-}
-
-/// Check if transfer is a read operation
-pub fn transfer_is_read(id: u16) -> Result<bool, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].read)
-}
-
-/// Check if transfer is completed (atomic)
-pub fn transfer_is_completed(id: u16) -> Result<bool, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize]
-        .completed
-        .load(Ordering::Acquire))
-}
-
-/// Get transfer status (atomic)
-pub fn transfer_get_status(id: u16) -> Result<u16, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].status.load(Ordering::Acquire))
-}
-
-/// Mark transfer as completed with status (atomic)
-pub fn transfer_mark_completed(id: u16, status: u16) -> Result<(), StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    let transfer = &pool.transfers[id as usize];
-    transfer.status.store(status, Ordering::Release);
-    transfer.completed.store(true, Ordering::Release);
-    Ok(())
-}
-
-/// Set waker for async operations
-pub fn transfer_set_waker(id: u16, waker: Option<Waker>) -> Result<(), StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    let mut waker_node = MCSNode::new();
-    let mut waker_guard = pool.transfers[id as usize].waker.lock(&mut waker_node);
-    *waker_guard = waker;
-    Ok(())
-}
-
-/// Check if transfer is in polling mode
-pub fn transfer_is_poll_mode(id: u16) -> Result<bool, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].poll)
-}
-
-/// Get timeout in milliseconds
-pub fn transfer_get_timeout_ms(id: u16) -> Result<u32, StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    Ok(pool.transfers[id as usize].timeout_ms)
-}
-
-/// Get transfer info for validation (combines multiple fields for efficiency)
-pub fn transfer_get_info(id: u16) -> Result<(u64, u32, u32, bool), StorageManagerError> {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    if (id as usize) >= pool.transfers.len() {
-        return Err(StorageManagerError::InvalidTransferID);
-    }
-
-    let transfer = &pool.transfers[id as usize];
-    Ok((transfer.lba, transfer.blocks, transfer.nsid, transfer.read))
-}
-
-/// Free a transfer back to the pool
-pub fn free_transfer(id: u16) {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    let mut free_node = MCSNode::new();
-    let mut free_list = pool.free_list.lock(&mut free_node);
-
-    free_list.push(id);
 }
 
 pub trait StorageDevice: Send + Sync {
@@ -485,7 +117,7 @@ static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
 
 /// Information about a registered storage device
 struct DeviceInfo {
-    device: Mutex<Arc<dyn StorageDevice>>,
+    device: Arc<dyn StorageDevice>,
     namespace_id: Option<u32>,
     // Store the concrete type for downcasting when needed (e.g., for FatFS)
     concrete_device: Arc<dyn Any + Send + Sync>,
@@ -517,7 +149,7 @@ where
     manager.interface_id += 1;
 
     let device_info = DeviceInfo {
-        device: Mutex::new(device.clone() as Arc<dyn StorageDevice>),
+        device: device.clone() as Arc<dyn StorageDevice>,
         namespace_id,
         // Store the concrete type for potential downcasting
         concrete_device: device.clone() as Arc<dyn Any + Send + Sync>,
@@ -525,6 +157,19 @@ where
     manager.devices.insert(id, device_info);
 
     id
+}
+
+/// Get a storage device as Arc<dyn StorageDevice>
+/// This allows working with any device type without knowing the concrete type
+pub fn get_storage_device(interface_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
+    let manager = STORAGE_MANAGER.read();
+    
+    let device_info = manager
+        .devices
+        .get(&interface_id)
+        .ok_or(StorageManagerError::InvalidInterfaceID)?;
+    
+    Ok(device_info.device.clone())
 }
 
 /// Downcast a storage device to its concrete type
@@ -541,8 +186,8 @@ pub fn downcast_storage_device<T: StorageDevice + Send + Sync + 'static>(
     })
 }
 
-/// Get information about a storage device
-pub fn get_storage_device(interface_id: u64) -> Result<StorageStatus, StorageManagerError> {
+/// Get status information about a storage device
+pub fn get_storage_status(interface_id: u64) -> Result<StorageStatus, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
     let device_info = manager
@@ -550,9 +195,7 @@ pub fn get_storage_device(interface_id: u64) -> Result<StorageStatus, StorageMan
         .get(&interface_id)
         .ok_or(StorageManagerError::InvalidInterfaceID)?;
 
-    let mut node = MCSNode::new();
-    let device_guard = device_info.device.lock(&mut node);
-    let device = device_guard.as_ref();
+    let device = &device_info.device;
 
     let status = StorageStatus {
         interface_id,
@@ -566,14 +209,14 @@ pub fn get_storage_device(interface_id: u64) -> Result<StorageStatus, StorageMan
     Ok(status)
 }
 
-/// Get all storage devices
-pub fn get_all_storage_devices() -> Vec<StorageStatus> {
+/// Get status information for all storage devices
+pub fn get_all_storage_statuses() -> Vec<StorageStatus> {
     let manager = STORAGE_MANAGER.read();
 
     let mut result = Vec::new();
 
     for id in manager.devices.keys() {
-        if let Ok(status) = get_storage_device(*id) {
+        if let Ok(status) = get_storage_status(*id) {
             result.push(status);
         }
     }
@@ -643,31 +286,15 @@ pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
         return false;
     };
 
-    let mut node = MCSNode::new();
-    let device_guard = device_info.device.lock(&mut node);
-
     // Call the device's interrupt handler
-    let _ = device_guard.as_ref().interrupt(irq);
+    let _ = device_info.device.interrupt(irq);
 
     // For now, assume no more work is pending
     // Individual drivers can implement more sophisticated logic
     false
 }
 
-/// Get a reference to a storage device for block operations
-pub fn get_block_device(interface_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
-    let manager = STORAGE_MANAGER.read();
-
-    manager
-        .devices
-        .get(&interface_id)
-        .map(|info| {
-            let mut node = MCSNode::new();
-            let device_guard = info.device.lock(&mut node);
-            device_guard.clone()
-        })
-        .ok_or(StorageManagerError::InvalidInterfaceID)
-}
+// Note: get_block_device has been removed as it's redundant with get_storage_device
 
 /// Get the namespace ID for a storage device
 pub fn get_device_namespace(device_id: u64) -> Option<u32> {
@@ -681,40 +308,8 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
 
 /// Get the block size for a storage device
 pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
-    let device = get_block_device(device_id)?;
+    let device = get_storage_device(device_id)?;
     Ok(device.block_size())
-}
-
-/// Check completed transfers and wake waiting tasks
-pub fn wake_completed_transfers(device_id: u64) {
-    let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
-
-    let pool = match pool_guard.as_ref() {
-        Some(p) => p,
-        None => panic!("{}", POOL_NOT_INITIALIZED),
-    };
-
-    let mut wakers_to_wake = Vec::new();
-
-    // Scan transfers for completed ones
-    for transfer in &pool.transfers {
-        if transfer.device_id == device_id && transfer.completed.load(Ordering::Acquire) {
-            let mut waker_node = MCSNode::new();
-            let mut waker_guard = transfer.waker.lock(&mut waker_node);
-            if let Some(waker) = waker_guard.take() {
-                wakers_to_wake.push(waker);
-            }
-        }
-    }
-
-    // Drop the lock before waking
-    drop(pool_guard);
-
-    // Wake all collected tasks
-    for waker in wakers_to_wake {
-        waker.wake();
-    }
 }
 
 /// Future for waiting on transfer completion with timeout support
@@ -806,7 +401,7 @@ async fn async_io_operation(
         transfer_set_params(transfer_id, start_lba, num_blocks as u32, is_read, nsid)?;
 
         // Get device and perform I/O operation
-        let device = get_block_device(device_id)?;
+        let device = get_storage_device(device_id)?;
         io_fn(device, transfer_id)
             .map_err(|_| StorageManagerError::DeviceError(StorageDevError::IoError))?;
 

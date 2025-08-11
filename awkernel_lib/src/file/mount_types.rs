@@ -1,7 +1,7 @@
 //! Common mount table types and traits shared between sync and async implementations
 
-use alloc::string::{String, ToString};
-use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -40,13 +40,72 @@ impl MountFlags {
     }
 }
 
+/// Filesystem-specific options
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsOption {
+    /// Format the filesystem before mounting (FatFS)
+    Format,
+    /// Set cluster size for FatFS (in bytes)
+    ClusterSize(u32),
+    /// Set volume label
+    VolumeLabel(String),
+    // Future options can be added here:
+    // BlockSize(u32),  // for ext4
+    // JournalMode(JournalMode), // for ext4
+}
+
+/// Collection of filesystem-specific options
+#[derive(Debug, Clone, Default)]
+pub struct FsOptions {
+    options: Vec<FsOption>,
+}
+
+impl FsOptions {
+    /// Create empty options
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Add an option (builder pattern)
+    pub fn add(mut self, option: FsOption) -> Self {
+        self.options.push(option);
+        self
+    }
+    
+    /// Check if a specific option exists
+    pub fn contains(&self, option: &FsOption) -> bool {
+        self.options.contains(option)
+    }
+    
+    /// Check if format option is set
+    pub fn has_format(&self) -> bool {
+        self.options.iter().any(|o| matches!(o, FsOption::Format))
+    }
+    
+    /// Get cluster size if specified
+    pub fn get_cluster_size(&self) -> Option<u32> {
+        self.options.iter().find_map(|o| match o {
+            FsOption::ClusterSize(size) => Some(*size),
+            _ => None,
+        })
+    }
+    
+    /// Get volume label if specified
+    pub fn get_volume_label(&self) -> Option<&str> {
+        self.options.iter().find_map(|o| match o {
+            FsOption::VolumeLabel(label) => Some(label.as_str()),
+            _ => None,
+        })
+    }
+}
+
 /// Mount options including flags and filesystem-specific options
 #[derive(Debug, Clone, Default)]
 pub struct MountOptions {
     /// Standard mount flags
     pub flags: MountFlags,
-    /// Filesystem-specific options (e.g., "uid=1000", "umask=0022")
-    pub fs_options: BTreeMap<String, String>,
+    /// Filesystem-specific options
+    pub fs_options: FsOptions,
 }
 
 impl MountOptions {
@@ -59,18 +118,31 @@ impl MountOptions {
     pub fn with_flags(flags: MountFlags) -> Self {
         Self {
             flags,
-            fs_options: BTreeMap::new(),
+            fs_options: FsOptions::new(),
         }
-    }
-
-    /// Add a filesystem-specific option
-    pub fn add_option(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.fs_options.insert(key.into(), value.into());
     }
     
     /// Builder method to set the format option
     pub fn with_format(mut self) -> Self {
-        self.fs_options.insert("format".to_string(), "true".to_string());
+        self.fs_options = self.fs_options.add(FsOption::Format);
+        self
+    }
+    
+    /// Builder method to set cluster size
+    pub fn with_cluster_size(mut self, size: u32) -> Self {
+        self.fs_options = self.fs_options.add(FsOption::ClusterSize(size));
+        self
+    }
+    
+    /// Builder method to set volume label
+    pub fn with_volume_label(mut self, label: impl Into<String>) -> Self {
+        self.fs_options = self.fs_options.add(FsOption::VolumeLabel(label.into()));
+        self
+    }
+    
+    /// Builder method to add any filesystem option
+    pub fn with_fs_option(mut self, option: FsOption) -> Self {
+        self.fs_options = self.fs_options.add(option);
         self
     }
     
@@ -83,12 +155,6 @@ impl MountOptions {
     /// Builder method to set noexec flag
     pub fn with_noexec(mut self) -> Self {
         self.flags.noexec = true;
-        self
-    }
-    
-    /// Builder method to add a custom option
-    pub fn with_option(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.fs_options.insert(key.into(), value.into());
         self
     }
 }
@@ -107,7 +173,7 @@ pub struct MountInfo {
     /// Unique mount identifier
     pub mount_id: usize,
     /// Filesystem-specific options
-    pub fs_options: BTreeMap<String, String>,
+    pub fs_options: FsOptions,
 }
 
 
@@ -139,61 +205,4 @@ impl fmt::Display for MountError {
 }
 
 
-/// Helper functions for path operations
-pub mod path_utils {
-    use alloc::string::{String, ToString};
-    use alloc::vec::Vec;
-    use alloc::format;
-
-    /// Normalize a path by resolving . and .. components
-    pub fn normalize_path(path: &str) -> String {
-        let mut components = Vec::new();
-        
-        for component in path.split('/').filter(|s| !s.is_empty()) {
-            match component {
-                "." => {} // Skip current directory
-                ".." => { components.pop(); } // Go up one level
-                _ => components.push(component),
-            }
-        }
-        
-        if components.is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{}", components.join("/"))
-        }
-    }
-
-    /// Check if a path is a subpath of another
-    pub fn is_subpath(parent: &str, child: &str) -> bool {
-        let parent = normalize_path(parent);
-        let child = normalize_path(child);
-        
-        // Special case: root is parent of everything except itself
-        if parent == "/" {
-            return true; // Everything is a subpath of root
-        }
-        
-        child.starts_with(&parent) && 
-        (child.len() == parent.len() || child.chars().nth(parent.len()) == Some('/'))
-    }
-
-    /// Get the relative path from parent to child
-    pub fn relative_path(parent: &str, child: &str) -> Option<String> {
-        let parent = normalize_path(parent);
-        let child = normalize_path(child);
-        
-        if !is_subpath(&parent, &child) {
-            return None;
-        }
-        
-        if parent == "/" {
-            Some(child[1..].to_string())
-        } else if child.len() > parent.len() + 1 {
-            Some(child[parent.len() + 1..].to_string())
-        } else {
-            Some(String::new())
-        }
-    }
-}
 

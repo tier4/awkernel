@@ -231,7 +231,7 @@ impl DmaMap {
     /// Corresponds to OpenBSD's bounce buffer allocation in _bus_dmamap_load_buffer()
     fn load_with_bounce(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         // Allocate bounce buffer
-        let pages = (size + PAGESIZE - 1) / PAGESIZE;
+        let pages = size.div_ceil(PAGESIZE);
         let bounce = DMAPool::<u8>::new(self.numa_id, pages)
             .ok_or(DmaError::OutOfMemory)?;
 

@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
-use awkernel_lib::storage::{get_all_storage_devices, StorageDeviceType};
+use awkernel_lib::storage::{get_all_storage_statuses, StorageDeviceType};
 
 static TEST_PASSED: AtomicBool = AtomicBool::new(false);
 
@@ -39,7 +39,7 @@ pub async fn run() {
 fn test_namespace_registration() -> bool {
     log::info!("Test 1: Checking NVMe namespace registration...");
     
-    let devices = get_all_storage_devices();
+    let devices = get_all_storage_statuses();
     
     if devices.is_empty() {
         log::warn!("No storage devices found - NVMe might not be present in QEMU");
@@ -78,7 +78,7 @@ fn test_namespace_registration() -> bool {
 fn test_namespace_properties() -> bool {
     log::info!("Test 2: Testing namespace properties...");
     
-    let devices = get_all_storage_devices();
+    let devices = get_all_storage_statuses();
     let nvme_devices: Vec<_> = devices.iter()
         .filter(|d| matches!(d.device_type, StorageDeviceType::NVMe))
         .collect();
@@ -118,7 +118,7 @@ async fn test_multi_block_operations() -> bool {
     
     // This test just verifies that our NVMe namespace implementation
     // properly supports the read_blocks/write_blocks methods in StorageDevice trait
-    let devices = get_all_storage_devices();
+    let devices = get_all_storage_statuses();
     let nvme_device = devices.iter()
         .find(|d| matches!(d.device_type, StorageDeviceType::NVMe));
     

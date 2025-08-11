@@ -25,3 +25,9 @@ path = "../awkernel_display"
 
 [features]
 perf = ["awkernel_shell/perf"]
+test_nvme_fatfs_rw = []
+test_nvme = []
+test_nvme_fatfs = []
+test_storage_async = []
+test_storage_interrupt = []
+test_nvme_namespace = []

@@ -45,7 +45,7 @@ fn test_storage_service_running() -> bool {
     log::info!("Test 1: Checking if storage service is running...");
     
     // The storage service should have started and registered storage devices
-    let devices = awkernel_lib::storage::get_all_storage_devices();
+    let devices = awkernel_lib::storage::get_all_storage_statuses();
     
     if devices.is_empty() {
         log::warn!("No storage devices found - this might be expected in QEMU without NVMe");
@@ -71,7 +71,7 @@ fn test_storage_device_registration() -> bool {
     log::info!("Test 2: Testing storage device registration...");
     
     // Try to get info about device 0 (if it exists)
-    match awkernel_lib::storage::get_storage_device(0) {
+    match awkernel_lib::storage::get_storage_status(0) {
         Ok(status) => {
             log::info!("Successfully retrieved storage device 0 info:");
             log::info!("  Name: {}", status.device_name);
@@ -92,7 +92,7 @@ async fn test_interrupt_handler_registration() -> bool {
     log::info!("Test 3: Testing interrupt handler registration...");
     
     // Check if we can register a waker for a storage interrupt
-    let devices = awkernel_lib::storage::get_all_storage_devices();
+    let devices = awkernel_lib::storage::get_all_storage_statuses();
     
     if devices.is_empty() {
         log::warn!("No devices to test interrupt registration");
@@ -151,7 +151,7 @@ async fn test_storage_interrupt_flow() -> bool {
     log::info!("Test 4: Testing storage interrupt flow...");
     
     // This test verifies that the storage interrupt handler is properly connected
-    let devices = awkernel_lib::storage::get_all_storage_devices();
+    let devices = awkernel_lib::storage::get_all_storage_statuses();
     
     if devices.is_empty() {
         log::warn!("No devices available for interrupt flow test");

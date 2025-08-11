@@ -77,10 +77,12 @@ enum CcbCookie {
     _QueueCmd(SubQueueEntryQ), // Queue command
 }
 
+type CcbCompletionHandler = fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>);
+
 struct Ccb {
     transfer_id: Option<u16>, // Reference to StorageTransfer
     cookie: Option<CcbCookie>,
-    done: Option<fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>)>,
+    done: Option<CcbCompletionHandler>,
     _prpl_off: usize,
     _prpl_dva: u64,
     _prpl: Option<usize>,
@@ -872,7 +874,7 @@ impl NvmeInner {
 
         // Mark the transfer as completed
         if let Some(transfer_id) = ccb.transfer_id {
-            let _ = storage::transfer_mark_completed(transfer_id, status as u16);
+            let _ = storage::transfer_mark_completed(transfer_id, status);
         }
 
         if status == NVME_CQE_SC_SUCCESS {
@@ -908,7 +910,7 @@ impl NvmeInner {
 
         if status == NVME_CQE_SC_SUCCESS {
             if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-                log::debug!("NVMe flush completed on nsid {}", nsid);
+                log::debug!("NVMe flush completed on nsid {nsid}");
             }
         } else {
             log::error!("NVMe flush failed with status: 0x{status:x}");
@@ -916,7 +918,7 @@ impl NvmeInner {
 
         // Mark the transfer as completed if we have a transfer_id
         if let Some(transfer_id) = ccb.transfer_id {
-            let _ = storage::transfer_mark_completed(transfer_id, status as u16);
+            let _ = storage::transfer_mark_completed(transfer_id, status);
         }
 
         // Return CCB to pool
@@ -1084,7 +1086,7 @@ impl NvmeInner {
                 0,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI-X handler: {:?}", e);
+                log::error!("Failed to register MSI-X handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -1124,7 +1126,7 @@ impl NvmeInner {
                 awkernel_lib::cpu::raw_cpu_id() as u32,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI handler: {:?}", e);
+                log::error!("Failed to register MSI handler: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -1147,13 +1149,11 @@ pub struct Nvme {
     admin_q: Queue,
     io_q: Queue,
     inner: RwLock<NvmeInner>,
-    device_id: u64, // Storage device ID
 }
 
 impl core::fmt::Debug for Nvme {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Nvme")
-            .field("device_id", &self.device_id)
             .field("admin_q", &"<Queue>")
             .field("io_q", &"<Queue>")
             .field("inner", &"<RwLock<NvmeInner>>")
@@ -1212,7 +1212,6 @@ impl Nvme {
             admin_q,
             io_q,
             inner: RwLock::new(inner),
-            device_id: 0, // Will be set when registered with storage manager
         };
 
         Ok(nvme)
@@ -1228,7 +1227,7 @@ impl Nvme {
                 log::warn!("No interrupts configured - device in polling mode only!");
             }
             PCIeInt::_Msi(irq) => {
-                log::info!("MSI interrupt configured with IRQ {:?}", irq);
+                log::info!("MSI interrupt configured with IRQ {irq:?}");
             }
             PCIeInt::_MsiX(irq) => {
                 log::info!("MSI-X interrupt configured:");
@@ -1238,10 +1237,10 @@ impl Nvme {
 
         // Check controller interrupt mask register
         if let Ok(intms) = read_reg(&inner.info, NVME_INTMS) {
-            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{:08x}", intms);
+            log::info!("NVME_INTMS (Interrupt Mask Set): 0x{intms:08x}");
         }
         if let Ok(intmc) = read_reg(&inner.info, NVME_INTMC) {
-            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{:08x}", intmc);
+            log::info!("NVME_INTMC (Interrupt Mask Clear): 0x{intmc:08x}");
         }
 
         log::info!("==========================================");
@@ -1265,6 +1264,25 @@ impl Nvme {
 
         // Return immediately - storage layer will wait for completion
         Ok(())
+    }
+
+    /// Get IRQs for this controller
+    pub fn irqs(&self) -> Vec<u16> {
+        let inner = self.inner.read();
+        match &inner.pcie_int {
+            PCIeInt::None => vec![],
+            PCIeInt::_Msi(irq) => vec![irq.get_irq()],
+            PCIeInt::_MsiX(irq) => vec![irq.get_irq()],
+        }
+    }
+
+    /// Handle interrupt for this controller
+    pub fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
+        let mut inner = self.inner.write();
+        match inner.intr(&self.admin_q, &self.io_q) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(StorageDevError::IoError),
+        }
     }
 }
 
@@ -1370,20 +1388,8 @@ pub(super) fn attach(
     // Initialize the storage transfer pool if not already done
     storage::init_transfer_pool();
 
-    // Register the controller with storage manager to get device_id
-    // We need to temporarily wrap in Arc for registration
-    let temp_arc = Arc::new(nvme);
-    // Controller doesn't have a specific namespace, so pass None (pass concrete type)
-    let device_id = storage::add_storage_device(temp_arc.clone(), None);
-
-    // Get mutable access back to set device_id
-    // This is safe because we're the only owner at this point
-    let nvme_ptr = Arc::as_ptr(&temp_arc) as *mut Nvme;
-    unsafe {
-        (*nvme_ptr).device_id = device_id;
-    }
-
-    let nvme_arc = temp_arc;
+    // Create Arc for the controller
+    let nvme_arc = Arc::new(nvme);
 
     // Store the device globally
     let mut device = NVME_DEVICE.write();
@@ -1411,9 +1417,7 @@ pub(super) fn attach(
                 }
 
                 log::info!(
-                    "NVMe: Registered namespace {} as storage device {}",
-                    nsid,
-                    storage_id
+                    "NVMe: Registered namespace {nsid} as storage device {storage_id}"
                 );
             }
         }
@@ -1441,104 +1445,14 @@ fn validate_io_buffer(
         if buf_len != total_size {
             return Err(BlockDeviceError::InvalidBlock);
         }
-    } else {
-        if buf_len < total_size {
-            return Err(BlockDeviceError::InvalidBlock);
-        }
+    } else if buf_len < total_size {
+        return Err(BlockDeviceError::InvalidBlock);
     }
     
     Ok(blocks)
 }
 
 // StorageDevice implementation for NVMe
-impl StorageDevice for Nvme {
-    fn device_id(&self) -> u64 {
-        self.device_id
-    }
-
-    fn device_name(&self) -> Cow<'static, str> {
-        let inner = self.inner.read();
-        let bfd = inner.info.get_bfd();
-        format!("{bfd}: NVMe Controller").into()
-    }
-
-    fn device_short_name(&self) -> Cow<'static, str> {
-        DEVICE_SHORT_NAME.into()
-    }
-
-    fn device_type(&self) -> StorageDeviceType {
-        StorageDeviceType::NVMe
-    }
-
-    fn irqs(&self) -> Vec<u16> {
-        let inner = self.inner.read();
-        match &inner.pcie_int {
-            PCIeInt::None => vec![],
-            PCIeInt::_Msi(irq) => vec![irq.get_irq()],
-            PCIeInt::_MsiX(irq) => vec![irq.get_irq()],
-        }
-    }
-
-    fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
-        let mut inner = self.inner.write();
-        match inner.intr(&self.admin_q, &self.io_q) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(StorageDevError::IoError),
-        }
-    }
-
-    // Block device methods
-
-    fn block_size(&self) -> usize {
-        // For now, assume 512 byte sectors
-        // TODO: Read actual block size from namespace data
-        512
-    }
-
-    fn as_any(&self) -> &dyn core::any::Any {
-        self
-    }
-
-    fn num_blocks(&self) -> u64 {
-        // TODO: Read actual capacity from namespace data
-        // For now return a placeholder
-        1024 * 1024 // 512 MB with 512 byte blocks
-    }
-
-    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()> {
-        // Validate buffer size
-        validate_io_buffer(self.block_size(), transfer_id, buf.len(), false)?;
-
-        // Submit the I/O operation
-        let mut inner = self.inner.write();
-        inner
-            .submit_io(&self.io_q, transfer_id, buf)
-            .map_err(|_| BlockDeviceError::IoError)
-    }
-
-    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()> {
-        // Validate buffer size
-        validate_io_buffer(self.block_size(), transfer_id, buf.len(), true)?;
-
-        // Submit the I/O operation
-        let mut inner = self.inner.write();
-        inner
-            .submit_io(&self.io_q, transfer_id, buf)
-            .map_err(|_| BlockDeviceError::IoError)
-    }
-
-    fn flush(&self, transfer_id: u16) -> BlockResult<()> {
-        // Namespace ID is already set by storage layer (0 for controller)
-        // Submit the flush operation
-        let mut inner = self.inner.write();
-        inner
-            .submit_flush(&self.io_q, transfer_id)
-            .map_err(|_| BlockDeviceError::IoError)?;
-
-        // Return immediately - storage layer will wait for completion
-        Ok(())
-    }
-}
 
 /// Represents a single NVMe namespace
 pub struct NvmeNamespace {

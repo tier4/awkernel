@@ -124,7 +124,7 @@ impl StorageDevice for MemoryBlockDevice {
                 .copy_from_slice(&data[offset..offset + self.block_size]);
         }
         
-        // Mark transfer as completed successfully
+        // Mark transfer as completed immediately (memory operations are synchronous)
         let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
         
         Ok(())
@@ -154,9 +154,15 @@ impl StorageDevice for MemoryBlockDevice {
                 .copy_from_slice(&buf[buf_offset..buf_offset + self.block_size]);
         }
         
-        // Mark transfer as completed successfully
+        // Mark transfer as completed immediately (memory operations are synchronous)
         let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
         
+        Ok(())
+    }
+    
+    fn flush(&self, transfer_id: u16) -> BlockResult<()> {
+        // Memory device flushes are no-op but we complete the transfer for consistency
+        let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
         Ok(())
     }
 }

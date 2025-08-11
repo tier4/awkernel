@@ -25,7 +25,7 @@ async fn test_format_and_mount() {
     info!("=== Testing Format and Mount ===");
     
     // Create a memory block device with 512-byte blocks, 2048 blocks (1MB)
-    let device = Arc::new(MemoryBlockDevice::new(512, 2048));
+    let device: Arc<dyn awkernel_lib::storage::StorageDevice> = Arc::new(MemoryBlockDevice::new(512, 2048));
     info!("Created 1MB block device with 512-byte blocks");
     
     // Format the device with FAT filesystem
@@ -68,7 +68,7 @@ async fn test_file_operations() {
     info!("\n=== Testing File Operations ===");
     
     // Create a larger block device with 4KB blocks
-    let device = Arc::new(MemoryBlockDevice::new(4096, 512)); // 2MB total
+    let device: Arc<dyn awkernel_lib::storage::StorageDevice> = Arc::new(MemoryBlockDevice::new(4096, 512)); // 2MB total
     info!("Created 2MB block device with 4KB blocks");
     
     // Create and format FAT filesystem
@@ -143,7 +143,7 @@ async fn test_different_block_sizes() {
         info!("\nTesting {} byte blocks x {} blocks = {} KB", 
               block_size, num_blocks, total_size / 1024);
         
-        let device = Arc::new(MemoryBlockDevice::new(*block_size, *num_blocks as u64));
+        let device: Arc<dyn awkernel_lib::storage::StorageDevice> = Arc::new(MemoryBlockDevice::new(*block_size, *num_blocks as u64));
         
         match create_fatfs_from_block_device(device, true) {
             Ok(fs) => {

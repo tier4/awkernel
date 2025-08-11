@@ -43,5 +43,12 @@ pub async fn run() {
     .await;
 
     awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-    awkernel_shell::init();
+    
+    // Spawn shell asynchronously so it doesn't block tests
+    awkernel_async_lib::spawn(
+        "[Awkernel] shell".into(),
+        async { awkernel_shell::init() },
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 }

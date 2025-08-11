@@ -51,7 +51,7 @@ pub async fn run() {
 fn test_storage_devices_available() -> bool {
     log::info!("Test 1: Checking for storage devices...");
     
-    let devices = storage::get_all_storage_devices();
+    let devices = storage::get_all_storage_statuses();
     
     if devices.is_empty() {
         log::warn!("No storage devices found - cannot test async operations");
@@ -76,7 +76,7 @@ fn test_storage_devices_available() -> bool {
 async fn test_async_read() -> bool {
     log::info!("Test 2: Testing async read operation...");
     
-    let devices = storage::get_all_storage_devices();
+    let devices = storage::get_all_storage_statuses();
     if devices.is_empty() {
         return false;
     }
@@ -107,7 +107,7 @@ async fn test_async_read() -> bool {
 async fn test_async_write() -> bool {
     log::info!("Test 3: Testing async write operation...");
     
-    let devices = storage::get_all_storage_devices();
+    let devices = storage::get_all_storage_statuses();
     if devices.is_empty() {
         return false;
     }
@@ -162,7 +162,7 @@ async fn test_async_write() -> bool {
 async fn test_concurrent_operations() -> bool {
     log::info!("Test 4: Testing concurrent async operations...");
     
-    let devices = storage::get_all_storage_devices();
+    let devices = storage::get_all_storage_statuses();
     if devices.is_empty() {
         return false;
     }

@@ -5,4 +5,5 @@ pub mod fs_capabilities;
 pub mod io;
 pub mod memfs;
 pub mod mount_types;
+pub mod path_utils;
 pub mod vfs;

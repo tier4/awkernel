@@ -1,54 +1,32 @@
-//! Block device abstraction for AWKernel
-//!
-//! This module provides types for block device operations
-//! that will be used by filesystems like ext4.
+//! Block device adapter that works with any StorageDevice implementation
+//! This allows mounting of any device type without knowing the concrete type at compile time
 
-use super::error::IoError;
-use super::io::{IoBase, Read, Seek, SeekFrom, Write};
-use crate::storage::{StorageDevice, allocate_transfer_sync, transfer_set_params, transfer_is_completed, free_transfer, DEFAULT_IO_TIMEOUT_MS};
+use crate::{
+    storage::{
+        allocate_transfer_sync, free_transfer, get_device_namespace, transfer_set_params,
+        transfer_set_poll_mode, StorageDevice, transfer_is_completed,
+    },
+};
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
 use core::cmp::min;
-use core::fmt::{self, Debug, Display};
 
-/// Errors that can occur during block device operations
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BlockDeviceError {
-    /// Invalid block number
-    InvalidBlock,
-    /// I/O error occurred
-    IoError,
-    /// Device is read-only
-    ReadOnly,
-    /// Operation not supported
-    NotSupported,
-}
+use super::{
+    error::IoError,
+    io::{IoBase, Read, Seek, SeekFrom, Write},
+};
 
-/// Result type for block device operations
-pub type BlockResult<T> = Result<T, BlockDeviceError>;
+/// Default timeout for I/O operations in milliseconds
+const DEFAULT_IO_TIMEOUT_MS: u64 = 5000;
 
-
-/// Information about a block device
-#[derive(Debug, Clone)]
-pub struct BlockDeviceInfo {
-    /// Device identifier
-    pub device_id: alloc::string::String,
-    /// Block size in bytes
-    pub block_size: usize,
-    /// Total number of blocks
-    pub num_blocks: u64,
-    /// Whether the device is read-only
-    pub read_only: bool,
-}
-
-/// Adapter that provides file I/O interface for block devices
+/// A block device adapter that provides file-like I/O operations
+/// for any storage device implementing the StorageDevice trait.
 /// 
-/// This adapter works with both:
-/// - MemoryBlockDevice: Uses dummy transfer_id (0)
-/// - Real devices (NVMe, etc.): Properly allocates and manages transfers with polling
-#[derive(Debug)]
-pub struct BlockDeviceAdapter<D: StorageDevice> {
-    /// The underlying block device
-    device: Arc<D>,
+/// This adapter uses the unified transfer API for all device types:
+/// - MemoryBlockDevice: Completes transfers synchronously
+/// - Hardware devices (NVMe, etc.): May complete transfers asynchronously
+pub struct BlockDeviceAdapter {
+    /// The underlying block device as a trait object
+    device: Arc<dyn StorageDevice>,
     /// Current position in the virtual file
     position: u64,
     /// Whether the adapter is in read-only mode
@@ -68,9 +46,21 @@ struct BlockCache {
     dirty: bool,
 }
 
-impl<D: StorageDevice> BlockDeviceAdapter<D> {
+impl core::fmt::Debug for BlockDeviceAdapter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BlockDeviceAdapter")
+            .field("device_id", &self.device.device_id())
+            .field("device_name", &self.device.device_name())
+            .field("position", &self.position)
+            .field("read_only", &self.read_only)
+            .field("block_cache", &self.block_cache.as_ref().map(|c| c.block_num))
+            .finish()
+    }
+}
+
+impl BlockDeviceAdapter {
     /// Create a new block device adapter
-    pub fn new(device: Arc<D>) -> Self {
+    pub fn new(device: Arc<dyn StorageDevice>) -> Self {
         Self {
             device,
             position: 0,
@@ -80,7 +70,7 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
     }
 
     /// Create a new read-only block device adapter
-    pub fn new_read_only(device: Arc<D>) -> Self {
+    pub fn new_read_only(device: Arc<dyn StorageDevice>) -> Self {
         Self {
             device,
             position: 0,
@@ -99,9 +89,8 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
         // Wait for completion if device didn't mark it complete
         if let Ok(completed) = transfer_is_completed(transfer_id) {
             if !completed {
-                // For async devices, we need to wait
-                // For sync devices like MemoryBlockDevice, it's already complete
-                for _ in 0..50000 {  // 5 second timeout with 100us intervals
+                // Poll for completion with timeout
+                for _ in 0..50000 {  // ~5 second timeout with 100us delays
                     if let Ok(true) = transfer_is_completed(transfer_id) {
                         break;
                     }
@@ -128,9 +117,9 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
                     .map_err(|_| BlockDeviceAdapterError::IoError)?;
                 
                 // Set up transfer parameters
-                let nsid = crate::storage::get_device_namespace(self.device.device_id()).unwrap_or(1);
+                let nsid = get_device_namespace(self.device.device_id()).unwrap_or(1);
                 let _ = transfer_set_params(transfer_id, block_num, 1, true, nsid);
-                let _ = crate::storage::transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS);
+                let _ = transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS as u32);
                 
                 // Perform the read (read_blocks works for single blocks too)
                 let result = self.device
@@ -160,23 +149,18 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
     fn flush_cache(&mut self) -> Result<(), BlockDeviceAdapterError> {
         if let Some(cache) = &self.block_cache {
             if cache.dirty && !self.read_only {
-                // We need to get mutable access to the device through Arc
-                // This is safe because we're the only one with access to this adapter
-                let device = Arc::get_mut(&mut self.device)
-                    .ok_or(BlockDeviceAdapterError::DeviceBusy)?;
-                
-                // All devices now use transfers uniformly
-                let device_id = device.device_id();
+                // No need for mutable access - StorageDevice methods take &self
+                let device_id = self.device.device_id();
                 let transfer_id = allocate_transfer_sync(device_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError)?;
                 
                 // Set up transfer parameters
-                let nsid = crate::storage::get_device_namespace(device.device_id()).unwrap_or(1);
+                let nsid = get_device_namespace(self.device.device_id()).unwrap_or(1);
                 let _ = transfer_set_params(transfer_id, cache.block_num, 1, false, nsid);
-                let _ = crate::storage::transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS);
+                let _ = transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS as u32);
                 
                 // Perform the write (write_blocks works for single blocks too)
-                let result = device
+                let result = self.device
                     .write_blocks(&cache.data, transfer_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
@@ -200,11 +184,11 @@ impl<D: StorageDevice> BlockDeviceAdapter<D> {
     }
 }
 
-impl<D: StorageDevice> IoBase for BlockDeviceAdapter<D> {
+impl IoBase for BlockDeviceAdapter {
     type Error = BlockDeviceAdapterError;
 }
 
-impl<D: StorageDevice> Read for BlockDeviceAdapter<D> {
+impl Read for BlockDeviceAdapter {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if buf.is_empty() {
             return Ok(0);
@@ -241,7 +225,7 @@ impl<D: StorageDevice> Read for BlockDeviceAdapter<D> {
     }
 }
 
-impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
+impl Write for BlockDeviceAdapter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         if self.read_only {
             return Err(BlockDeviceAdapterError::ReadOnly);
@@ -252,10 +236,6 @@ impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
         }
 
         let size = self.size();
-        if self.position >= size {
-            return Ok(0); // Can't write past end
-        }
-
         let block_size = self.device.block_size();
         let mut bytes_written = 0;
 
@@ -275,6 +255,7 @@ impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
                 cache.data[offset_in_block..offset_in_block + to_write]
                     .copy_from_slice(&buf[bytes_written..bytes_written + to_write]);
             }
+            
             self.mark_cache_dirty();
             
             bytes_written += to_write;
@@ -287,19 +268,30 @@ impl<D: StorageDevice> Write for BlockDeviceAdapter<D> {
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.flush_cache()?;
         
-        // Also flush the underlying device
+        // Flush the underlying device
         if !self.read_only {
-            let device = Arc::get_mut(&mut self.device)
-                .ok_or(BlockDeviceAdapterError::DeviceBusy)?;
-            // Memory devices don't need real transfers, pass dummy value
-            device.flush(0).map_err(|_| BlockDeviceAdapterError::IoError)?;
+            // Allocate transfer for flush operation
+            let transfer_id = allocate_transfer_sync(self.device.device_id())
+                .map_err(|_| BlockDeviceAdapterError::IoError)?;
+            
+            // Perform flush
+            let result = self.device.flush(transfer_id)
+                .map_err(|_| BlockDeviceAdapterError::IoError);
+            
+            // Wait for completion (memory devices complete immediately)
+            Self::wait_for_transfer_completion(transfer_id)?;
+            
+            // Always free the transfer
+            free_transfer(transfer_id);
+            
+            result?;
         }
         
         Ok(())
     }
 }
 
-impl<D: StorageDevice> Seek for BlockDeviceAdapter<D> {
+impl Seek for BlockDeviceAdapter {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let size = self.size() as i64;
         let new_position = match pos {
@@ -317,15 +309,15 @@ impl<D: StorageDevice> Seek for BlockDeviceAdapter<D> {
     }
 }
 
-/// Errors that can occur in the block device adapter
-#[derive(Debug, Clone)]
+/// Error types for block device operations
+#[derive(Debug)]
 pub enum BlockDeviceAdapterError {
-    /// Out of bounds access
-    OutOfBounds,
-    /// I/O error from the block device
+    /// Generic I/O error
     IoError,
-    /// Device is read-only
+    /// Attempt to write to a read-only device
     ReadOnly,
+    /// Seek position out of bounds
+    OutOfBounds,
     /// Failed to write whole buffer
     WriteZero,
     /// Failed to fill whole buffer
@@ -338,12 +330,12 @@ pub enum BlockDeviceAdapterError {
     Other(String),
 }
 
-impl Display for BlockDeviceAdapterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for BlockDeviceAdapterError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::OutOfBounds => write!(f, "Out of bounds access"),
-            Self::IoError => write!(f, "Block device I/O error"),
+            Self::IoError => write!(f, "I/O error"),
             Self::ReadOnly => write!(f, "Device is read-only"),
+            Self::OutOfBounds => write!(f, "Seek position out of bounds"),
             Self::WriteZero => write!(f, "Failed to write whole buffer"),
             Self::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
             Self::Interrupted => write!(f, "Operation interrupted"),
@@ -355,71 +347,46 @@ impl Display for BlockDeviceAdapterError {
 
 impl IoError for BlockDeviceAdapterError {
     fn is_interrupted(&self) -> bool {
-        matches!(self, Self::Interrupted)
+        matches!(self, BlockDeviceAdapterError::Interrupted)
     }
 
     fn new_unexpected_eof_error() -> Self {
-        Self::UnexpectedEof
+        BlockDeviceAdapterError::UnexpectedEof
     }
 
     fn new_write_zero_error() -> Self {
-        Self::WriteZero
+        BlockDeviceAdapterError::WriteZero
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::file::memfs::MemoryBlockDevice;
-
-    #[test]
-    fn test_read_write() {
-        let device = Arc::new(MemoryBlockDevice::new(512, 10));
-        let mut adapter = BlockDeviceAdapter::new(device);
-
-        // Write some data
-        let data = b"Hello, World!";
-        assert_eq!(adapter.write(data).unwrap(), data.len());
-
-        // Seek back to start
-        assert_eq!(adapter.seek(SeekFrom::Start(0)).unwrap(), 0);
-
-        // Read it back
-        let mut buf = vec![0u8; data.len()];
-        assert_eq!(adapter.read(&mut buf).unwrap(), data.len());
-        assert_eq!(&buf, data);
-    }
-
-    #[test]
-    fn test_seek() {
-        let device = Arc::new(MemoryBlockDevice::new(512, 10));
-        let mut adapter = BlockDeviceAdapter::new(device);
-
-        // Test various seek operations
-        assert_eq!(adapter.seek(SeekFrom::Start(100)).unwrap(), 100);
-        assert_eq!(adapter.seek(SeekFrom::Current(50)).unwrap(), 150);
-        assert_eq!(adapter.seek(SeekFrom::End(-100)).unwrap(), 5120 - 100);
-
-        // Test out of bounds
-        assert!(adapter.seek(SeekFrom::Start(10000)).is_err());
-        assert!(adapter.seek(SeekFrom::End(100)).is_err());
-    }
-
-    #[test]
-    fn test_cross_block_access() {
-        let device = Arc::new(MemoryBlockDevice::new(512, 10));
-        let mut adapter = BlockDeviceAdapter::new(device);
-
-        // Write data that spans multiple blocks
-        let data = vec![0x42u8; 1024];
-        assert_eq!(adapter.seek(SeekFrom::Start(256)).unwrap(), 256);
-        assert_eq!(adapter.write(&data).unwrap(), 1024);
-
-        // Read it back
-        assert_eq!(adapter.seek(SeekFrom::Start(256)).unwrap(), 256);
-        let mut buf = vec![0u8; 1024];
-        assert_eq!(adapter.read(&mut buf).unwrap(), 1024);
-        assert_eq!(buf, data);
+impl From<BlockDeviceAdapterError> for super::vfs::error::VfsIoError {
+    fn from(e: BlockDeviceAdapterError) -> Self {
+        use super::vfs::error::VfsIoError;
+        match e {
+            BlockDeviceAdapterError::IoError => VfsIoError::Other("I/O error".into()),
+            BlockDeviceAdapterError::ReadOnly => VfsIoError::Other("Device is read-only".into()),
+            BlockDeviceAdapterError::OutOfBounds => VfsIoError::Other("Seek position out of bounds".into()),
+            BlockDeviceAdapterError::WriteZero => VfsIoError::WriteZero,
+            BlockDeviceAdapterError::UnexpectedEof => VfsIoError::UnexpectedEof,
+            BlockDeviceAdapterError::Interrupted => VfsIoError::Interrupted,
+            BlockDeviceAdapterError::DeviceBusy => VfsIoError::Other("Device is busy".into()),
+            BlockDeviceAdapterError::Other(msg) => VfsIoError::Other(msg),
+        }
     }
 }
 
+// Legacy error types for compatibility
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockDeviceError {
+    /// Invalid block number
+    InvalidBlock,
+    /// I/O error occurred
+    IoError,
+    /// Device is read-only
+    ReadOnly,
+    /// Operation not supported
+    NotSupported,
+}
+
+/// Result type for block device operations
+pub type BlockResult<T> = Result<T, BlockDeviceError>;

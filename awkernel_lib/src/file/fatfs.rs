@@ -24,12 +24,11 @@ use crate::{
 
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 use core::alloc::{GlobalAlloc, Layout};
-use core::fmt::Debug;
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024;
 
 /// Type alias for the memory-based FAT filesystem
-type MemoryFatFs = FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>;
+type MemoryFatFs = FileSystem<BlockDeviceAdapter, NullTimeProvider, LossyOemCpConverter>;
 
 static FAT_FS_INSTANCE: RwLock<Option<Arc<MemoryFatFs>>> = RwLock::new(None);
 
@@ -59,7 +58,7 @@ pub fn init_memory_fatfs() -> Result<(), String> {
 
     // Create a MemoryBlockDevice with 512 byte blocks using the pre-allocated memory
     let block_size = 512;
-    let memory_device = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
+    let memory_device: Arc<dyn StorageDevice> = Arc::new(MemoryBlockDevice::from_vec(disk_data, block_size));
     
     // Create the filesystem using BlockDeviceAdapter
     let file_system = match create_fatfs_from_block_device(memory_device, true) {
@@ -74,7 +73,7 @@ pub fn init_memory_fatfs() -> Result<(), String> {
     Ok(())
 }
 
-pub fn get_memory_fatfs() -> Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice>, NullTimeProvider, LossyOemCpConverter>> {
+pub fn get_memory_fatfs() -> Arc<FileSystem<BlockDeviceAdapter, NullTimeProvider, LossyOemCpConverter>> {
     let fs_guard = FAT_FS_INSTANCE.read();
 
     (*fs_guard)
@@ -83,10 +82,10 @@ pub fn get_memory_fatfs() -> Arc<FileSystem<BlockDeviceAdapter<MemoryBlockDevice
 }
 
 /// Create a FAT filesystem from a block device
-pub fn create_fatfs_from_block_device<D: StorageDevice + Debug + 'static>(
-    device: Arc<D>,
+pub fn create_fatfs_from_block_device(
+    device: Arc<dyn StorageDevice>,
     format: bool,
-) -> Result<FileSystem<BlockDeviceAdapter<D>, NullTimeProvider, LossyOemCpConverter>, String> {
+) -> Result<FileSystem<BlockDeviceAdapter, NullTimeProvider, LossyOemCpConverter>, String> {
     let mut adapter = BlockDeviceAdapter::new(device);
     
     if format {
@@ -98,9 +97,23 @@ pub fn create_fatfs_from_block_device<D: StorageDevice + Debug + 'static>(
         .map_err(|e| format!("Failed to create FileSystem instance: {e:?}"))
 }
 
+/// Create a FAT filesystem from a block device adapter
+pub fn create_fatfs_from_adapter(
+    mut adapter: BlockDeviceAdapter,
+    format: bool,
+) -> Result<FileSystem<BlockDeviceAdapter, NullTimeProvider, LossyOemCpConverter>, String> {
+    if format {
+        format_volume(&mut adapter, FormatVolumeOptions::new())
+            .map_err(|e| format!("Failed to format FAT volume: {e:?}"))?;
+    }
+    
+    FileSystem::new(adapter, FsOptions::new())
+        .map_err(|e| format!("Failed to create FileSystem instance: {e:?}"))
+}
+
 /// Format a block device with FAT filesystem
-pub fn format_block_device_as_fat<D: StorageDevice + Debug + 'static>(
-    device: Arc<D>,
+pub fn format_block_device_as_fat(
+    device: Arc<dyn StorageDevice>,
 ) -> Result<(), String> {
     let mut adapter = BlockDeviceAdapter::new(device);
     

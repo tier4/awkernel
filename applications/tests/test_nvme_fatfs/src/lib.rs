@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::{sync::Arc, vec, vec::Vec};
 use awkernel_lib::{
-    storage::{get_all_storage_devices, StorageDeviceType},
+    storage::{get_all_storage_statuses, StorageDeviceType},
     file::{
         memfs::MemoryBlockDevice,
         fatfs::{create_fatfs_from_block_device, fs::FileSystem},
@@ -49,7 +49,7 @@ pub async fn run() {
 async fn test_nvme_presence() -> bool {
     info!("Test 1: Checking for NVMe devices...");
     
-    let devices = get_all_storage_devices();
+    let devices = get_all_storage_statuses();
     
     let nvme_devices: Vec<_> = devices.iter()
         .filter(|d| matches!(d.device_type, StorageDeviceType::NVMe))
@@ -199,7 +199,7 @@ async fn test_nvme_with_fatfs() {
     info!("Test 4: Testing NVMe with FatFS (if available)...");
     
     // Find NVMe devices using the storage manager
-    let devices = get_all_storage_devices();
+    let devices = get_all_storage_statuses();
     let nvme_devices: Vec<_> = devices.iter()
         .filter(|d| matches!(d.device_type, StorageDeviceType::NVMe))
         .collect();
