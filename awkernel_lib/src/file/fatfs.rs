@@ -11,7 +11,7 @@ use crate::{
     allocator::System,
     storage::StorageDevice,
     file::{
-        block_device::BlockDeviceAdapter,
+        block_device_adapter::BlockDeviceAdapter,
         fatfs::{
             fs::{format_volume, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter},
             time::NullTimeProvider,

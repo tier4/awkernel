@@ -170,9 +170,7 @@ async fn test_nvme_fatfs_full() {
             nvme_info.interface_id,
             awkernel_async_lib::file::mount::FS_TYPE_FATFS,
             awkernel_lib::file::mount_types::MountOptions::new(), // Skip formatting for performance
-        )
-        .await
-        {
+        ) {
             Ok(()) => {
                 info!("  ✓ Successfully mounted NVMe namespace at /nvme");
 
@@ -346,9 +344,7 @@ async fn test_memory_with_async_mount() {
         device_id,
         awkernel_async_lib::file::mount::FS_TYPE_FATFS,
         awkernel_lib::file::mount_types::MountOptions::new().with_format(),
-    )
-    .await
-    {
+    ) {
         Ok(()) => {
             info!("  ✓ Mounted memory device at /mem_test");
 

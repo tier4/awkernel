@@ -9,7 +9,7 @@ use awkernel_lib::{
     delay::wait_microsec,
     dma_map::{DmaMap, DmaSyncOp, DmaTag},
     dma_pool::DMAPool,
-    file::block_device::{BlockDeviceError, BlockResult},
+    file::block_device_adapter::{BlockDeviceError, BlockResult},
     interrupt::IRQ,
     paging::PAGESIZE,
     storage::{self, StorageDevError, StorageDevice, StorageDeviceType},

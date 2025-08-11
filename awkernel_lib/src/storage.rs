@@ -21,7 +21,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::file::block_device::BlockResult;
+use crate::file::block_device_adapter::BlockResult;
 
 #[derive(Debug)]
 pub enum StorageManagerError {

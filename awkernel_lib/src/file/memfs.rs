@@ -1,6 +1,6 @@
 //! Memory-based filesystem implementations
 
-use super::block_device::{BlockDeviceError, BlockResult};
+use super::block_device_adapter::{BlockDeviceError, BlockResult};
 use crate::storage::{transfer_get_info, transfer_mark_completed, StorageDevice, StorageDevError, StorageDeviceType};
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{borrow::Cow, sync::Arc, vec, vec::Vec};

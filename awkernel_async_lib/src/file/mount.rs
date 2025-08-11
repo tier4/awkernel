@@ -18,7 +18,7 @@ use alloc::{
 use awkernel_lib::{
     storage::{self},
     file::{
-        block_device::BlockDeviceAdapter,
+        block_device_adapter::BlockDeviceAdapter,
         fatfs::create_fatfs_from_adapter,
         mount_types::{
             MountInfo, MountOptions, MountError, generate_mount_id,
@@ -199,7 +199,7 @@ pub fn list_mounts() -> Vec<MountInfo> {
 
 /// Mount a filesystem on a storage device
 /// The device is managed as dyn StorageDevice, but downcasted when needed (e.g., for FatFS)
-pub async fn mount(
+pub fn mount(
     path: impl Into<String>,
     device_id: u64,
     fs_type: impl Into<String>,

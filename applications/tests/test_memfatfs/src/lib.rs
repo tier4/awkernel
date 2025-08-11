@@ -33,7 +33,7 @@ async fn memfatfs_test() {
 
     // Mount the FAT filesystem
     let mount_options = MountOptions::new();
-    if let Err(e) = mount("/", device, "fatfs", mount_options).await {
+    if let Err(e) = mount("/", device, "fatfs", mount_options) {
         log::error!("Failed to mount FAT filesystem: {e:?}");
         return;
     }

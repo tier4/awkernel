@@ -12,7 +12,7 @@ use awkernel_lib::{
         },
         fs_capabilities::FsCapabilities,
         io::{Read, Seek, SeekFrom, Write},
-        block_device::BlockDeviceAdapter,
+        block_device_adapter::BlockDeviceAdapter,
         vfs::{
             error::{VfsError, VfsErrorKind, VfsIoError, VfsResult},
             path::{VfsFileType, VfsMetadata},

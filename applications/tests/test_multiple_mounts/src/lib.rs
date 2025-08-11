@@ -33,7 +33,7 @@ async fn multiple_mounts_test() {
     };
     let mut data_options = MountOptions::new();
     data_options.fs_options.insert("format".into(), "true".into());
-    match mount("/data", "data", "fatfs", data_device, data_options).await {
+    match mount("/data", "data", "fatfs", data_device, data_options) {
         Ok(_) => log::info!("Mounted filesystem at /data"),
         Err(e) => {
             log::error!("Failed to mount at /data: {:?}", e);
@@ -51,7 +51,7 @@ async fn multiple_mounts_test() {
     };
     let mut temp_options = MountOptions::new();
     temp_options.fs_options.insert("format".into(), "true".into());
-    match mount("/temp", "temp", "fatfs", temp_device, temp_options).await {
+    match mount("/temp", "temp", "fatfs", temp_device, temp_options) {
         Ok(_) => log::info!("Mounted filesystem at /temp"),
         Err(e) => {
             log::error!("Failed to mount at /temp: {:?}", e);

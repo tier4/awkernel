@@ -85,6 +85,7 @@ impl BlockDeviceAdapter {
     }
 
     /// Helper function to wait for transfer completion
+    #[allow(dead_code)]
     fn wait_for_transfer_completion(transfer_id: u16) -> Result<(), BlockDeviceAdapterError> {
         // Wait for completion if device didn't mark it complete
         if let Ok(completed) = transfer_is_completed(transfer_id) {
@@ -126,9 +127,6 @@ impl BlockDeviceAdapter {
                     .read_blocks(&mut data, transfer_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
-                // Wait for completion
-                Self::wait_for_transfer_completion(transfer_id)?;
-                
                 // Always free the transfer
                 free_transfer(transfer_id);
                 
@@ -163,9 +161,6 @@ impl BlockDeviceAdapter {
                 let result = self.device
                     .write_blocks(&cache.data, transfer_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
-                
-                // Wait for completion
-                Self::wait_for_transfer_completion(transfer_id)?;
                 
                 // Always free the transfer
                 free_transfer(transfer_id);
@@ -277,9 +272,6 @@ impl Write for BlockDeviceAdapter {
             // Perform flush
             let result = self.device.flush(transfer_id)
                 .map_err(|_| BlockDeviceAdapterError::IoError);
-            
-            // Wait for completion (memory devices complete immediately)
-            Self::wait_for_transfer_completion(transfer_id)?;
             
             // Always free the transfer
             free_transfer(transfer_id);

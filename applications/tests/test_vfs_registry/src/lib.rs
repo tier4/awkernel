@@ -35,7 +35,7 @@ fn test_vfs_registry_basic() {
             "fatfs",
             root_device,
             root_options,
-        ).await.expect("Failed to mount root filesystem");
+        ).expect("Failed to mount root filesystem");
         println!("Root filesystem mounted");
         
         // Check if registered
@@ -88,36 +88,36 @@ fn test_mount_aware_path_operations() {
         
         // Test file operations on root
         let root_file = AsyncVfsPath::new("/test.txt");
-        let mut writer = root_file.create_file().await.expect("Failed to create file");
-        writer.write_all(b"Root file content").await.expect("Failed to write");
-        writer.flush().await.expect("Failed to flush");
+        let mut writer = root_file.create_file().expect("Failed to create file");
+        writer.write_all(b"Root file content").expect("Failed to write");
+        writer.flush().expect("Failed to flush");
         drop(writer);
         
-        assert!(root_file.exists().await.expect("Failed to check existence"));
+        assert!(root_file.exists().expect("Failed to check existence"));
         println!("Root file created successfully");
         
         // Test file operations on disk1
         let disk1_dir = AsyncVfsPath::new("/mnt/disk1/data");
-        disk1_dir.create_dir().await.expect("Failed to create directory");
+        disk1_dir.create_dir().expect("Failed to create directory");
         
         let disk1_file = AsyncVfsPath::new("/mnt/disk1/data/file.txt");
-        let mut writer = disk1_file.create_file().await.expect("Failed to create file");
-        writer.write_all(b"Disk1 file content").await.expect("Failed to write");
-        writer.flush().await.expect("Failed to flush");
+        let mut writer = disk1_file.create_file().expect("Failed to create file");
+        writer.write_all(b"Disk1 file content").expect("Failed to write");
+        writer.flush().expect("Failed to flush");
         drop(writer);
         
-        assert!(disk1_file.exists().await.expect("Failed to check existence"));
+        assert!(disk1_file.exists().expect("Failed to check existence"));
         println!("Disk1 file created successfully");
         
         // Test directory listing
         let disk1_data = AsyncVfsPath::new("/mnt/disk1/data");
-        let entries = disk1_data.read_dir().await.expect("Failed to read directory");
+        let entries = disk1_data.read_dir().expect("Failed to read directory");
         assert_eq!(entries.len(), 1);
         println!("Directory listing works correctly");
         
         // Test that files are isolated between filesystems
         let disk2_file = AsyncVfsPath::new("/mnt/disk2/data/file.txt");
-        assert!(!disk2_file.exists().await.expect("Failed to check existence"));
+        assert!(!disk2_file.exists().expect("Failed to check existence"));
         println!("Filesystem isolation verified");
     });
     
@@ -150,22 +150,22 @@ fn test_cross_filesystem_operations() {
         
         // Create source file
         let src_file = AsyncVfsPath::new("/source.txt");
-        let mut writer = src_file.create_file().await.expect("Failed to create source");
-        writer.write_all(b"Source content for copy test").await.expect("Failed to write");
-        writer.flush().await.expect("Failed to flush");
+        let mut writer = src_file.create_file().expect("Failed to create source");
+        writer.write_all(b"Source content for copy test").expect("Failed to write");
+        writer.flush().expect("Failed to flush");
         drop(writer);
         
         // Copy to different filesystem
         let dest_file = AsyncVfsPath::new("/backup/copy.txt");
-        src_file.copy_file(&dest_file).await.expect("Failed to copy file");
+        src_file.copy_file(&dest_file).expect("Failed to copy file");
         
         // Verify copy
-        assert!(dest_file.exists().await.expect("Failed to check existence"));
+        assert!(dest_file.exists().expect("Failed to check existence"));
         
         // Read and verify content
-        let mut reader = dest_file.open_file().await.expect("Failed to open file");
+        let mut reader = dest_file.open_file().expect("Failed to open file");
         let mut content = alloc::string::String::new();
-        reader.read_to_string(&mut content).await.expect("Failed to read");
+        reader.read_to_string(&mut content).expect("Failed to read");
         assert_eq!(content, "Source content for copy test");
         
         println!("Cross-filesystem copy test passed!");
@@ -208,28 +208,28 @@ fn test_nested_mount_points() {
         
         // Create files at each level
         let root_file = AsyncVfsPath::new("/root.txt");
-        let mut writer = root_file.create_file().await.expect("Failed to create root file");
-        writer.write_all(b"Root").await.expect("Failed to write");
+        let mut writer = root_file.create_file().expect("Failed to create root file");
+        writer.write_all(b"Root").expect("Failed to write");
         drop(writer);
         
         let mnt_file = AsyncVfsPath::new("/mnt/mnt.txt");
-        let mut writer = mnt_file.create_file().await.expect("Failed to create mnt file");
-        writer.write_all(b"Mnt").await.expect("Failed to write");
+        let mut writer = mnt_file.create_file().expect("Failed to create mnt file");
+        writer.write_all(b"Mnt").expect("Failed to write");
         drop(writer);
         
         let usb_file = AsyncVfsPath::new("/mnt/usb/usb.txt");
-        let mut writer = usb_file.create_file().await.expect("Failed to create usb file");
-        writer.write_all(b"USB").await.expect("Failed to write");
+        let mut writer = usb_file.create_file().expect("Failed to create usb file");
+        writer.write_all(b"USB").expect("Failed to write");
         drop(writer);
         
         // Verify each file exists only in its filesystem
-        assert!(root_file.exists().await.expect("Failed to check"));
-        assert!(mnt_file.exists().await.expect("Failed to check"));
-        assert!(usb_file.exists().await.expect("Failed to check"));
+        assert!(root_file.exists().expect("Failed to check"));
+        assert!(mnt_file.exists().expect("Failed to check"));
+        assert!(usb_file.exists().expect("Failed to check"));
         
         // Verify files don't exist in wrong filesystems
         let wrong_path = AsyncVfsPath::new("/mnt.txt");
-        assert!(!wrong_path.exists().await.expect("Failed to check"));
+        assert!(!wrong_path.exists().expect("Failed to check"));
         
         println!("Nested mount points work correctly!");
     });
