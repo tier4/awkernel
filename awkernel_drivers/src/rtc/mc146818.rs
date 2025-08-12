@@ -184,7 +184,7 @@ impl Mc146818Rtc {
         regs[MC_YEAR as usize] = Self::bintobcd((time.year % 100) as u8);
 
         // Day of week (1-7) - not calculated currently, just using placeholder
-        // TODO: Implement day of week calculation if needed
+        // NOTE: Implement day of week calculation if needed
         regs[MC_DOW as usize] = 1;
 
         regs[7] = 0;
