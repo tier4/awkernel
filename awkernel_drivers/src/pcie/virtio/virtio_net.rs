@@ -408,6 +408,29 @@ impl Virtq {
         self.vq_dma.as_mut().avail.idx = self.vq_avail_idx;
     }
 
+    fn virtio_vq_dump(&self) {
+        // Common fields
+        log::info!(" vq_num: {}", self.vq_num);
+        log::info!(" vq_mask: {}", self.vq_mask);
+        log::info!(" vq_index: {}", self.vq_index);
+        log::info!(" vq_used_idx: {}", self.vq_used_idx);
+        log::info!(" vq_avail_idx: {}", self.vq_avail_idx);
+
+        // Avail ring fields
+        let flags = self.vq_dma.as_ref().avail.flags;
+        let idx = self.vq_dma.as_ref().avail.idx;
+        let used_event = self.vq_dma.as_ref().avail.used_event;
+        log::info!(" avail: flags:{flags}, idx:{idx}, used_event:{used_event}",);
+
+        // Used ring fields
+        let flags = self.vq_dma.as_ref().used.flags;
+        let idx = self.vq_dma.as_ref().used.idx;
+        let avail_event = self.vq_dma.as_ref().used.avail_event;
+        log::info!(" used: flags:{flags}, idx:{idx}, avail_event:{avail_event}",);
+
+        log::info!(" +++++++++++++++++++++++++++");
+    }
+
     /// add mbufs for all the empty receive slots
     fn vio_populate_rx_mbufs(&mut self) -> bool {
         let mut should_notify = false;
@@ -1134,6 +1157,24 @@ impl VirtioNetInner {
         self.virtio_reinit_end()?;
 
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn vio_dump(&self) {
+        for i in 0..self.virtqueues.len() {
+            {
+                let mut node = MCSNode::new();
+                let tx = self.virtqueues[i].tx.lock(&mut node);
+                log::info!("{i}: TX virtqueue:");
+                tx.virtio_vq_dump();
+            }
+            {
+                let mut node = MCSNode::new();
+                let rx = self.virtqueues[i].rx.lock(&mut node);
+                log::info!("{i}: RX virtqueue:");
+                rx.virtio_vq_dump();
+            }
+        }
     }
 }
 
