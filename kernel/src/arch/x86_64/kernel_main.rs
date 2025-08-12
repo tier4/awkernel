@@ -344,7 +344,7 @@ fn kernel_main2(
     use awkernel_drivers::rtc::Mc146818Rtc;
     let rtc = Mc146818Rtc::new();
     rtc.init();
-    match rtc.read_time() {
+    match rtc.gettime() {
         Ok(time) => {
             log::info!(
                 "RTC time: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
