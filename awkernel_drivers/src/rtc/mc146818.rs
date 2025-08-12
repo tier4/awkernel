@@ -157,7 +157,7 @@ impl Mc146818Rtc {
         Ok(())
     }
 
-    pub fn read_time(&self) -> Result<DateTime, RtcError> {
+    pub fn gettime(&self) -> Result<DateTime, RtcError> {
         let regs = Self::rtcget()?;
 
         let second = Self::bcdtobin(regs[MC_SEC as usize]);
@@ -173,7 +173,7 @@ impl Mc146818Rtc {
         Ok(DateTime::new(full_year, month, day, hour, minute, second))
     }
 
-    pub fn set_time(&self, time: &DateTime) -> Result<(), RtcError> {
+    pub fn settime(&self, time: &DateTime) -> Result<(), RtcError> {
         let mut regs = [0u8; MC_NTODREGS];
 
         regs[MC_SEC as usize] = Self::bintobcd(time.second);

@@ -361,7 +361,7 @@ fn kernel_main2(
         }
     }
 
-    // 19. Call `crate::main()`.
+    // 20. Call `crate::main()`.
     crate::main(kernel_info);
 }
 
