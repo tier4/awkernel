@@ -124,25 +124,25 @@ impl MountOptions {
     
     /// Builder method to set the format option
     pub fn with_format(mut self) -> Self {
-        self.fs_options = self.fs_options.add(FsOption::Format);
+        self.fs_options = self.fs_options.with_option(FsOption::Format);
         self
     }
     
     /// Builder method to set cluster size
     pub fn with_cluster_size(mut self, size: u32) -> Self {
-        self.fs_options = self.fs_options.add(FsOption::ClusterSize(size));
+        self.fs_options = self.fs_options.with_option(FsOption::ClusterSize(size));
         self
     }
     
     /// Builder method to set volume label
     pub fn with_volume_label(mut self, label: impl Into<String>) -> Self {
-        self.fs_options = self.fs_options.add(FsOption::VolumeLabel(label.into()));
+        self.fs_options = self.fs_options.with_option(FsOption::VolumeLabel(label.into()));
         self
     }
     
     /// Builder method to add any filesystem option
     pub fn with_fs_option(mut self, option: FsOption) -> Self {
-        self.fs_options = self.fs_options.add(option);
+        self.fs_options = self.fs_options.with_option(option);
         self
     }
     

@@ -130,9 +130,14 @@ where
         &self,
         path: &str,
     ) -> VfsResult<Box<dyn Unpin + Stream<Item = String> + Send>> {
-        let dir = FileSystem::root_dir(&self.fs)
-            .open_dir(path)
-            .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?;
+        // Handle empty path or root path by using root_dir directly
+        let dir = if path.is_empty() || path == "/" {
+            FileSystem::root_dir(&self.fs)
+        } else {
+            FileSystem::root_dir(&self.fs)
+                .open_dir(path)
+                .map_err(|e| VfsError::from(VfsErrorKind::from(e)))?
+        };
         let entries: Result<Vec<String>, _> = dir
             .iter()
             .map(|entry_res| {
