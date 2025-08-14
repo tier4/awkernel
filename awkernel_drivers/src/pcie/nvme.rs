@@ -221,7 +221,10 @@ impl NvmeInner {
 
         let rdy_to = NVME_CAP_TO(cap);
         let mdts = MAXPHYS;
-        let max_prpl = mdts / mps;
+        // With page-sized segments, we need more PRP list entries
+        // For 64KB starting mid-page, we could need up to 17 segments (16 PRP entries)
+        // Add some margin for safety
+        let max_prpl = 32;  // Enough for 128KB with worst-case alignment
 
         Ok(Self {
             info,
@@ -772,7 +775,7 @@ impl NvmeInner {
     fn io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         if let Some(CcbCookie::Io {
             lba,
-            blocks: _,
+            blocks,
             nsid,
             read,
         }) = &ccb.cookie
@@ -792,13 +795,16 @@ impl NvmeInner {
                         1 => 0,
                         2 => (segments[1].ds_addr.as_usize() as u64).to_le(),
                         _ => {
-                            // the prp list is already set up and synced
+                            // For >2 segments, use PRP list
                             ccb.prpl_dva.to_le()
                         }
                     };
                 }
 
                 sqe_io.slba = (*lba).to_le();
+                // NVMe uses 0-based counting for nlb, so subtract 1
+                let nlb_value = (*blocks as u16).saturating_sub(1);
+                sqe_io.nlb = nlb_value.to_le();
             } else {
                 log::error!("io_fill called without DMA map loaded");
             }
@@ -909,20 +915,32 @@ impl NvmeInner {
         if let Some(ref dma_map) = ccb.dmamap {
             let segments = dma_map.get_segments();
 
+            // Set up PRP list for transfers with more than 2 segments
             if segments.len() > 2 {
                 if let Some(prpl_ptr) = ccb.prpl {
-                    let prp_list = unsafe {
-                        core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, segments.len() - 1)
-                    };
-
+                    // Ensure we don't exceed the allocated PRP list size
+                    let prp_entries_needed = segments.len() - 1;
+                    if prp_entries_needed > self.max_prpl {
+                        log::error!("Too many PRP entries needed: {} > {}", prp_entries_needed, self.max_prpl);
+                        return Err(NvmeDriverErr::TooManySegments);
+                    }
+                    
+                    // Check alignment
+                    if prpl_ptr % core::mem::align_of::<u64>() != 0 {
+                        log::error!("PRP list pointer not aligned: 0x{:x}", prpl_ptr);
+                        return Err(NvmeDriverErr::DmaError);
+                    }
+                    
+                    // Fill PRP list with addresses of segments 2 onwards
+                    // We need unsafe here to write to DMA memory that will be read by hardware
                     for (i, seg) in segments[1..].iter().enumerate() {
-                        prp_list[i] = seg.ds_addr.as_usize() as u64;
+                        unsafe {
+                            let prp_entry_ptr = (prpl_ptr as *mut u64).add(i);
+                            prp_entry_ptr.write((seg.ds_addr.as_usize() as u64).to_le());
+                        }
                     }
-
-                    if let Some(ref prpl_map) = self.ccb_prpls {
-                        let sync_size = (segments.len() - 1) * core::mem::size_of::<u64>();
-                        let _ = prpl_map.sync(ccb.prpl_off, sync_size, DmaSyncOp::PreWrite);
-                    }
+                    
+                    // No sync needed - PRP list is already in DMA memory
                 }
             }
         }
@@ -1257,6 +1275,7 @@ pub enum NvmeDriverErr {
     DmaError,
     IncompatiblePageSize,
     InvalidCcbId,
+    TooManySegments,
 }
 
 #[allow(dead_code)]
@@ -1280,6 +1299,7 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
             NvmeDriverErr::DmaError => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::IncompatiblePageSize => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::InvalidCcbId => PCIeDeviceErr::CommandFailure,
+            NvmeDriverErr::TooManySegments => PCIeDeviceErr::CommandFailure,
         }
     }
 }
@@ -1349,11 +1369,9 @@ pub(super) fn attach(
                 let namespace = NvmeNamespace::new(nvme_arc.clone(), nsid);
                 let ns_arc = Arc::new(namespace);
                 let storage_id = storage::add_storage_device(ns_arc.clone(), Some(nsid));
-
-                let ns_ptr = Arc::as_ptr(&ns_arc) as *mut NvmeNamespace;
-                unsafe {
-                    (*ns_ptr).device_id = storage_id;
-                }
+                
+                // Use safe interior mutability instead of unsafe pointer manipulation
+                ns_arc.set_device_id(storage_id);
             }
         }
     }
@@ -1361,17 +1379,19 @@ pub(super) fn attach(
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 pub struct NvmeNamespace {
     controller: Arc<Nvme>,
     namespace_id: u32,
-    device_id: u64,
+    device_id: AtomicU64,
 }
 
 impl core::fmt::Debug for NvmeNamespace {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("NvmeNamespace")
             .field("namespace_id", &self.namespace_id)
-            .field("device_id", &self.device_id)
+            .field("device_id", &self.device_id.load(Ordering::Relaxed))
             .finish()
     }
 }
@@ -1381,18 +1401,18 @@ impl NvmeNamespace {
         Self {
             controller,
             namespace_id,
-            device_id: 0, // Will be set when registered
+            device_id: AtomicU64::new(0), // Will be set when registered
         }
     }
 
-    pub fn set_device_id(&mut self, device_id: u64) {
-        self.device_id = device_id;
+    pub fn set_device_id(&self, device_id: u64) {
+        self.device_id.store(device_id, Ordering::Relaxed);
     }
 }
 
 impl StorageDevice for NvmeNamespace {
     fn device_id(&self) -> u64 {
-        self.device_id
+        self.device_id.load(Ordering::Relaxed)
     }
 
     fn device_name(&self) -> Cow<'static, str> {

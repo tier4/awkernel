@@ -45,8 +45,8 @@ impl DmaTag {
     pub fn new_64bit() -> Self {
         Self {
             boundary: u64::MAX,
-            maxsegsz: usize::MAX,
-            nsegments: 1,
+            maxsegsz: PAGESIZE,     // Use page-sized segments to match OS page size
+            nsegments: 128,         // Allow multiple segments for large transfers
             maxsize: usize::MAX,
             alignment: 1,
         }
