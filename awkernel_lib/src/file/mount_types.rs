@@ -67,7 +67,7 @@ impl FsOptions {
     }
     
     /// Add an option (builder pattern)
-    pub fn add(mut self, option: FsOption) -> Self {
+    pub fn with_option(mut self, option: FsOption) -> Self {
         self.options.push(option);
         self
     }

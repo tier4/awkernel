@@ -56,7 +56,7 @@ pub fn join_path(base_path: &str, path: &str) -> Result<String, String> {
     
     // Prevent paths from ending in slashes unless this is just the root directory.
     if path.len() > 1 && path.ends_with('/') {
-        return Err(format!("Invalid path: {}", path));
+        return Err(format!("Invalid path: {path}"));
     }
     
     for component in path.split('/') {

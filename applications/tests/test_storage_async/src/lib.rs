@@ -85,7 +85,7 @@ async fn test_async_read() -> bool {
     let device_id = device.interface_id;
     let block_size = device.block_size;
     
-    log::info!("Reading block 0 from device {}...", device_id);
+    log::info!("Reading block 0 from device {device_id}...");
     
     // Allocate buffer for reading
     let mut read_buf = vec![0u8; block_size];
@@ -98,7 +98,7 @@ async fn test_async_read() -> bool {
             true
         }
         Err(e) => {
-            log::error!("Async read failed: {:?}", e);
+            log::error!("Async read failed: {e:?}");
             false
         }
     }
@@ -119,7 +119,7 @@ async fn test_async_write() -> bool {
     // Use a safe block number (avoid boot sectors)
     let test_block = 100;
     
-    log::info!("Writing to block {} on device {}...", test_block, device_id);
+    log::info!("Writing to block {test_block} on device {device_id}...");
     
     // Create test pattern
     let mut write_buf = vec![0u8; block_size];
@@ -163,11 +163,9 @@ async fn test_async_write() -> bool {
                         log::info!("Write verification successful!");
                         true
                     } else {
-                        log::error!("Write verification failed - {} bytes mismatched out of {}", 
-                                   mismatch_count, block_size);
+                        log::error!("Write verification failed - {mismatch_count} bytes mismatched out of {block_size}");
                         if let Some((idx, exp, got)) = first_mismatch {
-                            log::error!("First mismatch at byte {}: expected 0x{:02x}, got 0x{:02x}", 
-                                       idx, exp, got);
+                            log::error!("First mismatch at byte {idx}: expected 0x{exp:02x}, got 0x{got:02x}");
                         }
                         log::info!("Expected first 16 bytes: {:02x?}", &write_buf[..16]);
                         log::info!("Got first 16 bytes: {:02x?}", &verify_buf[..16]);
@@ -177,13 +175,13 @@ async fn test_async_write() -> bool {
                     }
                 }
                 Err(e) => {
-                    log::error!("Verification read failed: {:?}", e);
+                    log::error!("Verification read failed: {e:?}");
                     false
                 }
             }
         }
         Err(e) => {
-            log::error!("Async write failed: {:?}", e);
+            log::error!("Async write failed: {e:?}");
             false
         }
     }
