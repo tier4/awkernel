@@ -462,7 +462,7 @@ pub async fn async_write_block(
     // Get device and submit write - this must happen before async boundary
     // to ensure buffer remains valid during DMA setup
     let device = get_storage_device(device_id)?;
-    if let Err(e) = device.write_blocks(buf, transfer_id) {
+    if let Err(_) = device.write_blocks(buf, transfer_id) {
         let _ = free_transfer(transfer_id);
         return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
     }

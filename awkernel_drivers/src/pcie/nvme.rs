@@ -950,7 +950,6 @@ impl NvmeInner {
     }
 
     fn sync_done(device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry) {
-        // CONSIDER: Can't we just call this by getting &self, or some other way to avoid unsafe?
         let device = unsafe { &mut *(device as *mut NvmeInner) };
         let flags = u16::from_le(cqe.flags);
         let status = NVME_CQE_SC(flags);
@@ -1365,7 +1364,7 @@ pub(super) fn attach(
 pub struct NvmeNamespace {
     controller: Arc<Nvme>,
     namespace_id: u32,
-    device_id: u64, // CONSIDER: to we need this? How is this used?
+    device_id: u64,
 }
 
 impl core::fmt::Debug for NvmeNamespace {
@@ -1474,7 +1473,6 @@ impl StorageDevice for NvmeNamespace {
             storage::transfer_get_info(transfer_id).map_err(|_| BlockDeviceError::IoError)?;
         let total_size = self.block_size() * blocks as usize;
         // For writes, buffer must be exactly the right size
-        // CONSIDER: Shouldn't we allow writes with a smaller buffer? Why is it have to be exact?
         if buf.len() != total_size {
             return Err(BlockDeviceError::InvalidBlock);
         }

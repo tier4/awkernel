@@ -39,28 +39,20 @@ impl Default for StorageTransfer {
     }
 }
 
-/// Global storage transfer pool
 pub struct StorageTransferPool {
     transfers: Vec<StorageTransfer>,
     free_list: Mutex<Vec<u16>>,
 }
 
-// Maximum number of concurrent transfers that can be allocated from the pool.
-// This value is chosen to balance memory usage with concurrent I/O capability:
-// - 256 allows for reasonable parallelism in multi-queue NVMe devices
-// - Each transfer uses minimal memory (< 100 bytes)
-// - Typical workloads rarely exceed 64 concurrent I/Os
-// This could be made configurable in the future based on system requirements.
 const MAX_TRANSFERS: usize = 256;
 
 static STORAGE_TRANSFER_POOL: Mutex<Option<StorageTransferPool>> = Mutex::new(None);
 
-/// Initialize the storage transfer pool
 pub fn init_transfer_pool() {
     let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let mut storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    if pool_guard.is_none() {
+    if storage_transfer_pool.is_none() {
         let mut transfers = Vec::with_capacity(MAX_TRANSFERS);
         let mut free_list = Vec::with_capacity(MAX_TRANSFERS);
 
@@ -69,22 +61,19 @@ pub fn init_transfer_pool() {
             free_list.push(i as u16);
         }
 
-        *pool_guard = Some(StorageTransferPool {
+        *storage_transfer_pool = Some(StorageTransferPool {
             transfers,
             free_list: Mutex::new(free_list),
         });
     }
 }
 
-/// Allocate a transfer from the pool
-///
-/// This is a synchronous allocation that returns immediately.
 /// TODO: Could implement async version that waits when pool is exhausted
 pub fn allocate_transfer(device_id: u64) -> Result<u16, StorageManagerError> {
     let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let mut storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_mut() {
+    let pool = match storage_transfer_pool.as_mut() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -100,7 +89,6 @@ pub fn allocate_transfer(device_id: u64) -> Result<u16, StorageManagerError> {
         transfer.device_id = device_id;
         transfer.nsid = 0; // Will be set explicitly by caller
 
-        // Clear waker
         let mut waker_node = MCSNode::new();
         let mut waker = transfer.waker.lock(&mut waker_node);
         *waker = None;
@@ -113,7 +101,6 @@ pub fn allocate_transfer(device_id: u64) -> Result<u16, StorageManagerError> {
     }
 }
 
-/// Set transfer parameters
 pub fn transfer_set_params(
     id: u16,
     lba: u64,
@@ -122,9 +109,9 @@ pub fn transfer_set_params(
     nsid: u32,
 ) -> Result<(), StorageManagerError> {
     let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let mut storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_mut() {
+    let pool = match storage_transfer_pool.as_mut() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -141,16 +128,15 @@ pub fn transfer_set_params(
     Ok(())
 }
 
-/// Set polling mode and timeout
 pub fn transfer_set_poll_mode(
     id: u16,
     poll: bool,
     timeout_ms: u32,
 ) -> Result<(), StorageManagerError> {
     let mut node = MCSNode::new();
-    let mut pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let mut storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_mut() {
+    let pool = match storage_transfer_pool.as_mut() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -165,12 +151,11 @@ pub fn transfer_set_poll_mode(
     Ok(())
 }
 
-/// Get LBA
 pub fn transfer_get_lba(id: u16) -> Result<u64, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -182,12 +167,11 @@ pub fn transfer_get_lba(id: u16) -> Result<u64, StorageManagerError> {
     Ok(pool.transfers[id as usize].lba)
 }
 
-/// Get block count
 pub fn transfer_get_blocks(id: u16) -> Result<u32, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -199,12 +183,11 @@ pub fn transfer_get_blocks(id: u16) -> Result<u32, StorageManagerError> {
     Ok(pool.transfers[id as usize].blocks)
 }
 
-/// Get namespace ID
 pub fn transfer_get_nsid(id: u16) -> Result<u32, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -216,12 +199,11 @@ pub fn transfer_get_nsid(id: u16) -> Result<u32, StorageManagerError> {
     Ok(pool.transfers[id as usize].nsid)
 }
 
-/// Check if transfer is a read operation
 pub fn transfer_is_read(id: u16) -> Result<bool, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -233,12 +215,11 @@ pub fn transfer_is_read(id: u16) -> Result<bool, StorageManagerError> {
     Ok(pool.transfers[id as usize].read)
 }
 
-/// Check if transfer is completed (atomic)
 pub fn transfer_is_completed(id: u16) -> Result<bool, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -252,12 +233,11 @@ pub fn transfer_is_completed(id: u16) -> Result<bool, StorageManagerError> {
         .load(Ordering::Acquire))
 }
 
-/// Get transfer status (atomic)
 pub fn transfer_get_status(id: u16) -> Result<u16, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -269,12 +249,11 @@ pub fn transfer_get_status(id: u16) -> Result<u16, StorageManagerError> {
     Ok(pool.transfers[id as usize].status.load(Ordering::Acquire))
 }
 
-/// Mark transfer as completed with status (atomic)
 pub fn transfer_mark_completed(id: u16, status: u16) -> Result<(), StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -289,12 +268,11 @@ pub fn transfer_mark_completed(id: u16, status: u16) -> Result<(), StorageManage
     Ok(())
 }
 
-/// Set waker for async operations
 pub fn transfer_set_waker(id: u16, waker: Option<Waker>) -> Result<(), StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -309,12 +287,11 @@ pub fn transfer_set_waker(id: u16, waker: Option<Waker>) -> Result<(), StorageMa
     Ok(())
 }
 
-/// Check if transfer is in polling mode
 pub fn transfer_is_poll_mode(id: u16) -> Result<bool, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -326,12 +303,11 @@ pub fn transfer_is_poll_mode(id: u16) -> Result<bool, StorageManagerError> {
     Ok(pool.transfers[id as usize].poll)
 }
 
-/// Get timeout in milliseconds
 pub fn transfer_get_timeout_ms(id: u16) -> Result<u32, StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -343,12 +319,11 @@ pub fn transfer_get_timeout_ms(id: u16) -> Result<u32, StorageManagerError> {
     Ok(pool.transfers[id as usize].timeout_ms)
 }
 
-/// Get transfer info for validation (combines multiple fields for efficiency)
 pub fn transfer_get_info(id: u16) -> Result<(u64, u32, u32, bool), StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -361,12 +336,11 @@ pub fn transfer_get_info(id: u16) -> Result<(u64, u32, u32, bool), StorageManage
     Ok((transfer.lba, transfer.blocks, transfer.nsid, transfer.read))
 }
 
-/// Free a transfer back to the pool
 pub fn free_transfer(id: u16) -> Result<(), StorageManagerError> {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return Err(StorageManagerError::PoolNotInitialized),
     };
@@ -378,12 +352,11 @@ pub fn free_transfer(id: u16) -> Result<(), StorageManagerError> {
     Ok(())
 }
 
-/// Wake any async waiters for completed transfers on a device
 pub fn wake_completed_transfers(device_id: u64) {
     let mut node = MCSNode::new();
-    let pool_guard = STORAGE_TRANSFER_POOL.lock(&mut node);
+    let storage_transfer_pool = STORAGE_TRANSFER_POOL.lock(&mut node);
 
-    let pool = match pool_guard.as_ref() {
+    let pool = match storage_transfer_pool.as_ref() {
         Some(p) => p,
         None => return,
     };
@@ -400,10 +373,8 @@ pub fn wake_completed_transfers(device_id: u64) {
         }
     }
 
-    // Drop the lock before waking
-    drop(pool_guard);
+    drop(storage_transfer_pool);
 
-    // Wake all collected tasks
     for waker in wakers_to_wake {
         waker.wake();
     }
