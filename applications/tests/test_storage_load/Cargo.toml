@@ -1,0 +1,13 @@
+[package]
+name = "test_storage_load"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+awkernel_lib = { path = "../../../awkernel_lib" }
+awkernel_async_lib = { path = "../../../awkernel_async_lib" }
+log = "0.4"
+
+[lib]
+name = "test_storage_load"
+path = "src/lib.rs"

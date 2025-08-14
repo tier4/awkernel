@@ -386,7 +386,13 @@ async fn test_large_file(size: usize, desc: &str, mount_path: &str) -> bool {
         }
     };
 
-    let filename = format!("test_{}.dat", desc.to_lowercase().replace("kb", "k"));
+    // Use 8.3 compatible filenames since LFN is not enabled
+    let filename = match desc {
+        "16KB" => "test16.dat",   // 6+3 = fits in 8.3
+        "64KB" => "test64.dat",   // 6+3 = fits in 8.3
+        "256KB" => "test256.dat", // 7+3 = fits in 8.3
+        _ => "test.dat",
+    };
     
     // Create test pattern - changes every 256 bytes to detect corruption
     let mut write_data = vec![0u8; size];
@@ -417,11 +423,33 @@ async fn test_large_file(size: usize, desc: &str, mount_path: &str) -> bool {
             };
             
             info!("    ✓ Wrote {} in {}ms ({} KB/s)", desc, elapsed, throughput);
+            drop(file); // Explicitly drop the file handle to ensure it's closed
         }
         Err(e) => {
             error!("    Failed to create {} file: {e:?}", desc);
             return false;
         }
+    }
+
+    // Check if file exists before trying to open
+    info!("    Checking if {} exists...", &filename);
+    match fs.exists(&filename).await {
+        Ok(true) => info!("    File {} exists", &filename),
+        Ok(false) => {
+            error!("    File {} does not exist after write!", &filename);
+            // List directory to see what files are there
+            match fs.read_dir("").await {
+                Ok(mut entries) => {
+                    info!("    Directory contents:");
+                    while let Some(entry) = entries.next().await {
+                        info!("      - {}", entry);
+                    }
+                }
+                Err(e) => error!("    Failed to list directory: {:?}", e),
+            }
+            return false;
+        }
+        Err(e) => error!("    Failed to check existence: {:?}", e),
     }
 
     // Read and verify
