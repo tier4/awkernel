@@ -3,7 +3,7 @@
 
 use crate::{
     storage::{
-        allocate_transfer_sync, free_transfer, get_device_namespace, transfer_set_params,
+        allocate_transfer, free_transfer, get_device_namespace, transfer_set_params,
         transfer_set_poll_mode, StorageDevice, transfer_is_completed,
     },
 };
@@ -114,7 +114,7 @@ impl BlockDeviceAdapter {
                 let mut data = vec![0u8; block_size];
                 
                 // All devices now use transfers uniformly
-                let transfer_id = allocate_transfer_sync(self.device.device_id())
+                let transfer_id = allocate_transfer(self.device.device_id())
                     .map_err(|_| BlockDeviceAdapterError::IoError)?;
                 
                 // Set up transfer parameters
@@ -128,7 +128,7 @@ impl BlockDeviceAdapter {
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
                 // Always free the transfer
-                free_transfer(transfer_id);
+                let _ = free_transfer(transfer_id);
                 
                 result?;
                 
@@ -149,7 +149,7 @@ impl BlockDeviceAdapter {
             if cache.dirty && !self.read_only {
                 // No need for mutable access - StorageDevice methods take &self
                 let device_id = self.device.device_id();
-                let transfer_id = allocate_transfer_sync(device_id)
+                let transfer_id = allocate_transfer(device_id)
                     .map_err(|_| BlockDeviceAdapterError::IoError)?;
                 
                 // Set up transfer parameters
@@ -163,7 +163,7 @@ impl BlockDeviceAdapter {
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
                 // Always free the transfer
-                free_transfer(transfer_id);
+                let _ = free_transfer(transfer_id);
                 
                 result?;
             }
@@ -266,7 +266,7 @@ impl Write for BlockDeviceAdapter {
         // Flush the underlying device
         if !self.read_only {
             // Allocate transfer for flush operation
-            let transfer_id = allocate_transfer_sync(self.device.device_id())
+            let transfer_id = allocate_transfer(self.device.device_id())
                 .map_err(|_| BlockDeviceAdapterError::IoError)?;
             
             // Perform flush
@@ -274,7 +274,7 @@ impl Write for BlockDeviceAdapter {
                 .map_err(|_| BlockDeviceAdapterError::IoError);
             
             // Always free the transfer
-            free_transfer(transfer_id);
+            let _ = free_transfer(transfer_id);
             
             result?;
         }

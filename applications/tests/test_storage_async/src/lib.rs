@@ -136,13 +136,43 @@ async fn test_async_write() -> bool {
             let mut verify_buf = vec![0u8; block_size];
             match storage::async_read_block(device_id, test_block, &mut verify_buf).await {
                 Ok(()) => {
-                    if verify_buf == write_buf {
+                    // Log buffer sizes for debugging
+                    log::info!("Write buffer size: {}, Verify buffer size: {}", 
+                               write_buf.len(), verify_buf.len());
+                    
+                    // Check for differences
+                    let mut mismatch_count = 0;
+                    let mut first_mismatch = None;
+                    for (i, (expected, got)) in write_buf.iter().zip(verify_buf.iter()).enumerate() {
+                        if expected != got {
+                            mismatch_count += 1;
+                            if first_mismatch.is_none() {
+                                first_mismatch = Some((i, *expected, *got));
+                            }
+                        }
+                    }
+                    
+                    // Also check if lengths differ
+                    if write_buf.len() != verify_buf.len() {
+                        log::error!("Buffer length mismatch! write: {}, verify: {}", 
+                                   write_buf.len(), verify_buf.len());
+                        return false;
+                    }
+                    
+                    if mismatch_count == 0 && write_buf == verify_buf {
                         log::info!("Write verification successful!");
                         true
                     } else {
-                        log::error!("Write verification failed - data mismatch");
+                        log::error!("Write verification failed - {} bytes mismatched out of {}", 
+                                   mismatch_count, block_size);
+                        if let Some((idx, exp, got)) = first_mismatch {
+                            log::error!("First mismatch at byte {}: expected 0x{:02x}, got 0x{:02x}", 
+                                       idx, exp, got);
+                        }
                         log::info!("Expected first 16 bytes: {:02x?}", &write_buf[..16]);
                         log::info!("Got first 16 bytes: {:02x?}", &verify_buf[..16]);
+                        log::info!("Expected last 16 bytes: {:02x?}", &write_buf[write_buf.len()-16..]);
+                        log::info!("Got last 16 bytes: {:02x?}", &verify_buf[verify_buf.len()-16..]);
                         false
                     }
                 }

@@ -20,24 +20,6 @@ use core::any::Any;
 mod nvme_regs;
 use nvme_regs::*;
 
-// Helper function for returning CCBs to the pool
-fn ccb_put_free(
-    ccbs: &mut [Ccb],
-    ccb_list: &Mutex<CcbList>,
-    ccb_id: u16,
-) -> Result<(), NvmeDriverErr> {
-    let ccb = &mut ccbs[ccb_id as usize];
-
-    ccb.transfer_id = None;
-    ccb.done = None;
-
-    let mut node = MCSNode::new();
-    let mut list = ccb_list.lock(&mut node);
-    list._free_list.push_front(ccb_id);
-
-    Ok(())
-}
-
 const DEVICE_NAME: &str = " NVMe Controller";
 const DEVICE_SHORT_NAME: &str = "nvme";
 
@@ -73,22 +55,22 @@ enum CcbCookie {
         nsid: u32,
     },
     _State(PollState),
-    _Controller(u64), // Physical address for controller identify
+    _Controller(u64),          // Physical address for controller identify
     _QueueCmd(SubQueueEntryQ), // Queue command
 }
 
-type CcbCompletionHandler = fn(u16, &ComQueueEntry, &mut [Ccb], &Mutex<CcbList>);
+// Type alias for completion handler - will be properly typed when used
+type CcbCompletionHandler = fn(device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry);
 
 struct Ccb {
     transfer_id: Option<u16>, // Reference to StorageTransfer
     cookie: Option<CcbCookie>,
     done: Option<CcbCompletionHandler>,
-    _prpl_off: usize,
-    _prpl_dva: u64,
-    _prpl: Option<usize>,
-    _id: u16,
-    dmamap: Option<DmaMap>,    // DMA map for I/O data
-    dma_loaded: bool,           // Track if map is loaded
+    prpl_off: usize,
+    prpl_dva: u64,
+    prpl: Option<usize>,
+    id: u16,
+    dmamap: Option<DmaMap>, // DMA map for I/O data
 }
 
 struct CcbList {
@@ -115,7 +97,7 @@ impl Queue {
         *sqe = SubQueueEntry::default();
 
         fill(ccb, sqe);
-        sqe.cid = ccb._id;
+        sqe.cid = ccb.id;
 
         // Ensure all writes to the submission queue entry are complete
         // before updating the tail pointer (like OpenBSD's bus_dmamap_sync)
@@ -134,18 +116,16 @@ impl Queue {
         Ok(())
     }
 
-    fn complete(
-        &self,
-        info: &PCIeInfo,
-        ccbs: &mut [Ccb],
-        ccb_list: &Mutex<CcbList>,
-    ) -> Result<bool, NvmeDriverErr> {
+    fn complete(&self, device: &mut NvmeInner) -> Result<bool, NvmeDriverErr> {
         let mut node = MCSNode::new();
         let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
             guard
         } else {
             return Ok(false);
         };
+
+        let device_ptr = device as *mut NvmeInner as *mut u8;
+        let ccbs = device.ccbs.as_mut().ok_or(NvmeDriverErr::NoCcb)?;
 
         let mut head = comq._head;
         let mut rv = false;
@@ -164,10 +144,14 @@ impl Queue {
                 log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
+
+            // Get the completion handler before getting mutable ccb
             let done_fn = ccbs[cid as usize].done;
 
             if let Some(done_fn) = done_fn {
-                done_fn(cid, cqe, ccbs, ccb_list);
+                // OpenBSD style: pass device and ccb to handler
+                let ccb = &mut ccbs[cid as usize];
+                done_fn(device_ptr, ccb, cqe);
             }
 
             head += 1;
@@ -181,7 +165,7 @@ impl Queue {
 
         if rv {
             comq._head = head;
-            write_reg(info, comq._cqhdbl, comq._head)?;
+            write_reg(&device.info, comq._cqhdbl, comq._head)?;
         }
 
         Ok(rv)
@@ -193,11 +177,11 @@ struct NvmeInner {
     dstrd: u32,
     rdy_to: u32,
     mps: usize,
-    _mdts: usize,
-    _max_prpl: usize,
+    mdts: usize,
+    max_prpl: usize,
     ccb_list: Option<Mutex<CcbList>>,
     ccbs: Option<Vec<Ccb>>,
-    ccb_prpls: Option<DMAPool<u64>>,
+    ccb_prpls: Option<DmaMap>, // DMA map for PRP list pool (owns the memory)
     nn: u32,
     identify: Option<IdentifyController>,
     namespaces: Vec<Option<IdentifyNamespace>>,
@@ -244,8 +228,8 @@ impl NvmeInner {
             dstrd,
             rdy_to,
             mps,
-            _mdts: mdts,
-            _max_prpl: max_prpl,
+            mdts: mdts,
+            max_prpl: max_prpl,
             ccb_list: None,
             ccbs: None,
             ccb_prpls: None,
@@ -398,7 +382,7 @@ impl NvmeInner {
         let mut ccbs = Vec::with_capacity(nccbs as usize);
         let mut free_list = VecDeque::with_capacity(nccbs as usize);
 
-        let prpl_size = core::mem::size_of::<u64>() * self._max_prpl * nccbs as usize;
+        let prpl_size = core::mem::size_of::<u64>() * self.max_prpl * nccbs as usize;
         let prpl_pages = prpl_size.div_ceil(PAGESIZE);
 
         let prpl_dma = DMAPool::<u64>::new(self.info.segment_group as usize, prpl_pages)
@@ -407,29 +391,33 @@ impl NvmeInner {
         let prpl_virt_base = prpl_dma.get_virt_addr().as_usize();
         let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
 
-        self.ccb_prpls = Some(prpl_dma);
+        // Create DMA map that takes ownership of the PRP list pool
+        let prpl_tag = DmaTag::new_64bit();
+        let prpl_map =
+            DmaMap::from_dma_pool(prpl_dma, prpl_tag).map_err(|_| NvmeDriverErr::DMAPool)?;
+
+        self.ccb_prpls = Some(prpl_map);
 
         let mut off = 0;
         for i in 0..nccbs {
             // Create DMA map for this CCB (for I/O data)
             let tag = DmaTag::new_64bit();
-            let dmamap = DmaMap::new(tag, self._mdts).ok();
-            
+            let dmamap = DmaMap::new(tag, self.mdts).ok();
+
             let ccb = Ccb {
                 transfer_id: None,
                 cookie: None,
                 done: None,
-                _prpl_off: off,
-                _prpl_dva: prpl_phys_base + off as u64,
-                _prpl: Some(prpl_virt_base + off),
-                _id: i,
+                prpl_off: off,
+                prpl_dva: prpl_phys_base + off as u64,
+                prpl: Some(prpl_virt_base + off),
+                id: i,
                 dmamap,
-                dma_loaded: false,
             };
             ccbs.push(ccb);
             free_list.push_back(i);
 
-            off += core::mem::size_of::<u64>() * self._max_prpl;
+            off += core::mem::size_of::<u64>() * self.max_prpl;
         }
 
         self.ccbs = Some(ccbs);
@@ -444,18 +432,16 @@ impl NvmeInner {
         // Clean up DMA maps before dropping CCBs
         if let Some(ccbs) = &mut self.ccbs {
             for ccb in ccbs {
-                if ccb.dma_loaded {
-                    if let Some(ref mut dmamap) = ccb.dmamap {
-                        dmamap.unload();
-                    }
+                if let Some(ref mut dmamap) = ccb.dmamap {
+                    dmamap.unload();
                 }
                 // DmaMap will be dropped when ccb is dropped
             }
         }
-        
+
         self.ccb_list = None;
         self.ccbs = None;
-        self.ccb_prpls = None;
+        self.ccb_prpls = None; // Clean up PRP list DMA map (owns the memory)
     }
 
     fn ccb_get(&self) -> Result<Option<u16>, NvmeDriverErr> {
@@ -485,8 +471,7 @@ impl NvmeInner {
         }
     }
 
-    fn poll_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], _ccb_list: &Mutex<CcbList>) {
-        let ccb = &mut ccbs[ccb_id as usize];
+    fn poll_done(_device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry) {
         if let Some(CcbCookie::_State(state)) = &mut ccb.cookie {
             state._cqe = *cqe;
             state._cqe.flags |= NVME_CQE_PHASE.to_le();
@@ -538,8 +523,7 @@ impl NvmeInner {
                 break;
             }
 
-            let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-            if !q.complete(&self.info, ccbs, ccb_list)? {
+            if !q.complete(self)? {
                 wait_microsec(NVME_TIMO_DELAYNS);
             }
 
@@ -554,6 +538,7 @@ impl NvmeInner {
         }
 
         let cqe = {
+            let self_ptr = self as *mut NvmeInner as *mut u8;
             let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
             let ccb = &mut ccbs[ccb_id as usize];
             let cqe = match &ccb.cookie {
@@ -562,8 +547,7 @@ impl NvmeInner {
             };
             ccb.cookie = original_cookie;
             if let Some(done_fn) = original_done {
-                let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-                done_fn(ccb_id, &cqe, ccbs, ccb_list);
+                done_fn(self_ptr, ccb, &cqe);
             }
             cqe
         };
@@ -785,97 +769,75 @@ impl NvmeInner {
         }
     }
 
-    /// Fill I/O command in submission queue entry
-    /// Based on OpenBSD's nvme_scsi_io_fill()
     fn io_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
         if let Some(CcbCookie::Io {
             lba,
-            blocks,
+            blocks: _,
             nsid,
             read,
         }) = &ccb.cookie
         {
-            // Cast to I/O-specific SQE type
             let sqe_io = unsafe { &mut *(sqe as *mut SubQueueEntry as *mut SubQueueEntryIo) };
 
-            // Set opcode based on direction (from OpenBSD)
-            sqe_io.opcode = if *read { NVM_CMD_READ } else { NVM_CMD_WRITE };
+            if let Some(ref dmamap) = ccb.dmamap {
+                let segments = dmamap.get_segments();
 
-            // Set namespace ID
-            sqe_io.nsid = u32::to_le(*nsid);
+                sqe_io.opcode = if *read { NVM_CMD_READ } else { NVM_CMD_WRITE };
 
-            // Set LBA and block count
-            sqe_io.slba = u64::to_le(*lba);
-            sqe_io.nlb = u16::to_le((*blocks - 1) as u16); // NLB is 0-based
+                sqe_io.nsid = (*nsid).to_le();
 
-            // Handle PRP entries based on transfer size
-            if let Some(prpl_ptr) = ccb._prpl {
-                // First PRP is always stored at the beginning of the PRP list
-                let first_prp = unsafe { *(prpl_ptr as *const u64) };
                 unsafe {
-                    sqe_io.entry.prp[0] = first_prp;
+                    sqe_io.entry.prp[0] = (segments[0].ds_addr.as_usize() as u64).to_le();
+                    sqe_io.entry.prp[1] = match segments.len() {
+                        1 => 0,
+                        2 => (segments[1].ds_addr.as_usize() as u64).to_le(),
+                        _ => {
+                            // the prp list is already set up and synced
+                            ccb.prpl_dva.to_le()
+                        }
+                    };
                 }
 
-                // Check if we need PRP2 (more than one page)
-                // The number of blocks tells us how many pages we need
-                let pages_needed = *blocks as usize; // Assuming 1 block = 1 page for now
-
-                if pages_needed > 1 {
-                    if pages_needed == 2 {
-                        // For exactly 2 pages, PRP2 points directly to the second page
-                        let second_prp = unsafe { *((prpl_ptr as *const u64).add(1)) };
-                        unsafe {
-                            sqe_io.entry.prp[1] = second_prp;
-                        }
-                    } else {
-                        // For > 2 pages, PRP2 points to the PRP list (starting from second entry)
-                        unsafe {
-                            sqe_io.entry.prp[1] =
-                                ccb._prpl_dva + core::mem::size_of::<u64>() as u64;
-                        }
-                    }
-                }
+                sqe_io.slba = (*lba).to_le();
+            } else {
+                log::error!("io_fill called without DMA map loaded");
             }
         } else {
             log::error!("io_fill called with non-IO cookie");
         }
     }
 
-    /// Process I/O command completion
-    /// Based on OpenBSD's nvme_scsi_io_done()
-    fn io_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], ccb_list: &Mutex<CcbList>) {
-        let ccb = &mut ccbs[ccb_id as usize];
-        let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
+    fn io_done(device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry) {
+        let device = unsafe { &mut *(device as *mut NvmeInner) };
 
-        // Sync and unload CCB's DMA map (following OpenBSD pattern)
-        if ccb.dma_loaded {
-            if let Some(ref mut dmamap) = ccb.dmamap {
-                // Get read flag from cookie to determine sync operation
-                let is_read = if let Some(CcbCookie::Io { read, .. }) = ccb.cookie {
-                    read
-                } else {
-                    true // Default to read if cookie is wrong type
-                };
-                
-                // Sync DMA map after operation (PostRead/PostWrite)
-                let sync_op = if is_read {
-                    DmaSyncOp::PostRead
-                } else {
-                    DmaSyncOp::PostWrite
-                };
-                let _ = dmamap.sync(0, dmamap.mapsize(), sync_op);
-                
-                // Unload the DMA map (like OpenBSD's bus_dmamap_unload)
-                dmamap.unload();
-                ccb.dma_loaded = false;
+        if let Some(ref mut dmamap) = ccb.dmamap {
+            let segments = dmamap.get_segments();
+
+            if segments.len() > 2 {
+                if let Some(ref prpl_map) = device.ccb_prpls {
+                    let sync_size = (segments.len() - 1) * core::mem::size_of::<u64>();
+                    let _ = prpl_map.sync(ccb.prpl_off, sync_size, DmaSyncOp::PostWrite);
+                }
             }
+
+            let is_read = if let Some(CcbCookie::Io { read, .. }) = ccb.cookie {
+                read
+            } else {
+                true // Default to read if cookie is wrong type
+            };
+
+            let sync_op = if is_read {
+                DmaSyncOp::PostRead
+            } else {
+                DmaSyncOp::PostWrite
+            };
+            let _ = dmamap.sync(0, dmamap.mapsize(), sync_op);
+
+            dmamap.unload();
         }
 
-        // Mark the transfer as completed
-        if let Some(transfer_id) = ccb.transfer_id {
-            let _ = storage::transfer_mark_completed(transfer_id, status);
-        }
+        let flags = u16::from_le(cqe.flags);
+        let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
             if let Some(CcbCookie::Io {
@@ -897,16 +859,101 @@ impl NvmeInner {
             log::error!("NVMe I/O failed with status: 0x{status:x}");
         }
 
-        // Return CCB to pool
-        let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
+        if let Some(transfer_id) = ccb.transfer_id {
+            let _ = storage::transfer_mark_completed(transfer_id, status);
+        }
+        let _ = device.ccb_put(ccb.id);
     }
 
-    /// Process flush command completion
-    /// Based on OpenBSD's nvme_scsi_sync_done()
-    fn sync_done(ccb_id: u16, cqe: &ComQueueEntry, ccbs: &mut [Ccb], ccb_list: &Mutex<CcbList>) {
-        let ccb = &mut ccbs[ccb_id as usize];
+    fn submit_io(
+        &mut self,
+        io_q: &Queue,
+        transfer_id: u16,
+        buf: &[u8],
+    ) -> Result<(), NvmeDriverErr> {
+        use awkernel_lib::addr::virt_addr::VirtAddr;
+
+        let (lba, blocks, nsid, read) =
+            storage::transfer_get_info(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
+
+        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
+
+        ccb.transfer_id = Some(transfer_id);
+        ccb.done = Some(Self::io_done);
+        ccb.cookie = Some(CcbCookie::Io {
+            lba,
+            blocks,
+            nsid,
+            read,
+        });
+
+        if let Some(ref mut dmamap) = ccb.dmamap {
+            let vaddr = VirtAddr::new(buf.as_ptr() as usize);
+            dmamap
+                .load(vaddr, buf.len())
+                .map_err(|_| NvmeDriverErr::DmaError)?;
+
+            let sync_op = if read {
+                DmaSyncOp::PreRead
+            } else {
+                DmaSyncOp::PreWrite
+            };
+            dmamap
+                .sync(0, buf.len(), sync_op)
+                .map_err(|_| NvmeDriverErr::DmaError)?;
+        } else {
+            return Err(NvmeDriverErr::DmaError);
+        }
+
+        if let Some(ref dma_map) = ccb.dmamap {
+            let segments = dma_map.get_segments();
+
+            if segments.len() > 2 {
+                if let Some(prpl_ptr) = ccb.prpl {
+                    let prp_list = unsafe {
+                        core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, segments.len() - 1)
+                    };
+
+                    for (i, seg) in segments[1..].iter().enumerate() {
+                        prp_list[i] = seg.ds_addr.as_usize() as u64;
+                    }
+
+                    if let Some(ref prpl_map) = self.ccb_prpls {
+                        let sync_size = (segments.len() - 1) * core::mem::size_of::<u64>();
+                        let _ = prpl_map.sync(ccb.prpl_off, sync_size, DmaSyncOp::PreWrite);
+                    }
+                }
+            }
+        }
+
+        let poll = storage::transfer_is_poll_mode(transfer_id).unwrap_or(false);
+        if poll {
+            let timeout_ms =
+                storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
+            self.poll(io_q, ccb_id, Self::io_fill, timeout_ms)?;
+        } else {
+            io_q.submit(&self.info, ccb, Self::io_fill)?;
+        }
+
+        Ok(())
+    }
+
+    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
+        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
+            *sqe = SubQueueEntry::default();
+            sqe.opcode = NVM_CMD_FLUSH;
+            sqe.nsid = u32::to_le(*nsid);
+        } else {
+            log::error!("sync_fill called with non-flush cookie");
+        }
+    }
+
+    fn sync_done(device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry) {
+        // CONSIDER: Can't we just call this by getting &self, or some other way to avoid unsafe?
+        let device = unsafe { &mut *(device as *mut NvmeInner) };
         let flags = u16::from_le(cqe.flags);
-        let status = (flags >> 1) & 0x7ff; // Extract status code
+        let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
             if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
@@ -916,120 +963,27 @@ impl NvmeInner {
             log::error!("NVMe flush failed with status: 0x{status:x}");
         }
 
-        // Mark the transfer as completed if we have a transfer_id
         if let Some(transfer_id) = ccb.transfer_id {
             let _ = storage::transfer_mark_completed(transfer_id, status);
         }
-
-        // Return CCB to pool
-        let _ = ccb_put_free(ccbs, ccb_list, ccb_id);
+        let _ = device.ccb_put(ccb.id);
     }
 
-    /// Fill flush command in submission queue entry
-    /// Based on OpenBSD's nvme_scsi_sync_fill()
-    fn sync_fill(ccb: &Ccb, sqe: &mut SubQueueEntry) {
-        if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-            // Clear the SQE first (following OpenBSD's pattern)
-            *sqe = SubQueueEntry::default();
-            sqe.opcode = NVM_CMD_FLUSH;
-            sqe.nsid = u32::to_le(*nsid);
-        } else {
-            log::error!("sync_fill called with non-flush cookie");
-        }
-    }
-
-    /// Submit I/O command with DMA map
-    pub fn submit_io(&mut self, io_q: &Queue, transfer_id: u16, buf: &[u8]) -> Result<(), NvmeDriverErr> {
-        use awkernel_lib::addr::virt_addr::VirtAddr;
-        
-        // Get transfer info for parameters (already set by storage layer)
-        let (lba, blocks, nsid, read) = 
-            storage::transfer_get_info(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
-
-        // Get a CCB
-        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
-
-        // Load buffer into CCB's DMA map (like bus_dmamap_load in OpenBSD)
-        if let Some(ref mut dmamap) = ccb.dmamap {
-            let vaddr = VirtAddr::new(buf.as_ptr() as usize);
-            dmamap.load(vaddr, buf.len()).map_err(|_| NvmeDriverErr::DmaError)?;
-            
-            // Sync for DMA (like bus_dmamap_sync in OpenBSD)
-            let sync_op = if read {
-                DmaSyncOp::PreRead
-            } else {
-                DmaSyncOp::PreWrite
-            };
-            dmamap.sync(0, buf.len(), sync_op).map_err(|_| NvmeDriverErr::DmaError)?;
-            ccb.dma_loaded = true;
-        } else {
-            // No DMA map available for this CCB
-            return Err(NvmeDriverErr::DmaError);
-        }
-
-        // Link CCB to transfer
-        ccb.transfer_id = Some(transfer_id);
-
-        // Set up the I/O cookie (using transfer's existing parameters)
-        ccb.cookie = Some(CcbCookie::Io {
-            lba,
-            blocks,
-            nsid,
-            read,
-        });
-
-        // Set up done callback
-        ccb.done = Some(Self::io_done);
-
-        // Fill PRP list from DMA segments
-        if let Some(ref dma_map) = ccb.dmamap {
-            if let Some(prpl_ptr) = ccb._prpl {
-                let segments = dma_map.get_segments();
-                let num_segments = segments.len().min(self._max_prpl);
-
-                let prp_list =
-                    unsafe { core::slice::from_raw_parts_mut(prpl_ptr as *mut u64, num_segments) };
-
-                for (i, seg) in segments.iter().take(num_segments).enumerate() {
-                    prp_list[i] = seg.ds_addr.as_usize() as u64;
-                }
-            }
-        }
-
-        let poll = storage::transfer_is_poll_mode(transfer_id).unwrap_or(false);
-        if poll {
-            let timeout_ms = storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
-            self.poll(io_q, ccb_id, Self::io_fill, timeout_ms)?;
-        } else {
-            io_q.submit(&self.info, ccb, Self::io_fill)?;
-        }
-
-        Ok(())
-    }
-
-    /// Submit flush command
-    /// Based on OpenBSD's nvme_scsi_sync()
     pub fn submit_flush(&mut self, io_q: &Queue, transfer_id: u16) -> Result<(), NvmeDriverErr> {
-        // Get transfer namespace ID
-        let nsid = storage::transfer_get_nsid(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
+        let nsid =
+            storage::transfer_get_nsid(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
 
-        // Get a CCB
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
         let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
 
-        // Link CCB to transfer
         ccb.transfer_id = Some(transfer_id);
-
-        // Set up the flush cookie
+        ccb.done = Some(Self::sync_done);
         ccb.cookie = Some(CcbCookie::Flush { nsid });
 
-        // Set up done callback (following OpenBSD's nvme_scsi_sync)
-        ccb.done = Some(Self::sync_done);
-
         let poll = storage::transfer_is_poll_mode(transfer_id).unwrap_or(false);
         if poll {
-            let timeout_ms = storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
+            let timeout_ms =
+                storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
             self.poll(io_q, ccb_id, Self::sync_fill, timeout_ms)?;
         } else {
             io_q.submit(&self.info, ccb, Self::sync_fill)?;
@@ -1041,14 +995,12 @@ impl NvmeInner {
     fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
         let mut rv = false;
 
-        if let Some(ccbs) = self.ccbs.as_mut() {
-            let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-            rv = io_q.complete(&self.info, ccbs, ccb_list)?;
+        if self.ccbs.is_some() {
+            rv = io_q.complete(self)?;
         }
 
-        if let Some(ccbs) = self.ccbs.as_mut() {
-            let ccb_list = self.ccb_list.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-            if admin_q.complete(&self.info, ccbs, ccb_list)? {
+        if self.ccbs.is_some() {
+            if admin_q.complete(self)? {
                 rv = true;
             }
         }
@@ -1246,27 +1198,21 @@ impl Nvme {
         log::info!("==========================================");
     }
 
-    /// Submit a flush command
     pub fn flush(&self, nsid: u32, transfer_id: u16) -> Result<(), NvmeDriverErr> {
-        // Set up the transfer for flush
-        // Update transfer with namespace ID
         let _ = storage::transfer_set_params(
             transfer_id,
             storage::transfer_get_lba(transfer_id).unwrap_or(0),
             storage::transfer_get_blocks(transfer_id).unwrap_or(0),
-            false, // flush is a write-type operation
+            false,
             nsid,
         );
 
-        // Submit the flush operation
         let mut inner = self.inner.write();
         inner.submit_flush(&self.io_q, transfer_id)?;
 
-        // Return immediately - storage layer will wait for completion
         Ok(())
     }
 
-    /// Get IRQs for this controller
     pub fn irqs(&self) -> Vec<u16> {
         let inner = self.inner.read();
         match &inner.pcie_int {
@@ -1276,7 +1222,6 @@ impl Nvme {
         }
     }
 
-    /// Handle interrupt for this controller
     pub fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
         let mut inner = self.inner.write();
         match inner.intr(&self.admin_q, &self.io_q) {
@@ -1385,17 +1330,14 @@ pub(super) fn attach(
 
     let nvme = Nvme::new(info)?;
 
-    // Initialize the storage transfer pool if not already done
     storage::init_transfer_pool();
 
-    // Create Arc for the controller
     let nvme_arc = Arc::new(nvme);
 
     // Store the device globally
     let mut device = NVME_DEVICE.write();
     *device = Some(nvme_arc.clone());
 
-    // Register each namespace as a separate storage device
     {
         let inner = nvme_arc.inner.read();
         for nsid in 1..=inner.nn {
@@ -1407,18 +1349,12 @@ pub(super) fn attach(
             {
                 let namespace = NvmeNamespace::new(nvme_arc.clone(), nsid);
                 let ns_arc = Arc::new(namespace);
-                // Register with the specific namespace ID (pass concrete type)
                 let storage_id = storage::add_storage_device(ns_arc.clone(), Some(nsid));
 
-                // Set the device_id in the namespace
                 let ns_ptr = Arc::as_ptr(&ns_arc) as *mut NvmeNamespace;
                 unsafe {
                     (*ns_ptr).device_id = storage_id;
                 }
-
-                log::info!(
-                    "NVMe: Registered namespace {nsid} as storage device {storage_id}"
-                );
             }
         }
     }
@@ -1426,42 +1362,10 @@ pub(super) fn attach(
     Ok(nvme_arc as Arc<dyn PCIeDevice + Sync + Send>)
 }
 
-/// Helper function to validate buffer size for I/O operations
-fn validate_io_buffer(
-    block_size: usize,
-    transfer_id: u16,
-    buf_len: usize,
-    is_write: bool,
-) -> BlockResult<u32> {
-    // Get transfer info to verify buffer size
-    let (_lba, blocks, _nsid, _is_read) = storage::transfer_get_info(transfer_id)
-        .map_err(|_| BlockDeviceError::IoError)?;
-    
-    let total_size = block_size * blocks as usize;
-    
-    // For writes, buffer must be exactly the right size
-    // For reads, buffer must be at least the required size
-    if is_write {
-        if buf_len != total_size {
-            return Err(BlockDeviceError::InvalidBlock);
-        }
-    } else if buf_len < total_size {
-        return Err(BlockDeviceError::InvalidBlock);
-    }
-    
-    Ok(blocks)
-}
-
-// StorageDevice implementation for NVMe
-
-/// Represents a single NVMe namespace
 pub struct NvmeNamespace {
-    /// Shared reference to the NVMe controller
     controller: Arc<Nvme>,
-    /// Namespace ID (1-based)
     namespace_id: u32,
-    /// Storage device ID
-    device_id: u64,
+    device_id: u64, // CONSIDER: to we need this? How is this used?
 }
 
 impl core::fmt::Debug for NvmeNamespace {
@@ -1487,7 +1391,6 @@ impl NvmeNamespace {
     }
 }
 
-// StorageDevice implementation for NvmeNamespace
 impl StorageDevice for NvmeNamespace {
     fn device_id(&self) -> u64 {
         self.device_id
@@ -1500,7 +1403,6 @@ impl StorageDevice for NvmeNamespace {
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
-        // Extract controller number from device name
         let inner = self.controller.inner.read();
         let bfd = inner.info.get_bfd();
         format!(
@@ -1552,34 +1454,31 @@ impl StorageDevice for NvmeNamespace {
         }
     }
 
-    fn read_blocks(
-        &self,
-        buf: &mut [u8],
-        transfer_id: u16,
-    ) -> BlockResult<()> {
-        // Validate buffer size
-        validate_io_buffer(self.block_size(), transfer_id, buf.len(), false)?;
-        
-        // Namespace ID is already correctly set by storage layer
+    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()> {
+        let (_lba, blocks, _nsid, _is_read) =
+            storage::transfer_get_info(transfer_id).map_err(|_| BlockDeviceError::IoError)?;
+        let total_size = self.block_size() * blocks as usize;
+        // For reads, buffer must be at least the required size
+        if buf.len() < total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
 
-        // Submit the I/O operation (passing buffer to submit_io)
         let mut inner = self.controller.inner.write();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
             .map_err(|_| BlockDeviceError::IoError)
     }
 
-    fn write_blocks(
-        &self,
-        buf: &[u8],
-        transfer_id: u16,
-    ) -> BlockResult<()> {
-        // Validate buffer size
-        validate_io_buffer(self.block_size(), transfer_id, buf.len(), true)?;
-        
-        // Namespace ID is already correctly set by storage layer
+    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()> {
+        let (_lba, blocks, _nsid, _is_read) =
+            storage::transfer_get_info(transfer_id).map_err(|_| BlockDeviceError::IoError)?;
+        let total_size = self.block_size() * blocks as usize;
+        // For writes, buffer must be exactly the right size
+        // CONSIDER: Shouldn't we allow writes with a smaller buffer? Why is it have to be exact?
+        if buf.len() != total_size {
+            return Err(BlockDeviceError::InvalidBlock);
+        }
 
-        // Submit the I/O operation (passing buffer to submit_io)
         let mut inner = self.controller.inner.write();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
@@ -1587,7 +1486,6 @@ impl StorageDevice for NvmeNamespace {
     }
 
     fn flush(&self, transfer_id: u16) -> BlockResult<()> {
-        // Call the controller's flush method with the provided transfer_id
         self.controller
             .flush(self.namespace_id, transfer_id)
             .map_err(|_| BlockDeviceError::IoError)

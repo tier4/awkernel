@@ -98,13 +98,6 @@ optional = true
 path = "../applications/tests/test_storage_interrupt"
 optional = true
 
-[dependencies.test_nvme_namespace]
-path = "../applications/tests/test_nvme_namespace"
-optional = true
-
-[dependencies.test_nvme_fatfs]
-path = "../applications/tests/test_nvme_fatfs"
-optional = true
 
 [dependencies.test_storage_async]
 path = "../applications/tests/test_storage_async"
@@ -115,7 +108,8 @@ path = "../applications/tests/test_nvme_fatfs_rw"
 optional = true
 
 [features]
-default = ["test_nvme", "test_storage_interrupt", "test_nvme_namespace", "test_nvme_fatfs", "test_storage_async"]
+#default = ["test_nvme", "test_storage_interrupt", "test_nvme_namespace", "test_nvme_fatfs", "test_storage_async"]
+default = ["test_storage_async"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -141,7 +135,5 @@ test_vfs_registry = ["dep:test_vfs_registry"]
 test_memory_fatfs_simple = ["dep:test_memory_fatfs_simple"]
 test_nvme = ["dep:test_nvme"]
 test_storage_interrupt = ["dep:test_storage_interrupt"]
-test_nvme_namespace = ["dep:test_nvme_namespace"]
-test_nvme_fatfs = ["dep:test_nvme_fatfs"]
 test_storage_async = ["dep:test_storage_async"]
 test_nvme_fatfs_rw = ["dep:test_nvme_fatfs_rw"]

@@ -1,4 +1,5 @@
 use super::filesystem::{AsyncFileSystem, AsyncSeekAndRead, AsyncSeekAndWrite};
+use super::path::{VfsFileType, VfsMetadata};
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::{
@@ -13,10 +14,7 @@ use awkernel_lib::{
         fs_capabilities::FsCapabilities,
         io::{Read, Seek, SeekFrom, Write},
         block_device_adapter::BlockDeviceAdapter,
-        vfs::{
-            error::{VfsError, VfsErrorKind, VfsIoError, VfsResult},
-            path::{VfsFileType, VfsMetadata},
-        },
+        vfs::error::{VfsError, VfsErrorKind, VfsIoError, VfsResult},
     },
     sync::{mcs::MCSNode, mutex::Mutex},
     time::Time,

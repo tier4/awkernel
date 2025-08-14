@@ -68,8 +68,8 @@ pub struct DmaMap {
     tag: DmaTag,
     /// Memory segments for this mapping
     segments: Vec<DmaSegment>,
-    /// Bounce buffer if needed
-    bounce_buffer: Option<DMAPool<u8>>,
+    /// Memory owned by this map (either bounce buffer or pre-allocated DMA pool)
+    owned_memory: Option<DMAPool<u8>>,
     /// Original virtual address (for sync operations)
     orig_vaddr: Option<VirtAddr>,
     /// Size of the mapped region
@@ -120,7 +120,7 @@ impl DmaMap {
         Ok(Self {
             tag,
             segments: Vec::new(),
-            bounce_buffer: None,
+            owned_memory: None,
             orig_vaddr: None,
             mapsize: 0,
             numa_id,
@@ -251,7 +251,7 @@ impl DmaMap {
             ds_len: size,
         });
         
-        self.bounce_buffer = Some(bounce);
+        self.owned_memory = Some(bounce);
         self.orig_vaddr = Some(vaddr);
         self.mapsize = size;
 
@@ -262,7 +262,7 @@ impl DmaMap {
     /// Corresponds to OpenBSD's bus_dmamap_unload()
     pub fn unload(&mut self) {
         self.segments.clear();
-        self.bounce_buffer = None;
+        self.owned_memory = None;
         self.orig_vaddr = None;
         self.mapsize = 0;
     }
@@ -279,8 +279,8 @@ impl DmaMap {
             return Err(DmaError::SizeTooLarge);
         }
 
-        // If using bounce buffer, handle data copying
-        if let (Some(ref bounce), Some(orig_vaddr)) = (&self.bounce_buffer, self.orig_vaddr) {
+        // If using owned memory as bounce buffer, handle data copying
+        if let (Some(ref bounce), Some(orig_vaddr)) = (&self.owned_memory, self.orig_vaddr) {
             match op {
                 DmaSyncOp::PreRead => {
                     // Nothing to do - device will write to bounce buffer
@@ -337,19 +337,21 @@ impl DmaMap {
         &self.segments
     }
 
-    /// Check if using bounce buffer
+    /// Check if using owned memory (bounce buffer or pre-allocated)
     pub fn is_bounced(&self) -> bool {
-        self.bounce_buffer.is_some()
+        self.owned_memory.is_some()
     }
 }
 
 /// Integration with existing DMAPool
 impl DmaMap {
-    /// Create a map from existing DMAPool
-    /// This provides compatibility with current AWKernel code
-    pub fn from_dma_pool<T>(pool: &DMAPool<T>, tag: DmaTag) -> Result<Self, DmaError> {
+    /// Create a map from existing DMAPool, taking ownership of the memory
+    /// This ensures the memory stays alive as long as the DmaMap exists
+    pub fn from_dma_pool<T>(pool: DMAPool<T>, tag: DmaTag) -> Result<Self, DmaError> {
         let paddr = pool.get_phy_addr();
         let size = pool.get_size();
+        let vaddr = pool.get_virt_addr();
+        let numa_id = pool.get_numa_id();
         
         if paddr.as_usize() as u64 > tag.boundary {
             return Err(DmaError::AddressTooHigh);
@@ -365,10 +367,10 @@ impl DmaMap {
                 ds_addr: paddr,
                 ds_len: size,
             }],
-            bounce_buffer: None,
-            orig_vaddr: Some(pool.get_virt_addr()),
+            owned_memory: Some(pool.into_bytes()),  // Take ownership and convert to bytes
+            orig_vaddr: Some(vaddr),
             mapsize: size,
-            numa_id: pool.get_numa_id(),
+            numa_id,
         })
     }
 }

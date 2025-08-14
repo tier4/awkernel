@@ -89,6 +89,28 @@ impl<T> DMAPool<T> {
         ptr
     }
 
+    /// Convert DMAPool<T> to DMAPool<u8>
+    /// Safe because we're just reinterpreting the underlying memory as bytes
+    pub fn into_bytes(self) -> DMAPool<u8> {
+        let virt_addr = self.virt_addr;
+        let phy_addr = self.phy_addr;
+        let size = self.size;
+        let numa_id = self.numa_id;
+        
+        // Prevent Drop from running on self
+        core::mem::forget(self);
+        
+        // Create new DMAPool<u8> with same underlying memory
+        // Safe because the memory is valid and we prevented double-free
+        DMAPool {
+            virt_addr,
+            phy_addr,
+            size,
+            numa_id,
+            ptr: unsafe { NonNull::new_unchecked(virt_addr.as_mut_ptr()) },
+        }
+    }
+
     #[inline(always)]
     pub fn get_virt_addr(&self) -> VirtAddr {
         self.virt_addr

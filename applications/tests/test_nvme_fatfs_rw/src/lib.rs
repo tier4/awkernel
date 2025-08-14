@@ -8,7 +8,7 @@ use awkernel_lib::{
     delay::wait_millisec,
     file::{fatfs, memfs::MemoryBlockDevice},
     storage::{
-        self, allocate_transfer_sync, free_transfer, get_all_storage_statuses, get_storage_status,
+        self, allocate_transfer, free_transfer, get_all_storage_statuses, get_storage_status,
         transfer_set_params, transfer_set_poll_mode, StorageDeviceType,
     },
 };
@@ -36,6 +36,9 @@ pub async fn run() {
 
     // Test 3: Try to create and use FatFS on NVMe (if properly formatted)
     test_nvme_fatfs_full().await;
+
+    // Test 4: Large file operations to test multi-page transfers
+    test_large_file_operations().await;
 
     info!("=== NVMe FatFS Read/Write Test Complete ===");
 }
@@ -109,7 +112,7 @@ async fn test_nvme_raw_blocks(device_id: u64) -> bool {
     // but we can test the transfer mechanism
 
     // Allocate a transfer
-    let transfer_id = match allocate_transfer_sync(device_id) {
+    let transfer_id = match allocate_transfer(device_id) {
         Ok(id) => id,
         Err(e) => {
             error!("      Failed to allocate transfer: {e:?}");
@@ -136,7 +139,7 @@ async fn test_nvme_raw_blocks(device_id: u64) -> bool {
     }
 
     // Clean up
-    free_transfer(transfer_id);
+    let _ = free_transfer(transfer_id);
 
     info!("      ✓ Transfer mechanism test completed");
     true
@@ -327,6 +330,146 @@ async fn test_file_operations_async(mount_path: &str, device_name: &str) -> bool
     }
 
     info!("  ✓ All async file operations tests passed");
+    true
+}
+
+/// Test large file operations with multi-page transfers
+async fn test_large_file_operations() {
+    info!("Test 4: Large File Operations (Multi-page transfers)...");
+
+    // Create a memory device large enough for testing
+    let device = Arc::new(MemoryBlockDevice::new(512, 8192)); // 4MB
+    let device_id = storage::add_storage_device(device.clone(), None);
+
+    // Mount with format
+    match awkernel_async_lib::file::mount::mount(
+        "/large_test",
+        device_id,
+        awkernel_async_lib::file::mount::FS_TYPE_FATFS,
+        awkernel_lib::file::mount_types::MountOptions::new().with_format(),
+    ) {
+        Ok(()) => {
+            info!("  ✓ Mounted 4MB device at /large_test");
+            
+            // Test different file sizes
+            let test_sizes = [
+                (16 * 1024, "16KB"),   // 4 pages
+                (64 * 1024, "64KB"),   // 16 pages
+                (256 * 1024, "256KB"), // 64 pages
+            ];
+
+            for (size, desc) in &test_sizes {
+                if !test_large_file(*size, desc, "/large_test").await {
+                    error!("  Failed {} file test", desc);
+                    break;
+                }
+            }
+
+            let _ = awkernel_async_lib::file::mount::unmount("/large_test");
+        }
+        Err(e) => {
+            error!("  Failed to mount for large file test: {e:?}");
+        }
+    }
+}
+
+async fn test_large_file(size: usize, desc: &str, mount_path: &str) -> bool {
+    use awkernel_async_lib::file::mount::resolve_filesystem_for_path;
+    
+    info!("  Testing {} file...", desc);
+
+    let (fs, _, _) = match resolve_filesystem_for_path(mount_path) {
+        Some(result) => result,
+        None => {
+            error!("    Failed to resolve filesystem");
+            return false;
+        }
+    };
+
+    let filename = format!("test_{}.dat", desc.to_lowercase().replace("kb", "k"));
+    
+    // Create test pattern - changes every 256 bytes to detect corruption
+    let mut write_data = vec![0u8; size];
+    for (i, chunk) in write_data.chunks_mut(256).enumerate() {
+        chunk.fill((i as u8).wrapping_add(0x42));
+    }
+
+    // Write file
+    match fs.create_file(&filename).await {
+        Ok(mut file) => {
+            let start = awkernel_lib::delay::uptime() / 1000; // Convert us to ms
+            
+            if let Err(e) = file.write_all(&write_data).await {
+                error!("    Failed to write {} file: {e:?}", desc);
+                return false;
+            }
+            
+            if let Err(e) = file.flush().await {
+                error!("    Failed to flush {} file: {e:?}", desc);
+                return false;
+            }
+            
+            let elapsed = (awkernel_lib::delay::uptime() / 1000) - start;
+            let throughput = if elapsed > 0 {
+                (size as u64 * 1000) / (elapsed * 1024) // KB/s
+            } else {
+                0
+            };
+            
+            info!("    ✓ Wrote {} in {}ms ({} KB/s)", desc, elapsed, throughput);
+        }
+        Err(e) => {
+            error!("    Failed to create {} file: {e:?}", desc);
+            return false;
+        }
+    }
+
+    // Read and verify
+    match fs.open_file(&filename).await {
+        Ok(mut file) => {
+            let mut read_data = vec![0u8; size];
+            let start = awkernel_lib::delay::uptime() / 1000; // Convert us to ms
+            
+            if let Err(e) = file.read_exact(&mut read_data).await {
+                error!("    Failed to read {} file: {e:?}", desc);
+                return false;
+            }
+            
+            let elapsed = (awkernel_lib::delay::uptime() / 1000) - start;
+            let throughput = if elapsed > 0 {
+                (size as u64 * 1000) / (elapsed * 1024) // KB/s
+            } else {
+                0
+            };
+            
+            // Verify data
+            let mut mismatches = 0;
+            for (i, (expected, actual)) in write_data.iter().zip(read_data.iter()).enumerate() {
+                if expected != actual {
+                    if mismatches < 5 {
+                        error!("    Data mismatch at offset {}: expected 0x{:02x}, got 0x{:02x}", 
+                               i, expected, actual);
+                    }
+                    mismatches += 1;
+                }
+            }
+            
+            if mismatches > 0 {
+                error!("    {} file verification failed: {} mismatches", desc, mismatches);
+                return false;
+            }
+            
+            info!("    ✓ Read and verified {} in {}ms ({} KB/s)", desc, elapsed, throughput);
+        }
+        Err(e) => {
+            error!("    Failed to open {} file for reading: {e:?}", desc);
+            return false;
+        }
+    }
+
+    // Clean up
+    let _ = fs.remove_file(&filename).await;
+    
     true
 }
 

@@ -1,4 +1,5 @@
 //! The async filesystem trait definitions needed to implement new async virtual filesystems
+use super::path::VfsMetadata;
 use crate::time::Time;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
@@ -6,7 +7,6 @@ use awkernel_lib::file::{
     fs_capabilities::FsCapabilities,
     io::SeekFrom,
     vfs::error::{VfsError, VfsErrorKind, VfsResult},
-    vfs::path::VfsMetadata,
 };
 use core::fmt::Debug;
 use futures::stream::Stream;

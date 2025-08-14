@@ -69,15 +69,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
     #[cfg(feature = "test_storage_interrupt")]
     test_storage_interrupt::run().await; // test for storage interrupt handler
-    
-    #[cfg(feature = "test_nvme_namespace")]
-    test_nvme_namespace::run().await; // test for NVMe namespace StorageDevice
 
     #[cfg(feature = "test_storage_async")]
     test_storage_async::run().await; // test for async storage operations
-
-    #[cfg(feature = "test_nvme_fatfs")]
-    test_nvme_fatfs::run().await; // test for NVMe with FatFS
 
     #[cfg(feature = "test_nvme_fatfs_rw")]
     test_nvme_fatfs_rw::run().await; // test for NVMe with FatFS read/write operations

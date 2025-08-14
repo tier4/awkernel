@@ -49,8 +49,12 @@ pub const NVME_SQTDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32)) * 
 pub const NVME_CQHDBL: fn(u16, u32) -> u32 = |q, s| 0x1000 + (2 * (q as u32) + 1) * s;
 
 pub const NVME_CQE_PHASE: u16 = 1 << 0;
-#[allow(dead_code)]
-pub const NVME_CQE_SC_SUCCESS: u16 = 0x00 << 1;
+
+/// Extract status code from CQE flags (bits 1-8)
+/// Corresponds to OpenBSD's NVME_CQE_SC macro
+pub const NVME_CQE_SC: fn(u16) -> u16 = |flags| (flags >> 1) & 0xff;
+
+pub const NVME_CQE_SC_SUCCESS: u16 = 0x00;
 
 pub const NVM_SQE_Q_PC: u8 = 1 << 0; /* Physically Contiguous */
 pub const NVM_SQE_CQ_IEN: u8 = 1 << 1; /* Interrupts Enabled */

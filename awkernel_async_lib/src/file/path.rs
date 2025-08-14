@@ -16,9 +16,9 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use awkernel_lib::file::vfs::{
-    error::{VfsError, VfsErrorKind, VfsResult},
-    path::{PathLike, VfsFileType, VfsMetadata},
+use awkernel_lib::file::{
+    path_utils,
+    vfs::error::{VfsError, VfsErrorKind, VfsResult},
 };
 use async_recursion::async_recursion;
 use core::{
@@ -26,6 +26,52 @@ use core::{
     task::{Context, Poll},
 };
 use futures::{Stream, StreamExt};
+
+/// A trait for common path behavior
+pub trait PathLike: Clone {
+    fn get_path(&self) -> String;
+    
+    fn filename_internal(&self) -> String {
+        path_utils::filename(&self.get_path())
+    }
+
+    fn extension_internal(&self) -> Option<String> {
+        path_utils::extension(&self.get_path())
+    }
+
+    fn parent_internal(&self, path: &str) -> String {
+        path_utils::parent_path(path)
+    }
+
+    fn join_internal(&self, in_path: &str, path: &str) -> VfsResult<String> {
+        path_utils::join_path(in_path, path)
+            .map_err(|_msg| VfsError::from(VfsErrorKind::InvalidPath).with_path(path))
+    }
+}
+
+/// Type of file
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum VfsFileType {
+    /// A plain file
+    File,
+    /// A Directory
+    Directory,
+}
+
+/// File metadata information
+#[derive(Debug)]
+pub struct VfsMetadata {
+    /// The type of file
+    pub file_type: VfsFileType,
+    /// Length of the file in bytes, 0 for directories
+    pub len: u64,
+    /// Creation time of the file, if supported by the vfs implementation
+    pub created: Option<Time>,
+    /// Modification time of the file, if supported by the vfs implementation
+    pub modified: Option<Time>,
+    /// Access time of the file, if supported by the vfs implementation
+    pub accessed: Option<Time>,
+}
 
 /// A virtual filesystem path
 #[derive(Clone, Debug)]

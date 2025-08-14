@@ -2,7 +2,7 @@ mod transfer;
 
 // Re-export commonly used transfer functions
 pub use transfer::{
-    allocate_transfer_sync, free_transfer, init_transfer_pool, transfer_get_blocks,
+    allocate_transfer, free_transfer, init_transfer_pool, transfer_get_blocks,
     transfer_get_info, transfer_get_lba, transfer_get_nsid, transfer_get_status,
     transfer_get_timeout_ms, transfer_is_completed, transfer_is_poll_mode, transfer_is_read,
     transfer_mark_completed, transfer_set_params, transfer_set_poll_mode, transfer_set_waker,
@@ -29,6 +29,7 @@ pub enum StorageManagerError {
     InvalidTransferID,
     DeviceError(StorageDevError),
     NotYetImplemented,
+    PoolNotInitialized,
 }
 
 #[derive(Debug)]
@@ -288,6 +289,13 @@ pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
 
     // Call the device's interrupt handler
     let _ = device_info.device.interrupt(irq);
+    
+    // Drop the manager lock before waking tasks to avoid potential deadlocks
+    drop(manager);
+    
+    // Wake any async tasks waiting on completed transfers for this device
+    // interface_id is the same as device_id for storage devices
+    wake_completed_transfers(interface_id);
 
     // For now, assume no more work is pending
     // Individual drivers can implement more sophisticated logic
@@ -367,12 +375,6 @@ impl Future for TransferCompletionFuture {
     }
 }
 
-/// Async wrapper for allocating a transfer
-pub async fn allocate_transfer(device_id: u64) -> Result<u16, StorageManagerError> {
-    // For now, just use sync version
-    // Could be made truly async if pool is exhausted
-    allocate_transfer_sync(device_id)
-}
 
 /// Common async I/O operation logic
 async fn async_io_operation(
@@ -392,7 +394,7 @@ async fn async_io_operation(
     }
 
     // Allocate transfer
-    let transfer_id = allocate_transfer(device_id).await?;
+    let transfer_id = allocate_transfer(device_id)?;
 
     // Ensure transfer is freed on all paths
     let result = async {
@@ -413,7 +415,7 @@ async fn async_io_operation(
     .await;
 
     // Always free transfer
-    free_transfer(transfer_id);
+    let _ = free_transfer(transfer_id);
     result
 }
 
@@ -441,12 +443,35 @@ pub async fn async_write_block(
     start_lba: u64, // Renamed for clarity
     buf: &[u8],
 ) -> Result<(), StorageManagerError> {
-    async_io_operation(
-        device_id,
-        start_lba,
-        buf.len(),
-        false,
-        |device, transfer_id| device.write_blocks(buf, transfer_id),
-    )
-    .await
+    // Get block size to calculate number of blocks
+    let block_size = get_device_block_size(device_id)?;
+    
+    // Calculate number of blocks from buffer size
+    let num_blocks = buf.len() / block_size;
+    if buf.len() % block_size != 0 {
+        return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
+    }
+    
+    // Allocate transfer
+    let transfer_id = allocate_transfer(device_id)?;
+    
+    // Set up the transfer metadata
+    let nsid = get_device_namespace(device_id).unwrap_or(0);
+    transfer_set_params(transfer_id, start_lba, num_blocks as u32, false, nsid)?;
+    
+    // Get device and submit write - this must happen before async boundary
+    // to ensure buffer remains valid during DMA setup
+    let device = get_storage_device(device_id)?;
+    if let Err(e) = device.write_blocks(buf, transfer_id) {
+        let _ = free_transfer(transfer_id);
+        return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
+    }
+    
+    // Now wait for completion asynchronously
+    let result = TransferCompletionFuture::new(transfer_id).await;
+    
+    // Always free transfer
+    let _ = free_transfer(transfer_id);
+    
+    result
 }
