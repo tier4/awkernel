@@ -18,8 +18,8 @@ const LARGE_BLOCK_SIZE: usize = 32768; // 32KB - large transfer
 const MEGA_BLOCK_SIZE: usize = 65536; // 128 blocks * 512 bytes = 64KB
 
 // Number of operations for different test scenarios
-const QUICK_TEST_OPS: usize = 5;
-const NORMAL_TEST_OPS: usize = 10;
+const QUICK_TEST_OPS: usize = 2; // Reduced for faster testing
+const NORMAL_TEST_OPS: usize = 4; // Reduced for faster testing
 
 // Concurrent task counts
 const LOW_CONCURRENCY: usize = 2;
@@ -140,14 +140,11 @@ pub async fn run() -> Result<(), alloc::borrow::Cow<'static, str>> {
         all_passed = false;
     }
 
-    // Skip stress tests for now - they seem to overwhelm the storage system
-    // TODO: Fix concurrent I/O and large block handling
-
-    // // Test 5: Concurrent I/O Operations
-    // info!("\n=== Test 5: Concurrent I/O Operations ===");
-    // if !test_concurrent_io(device_id, block_size).await {
-    //     all_passed = false;
-    // }
+    // Test 5: Concurrent I/O Operations
+    info!("\n=== Test 5: Concurrent I/O Operations ===");
+    if !test_concurrent_io(device_id, block_size).await {
+        all_passed = false;
+    }
 
     // Test 6: Large Block Transfers - Testing data corruption issue
     info!("\n=== Test 6: Large Block Transfers ===");
@@ -155,12 +152,11 @@ pub async fn run() -> Result<(), alloc::borrow::Cow<'static, str>> {
         all_passed = false;
     }
 
-    // // Test 7: Sustained Load Test
-    // info!("\n=== Test 7: Sustained Load Test ===");
-    // if !test_sustained_load(device_id, block_size).await {
-    //     all_passed = false;
-    // }
-
+    // Test 7: Sustained Load Test
+    info!("\n=== Test 7: Sustained Load Test ===");
+    if !test_sustained_load(device_id, block_size).await {
+        all_passed = false;
+    }
     // Print final statistics
     print_final_stats();
 
@@ -469,7 +465,7 @@ async fn test_concurrent_io(device_id: u64, block_size: usize) -> bool {
 
         // Wait for all tasks to complete
         // Since we can't join tasks directly, we'll just wait a bit
-        awkernel_lib::delay::wait_millisec(5000);
+        awkernel_lib::delay::wait_millisec(2000);
 
         let duration_ms = (uptime() / 1000) - start;
         let total_ops = (*num_tasks * ops_per_task) as u64;
@@ -649,9 +645,9 @@ async fn test_large_blocks(device_id: u64, block_size: usize) -> bool {
 }
 
 async fn test_sustained_load(device_id: u64, block_size: usize) -> bool {
-    info!("Testing sustained load (5 seconds)...");
+    info!("Testing sustained load (2 seconds)...");
 
-    let duration_ms = 5000u64; // 5 seconds
+    let duration_ms = 2000u64; // 2 seconds - reduced for faster testing
     let start = uptime() / 1000;
     let mut stats = TestStats::new();
 

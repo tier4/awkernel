@@ -26,7 +26,7 @@ const DEVICE_SHORT_NAME: &str = "nvme";
 pub const PAGE_SHIFT: u32 = PAGESIZE.trailing_zeros(); // 2^12 = 4096
 pub const MAXPHYS: usize = 64 * 1024; /* max raw I/O transfer size. TODO - to be considered. */
 pub const NVME_TIMO_IDENT: u32 = 10000; /* ms to probe/identify */
-pub const NVME_TIMO_DELAYNS: u64 = 10; /* ns to wait in poll loop */
+pub const NVME_TIMO_DELAYNS: u64 = 10; /* nanoseconds to wait in poll loop */
 
 // Queue entry size constants
 const NVME_SQ_ENTRY_SIZE_SHIFT: u32 = 6; // Submission queue entry size == 2^6 (64 bytes)
@@ -116,7 +116,7 @@ impl Queue {
         Ok(())
     }
 
-    fn complete(&self, device: &mut NvmeInner) -> Result<bool, NvmeDriverErr> {
+    fn complete(&self, device: &NvmeInner) -> Result<bool, NvmeDriverErr> {
         let mut node = MCSNode::new();
         let mut comq = if let Some(guard) = self.comq.try_lock(&mut node) {
             guard
@@ -124,8 +124,8 @@ impl Queue {
             return Ok(false);
         };
 
-        let device_ptr = device as *mut NvmeInner as *mut u8;
-        let ccbs = device.ccbs.as_mut().ok_or(NvmeDriverErr::NoCcb)?;
+        let device_ptr = device as *const NvmeInner as *mut u8;
+        let ccbs = device.ccbs.as_ref().ok_or(NvmeDriverErr::NoCcb)?;
 
         let mut head = comq._head;
         let mut rv = false;
@@ -144,14 +144,21 @@ impl Queue {
                 log::error!("Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
-
-            // Get the completion handler before getting mutable ccb
-            let done_fn = ccbs[cid as usize].done;
-
-            if let Some(done_fn) = done_fn {
-                // OpenBSD style: pass device and ccb to handler
-                let ccb = &mut ccbs[cid as usize];
-                done_fn(device_ptr, ccb, cqe);
+            // Lock the individual CCB to get the completion handler and call it
+            let needs_free = {
+                let mut node = MCSNode::new();
+                let mut ccb = ccbs[cid as usize].lock(&mut node);
+                if let Some(done_fn) = ccb.done {
+                    // OpenBSD style: pass device and ccb to handler
+                    done_fn(device_ptr, &mut *ccb, cqe);
+                }
+                // Check if the handler cleared the done pointer (indicating it should be freed)
+                ccb.done.is_none()
+            };
+            
+            // Free the CCB if the completion handler indicated it should be freed
+            if needs_free {
+                let _ = device.ccb_put(cid);
             }
 
             head += 1;
@@ -180,7 +187,13 @@ struct NvmeInner {
     mdts: usize,
     max_prpl: usize,
     ccb_list: Option<Mutex<CcbList>>,
-    ccbs: Option<Vec<Ccb>>,
+    // CCBs are wrapped in RwLock to allow concurrent I/O operations.
+    // Note: Individual CCBs are never accessed concurrently because the free_list
+    // ensures exclusive ownership. The RwLock is only needed to satisfy Rust's
+    // borrowing rules when multiple threads need to access different CCBs.
+    // We use read locks for most operations since we're just accessing individual
+    // CCBs by index, not modifying the Vec structure itself.
+    ccbs: Option<Vec<Mutex<Ccb>>>,
     ccb_prpls: Option<DmaMap>, // DMA map for PRP list pool (owns the memory)
     nn: u32,
     identify: Option<IdentifyController>,
@@ -395,7 +408,8 @@ impl NvmeInner {
         let prpl_phys_base = prpl_dma.get_phy_addr().as_usize() as u64;
 
         // Create DMA map that takes ownership of the PRP list pool
-        let prpl_tag = DmaTag::new_64bit();
+        // Note: PRP list itself doesn't need boundary restrictions, only the I/O buffers do
+        let prpl_tag = DmaTag::default();
         let prpl_map =
             DmaMap::from_dma_pool(prpl_dma, prpl_tag).map_err(|_| NvmeDriverErr::DMAPool)?;
 
@@ -404,8 +418,18 @@ impl NvmeInner {
         let mut off = 0;
         for i in 0..nccbs {
             // Create DMA map for this CCB (for I/O data)
-            let tag = DmaTag::new_64bit();
-            let dmamap = DmaMap::new(tag, self.mdts).ok();
+            // Match OpenBSD sys/dev/ic/nvme.c:1431-1433
+            // - maxsize = sc_mdts (maximum data transfer size)
+            // - nsegments = sc_max_prpl + 1 (we get a free prp in the sqe)
+            // - maxsegsz = sc_mps = PAGE_SIZE
+            // - boundary = sc_mps = PAGE_SIZE
+            // NVMe requires separate PRP entries for each page crossing, even if physically contiguous
+            let mut tag = DmaTag::default();
+            tag.maxsize = self.mdts;  // Maximum transfer size from controller
+            tag.nsegments = self.max_prpl + 1;  // Max PRP list entries + 1 free in SQE
+            tag.maxsegsz = self.mps;  // Maximum segment size = page size
+            tag.boundary = self.mps as u64;  // NVMe PRP requirement: separate entries at page boundaries
+            let dmamap = DmaMap::new(tag, self.info.segment_group as usize).ok();
 
             let ccb = Ccb {
                 transfer_id: None,
@@ -417,7 +441,7 @@ impl NvmeInner {
                 id: i,
                 dmamap,
             };
-            ccbs.push(ccb);
+            ccbs.push(Mutex::new(ccb));
             free_list.push_back(i);
 
             off += core::mem::size_of::<u64>() * self.max_prpl;
@@ -433,8 +457,10 @@ impl NvmeInner {
 
     fn ccbs_free(&mut self) {
         // Clean up DMA maps before dropping CCBs
-        if let Some(ccbs) = &mut self.ccbs {
-            for ccb in ccbs {
+        if let Some(ccbs) = &self.ccbs {
+            for ccb_mutex in ccbs.iter() {
+                let mut node = MCSNode::new();
+                let mut ccb = ccb_mutex.lock(&mut node);
                 if let Some(ref mut dmamap) = ccb.dmamap {
                     dmamap.unload();
                 }
@@ -454,9 +480,10 @@ impl NvmeInner {
         Ok(list._free_list.pop_front())
     }
 
-    fn ccb_put(&mut self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
-        let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-        let ccb = &mut ccbs[ccb_id as usize];
+    fn ccb_put(&self, ccb_id: u16) -> Result<(), NvmeDriverErr> {
+        let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let mut node = MCSNode::new();
+        let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
         ccb.transfer_id = None;
         ccb.done = None;
 
@@ -481,7 +508,7 @@ impl NvmeInner {
         }
     }
 
-    fn poll<F>(&mut self, q: &Queue, ccb_id: u16, fill_fn: F, ms: u32) -> Result<u16, NvmeDriverErr>
+    fn poll<F>(&self, q: &Queue, ccb_id: u16, fill_fn: F, ms: u32) -> Result<u16, NvmeDriverErr>
     where
         F: FnOnce(&Ccb, &mut SubQueueEntry),
     {
@@ -491,14 +518,16 @@ impl NvmeInner {
         };
 
         {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
-            fill_fn(ccb, &mut state._sqe);
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let ccb = ccbs[ccb_id as usize].lock(&mut node);
+            fill_fn(&*ccb, &mut state._sqe);
         }
 
         let (original_done, original_cookie) = {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             let done = ccb.done;
             let cookie = ccb.cookie.take();
 
@@ -510,17 +539,21 @@ impl NvmeInner {
 
         {
             let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &ccbs[ccb_id as usize];
-            q.submit(&self.info, ccb, Self::poll_fill)?;
+            let mut node = MCSNode::new();
+            let ccb = ccbs[ccb_id as usize].lock(&mut node);
+            q.submit(&self.info, &*ccb, Self::poll_fill)?;
         }
 
         let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
         loop {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &ccbs[ccb_id as usize];
-            let phase_set = match &ccb.cookie {
-                Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
-                _ => return Err(NvmeDriverErr::NoCcb),
+            let phase_set = {
+                let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+                let mut node = MCSNode::new();
+                let ccb = ccbs[ccb_id as usize].lock(&mut node);
+                match &ccb.cookie {
+                    Some(CcbCookie::_State(state)) => state._cqe.flags & NVME_CQE_PHASE.to_le() != 0,
+                    _ => return Err(NvmeDriverErr::NoCcb),
+                }
             };
             if phase_set {
                 break;
@@ -541,16 +574,17 @@ impl NvmeInner {
         }
 
         let cqe = {
-            let self_ptr = self as *mut NvmeInner as *mut u8;
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
+            let self_ptr = self as *const NvmeInner as *mut u8;
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             let cqe = match &ccb.cookie {
                 Some(CcbCookie::_State(state)) => state._cqe,
                 _ => return Err(NvmeDriverErr::NoCcb),
             };
             ccb.cookie = original_cookie;
             if let Some(done_fn) = original_done {
-                done_fn(self_ptr, ccb, &cqe);
+                done_fn(self_ptr, &mut *ccb, &cqe);
             }
             cqe
         };
@@ -605,8 +639,9 @@ impl NvmeInner {
         sqe.qflags = NVM_SQE_CQ_IEN | NVM_SQE_Q_PC;
         // ENHANCE: It better to use a separate interrupt vector for I/O queues and not reuse the same ID as the admin queue. However, this is how OpenBSD does it, so we follow that for now.
         {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
             ccb.done = None;
         }
@@ -634,8 +669,9 @@ impl NvmeInner {
         sqe.cqid = io_q._id.to_le();
         sqe.qflags = NVM_SQE_Q_PC;
         {
-            let ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut ccbs[ccb_id as usize];
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             ccb.cookie = Some(CcbCookie::_QueueCmd(sqe));
             ccb.done = None;
         }
@@ -662,8 +698,9 @@ impl NvmeInner {
         let ptr = mem.get_virt_addr().as_ptr::<IdentifyController>();
 
         {
-            let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut sc_ccbs[ccb_id as usize];
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             ccb.cookie = Some(CcbCookie::_Controller(mem.get_phy_addr().as_usize() as u64));
             ccb.done = None;
         }
@@ -739,8 +776,9 @@ impl NvmeInner {
         }
 
         {
-            let sc_ccbs = self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?;
-            let ccb = &mut sc_ccbs[ccb_id as usize];
+            let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ccb = ccbs[ccb_id as usize].lock(&mut node);
             ccb.cookie = Some(CcbCookie::_State(PollState {
                 _sqe: sqe,
                 _cqe: ComQueueEntry::default(),
@@ -784,7 +822,6 @@ impl NvmeInner {
 
             if let Some(ref dmamap) = ccb.dmamap {
                 let segments = dmamap.get_segments();
-
                 sqe_io.opcode = if *read { NVM_CMD_READ } else { NVM_CMD_WRITE };
 
                 sqe_io.nsid = (*nsid).to_le();
@@ -792,8 +829,13 @@ impl NvmeInner {
                 unsafe {
                     sqe_io.entry.prp[0] = (segments[0].ds_addr.as_usize() as u64).to_le();
                     sqe_io.entry.prp[1] = match segments.len() {
-                        1 => 0,
-                        2 => (segments[1].ds_addr.as_usize() as u64).to_le(),
+                        1 => {
+                            0
+                        },
+                        2 => {
+                            let addr = (segments[1].ds_addr.as_usize() as u64).to_le();
+                            addr
+                        },
                         _ => {
                             // For >2 segments, use PRP list
                             ccb.prpl_dva.to_le()
@@ -846,21 +888,7 @@ impl NvmeInner {
         let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::Io {
-                lba,
-                blocks,
-                nsid,
-                read,
-            }) = &ccb.cookie
-            {
-                log::debug!(
-                    "NVMe I/O completed: {} {} blocks at LBA {} on nsid {}",
-                    if *read { "read" } else { "write" },
-                    blocks,
-                    lba,
-                    nsid
-                );
-            }
+            // I/O completed successfully
         } else {
             log::error!("NVMe I/O failed with status: 0x{status:x}");
         }
@@ -868,22 +896,74 @@ impl NvmeInner {
         if let Some(transfer_id) = ccb.transfer_id {
             let _ = storage::transfer_mark_completed(transfer_id, status);
         }
-        let _ = device.ccb_put(ccb.id);
+        
+        // IMPORTANT: Don't call ccb_put here! We're inside the CCB lock.
+        // Instead, mark the CCB for cleanup by clearing its fields.
+        // The actual return to the free list will happen in Queue::complete after unlocking.
+        ccb.transfer_id = None;
+        ccb.done = None;
+        // Note: ccb.id is preserved so Queue::complete knows which CCB to free
     }
 
     fn submit_io(
-        &mut self,
+        &self,
         io_q: &Queue,
         transfer_id: u16,
         buf: &[u8],
     ) -> Result<(), NvmeDriverErr> {
         use awkernel_lib::addr::virt_addr::VirtAddr;
 
+        // Check if this transfer is already completed
+        // This prevents double-submission which can crash the system
+        if storage::transfer_is_completed(transfer_id).unwrap_or(false) {
+            log::warn!("Transfer {} is already completed, skipping submission", transfer_id);
+            return Ok(());
+        }
+
         let (lba, blocks, nsid, read) =
             storage::transfer_get_info(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
 
+        // Calculate the actual transfer size based on blocks
+        // Get the actual block size from the namespace
+        let block_size = if nsid > 0 && (nsid as usize) <= self.namespaces.len() {
+            if let Some(ref ns) = self.namespaces[(nsid - 1) as usize] {
+                // Get the LBA format index from flbas field
+                let lba_format_idx = (ns.flbas & 0x0f) as usize;
+                // LBA Data Size is 2^(lbads) bytes
+                if lba_format_idx < ns.lbaf.len() {
+                    1usize << ns.lbaf[lba_format_idx].lbads
+                } else {
+                    512 // Default if format index is invalid
+                }
+            } else {
+                512 // Default to 512 if namespace not found
+            }
+        } else {
+            512 // Default to 512 if invalid nsid
+        };
+        let transfer_size = (blocks as usize) * block_size;
+        
+        // Ensure buffer is large enough
+        if buf.len() < transfer_size {
+            log::error!("Buffer too small: {} < {}", buf.len(), transfer_size);
+            return Err(NvmeDriverErr::DmaError);
+        }
+        
+        // Only use the portion of the buffer that's needed
+        let buf = &buf[..transfer_size];
+
+        // Check buffer alignment
+        let buf_addr = buf.as_ptr() as usize;
+        if buf_addr % 4 != 0 {
+            log::warn!("Buffer not 4-byte aligned: 0x{:x}", buf_addr);
+        }
+
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
+        
+        let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let mut node = MCSNode::new();
+        let mut ccb_guard = ccbs[ccb_id as usize].lock(&mut node);
+        let ccb = &mut *ccb_guard;
 
         ccb.transfer_id = Some(transfer_id);
         ccb.done = Some(Self::io_done);
@@ -897,8 +977,11 @@ impl NvmeInner {
         if let Some(ref mut dmamap) = ccb.dmamap {
             let vaddr = VirtAddr::new(buf.as_ptr() as usize);
             dmamap
-                .load(vaddr, buf.len())
-                .map_err(|_| NvmeDriverErr::DmaError)?;
+                .load(vaddr, transfer_size)
+                .map_err(|e| {
+                    log::error!("DMA load failed: {:?}", e);
+                    NvmeDriverErr::DmaError
+                })?;
 
             let sync_op = if read {
                 DmaSyncOp::PreRead
@@ -906,20 +989,25 @@ impl NvmeInner {
                 DmaSyncOp::PreWrite
             };
             dmamap
-                .sync(0, buf.len(), sync_op)
-                .map_err(|_| NvmeDriverErr::DmaError)?;
+                .sync(0, transfer_size, sync_op)
+                .map_err(|e| {
+                    log::error!("DMA sync failed: {:?}", e);
+                    NvmeDriverErr::DmaError
+                })?;
         } else {
+            log::error!("CCB has no DMA map!");
             return Err(NvmeDriverErr::DmaError);
         }
 
         if let Some(ref dma_map) = ccb.dmamap {
             let segments = dma_map.get_segments();
+            let segments_len = segments.len();
 
             // Set up PRP list for transfers with more than 2 segments
-            if segments.len() > 2 {
+            if segments_len > 2 {
                 if let Some(prpl_ptr) = ccb.prpl {
                     // Ensure we don't exceed the allocated PRP list size
-                    let prp_entries_needed = segments.len() - 1;
+                    let prp_entries_needed = segments_len - 1;
                     if prp_entries_needed > self.max_prpl {
                         log::error!("Too many PRP entries needed: {} > {}", prp_entries_needed, self.max_prpl);
                         return Err(NvmeDriverErr::TooManySegments);
@@ -947,11 +1035,24 @@ impl NvmeInner {
 
         let poll = storage::transfer_is_poll_mode(transfer_id).unwrap_or(false);
         if poll {
+            // Need to drop lock before calling poll
+            drop(ccb_guard);
             let timeout_ms =
                 storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
             self.poll(io_q, ccb_id, Self::io_fill, timeout_ms)?;
         } else {
+            // Validate CCB state before submission
+            if ccb.transfer_id.is_none() {
+                log::error!("CCB has no transfer_id!");
+                return Err(NvmeDriverErr::InitFailure);
+            }
+            if ccb.dmamap.is_none() {
+                log::error!("CCB has no DMA map!");
+                return Err(NvmeDriverErr::DmaError);
+            }
+            
             io_q.submit(&self.info, ccb, Self::io_fill)?;
+            drop(ccb_guard);
         }
 
         Ok(())
@@ -968,13 +1069,12 @@ impl NvmeInner {
     }
 
     fn sync_done(device: *mut u8, ccb: &mut Ccb, cqe: &ComQueueEntry) {
-        let device = unsafe { &mut *(device as *mut NvmeInner) };
+        let _device = unsafe { &mut *(device as *mut NvmeInner) };
         let flags = u16::from_le(cqe.flags);
         let status = NVME_CQE_SC(flags);
 
         if status == NVME_CQE_SC_SUCCESS {
-            if let Some(CcbCookie::Flush { nsid }) = &ccb.cookie {
-                log::debug!("NVMe flush completed on nsid {nsid}");
+            if let Some(CcbCookie::Flush { nsid: _ }) = &ccb.cookie {
             }
         } else {
             log::error!("NVMe flush failed with status: 0x{status:x}");
@@ -983,15 +1083,23 @@ impl NvmeInner {
         if let Some(transfer_id) = ccb.transfer_id {
             let _ = storage::transfer_mark_completed(transfer_id, status);
         }
-        let _ = device.ccb_put(ccb.id);
+        
+        // IMPORTANT: Don't call ccb_put here! We're inside the CCB lock.
+        // Mark for cleanup by clearing fields.
+        ccb.transfer_id = None;
+        ccb.done = None;
     }
 
-    pub fn submit_flush(&mut self, io_q: &Queue, transfer_id: u16) -> Result<(), NvmeDriverErr> {
+    pub fn submit_flush(&self, io_q: &Queue, transfer_id: u16) -> Result<(), NvmeDriverErr> {
         let nsid =
             storage::transfer_get_nsid(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
 
         let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
-        let ccb = &mut self.ccbs.as_mut().ok_or(NvmeDriverErr::InitFailure)?[ccb_id as usize];
+        
+        let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
+        let mut node = MCSNode::new();
+        let mut ccb_guard = ccbs[ccb_id as usize].lock(&mut node);
+        let ccb = &mut *ccb_guard;
 
         ccb.transfer_id = Some(transfer_id);
         ccb.done = Some(Self::sync_done);
@@ -999,17 +1107,20 @@ impl NvmeInner {
 
         let poll = storage::transfer_is_poll_mode(transfer_id).unwrap_or(false);
         if poll {
+            // Need to drop lock before calling poll
+            drop(ccb_guard);
             let timeout_ms =
                 storage::transfer_get_timeout_ms(transfer_id).unwrap_or(DEFAULT_IO_TIMEOUT_MS);
             self.poll(io_q, ccb_id, Self::sync_fill, timeout_ms)?;
         } else {
             io_q.submit(&self.info, ccb, Self::sync_fill)?;
+            drop(ccb_guard);
         }
 
         Ok(())
     }
 
-    fn intr(&mut self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
+    fn intr(&self, admin_q: &Queue, io_q: &Queue) -> Result<bool, NvmeDriverErr> {
         let mut rv = false;
 
         if self.ccbs.is_some() {
@@ -1224,7 +1335,7 @@ impl Nvme {
             nsid,
         );
 
-        let mut inner = self.inner.write();
+        let inner = self.inner.read();
         inner.submit_flush(&self.io_q, transfer_id)?;
 
         Ok(())
@@ -1240,10 +1351,13 @@ impl Nvme {
     }
 
     pub fn interrupt(&self, _irq: u16) -> Result<(), StorageDevError> {
-        let mut inner = self.inner.write();
+        let inner = self.inner.read();
         match inner.intr(&self.admin_q, &self.io_q) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(StorageDevError::IoError),
+            Ok(_had_completions) => Ok(()),
+            Err(e) => {
+                log::error!("NVMe interrupt handler error: {:?}", e);
+                Err(StorageDevError::IoError)
+            }
         }
     }
 }
@@ -1482,7 +1596,7 @@ impl StorageDevice for NvmeNamespace {
             return Err(BlockDeviceError::InvalidBlock);
         }
 
-        let mut inner = self.controller.inner.write();
+        let inner = self.controller.inner.read();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
             .map_err(|_| BlockDeviceError::IoError)
@@ -1497,7 +1611,7 @@ impl StorageDevice for NvmeNamespace {
             return Err(BlockDeviceError::InvalidBlock);
         }
 
-        let mut inner = self.controller.inner.write();
+        let inner = self.controller.inner.read();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
             .map_err(|_| BlockDeviceError::IoError)

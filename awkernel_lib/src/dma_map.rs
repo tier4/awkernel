@@ -28,25 +28,14 @@ pub struct DmaTag {
     pub alignment: usize,
 }
 
-impl DmaTag {
-    /// Create a DMA tag for 32-bit devices
-    /// Corresponds to OpenBSD's bus_dma_tag_create() for 32-bit devices
-    pub fn new_32bit() -> Self {
+impl Default for DmaTag {
+    /// Create a default DMA tag for 64-bit devices
+    /// Devices with special requirements (like NVMe) can modify fields after creation
+    fn default() -> Self {
         Self {
-            boundary: 0xFFFF_FFFF,
-            maxsegsz: 0xFFFF_FFFF,
-            nsegments: 1,
-            maxsize: 0xFFFF_FFFF,
-            alignment: 1,
-        }
-    }
-
-    /// Create a DMA tag for 64-bit devices
-    pub fn new_64bit() -> Self {
-        Self {
-            boundary: u64::MAX,
-            maxsegsz: PAGESIZE,     // Use page-sized segments to match OS page size
-            nsegments: 128,         // Allow multiple segments for large transfers
+            boundary: u64::MAX,      // No boundary restriction by default
+            maxsegsz: PAGESIZE,      // Use page-sized segments to match OS page size
+            nsegments: 128,          // Allow multiple segments for large transfers
             maxsize: usize::MAX,
             alignment: 1,
         }
@@ -162,16 +151,39 @@ impl DmaMap {
                 return self.load_with_bounce(vaddr, size);
             };
             
-            // Check if address exceeds device boundary
-            if paddr.as_usize() as u64 > self.tag.boundary {
-                return self.load_with_bounce(vaddr, size);
-            }
+            // Note: boundary field is for alignment constraints, not address limits
+            // Address limits would be checked against a separate max_addr field if needed
             
             // Check if we can coalesce with previous segment
+            // Based on OpenBSD's segment coalescing logic:
+            // - sys/arch/amd64/amd64/bus_dma.c:461-470
+            //   Line 461: paddr == lastaddr (physically contiguous)
+            //   Lines 462-463: segment size doesn't exceed maxsegsz
+            //   Lines 464-466: both addresses in same boundary-aligned region
             if let Some(last_seg) = self.segments.last_mut() {
                 let expected_paddr = PhyAddr::new(last_seg.ds_addr.as_usize() + last_seg.ds_len);
-                if paddr == expected_paddr && last_seg.ds_len + chunk_size <= self.tag.maxsegsz {
-                    // Extend the last segment
+                
+                // Check if physically contiguous (OpenBSD line 461)
+                let physically_contiguous = paddr == expected_paddr;
+                
+                // Check size constraint (OpenBSD lines 462-463)
+                let size_ok = last_seg.ds_len + chunk_size <= self.tag.maxsegsz;
+                
+                // Check boundary constraint (OpenBSD lines 464-466)
+                // CRITICAL: Check if extending the segment would cross a boundary
+                let boundary_ok = if self.tag.boundary == 0 || self.tag.boundary == u64::MAX {
+                    true  // No boundary restriction
+                } else {
+                    let bmask = !(self.tag.boundary - 1);
+                    // Check if the extended segment would stay within boundary
+                    let seg_start = last_seg.ds_addr.as_usize() as u64;
+                    let new_end = seg_start + (last_seg.ds_len + chunk_size) as u64 - 1;
+                    // Both start and new end must be in same boundary-aligned region
+                    (seg_start & bmask) == (new_end & bmask)
+                };
+                
+                if physically_contiguous && size_ok && boundary_ok {
+                    // Extend the last segment (OpenBSD line 470)
                     last_seg.ds_len += chunk_size;
                 } else {
                     // Check if adding new segment would exceed nsegments
@@ -203,14 +215,24 @@ impl DmaMap {
             }
             
             // Check boundary crossing within segment
+            // Based on OpenBSD's boundary checking in bus_dma:
+            // - sys/arch/amd64/amd64/bus_dma.c:444-448
+            //   Calculates boundary-aligned address and limits segment size
+            // - Line 395: bmask = ~(map->_dm_boundary - 1)
+            // - Line 445: baddr = (paddr + map->_dm_boundary) & bmask
             if let Some(last_seg) = self.segments.last() {
                 let seg_start = last_seg.ds_addr.as_usize() as u64;
                 let seg_end = seg_start + last_seg.ds_len as u64 - 1;
                 
                 // Check if segment crosses a boundary
                 if self.tag.boundary != 0 && self.tag.boundary != u64::MAX {
-                    let start_boundary = seg_start / (self.tag.boundary + 1);
-                    let end_boundary = seg_end / (self.tag.boundary + 1);
+                    // Calculate boundary mask (OpenBSD line 395)
+                    let bmask = !(self.tag.boundary - 1);
+                    
+                    // Check if start and end are in same boundary-aligned region
+                    let start_boundary = seg_start & bmask;
+                    let end_boundary = seg_end & bmask;
+                    
                     if start_boundary != end_boundary {
                         // Segment crosses boundary, need bounce buffer
                         return self.load_with_bounce(vaddr, size);
@@ -237,10 +259,8 @@ impl DmaMap {
 
         let bounce_paddr = bounce.get_phy_addr();
         
-        // Check if bounce buffer meets requirements
-        if bounce_paddr.as_usize() as u64 > self.tag.boundary {
-            return Err(DmaError::AddressTooHigh);
-        }
+        // Note: boundary field is for alignment constraints, not address limits
+        // Bounce buffer allocation already ensures proper physical memory allocation
 
         // NOTE: Data copying happens in sync(), not here!
         // This matches OpenBSD's design where load only sets up mappings
@@ -353,9 +373,7 @@ impl DmaMap {
         let vaddr = pool.get_virt_addr();
         let numa_id = pool.get_numa_id();
         
-        if paddr.as_usize() as u64 > tag.boundary {
-            return Err(DmaError::AddressTooHigh);
-        }
+        // Note: boundary field is for alignment constraints, not address limits
         
         if size > tag.maxsize {
             return Err(DmaError::SizeTooLarge);

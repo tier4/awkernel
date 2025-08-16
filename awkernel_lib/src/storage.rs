@@ -6,7 +6,7 @@ pub use transfer::{
     transfer_get_info, transfer_get_lba, transfer_get_nsid, transfer_get_status,
     transfer_get_timeout_ms, transfer_is_completed, transfer_is_poll_mode, transfer_is_read,
     transfer_mark_completed, transfer_set_params, transfer_set_poll_mode, transfer_set_waker,
-    wake_completed_transfers, DEFAULT_IO_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS,
+    wake_completed_transfers, StorageOp, StorageRequest, DEFAULT_IO_TIMEOUT_MS, DEFAULT_TRANSFER_TIMEOUT_MS,
 };
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
@@ -19,7 +19,8 @@ use alloc::{
 use core::any::Any;
 use core::future::Future;
 use core::pin::Pin;
-use core::task::{Context, Poll};
+use core::slice;
+use core::task::{Context, Poll, Waker};
 
 use crate::file::block_device_adapter::BlockResult;
 
@@ -122,11 +123,77 @@ struct DeviceInfo {
     namespace_id: Option<u32>,
     // Store the concrete type for downcasting when needed (e.g., for FatFS)
     concrete_device: Arc<dyn Any + Send + Sync>,
+    // Request queue for this device
+    request_queue: Arc<Mutex<RequestQueue>>,
 }
 
 pub struct StorageManager {
     devices: BTreeMap<u64, DeviceInfo>,
     interface_id: u64,
+}
+
+/// Simple request queue for storage devices
+pub struct RequestQueue {
+    requests: Vec<StorageRequest>,
+    waker: Option<Waker>,
+}
+
+impl RequestQueue {
+    pub fn new() -> Self {
+        Self {
+            requests: Vec::new(),
+            waker: None,
+        }
+    }
+    
+    pub fn push(&mut self, request: StorageRequest) {
+        self.requests.push(request);
+    }
+    
+    pub fn wake_if_waiting(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+    
+    pub fn pop(&mut self) -> Option<StorageRequest> {
+        if self.requests.is_empty() {
+            None
+        } else {
+            Some(self.requests.remove(0))
+        }
+    }
+    
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.waker = Some(waker);
+    }
+}
+
+/// Future for waiting on the next request from the queue
+pub struct RequestQueueFuture {
+    queue: Arc<Mutex<RequestQueue>>,
+}
+
+impl RequestQueueFuture {
+    pub fn new(queue: Arc<Mutex<RequestQueue>>) -> Self {
+        Self { queue }
+    }
+}
+
+impl Future for RequestQueueFuture {
+    type Output = StorageRequest;
+    
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut node = MCSNode::new();
+        let mut queue = self.queue.lock(&mut node);
+        
+        if let Some(request) = queue.pop() {
+            Poll::Ready(request)
+        } else {
+            queue.set_waker(cx.waker().clone());
+            Poll::Pending
+        }
+    }
 }
 
 enum IRQWaker {
@@ -154,6 +221,7 @@ where
         namespace_id,
         // Store the concrete type for potential downcasting
         concrete_device: device.clone() as Arc<dyn Any + Send + Sync>,
+        request_queue: Arc::new(Mutex::new(RequestQueue::new())),
     };
     manager.devices.insert(id, device_info);
 
@@ -314,16 +382,39 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
         .and_then(|info| info.namespace_id)
 }
 
+/// Queue a storage request for a device
+pub fn queue_storage_request(device_id: u64, request: StorageRequest) -> Result<(), StorageManagerError> {
+    let manager = STORAGE_MANAGER.read();
+    
+    let device_info = manager.devices.get(&device_id)
+        .ok_or(StorageManagerError::InvalidInterfaceID)?;
+    
+    let mut node = MCSNode::new();
+    let mut queue = device_info.request_queue.lock(&mut node);
+    queue.push(request);
+    
+    // Explicitly wake the submission task if it's waiting for requests
+    queue.wake_if_waiting();
+    
+    Ok(())
+}
+
+/// Get the request queue for a device (for the submission task)
+pub fn get_device_request_queue(device_id: u64) -> Option<Arc<Mutex<RequestQueue>>> {
+    let manager = STORAGE_MANAGER.read();
+    manager.devices.get(&device_id).map(|info| info.request_queue.clone())
+}
+
 /// Get the block size for a storage device
 pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
     let device = get_storage_device(device_id)?;
     Ok(device.block_size())
 }
 
-/// Future for waiting on transfer completion with timeout support
+/// Future for waiting on transfer completion
 struct TransferCompletionFuture {
     transfer_id: u16,
-    poll_count: u32, // Track number of polls for timeout
+    poll_count: u32,
 }
 
 impl TransferCompletionFuture {
@@ -339,12 +430,17 @@ impl Future for TransferCompletionFuture {
     type Output = Result<(), StorageManagerError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        self.poll_count += 1;
+        
+        // Always register waker first - this ensures the interrupt handler can wake us
+        transfer_set_waker(self.transfer_id, Some(cx.waker().clone()))?;
+        
+        // Check if already completed
         let completed = transfer_is_completed(self.transfer_id)?;
 
         if completed {
             let status = transfer_get_status(self.transfer_id)?;
             if status == 0 {
-                // Success
                 Poll::Ready(Ok(()))
             } else {
                 Poll::Ready(Err(StorageManagerError::DeviceError(
@@ -352,32 +448,42 @@ impl Future for TransferCompletionFuture {
                 )))
             }
         } else {
-            // For polling mode, check timeout based on poll iterations
-            // Each poll represents roughly 1ms of waiting in typical async runtime
-            let is_poll = transfer_is_poll_mode(self.transfer_id)?;
-            if is_poll {
-                self.poll_count += 1;
-                let timeout_ms = transfer_get_timeout_ms(self.transfer_id)?;
-                // Convert timeout_ms to approximate poll iterations
-                if self.poll_count > timeout_ms {
-                    // Mark transfer as timed out
-                    transfer_mark_completed(self.transfer_id, 1)?; // Non-zero indicates error
-                    return Poll::Ready(Err(StorageManagerError::DeviceError(
+            // Check completion again after registering waker
+            // This handles the case where I/O completes between the initial check
+            // and waker registration (especially in polling mode)
+            let completed_after_waker = transfer_is_completed(self.transfer_id)?;
+            
+            if completed_after_waker {
+                let status = transfer_get_status(self.transfer_id)?;
+                if status == 0 {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Ready(Err(StorageManagerError::DeviceError(
                         StorageDevError::IoError,
-                    )));
+                    )))
                 }
+            } else {
+                // For polling mode timeout check
+                let is_poll = transfer_is_poll_mode(self.transfer_id)?;
+                if is_poll {
+                    let timeout_ms = transfer_get_timeout_ms(self.transfer_id)?;
+                    if self.poll_count > timeout_ms {
+                        transfer_mark_completed(self.transfer_id, 1)?;
+                        return Poll::Ready(Err(StorageManagerError::DeviceError(
+                            StorageDevError::IoError,
+                        )));
+                    }
+                }
+                
+                Poll::Pending
             }
-
-            // Register waker for IRQ handler task to use
-            transfer_set_waker(self.transfer_id, Some(cx.waker().clone()))?;
-            Poll::Pending
         }
     }
 }
 
 
 /// Common async I/O operation logic
-async fn async_io_operation(
+async fn _async_io_operation(
     device_id: u64,
     start_lba: u64,
     buf_len: usize,
@@ -426,14 +532,47 @@ pub async fn async_read_block(
     start_lba: u64, // Renamed for clarity
     buf: &mut [u8],
 ) -> Result<(), StorageManagerError> {
-    async_io_operation(
+    // Get block size to calculate number of blocks
+    let block_size = get_device_block_size(device_id)?;
+    
+    // Calculate number of blocks from buffer size
+    let num_blocks = buf.len() / block_size;
+    if buf.len() % block_size != 0 {
+        return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
+    }
+    
+    // Allocate transfer
+    let transfer_id = allocate_transfer(device_id)?;
+    
+    // Set up the transfer metadata
+    let nsid = get_device_namespace(device_id).unwrap_or(0);
+    transfer_set_params(transfer_id, start_lba, num_blocks as u32, true, nsid)?;
+    
+    // For now, we'll rely on the completion future registering the waker directly
+    // The submission task will yield to ensure the future gets polled
+    
+    // Queue the request to the submission task
+    let request = StorageRequest {
+        transfer_id,
         device_id,
-        start_lba,
-        buf.len(),
-        true,
-        |device, transfer_id| device.read_blocks(buf, transfer_id),
-    )
-    .await
+        operation: StorageOp::Read { 
+            buf_ptr: buf.as_mut_ptr(),
+            buf_len: buf.len(),
+        },
+        waker: None,
+    };
+    
+    queue_storage_request(device_id, request)?;
+    
+    // Create completion future that will register its waker
+    let completion_future = TransferCompletionFuture::new(transfer_id);
+    
+    // Wait for completion
+    let result = completion_future.await;
+    
+    // Always free transfer
+    let _ = free_transfer(transfer_id);
+    result
 }
 
 /// Async write operation (handles both single and multi-block)
@@ -459,19 +598,89 @@ pub async fn async_write_block(
     let nsid = get_device_namespace(device_id).unwrap_or(0);
     transfer_set_params(transfer_id, start_lba, num_blocks as u32, false, nsid)?;
     
-    // Get device and submit write - this must happen before async boundary
-    // to ensure buffer remains valid during DMA setup
-    let device = get_storage_device(device_id)?;
-    if let Err(_) = device.write_blocks(buf, transfer_id) {
-        let _ = free_transfer(transfer_id);
-        return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
-    }
+    // For now, we'll rely on the completion future registering the waker directly
+    // The submission task will yield to ensure the future gets polled
     
-    // Now wait for completion asynchronously
-    let result = TransferCompletionFuture::new(transfer_id).await;
+    // Queue the request to the submission task
+    let request = StorageRequest {
+        transfer_id,
+        device_id,
+        operation: StorageOp::Write { 
+            buf_ptr: buf.as_ptr(),
+            buf_len: buf.len(),
+        },
+        waker: None,
+    };
+    
+    queue_storage_request(device_id, request)?;
+    
+    // Create completion future that will register its waker
+    let completion_future = TransferCompletionFuture::new(transfer_id);
+    
+    // Wait for completion
+    let result = completion_future.await;
     
     // Always free transfer
     let _ = free_transfer(transfer_id);
     
     result
+}
+
+/// Storage submission task - processes requests from the queue
+/// This task should be spawned once per storage device
+pub async fn storage_submission_task(device_id: u64) {
+    log::info!("Starting storage submission task for device {}", device_id);
+    
+    // Get the request queue for this device
+    let queue = match get_device_request_queue(device_id) {
+        Some(q) => q,
+        None => {
+            log::error!("No request queue found for device {}", device_id);
+            return;
+        }
+    };
+    
+    // Get the device once
+    let device = match get_storage_device(device_id) {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("Failed to get storage device {}: {:?}", device_id, e);
+            return;
+        }
+    };
+    
+    // Process requests forever
+    loop {
+        // Wait for the next request
+        let request = RequestQueueFuture::new(queue.clone()).await;
+        
+        // The completion future should have been polled at least once by now,
+        // which would have registered its waker. If not, the I/O completion
+        // will still mark the transfer as complete, and the future will see
+        // this when it's eventually polled.
+        let result = match request.operation {
+            StorageOp::Read { buf_ptr, buf_len } => {
+                // SAFETY: The buffer pointer is valid for the duration of the async operation
+                // The caller ensures the buffer remains valid until completion
+                let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
+                device.read_blocks(buf, request.transfer_id)
+            }
+            StorageOp::Write { buf_ptr, buf_len } => {
+                // SAFETY: The buffer pointer is valid for the duration of the async operation
+                let buf = unsafe { slice::from_raw_parts(buf_ptr, buf_len) };
+                device.write_blocks(buf, request.transfer_id)
+            }
+            StorageOp::Flush => {
+                device.flush(request.transfer_id)
+            }
+        };
+        
+        // If submission failed, mark the transfer as failed
+        if result.is_err() {
+            log::error!("Failed to submit I/O for transfer {}", request.transfer_id);
+            let _ = transfer_mark_completed(request.transfer_id, 1); // Non-zero = error
+        }
+        
+        // Hardware will complete the I/O and interrupt will wake the waiting task
+    }
 }

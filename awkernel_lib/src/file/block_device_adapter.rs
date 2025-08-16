@@ -120,6 +120,7 @@ impl BlockDeviceAdapter {
                 // Set up transfer parameters
                 let nsid = get_device_namespace(self.device.device_id()).unwrap_or(1);
                 let _ = transfer_set_params(transfer_id, block_num, 1, true, nsid);
+                // Keep polling mode for now until interrupt issues are resolved
                 let _ = transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS as u32);
                 
                 // Perform the read (read_blocks works for single blocks too)
@@ -155,6 +156,7 @@ impl BlockDeviceAdapter {
                 // Set up transfer parameters
                 let nsid = get_device_namespace(self.device.device_id()).unwrap_or(1);
                 let _ = transfer_set_params(transfer_id, cache.block_num, 1, false, nsid);
+                // Keep polling mode for now until interrupt issues are resolved
                 let _ = transfer_set_poll_mode(transfer_id, true, DEFAULT_IO_TIMEOUT_MS as u32);
                 
                 // Perform the write (write_blocks works for single blocks too)
