@@ -2,8 +2,9 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
+    dag::{get_dag_absolute_deadline, set_dag_absolute_deadline},
     scheduler::get_priority,
-    task::{get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State},
+    task::{get_absolute_deadline_by_task_id, get_dag_id_by_task_id, get_tasks_running, set_need_preemption, State, task_belongs_to_dag},
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
@@ -71,7 +72,39 @@ impl Scheduler for GEDFScheduler {
         };
 
         let wake_time = awkernel_lib::delay::uptime();
-        let absolute_deadline = wake_time + relative_deadline;
+        let absolute_deadline ;
+        // DAGに所属している場合
+        if let Some(dag_id) = get_dag_id_by_task_id(task.id) {//ここでnode_indexを持ってくる
+            // DAGの絶対デッドラインを取得
+            if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {//今持ってきたnode_indexのidとソースノードのidを比較
+                //ではない→if letでDAGの絶対デッドラインを取得
+                //if letのelseはunreachable!()でエラーを出す
+                //ソースノードだった場合：所属しているDAGのsink_nodeの相対デッドライン(DAGの相対デッドライン)を取得→wake+relativeで絶対デッドラインを計算
+                //けいさんしたものをDAGの絶対デッドラインとして更新→キューに入れる
+
+                // DAGの絶対デッドラインが既に設定されている場合、それを使用
+                absolute_deadline = dag_absolute_deadline;
+            } else {//周期ごとにdlがかわる→DAGの最初のノードが起き始めた時(wake)が更新タイミング→relativeを足す(101行目)
+                // DAGの絶対デッドラインが未設定の場合、NodeInfoからrelative_deadlineを取得して計算
+                // if let Some(relative_deadline) = get_relative_deadline_by_task_id(task.id) {
+                //     let relative_deadline_ms = relative_deadline.as_millis() as u64;
+                //     absolute_deadline = wake_time + relative_deadline_ms;
+                //     set_dag_absolute_deadline(dag_id, absolute_deadline);
+                // } else {
+                //     // NodeInfoからrelative_deadlineが取得できない場合（エラーケース）
+                //     // スケジューラータイプから取得したrelative_deadlineを使用
+                //     let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
+                //         unreachable!();
+                //     };
+                //     absolute_deadline = wake_time + relative_deadline;
+                //     set_dag_absolute_deadline(dag_id, absolute_deadline);
+                // }
+                absolute_deadline = 0;
+            }
+        } else {
+            // DAGに所属していない単一タスクの場合
+            absolute_deadline = 0;
+        }
 
         task.priority
             .update_priority_info(self.priority, absolute_deadline);

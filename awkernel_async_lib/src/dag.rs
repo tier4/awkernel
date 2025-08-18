@@ -616,17 +616,17 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 // }
 
 /// 指定されたtask_idを持つノードを全DAGから検索
-// pub fn find_node_by_task_id_global(task_id: u32) -> Option<(u32, NodeIndex)> {
-//     let mut node = MCSNode::new();
-//     let dags = DAGS.lock(&mut node);
+pub fn find_node_by_task_id_global(task_id: u32) -> Option<(u32, NodeIndex)> {
+    let mut node = MCSNode::new();
+    let dags = DAGS.lock(&mut node);
     
-//     for (dag_id, dag) in dags.id_to_dag.iter() {
-//         if let Some(node_idx) = dag.find_node_by_task_id(task_id) {
-//             return Some((*dag_id, node_idx));
-//         }
-//     }
-//     None
-// }
+    for (dag_id, dag) in dags.id_to_dag.iter() {
+        if let Some(node_idx) = dag.find_node_by_task_id(task_id) {
+            return Some((*dag_id, node_idx));
+        }
+    }
+    None
+}
 
 
 
