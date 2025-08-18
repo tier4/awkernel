@@ -20,7 +20,11 @@ use core::time::Duration;
 const SERVICE_NAME: &str = "[Awkernel] shell";
 
 pub fn init() {
-    let task_id = task::spawn(SERVICE_NAME.into(), console_handler(), SchedulerType::FIFO);
+    let task_id = task::spawn(
+        SERVICE_NAME.into(),
+        console_handler(),
+        SchedulerType::PrioritizedFIFO(31),
+    );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(

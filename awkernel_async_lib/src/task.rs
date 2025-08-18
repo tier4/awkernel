@@ -382,7 +382,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::PrioritizedFIFO(31));
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
@@ -726,15 +726,16 @@ pub fn run_main() {
         #[cfg(feature = "perf")]
         perf::start_kernel();
 
-        if RUNNING[awkernel_lib::cpu::cpu_id()].load(Ordering::Relaxed) == 0 {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        if RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
             // Re-wake all preemption-pending tasks, because the preemption is no longer required.
-            while let Some(p) = pop_preemption_pending(awkernel_lib::cpu::cpu_id()) {
+            while let Some(p) = pop_preemption_pending(cpu_id) {
                 p.scheduler.wake_task(p);
             }
         }
 
         if let Some(task) = get_next_task() {
-            PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+            PREEMPTION_REQUEST[cpu_id].store(false, Ordering::Relaxed);
 
             #[cfg(not(feature = "no_preempt"))]
             {
@@ -797,7 +798,7 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                // This is unnecessary if the task is scheduled by PrioritizedFIFO or FIFO. This remains for other schedulers.
+                // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.

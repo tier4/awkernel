@@ -64,7 +64,8 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    sleep, Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
+    time_interval::interval,
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -1028,10 +1029,13 @@ where
             Attribute::default(),
         );
 
+        let mut interval = interval(period);
+
         loop {
+            interval.tick().await;
             let results = f();
             publishers.send_all(results).await;
-            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
+
             #[cfg(feature = "perf")]
             periodic_measure();
         }

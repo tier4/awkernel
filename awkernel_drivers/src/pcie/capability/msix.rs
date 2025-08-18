@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, boxed::Box};
+use alloc::{borrow::Cow, boxed::Box, format, string::String};
 use awkernel_lib::interrupt::IRQ;
 
 use crate::pcie::{BaseAddress, ConfigSpace, PCIeDeviceErr, PCIeInfo};
@@ -23,8 +23,8 @@ pub struct Msix {
     table_offset: u32, // Table offset
     table_bar: BaseAddress,
 
-    _pba_offset: u32, // Pending Bit
-    _pba_bar: BaseAddress,
+    pba_offset: u32, // Pending Bit
+    pba_bar: BaseAddress,
 }
 
 impl Msix {
@@ -53,9 +53,38 @@ impl Msix {
             table_size,
             table_offset,
             table_bar,
-            _pba_offset: pba_offset,
-            _pba_bar: pba_bar,
+            pba_offset,
+            pba_bar,
         })
+    }
+
+    pub fn dump(&self, info: &PCIeInfo) -> String {
+        let header = info.config_space.read_u32(self.cap_ptr);
+        let table_offset = info.config_space.read_u32(self.cap_ptr + 4);
+        let pending_bit_array_offset = info.config_space.read_u32(self.cap_ptr + 8);
+        let mut msg = format!("MSI-X Capability:\r\n    header: {header:#08x}\r\n    table offset: {table_offset:#08x}\r\n    pending bit array offset: {pending_bit_array_offset:#08x}\r\n");
+
+        msg = format!("{msg}MSI-X Table:\r\n");
+        for i in 0..=self.table_size {
+            let offset = 16 * i as usize + self.table_offset as usize;
+            let addr = self.table_bar.read32(offset).unwrap_or(0);
+            let addr_upper = self.table_bar.read32(offset + 4).unwrap_or(0);
+            let data = self.table_bar.read32(offset + 8).unwrap_or(0);
+            let vector_control = self.table_bar.read32(offset + 12).unwrap_or(0);
+            msg = format!("{msg}    [{i}] addr: {addr:#08x}, addr_upper: {addr_upper:#08x}, data: {data:#08x}, vector_control: {vector_control:#08x}\r\n");
+        }
+
+        msg = format!("{msg}MSI-X Pending Bit Array:\r\n");
+        for i in 0..=(self.table_size / 64) {
+            let offset = 8 * i as usize + self.pba_offset as usize;
+
+            let upper32 = self.pba_bar.read32(offset).unwrap_or(0);
+            let lower32 = self.pba_bar.read32(offset + 4).unwrap_or(0);
+            let pba = ((upper32 as u64) << 32) | (lower32 as u64);
+            msg = format!("{msg}    [{i}] {pba:#016x}\r\n");
+        }
+
+        msg
     }
 
     pub fn disable(&mut self) {
