@@ -30,7 +30,7 @@ pub async fn run() {
             (number,)
         },
         vec![Cow::from("topic0")],
-        SchedulerType::PrioritizedFIFO(1),
+        SchedulerType::PrioritizedFIFO(30),
         period,
     )
     .await;
@@ -47,7 +47,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic0")],
         vec![Cow::from("topic1"), Cow::from("topic2")],
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -62,7 +62,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic1")],
         vec![Cow::from("topic3")],
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -77,7 +77,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic2")],
         vec![Cow::from("topic4")],
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -90,7 +90,7 @@ pub async fn run() {
             }
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
         Duration::from_secs(1),
     )
     .await;

@@ -3,7 +3,10 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::get_priority,
-    task::{get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State},
+    task::{
+        get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State,
+        MAX_TASK_PRIORITY,
+    },
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
@@ -74,7 +77,7 @@ impl Scheduler for GEDFScheduler {
         let absolute_deadline = wake_time + relative_deadline;
 
         task.priority
-            .update_priority_info(self.priority, absolute_deadline);
+            .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
         info.update_absolute_deadline(absolute_deadline);
 
         data.queue.push(GEDFTask {

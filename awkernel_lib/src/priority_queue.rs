@@ -1,9 +1,9 @@
 use alloc::collections::VecDeque;
 
-pub const LOWEST_PRIORITY: u8 = 31;
+pub const HIGHEST_PRIORITY: u8 = 31;
 
 pub struct PriorityQueue<T> {
-    queue: [VecDeque<T>; LOWEST_PRIORITY as usize + 1],
+    queue: [VecDeque<T>; HIGHEST_PRIORITY as usize + 1],
     has_entry: u32,
 }
 
@@ -16,10 +16,10 @@ impl<T> PriorityQueue<T> {
     }
 
     /// Push the value with the specified priority
-    /// Note: the priority is set to min(priority, LOWEST_PRIORITY)
+    /// Note: the priority is set to min(priority, HIGHEST_PRIORITY)
     #[inline(always)]
     pub fn push(&mut self, priority: u8, val: T) {
-        let priority = priority.min(LOWEST_PRIORITY);
+        let priority = priority.min(HIGHEST_PRIORITY);
         let queue = &mut self.queue[priority as usize];
         queue.push_back(val);
         self.has_entry |= 1 << priority;
@@ -28,10 +28,10 @@ impl<T> PriorityQueue<T> {
     /// Pop the value with the highest priority
     #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
-        let next_priority = self.has_entry.trailing_zeros();
-        if next_priority == LOWEST_PRIORITY as u32 + 1 {
+        if self.has_entry == 0 {
             return None;
         }
+        let next_priority = (u32::BITS - 1) - self.has_entry.leading_zeros();
 
         let queue = &mut self.queue[next_priority as usize];
         let next = queue.pop_front();
@@ -55,7 +55,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_prioriry_queue() {
+    fn test_priority_queue() {
         let mut q = PriorityQueue::new();
 
         // Queue should be empty
@@ -73,7 +73,7 @@ mod tests {
 
         // Data with different priorities are popped from the highest priority first
         for id in 0..10 {
-            q.push(10 - id, id);
+            q.push(id, id);
         }
 
         for expected in (0..10).rev() {
@@ -81,10 +81,10 @@ mod tests {
             assert_eq!(actual, expected);
         }
 
-        //  The priority is set to min(priority, LOWEST_PRIORITY)
+        //  The priority is set to min(priority, HIGHEST_PRIORITY)
         for id in (0..10).step_by(2) {
-            q.push(LOWEST_PRIORITY, id);
-            q.push(LOWEST_PRIORITY + 1, id + 1);
+            q.push(HIGHEST_PRIORITY, id);
+            q.push(HIGHEST_PRIORITY + 1, id + 1);
         }
 
         for expected in 0..10 {

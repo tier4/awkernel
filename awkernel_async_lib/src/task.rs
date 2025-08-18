@@ -18,7 +18,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
-    priority_queue::LOWEST_PRIORITY,
+    priority_queue::HIGHEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -49,7 +49,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
-static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
+pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 #[cfg(target_pointer_width = "64")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
 
@@ -92,9 +92,9 @@ impl PartialOrd for Task {
 
 impl Ord for Task {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        // Higher (smaller) priority is greater.
-        match other.priority.cmp(&self.priority) {
-            core::cmp::Ordering::Equal => other.id.cmp(&self.id),
+        // Higher (larger) priority is greater.
+        match self.priority.cmp(&other.priority) {
+            core::cmp::Ordering::Equal => self.id.cmp(&other.id),
             ord => ord,
         }
     }
@@ -331,7 +331,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::PrioritizedFIFO(31));
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::PrioritizedFIFO(0));
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
@@ -339,9 +339,9 @@ pub fn spawn(
     sched_type: SchedulerType,
 ) -> u32 {
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
-        if p > LOWEST_PRIORITY {
+        if p > HIGHEST_PRIORITY {
             log::warn!(
-                "Task priority should be between 0 and {LOWEST_PRIORITY}. It is addressed as {LOWEST_PRIORITY}."
+                "Task priority should be between 0 and {HIGHEST_PRIORITY}. It is addressed as {HIGHEST_PRIORITY}."
             );
         }
     }
@@ -1079,40 +1079,6 @@ impl Ord for PriorityInfo {
             .load(Ordering::Relaxed)
             .cmp(&other.priority.load(Ordering::Relaxed))
     }
-}
-
-pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
-    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
-
-    let running_tasks: Vec<RunningTask> = get_tasks_running()
-        .into_iter()
-        .filter(|task| task.task_id != 0)
-        .collect();
-
-    let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
-        let mut node = MCSNode::new();
-        let tasks = TASKS.lock(&mut node);
-        running_tasks
-            .into_iter()
-            .filter_map(|task| {
-                tasks
-                    .id_to_task
-                    .get(&task.task_id)
-                    .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
-            })
-            .collect()
-    };
-
-    for (task_id, cpu_id, priority_info) in priority_infos {
-        if lowest_task
-            .as_ref()
-            .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
-        {
-            lowest_task = Some((task_id, cpu_id, priority_info));
-        }
-    }
-
-    lowest_task
 }
 
 /// Wake workers up.
