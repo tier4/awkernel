@@ -69,7 +69,7 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
-/// 0 is the highest priority and 31 is the lowest priority.
+/// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
@@ -110,10 +110,10 @@ impl SchedulerType {
 /// - The lowest priority.
 ///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 4] = [
-    SchedulerType::GEDF(0),
-    SchedulerType::PrioritizedFIFO(0),
-    SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
+    SchedulerType::PrioritizedRR(31),
+    SchedulerType::PrioritizedFIFO(31),
+    SchedulerType::GEDF(0),
 ];
 
 pub(crate) trait Scheduler {

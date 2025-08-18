@@ -26,21 +26,21 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         "blink and switch".into(),
         blink_and_switch(),
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test PWM".into(),
         test_pwm(),
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test UART2".into(),
         test_uart2(),
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -183,7 +183,7 @@ async fn scan_i2c_devices() {
         awkernel_async_lib::spawn(
             "temperature monitor".into(),
             temperature_adt7410(i2c),
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }
