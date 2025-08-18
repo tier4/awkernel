@@ -257,6 +257,11 @@ impl Dag {
         }
     }
 
+    /// 指定されたノードの相対デッドラインを取得
+    pub fn get_node_relative_deadline(&self, node_idx: NodeIndex) -> Option<Duration> {
+        self.get_node_info(node_idx)?.get_relative_deadline()
+    }
+
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);

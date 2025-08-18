@@ -4,7 +4,7 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     dag::{get_dag_absolute_deadline, set_dag_absolute_deadline, get_dag, to_node_index},
     scheduler::get_priority,
-    task::{get_absolute_deadline_by_task_id, get_dag_id_by_task_id, get_tasks_running, set_need_preemption, State, task_belongs_to_dag, get_dag_info_by_task_id},
+    task::{get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State, get_dag_info_by_task_id},
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
@@ -103,9 +103,17 @@ impl Scheduler for GEDFScheduler {
                         // DAGの絶対デッドラインが既に設定されている場合、それを使用
                         absolute_deadline = dag_absolute_deadline;
                     } else {
-                        // DAGの絶対デッドラインが未設定の場合（エラーケース）
-                        // 最初は絶対デッドラインが未設定なので必ずここに来る→この部分の処理を考える：最初の周期だけ
-                        unreachable!();
+                        // DAGの絶対デッドラインが未設定の場合（最初の周期）
+                        // このタスクの相対デッドラインを使用して一時的な絶対デッドラインを設定
+                        // これにより、DAG全体の一貫性を保ちながら適切な優先度スケジューリングを実現
+                        
+                        // DAGノードの相対デッドラインを取得
+                        let dag_relative_deadline = dag.get_node_relative_deadline(current_node_index)
+                            .map(|deadline| deadline.as_millis() as u64)
+                            .unwrap_or(1000); // デフォルト値: 1秒
+                        
+                        absolute_deadline = wake_time + dag_relative_deadline;
+                        set_dag_absolute_deadline(dag_id, absolute_deadline);
                     }
                 }
             } else {
