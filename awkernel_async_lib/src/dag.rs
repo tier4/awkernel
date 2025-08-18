@@ -53,6 +53,7 @@ mod visit;
 #[cfg(feature = "perf")]
 mod performance;
 
+use crate::task;
 use crate::{
     dag::{
         graph::{
@@ -167,6 +168,7 @@ impl core::fmt::Display for DagError {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
+    absolute_deadline: Mutex<Option<u64>>,  // DAG全体の絶対デッドライン
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -175,6 +177,46 @@ pub struct Dag {
 impl Dag {
     pub fn get_id(&self) -> u32 {
         self.id
+    }
+
+    /// 引数のnode_idxが今動かしているDAGに所属しているか
+    /// 将来的にいらなさそう
+    // pub fn get_node_dag_id(&self, node_idx: NodeIndex) -> Option<u32> {
+    //     let mut node = MCSNode::new();
+    //     let graph = self.graph.lock(&mut node);
+    //     graph.node_weight(node_idx).map(|node_info| node_info.dag_id)
+    // }
+
+    /// 指定されたノードの情報を取得
+    pub fn get_node_info(&self, node_idx: NodeIndex) -> Option<NodeInfo> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_weight(node_idx).cloned()
+    }
+
+    /// 指定されたtask_idを持つノードを検索
+    pub fn find_node_by_task_id(&self, task_id: u32) -> Option<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_indices().find(|&idx| {
+            graph.node_weight(idx)
+                .map(|node_info| node_info.task_id == task_id)
+                .unwrap_or(false)
+        })
+    }
+
+    /// このDAGに属するすべてのノードのインデックスを取得
+    pub fn get_all_node_indices(&self) -> Vec<NodeIndex> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_indices().collect()
+    }
+
+    /// このDAGに属するすべてのノードの情報を取得
+    pub fn get_all_node_infos(&self) -> Vec<(NodeIndex, NodeInfo)> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_references().map(|node_ref| (node_ref.id(), node_ref.weight().clone())).collect()
     }
 
     fn get_source_nodes(&self) -> Vec<NodeIndex> {
@@ -202,6 +244,7 @@ impl Dag {
     ) -> NodeIndex {
         let add_node_info = NodeInfo {
             task_id: 0, // Temporary task_id
+            dag_id: self.id,
             subscribe_topic_names: subscribe_topic_names.to_vec(),
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
@@ -436,6 +479,41 @@ impl Dag {
                 .push(node_idx.index());
         }
     }
+
+    // タスクのDAG情報を取得（タプル形式）
+    #[inline(always)]
+    pub fn get_dag_info(&self, node_idx: NodeIndex) -> Option<(u32, u32)> {
+        match (self.get_id(), self.get_node_info(node_idx)) {
+            (dag_id, Some(node_info)) => Some((dag_id, node_info.task_id)),
+            _ => None,
+        }
+    }
+
+    // DAG絶対デッドライン管理メソッド
+
+    // DAGの絶対デッドラインを設定
+    #[inline(always)]
+    pub fn set_absolute_deadline(&self, deadline: u64) {
+        let mut node = MCSNode::new();
+        let mut absolute_deadline = self.absolute_deadline.lock(&mut node);
+        *absolute_deadline = Some(deadline);
+    }
+
+    // DAGの絶対デッドラインを取得
+    #[inline(always)]
+    pub fn get_absolute_deadline(&self) -> Option<u64> {
+        let mut node = MCSNode::new();
+        let absolute_deadline = self.absolute_deadline.lock(&mut node);
+        *absolute_deadline
+    }
+
+    // DAGの絶対デッドラインをクリア：多分いらない
+    // #[inline(always)]
+    // pub fn clear_absolute_deadline(&self) {
+    //     let mut node = MCSNode::new();
+    //     let mut absolute_deadline = self.absolute_deadline.lock(&mut node);
+    //     *absolute_deadline = None;
+    // }
 }
 
 struct PendingTask {
@@ -455,8 +533,10 @@ impl PendingTask {
     }
 }
 
+#[derive(Clone)]
 struct NodeInfo {
     task_id: u32,
+    dag_id: u32,  // どのDAGからspawnされたかを示す：多分いらない、taskinfoの方にdag_idが必要
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
@@ -488,6 +568,7 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
+                    absolute_deadline: Mutex::new(None),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -523,6 +604,50 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
 }
+
+/// 指定されたDAG IDとノードインデックスからノードのDAG IDを取得
+// pub fn get_node_dag_id(dag_id: u32, node_idx: NodeIndex) -> Option<u32> {
+//     get_dag(dag_id)?.get_node_dag_id(node_idx)
+// }
+
+/// 指定されたDAG IDとノードインデックスからノード情報を取得
+// pub fn get_node_info(dag_id: u32, node_idx: NodeIndex) -> Option<&NodeInfo> {
+//     get_dag(dag_id)?.get_node_info(node_idx)
+// }
+
+/// 指定されたtask_idを持つノードを全DAGから検索
+// pub fn find_node_by_task_id_global(task_id: u32) -> Option<(u32, NodeIndex)> {
+//     let mut node = MCSNode::new();
+//     let dags = DAGS.lock(&mut node);
+    
+//     for (dag_id, dag) in dags.id_to_dag.iter() {
+//         if let Some(node_idx) = dag.find_node_by_task_id(task_id) {
+//             return Some((*dag_id, node_idx));
+//         }
+//     }
+//     None
+// }
+
+
+
+/// DAG IDから絶対デッドラインを取得
+#[inline(always)]
+pub fn get_dag_absolute_deadline(dag_id: u32) -> Option<u64> {
+    get_dag(dag_id)?.get_absolute_deadline()
+}
+
+/// DAG IDから絶対デッドラインを設定
+#[inline(always)]
+pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
+    if let Some(dag) = get_dag(dag_id) {
+        dag.set_absolute_deadline(deadline);
+        true
+    } else {
+        false
+    }
+}
+
+
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     match validate_all_rules(dags) {
@@ -807,7 +932,12 @@ async fn spawn_dag(dag: &Arc<Dag>) {
         let mut graph = dag.graph.lock(&mut node);
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
+            //ここでdag_idを設定
+            node_info.dag_id = dag_id;
         }
+        
+        // タスクのDAG情報を設定上で設定しているのでここはいらなさそう
+        task::set_dag_info_by_task_id(task_id, dag_id, task.node_idx.index() as u32);
     }
 
     // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
@@ -823,7 +953,12 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     let mut graph = dag.graph.lock(&mut node);
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
+        //ここでdag_idを設定
+         node_info.dag_id = dag_id;
     }
+    
+    // ソースタスクのDAG情報を設定上で設定しているのでここはいらなさそう
+    task::set_dag_info_by_task_id(task_id, dag_id, source_pending_task.node_idx.index() as u32);
 }
 
 async fn spawn_reactor<F, Args, Ret>(

@@ -158,6 +158,10 @@ pub struct TaskInfo {
     pub(crate) need_preemption: bool,
     panicked: bool,
 
+    // DAG関連の情報
+    pub(crate) dag_id: Option<u32>,           // 所属するDAGのID
+    pub(crate) node_index: Option<u32>,       // DAG内のノードインデックス
+
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
 }
@@ -219,6 +223,49 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
+
+    // DAG関連のメソッド
+
+    /// タスクがDAGに所属しているかを確認：多分いらない
+    #[inline(always)]
+    pub fn belongs_to_dag(&self) -> bool {
+        self.dag_id.is_some()
+    }
+
+    /// タスクが所属するDAGのIDを取得
+    #[inline(always)]
+    pub fn get_dag_id(&self) -> Option<u32> {
+        self.dag_id
+    }
+
+    /// タスクがDAG内で占めるノードインデックスを取得
+    #[inline(always)]
+    pub fn get_node_index(&self) -> Option<u32> {
+        self.node_index
+    }
+
+    /// タスクのDAG情報を設定
+    #[inline(always)]
+    pub fn set_dag_info(&mut self, dag_id: u32, node_index: u32) {
+        self.dag_id = Some(dag_id);
+        self.node_index = Some(node_index);
+    }
+
+    /// タスクのDAG情報をクリア：多分いらない
+    #[inline(always)]
+    pub fn clear_dag_info(&mut self) {
+        self.dag_id = None;
+        self.node_index = None;
+    }
+
+    /// タスクのDAG情報を取得（タプル形式）
+    #[inline(always)]
+    pub fn get_dag_info(&self) -> Option<(u32, u32)> {
+        match (self.dag_id, self.node_index) {
+            (Some(dag_id), Some(node_index)) => Some((dag_id, node_index)),
+            _ => None,
+        }
+    }
 }
 
 /// State of task.
@@ -272,6 +319,10 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
+
+                    // DAG関連の情報
+                    dag_id: None,
+                    node_index: None,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -951,6 +1002,104 @@ pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
         let info = task.info.lock(&mut node);
         info.get_absolute_deadline()
     })
+}
+
+
+/// タスクIDからrelative_deadlineを取得
+// #[inline(always)]
+// pub fn get_relative_deadline_by_task_id(task_id: u32) -> Option<Duration> {
+//     let mut node = MCSNode::new();
+//     let tasks = TASKS.lock(&mut node);
+
+//     tasks.id_to_task.get(&task_id).and_then(|task| {
+//         let mut node = MCSNode::new();
+//         let info = task.info.lock(&mut node);
+        
+//         // タスクがDAGに所属しているかを確認
+//         if let Some((dag_id, node_index)) = info.get_dag_info() {
+//             // DAGに所属している場合、NodeInfoからrelative_deadlineを取得
+//             if let Some(dag) = get_dag(dag_id) {
+//                 if let Some(node_info) = dag.get_node_info(NodeIndex::new(node_index as usize)) {
+//                     node_info.relative_deadline
+//                 } else {
+//                     None
+//                 }
+//             } else {
+//                 None
+//             }
+//         } else {
+//             // DAGに所属していない場合、Noneを返す
+//             None
+//         }
+//     })
+// }
+
+/// タスクIDからDAG情報を取得
+#[inline(always)]
+pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).and_then(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_dag_info()
+    })
+}
+
+/// タスクIDからDAG IDを取得
+#[inline(always)]
+pub fn get_dag_id_by_task_id(task_id: u32) -> Option<u32> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).and_then(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_dag_id()
+    })
+}
+
+/// タスクIDからノードインデックスを取得
+#[inline(always)]
+pub fn get_node_index_by_task_id(task_id: u32) -> Option<u32> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).and_then(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_node_index()
+    })
+}
+
+/// タスクがDAGに所属しているかを確認：あってもいいけど二度手間
+#[inline(always)]
+pub fn task_belongs_to_dag(task_id: u32) -> bool {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map_or(false, |task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.belongs_to_dag()
+    })
+}
+
+/// タスクのDAG情報を設定
+#[inline(always)]
+pub fn set_dag_info_by_task_id(task_id: u32, dag_id: u32, node_index: u32) -> bool {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    if let Some(task) = tasks.id_to_task.get(&task_id) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.set_dag_info(dag_id, node_index);
+        true
+    } else {
+        false
+    }
 }
 
 #[inline(always)]
