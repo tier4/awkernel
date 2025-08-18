@@ -111,8 +111,8 @@ impl SchedulerType {
 ///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 4] = [
     SchedulerType::Panicked,
-    SchedulerType::PrioritizedRR(31),
-    SchedulerType::PrioritizedFIFO(31),
+    SchedulerType::PrioritizedRR(0),
+    SchedulerType::PrioritizedFIFO(0),
     SchedulerType::GEDF(0),
 ];
 
