@@ -193,7 +193,10 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.node_weight(node_idx).cloned()
+        //ここは参照を返す方が良さそう、将来的に変える
     }
+
+
 
     /// 指定されたtask_idを持つノードを検索
     pub fn find_node_by_task_id(&self, task_id: u32) -> Option<NodeIndex> {
@@ -220,16 +223,38 @@ impl Dag {
         graph.node_references().map(|node_ref| (node_ref.id(), node_ref.weight().clone())).collect()
     }
 
-    fn get_source_nodes(&self) -> Vec<NodeIndex> {
+    pub fn get_source_nodes(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.externals(Direction::Incoming).collect()
     }
 
-    fn get_sink_nodes(&self) -> Vec<NodeIndex> {
+    pub fn get_sink_nodes(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.externals(Direction::Outgoing).collect()
+    }
+
+    /// 指定されたノードインデックスがソースノードかどうかを判定
+    pub fn is_source_node(&self, node_index: NodeIndex) -> bool {
+        let source_nodes = self.get_source_nodes();
+        source_nodes.contains(&node_index)
+    }
+    
+    /// 指定されたノードインデックスがシンクノードかどうかを判定
+    pub fn is_sink_node(&self, node_index: NodeIndex) -> bool {
+        let sink_nodes = self.get_sink_nodes();
+        sink_nodes.contains(&node_index)
+    }
+    
+    /// このDAGのシンクノードの相対デッドラインを取得
+    pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
+        let sink_nodes = self.get_sink_nodes();
+        if let Some(sink_node_index) = sink_nodes.first() {
+            self.get_node_info(*sink_node_index)?.get_relative_deadline()
+        } else {
+            None
+        }
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -542,6 +567,22 @@ struct NodeInfo {
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
 }
+
+impl NodeInfo {
+    /// ノードの相対デッドラインを取得
+    pub fn get_relative_deadline(&self) -> Option<Duration> {
+        self.relative_deadline
+    }
+}
+
+
+
+
+
+pub fn to_node_index(index: u32) -> NodeIndex {
+    NodeIndex::new(index as usize)
+}
+
 
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
