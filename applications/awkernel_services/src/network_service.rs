@@ -8,6 +8,7 @@ use awkernel_async_lib::{
 const NETWORK_SERVICE_RENDEZVOUS: &str = "/awkernel/network_service";
 
 const GARBAGE_COLLECTOR_NAME: &str = "[Awkernel] TCP garbage collector";
+const NETWORK_IF_POLLER_NAME: &str = "[Awkernel] Network interface poller";
 
 type ProtoInterruptHandler = Recv<(), Send<(), Eps>>;
 type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>::Dual>;
@@ -18,6 +19,13 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         GARBAGE_COLLECTOR_NAME.into(),
         tcp_garbage_collector(),
+        SchedulerType::PrioritizedFIFO(0),
+    )
+    .await;
+
+    awkernel_async_lib::spawn(
+        NETWORK_IF_POLLER_NAME.into(),
+        network_interface_poller(),
         SchedulerType::PrioritizedFIFO(0),
     )
     .await;
@@ -97,6 +105,18 @@ pub async fn run() {
                 }
             }
             _ => (),
+        }
+    }
+}
+
+async fn network_interface_poller() {
+    loop {
+        let n = awkernel_lib::net::poll(); // Poll network devices.
+
+        if n == 0 {
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        } else {
+            awkernel_async_lib::r#yield().await;
         }
     }
 }
