@@ -78,8 +78,8 @@ impl Msix {
         for i in 0..=(self.table_size / 64) {
             let offset = 8 * i as usize + self.pba_offset as usize;
 
-            let upper32 = self.pba_bar.read32(offset).unwrap_or(0);
-            let lower32 = self.pba_bar.read32(offset + 4).unwrap_or(0);
+            let lower32 = self.pba_bar.read32(offset).unwrap_or(0);
+            let upper32 = self.pba_bar.read32(offset + 4).unwrap_or(0);
             let pba = ((upper32 as u64) << 32) | (lower32 as u64);
             msg = format!("{msg}    [{i}] {pba:#016x}\r\n");
         }
