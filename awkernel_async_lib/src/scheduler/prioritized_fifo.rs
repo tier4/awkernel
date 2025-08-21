@@ -61,7 +61,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
         }
     }
 
-    fn get_next(&self) -> Option<Arc<Task>> {
+    fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
@@ -87,8 +87,10 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 if task_info.state == State::Preempted {
                     task_info.need_preemption = false;
                 }
-                task_info.state = State::Running;
-                set_current_task(awkernel_lib::cpu::cpu_id(), task.task.id);
+                if execution_ensured {
+                    task_info.state = State::Running;
+                    set_current_task(awkernel_lib::cpu::cpu_id(), task.task.id);
+                }
             }
 
             return Some(task.task);
