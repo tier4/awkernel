@@ -437,16 +437,18 @@ pub fn set_current_task(cpu_id: usize, task_id: u32) {
 }
 
 #[inline(always)]
-fn get_next_task() -> Option<Arc<Task>> {
+fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
-            set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
+            if execution_ensured {
+                set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
+            }
             return Some(next);
         }
     }
 
-    scheduler::get_next_task()
+    scheduler::get_next_task(execution_ensured)
 }
 
 #[cfg(feature = "perf")]
@@ -734,7 +736,7 @@ pub fn run_main() {
             }
         }
 
-        if let Some(task) = get_next_task() {
+        if let Some(task) = get_next_task(true) {
             PREEMPTION_REQUEST[cpu_id].store(false, Ordering::Relaxed);
 
             #[cfg(not(feature = "no_preempt"))]
