@@ -1,11 +1,16 @@
 //! A Priority Based RR scheduler
 
+use core::cmp::max;
+
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    scheduler::get_priority,
-    task::{get_last_executed_by_task_id, set_need_preemption, State},
+    scheduler::{get_next_task, get_priority, peek_preemption_pending, push_preemption_pending},
+    task::{
+        get_last_executed_by_task_id, get_task, get_tasks_running, set_current_task,
+        set_need_preemption, State,
+    },
 };
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -36,22 +41,32 @@ impl PrioritizedRRData {
 impl Scheduler for PrioritizedRRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        let SchedulerType::PrioritizedRR(priority) = info.scheduler_type else {
-            return;
-        };
-        let new_task = PrioritizedRRTask {
-            task: task.clone(),
-            _priority: priority,
+        // The reason for acquiring this lock before invoke_preemption() is to prevent priority inversion from occurring
+        // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
+        // within the scheduler's get_next().
+        let mut data = self.data.lock(&mut node);
+        let internal_data = data.get_or_insert_with(PrioritizedRRData::new);
+        let priority = {
+            let mut node_inner = MCSNode::new();
+            let info = task.info.lock(&mut node_inner);
+            match info.scheduler_type {
+                SchedulerType::PrioritizedRR(p) => p,
+                _ => unreachable!(),
+            }
         };
 
-        let mut node = MCSNode::new();
-        let mut guard = self.data.lock(&mut node);
-        let data = guard.get_or_insert_with(PrioritizedRRData::new);
-        data.queue.push(priority, new_task);
+        if !self.invoke_preemption_wake(task.clone()) {
+            internal_data.queue.push(
+                priority,
+                PrioritizedRRTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
+        }
     }
 
-    fn get_next(&self) -> Option<Arc<Task>> {
+    fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
 
@@ -73,7 +88,10 @@ impl Scheduler for PrioritizedRRScheduler {
                 if task_info.state == State::Preempted {
                     task_info.need_preemption = false;
                 }
-                task_info.state = State::Running;
+                if execution_ensured {
+                    task_info.state = State::Running;
+                    set_current_task(awkernel_lib::cpu::cpu_id(), rr_task.task.id);
+                }
             }
 
             return Some(rr_task.task);
@@ -100,14 +118,56 @@ pub static SCHEDULER: PrioritizedRRScheduler = PrioritizedRRScheduler {
 
 impl PrioritizedRRScheduler {
     // Invoke a preemption if the task exceeds the time quantum
-    pub fn invoke_preemption(&self, cpu_id: usize, task_id: u32) {
-        let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+    pub fn invoke_preemption_tick(&self, cpu_id: usize, task_id: u32) {
         if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
             let elapsed = last_executed.elapsed().as_micros() as u64;
             if elapsed > self.interval {
-                set_need_preemption(task_id, cpu_id);
-                awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+                if let Some(next_task) = get_next_task(false) {
+                    push_preemption_pending(cpu_id, next_task);
+                    let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                    set_need_preemption(task_id, cpu_id);
+                    awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+                }
             }
         }
+    }
+
+    fn invoke_preemption_wake(&self, task: Arc<Task>) -> bool {
+        let tasks_running = get_tasks_running()
+            .into_iter()
+            .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
+            .collect::<Vec<_>>();
+
+        // If the task has already been running, preempt is not required.
+        if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
+            return false;
+        }
+
+        let preemption_target = tasks_running
+            .iter()
+            .filter_map(|rt| {
+                get_task(rt.task_id).map(|t| {
+                    let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
+                    (max(t, highest_pending), rt.cpu_id)
+                })
+            })
+            .min()
+            .unwrap();
+
+        let (target_task, target_cpu) = preemption_target;
+        if task > target_task {
+            push_preemption_pending(target_cpu, task);
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(target_task.id, target_cpu);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
+
+            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+            // Therefore, a more sophisticated implementation will be considered in the future.
+
+            return true;
+        }
+
+        false
     }
 }

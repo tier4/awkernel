@@ -122,7 +122,7 @@ pub(crate) trait Scheduler {
     fn wake_task(&self, task: Arc<Task>);
 
     /// Get the next executable task.
-    fn get_next(&self) -> Option<Arc<Task>>;
+    fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>>;
 
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
@@ -133,10 +133,10 @@ pub(crate) trait Scheduler {
 
 /// Get the next executable task.
 #[inline]
-pub(crate) fn get_next_task() -> Option<Arc<Task>> {
+pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     let task = PRIORITY_LIST
         .iter()
-        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next());
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
     if task.is_some() {
         crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
@@ -252,7 +252,7 @@ pub fn wake_task() -> Option<Duration> {
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
             if let Some(SchedulerType::PrioritizedRR(_)) = get_scheduler_type_by_task_id(task_id) {
-                prioritized_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
+                prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
             }
         }
     }
