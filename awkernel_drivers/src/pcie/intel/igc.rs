@@ -704,6 +704,34 @@ impl IgcInner {
             msg = format!("{msg}{msix_msg}");
         }
 
+        let rctl = read_reg(&self.info, igc_regs::IGC_RCTL).unwrap_or(0);
+        msg = format!("{msg}RCTL: 0x{rctl:#08x}\r\n");
+
+        for i in 0..self.queue_info.que.len() {
+            let qctl = read_reg(&self.info, igc_regs::IGC_RXDCTL(i)).unwrap_or(0);
+            msg = format!("{msg}RXDCTL{i}: 0x{qctl:#08x}\r\n");
+
+            let rdh = read_reg(&self.info, igc_regs::IGC_RDH(i)).unwrap_or(0);
+            msg = format!("{msg}RDH{i}: 0x{rdh:#08x}\r\n");
+
+            let rdt = read_reg(&self.info, igc_regs::IGC_RDT(i)).unwrap_or(0);
+            msg = format!("{msg}RDT{i}: 0x{rdt:#08x}\r\n");
+        }
+
+        let tctl = read_reg(&self.info, igc_regs::IGC_TCTL).unwrap_or(0);
+        msg = format!("{msg}TCTL: 0x{tctl:#08x}\r\n");
+
+        for i in 0..self.queue_info.que.len() {
+            let qctl = read_reg(&self.info, igc_regs::IGC_TXDCTL(i)).unwrap_or(0);
+            msg = format!("{msg}TXDCTL{i}: 0x{qctl:#08x}\r\n");
+
+            let txd = read_reg(&self.info, igc_regs::IGC_TDH(i)).unwrap_or(0);
+            msg = format!("{msg}TDH{i}: 0x{txd:#08x}\r\n");
+
+            let tdt = read_reg(&self.info, igc_regs::IGC_TDT(i)).unwrap_or(0);
+            msg = format!("{msg}TDT{i}: 0x{tdt:#08x}\r\n");
+        }
+
         log::debug!("igc: dump:\r\n{msg}");
     }
 
