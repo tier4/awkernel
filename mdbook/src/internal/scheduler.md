@@ -81,7 +81,7 @@ The `GEDFTask` struct implements custom ordering where tasks are compared first 
 
 The PrioritizedFIFO scheduler is implemented in [prioritized_fifo.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/prioritized_fifo.rs). This scheduler provides fixed-priority scheduling where tasks are executed in First-In-First-Out order within each priority level.
 
-The scheduler uses a `PriorityQueue<PrioritizedFIFOTask>` as its run queue. When a task is enqueued through `wake_task()`, the priority is extracted from `SchedulerType::PrioritizedFIFO(priority)` and used to insert the task into the priority queue. Tasks with higher priority values are selected first by `get_next()`.
+The scheduler uses a `PriorityQueue<PrioritizedFIFOTask>` as its run queue. When a task is enqueued through `wake_task()`, the priority is extracted from `SchedulerType::PrioritizedFIFO(priority)` and used to insert the task into the priority queue. The get_next() method retrieves the task at the head of the highest-priority non-empty queue.
 
 The scheduler implements preemption via `invoke_preemption()`, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue.
 
