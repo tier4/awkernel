@@ -80,41 +80,31 @@ impl Scheduler for GEDFScheduler {
                 // DAGを取得してソースノードかどうかを判定
                 if let Some(dag) = get_dag(dag_id) {
                     //u32-->nodeindex
-                    let current_node_index = to_node_index(node_index);
-                    let is_source_node = dag.is_source_node(current_node_index);
+                    // let current_node_index = to_node_index(node_index);
+                    // let is_source_node = dag.is_source_node(current_node_index);
                 
-                if is_source_node {
-                    // ソースノードの場合：DAGのsink_nodeの相対デッドラインを取得して絶対デッドラインを計算
-                    // DAGの絶対デッドラインを更新してキューに入れる
+                // DAGの絶対デッドラインを取得
+                if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {
+                    // DAGの絶対デッドラインが既に設定されている場合、それを使用
+                    absolute_deadline = dag_absolute_deadline;
+                } else {
+                    // DAGの絶対デッドラインが未設定の場合（最初の周期）
+                    // 最初にwakeしたノードがDAG全体の周期を決定
+                    
+                    // DAGのsink_nodeの相対デッドラインを取得して周期を決定
                     let sink_relative_deadline = dag.get_sink_relative_deadline();
                     
-                    // relative_deadlineが設定されている場合はそれを使用、そうでなければスケジューラータイプから取得
+                    // sink_nodeの相対デッドラインが設定されている場合はそれを使用、
+                    // そうでなければスケジューラータイプから取得→後で消去
                     let relative_deadline_ms = if let Some(deadline) = sink_relative_deadline {
                         deadline.as_millis() as u64
                     } else {
                         relative_deadline
                     };
                     
+                    // 絶対デッドラインを計算してDAGに設定
                     absolute_deadline = wake_time + relative_deadline_ms;
                     set_dag_absolute_deadline(dag_id, absolute_deadline);
-                } else {
-                    // ソースノードではない場合：DAGの絶対デッドラインを取得
-                    if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {
-                        // DAGの絶対デッドラインが既に設定されている場合、それを使用
-                        absolute_deadline = dag_absolute_deadline;
-                    } else {
-                        // DAGの絶対デッドラインが未設定の場合（最初の周期）
-                        // このタスクの相対デッドラインを使用して一時的な絶対デッドラインを設定
-                        // これにより、DAG全体の一貫性を保ちながら適切な優先度スケジューリングを実現
-                        
-                        // DAGノードの相対デッドラインを取得
-                        let dag_relative_deadline = dag.get_node_relative_deadline(current_node_index)
-                            .map(|deadline| deadline.as_millis() as u64)
-                            .unwrap_or(1000); // デフォルト値: 1秒
-                        
-                        absolute_deadline = wake_time + dag_relative_deadline;
-                        set_dag_absolute_deadline(dag_id, absolute_deadline);
-                    }
                 }
             } else {
                 // DAGが見つからない場合（エラーケース）
