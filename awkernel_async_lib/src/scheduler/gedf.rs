@@ -63,69 +63,82 @@ impl GEDFData {
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
+        // The reason for acquiring this lock before invoke_preemption() is to prevent priority inversion from occurring
+        // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
+        // within the scheduler's get_next().
         let mut data = self.data.lock(&mut node);
-        let data = data.get_or_insert_with(GEDFData::new);
+        let internal_data = data.get_or_insert_with(GEDFData::new);
 
-        let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
+        let mut data = self.data.lock(&mut node);
+        let internal_data = data.get_or_insert_with(GEDFData::new);
 
-        let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
-            unreachable!();
-        };
-
-        let wake_time = awkernel_lib::delay::uptime();
-        let absolute_deadline ;
-        // DAGに所属している場合
-        if let Some((dag_id, node_index)) = get_dag_info_by_task_id(task.id) {
-                // DAGを取得してソースノードかどうかを判定
-                if let Some(dag) = get_dag(dag_id) {
-                    //u32-->nodeindex
-                    // let current_node_index = to_node_index(node_index);
-                    // let is_source_node = dag.is_source_node(current_node_index);
-                
-                // DAGの絶対デッドラインを取得
-                if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {
-                    // DAGの絶対デッドラインが既に設定されている場合、それを使用
-                    absolute_deadline = dag_absolute_deadline;
-                } else {
-                    // DAGの絶対デッドラインが未設定の場合（最初の周期）
-                    // 最初にwakeしたノードがDAG全体の周期を決定
-                    
-                    // DAGのsink_nodeの相対デッドラインを取得して周期を決定
-                    let sink_relative_deadline = dag.get_sink_relative_deadline();
-                    
-                    // sink_nodeの相対デッドラインが設定されている場合はそれを使用、
-                    // そうでなければスケジューラータイプから取得→後で消去
-                    let relative_deadline_ms = if let Some(deadline) = sink_relative_deadline {
-                        deadline.as_millis() as u64
+        let (wake_time, absolute_deadline) = {
+            let mut node_inner = MCSNode::new();
+            let mut info = task.info.lock(&mut node_inner);
+            match info.scheduler_type {
+                SchedulerType::GEDF(relative_deadline) => {
+                    let wake_time = awkernel_lib::delay::uptime();
+                    let absolute_deadline = wake_time + relative_deadline;
+                    // DAGに所属している場合
+                    if let Some((dag_id, node_index)) = get_dag_info_by_task_id(task.id) {
+                        // DAGを取得してソースノードかどうかを判定
+                        if let Some(dag) = get_dag(dag_id) {
+                            //u32-->nodeindex
+                            // let current_node_index = to_node_index(node_index);
+                            // let is_source_node = dag.is_source_node(current_node_index);
+                        
+                            // DAGの絶対デッドラインを取得
+                            if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {
+                                // DAGの絶対デッドラインが既に設定されている場合、それを使用
+                                absolute_deadline = dag_absolute_deadline;
+                            } else {
+                                // DAGの絶対デッドラインが未設定の場合（最初の周期）
+                                // 最初にwakeしたノードがDAG全体の周期を決定
+                                
+                                // DAGのsink_nodeの相対デッドラインを取得して周期を決定
+                                let sink_relative_deadline = dag.get_sink_relative_deadline();
+                                
+                                // sink_nodeの相対デッドラインが設定されている場合はそれを使用、
+                                // そうでなければスケジューラータイプから取得→後で消去
+                                let relative_deadline_ms = if let Some(deadline) = sink_relative_deadline {
+                                    deadline.as_millis() as u64
+                                } else {
+                                    relative_deadline
+                                };
+                                
+                                // 絶対デッドラインを計算してDAGに設定
+                                absolute_deadline = wake_time + relative_deadline_ms;
+                                set_dag_absolute_deadline(dag_id, absolute_deadline);
+                            }
+                        } else {
+                            // DAGが見つからない場合（エラーケース）
+                            unreachable!();
+                        }
                     } else {
-                        relative_deadline
-                    };
-                    
-                    // 絶対デッドラインを計算してDAGに設定
-                    absolute_deadline = wake_time + relative_deadline_ms;
-                    set_dag_absolute_deadline(dag_id, absolute_deadline);
+                        // DAGに所属していない単一タスクの場合
+                        absolute_deadline = wake_time + relative_deadline;
+                    }
+                    task.priority
+                        .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
+                    info.update_absolute_deadline(absolute_deadline);
+
+                    (wake_time, absolute_deadline)
                 }
-            } else {
-                // DAGが見つからない場合（エラーケース）
-                unreachable!();
+                _ => unreachable!(),
             }
-        } else {
-            // DAGに所属していない単一タスクの場合
-            absolute_deadline = wake_time + relative_deadline;
-        }
+        };        
 
         task.priority
             .update_priority_info(self.priority, absolute_deadline);
         info.update_absolute_deadline(absolute_deadline);
 
-        data.queue.push(GEDFTask {
-            task: task.clone(),
-            absolute_deadline,
-            wake_time,
-        });
-
-        self.invoke_preemption(absolute_deadline);
+        if !self.invoke_preemption(task.clone()) {
+            internal_data.queue.push(GEDFTask {
+                task: task.clone(),
+                absolute_deadline,
+                wake_time,
+            });
+        }
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -177,29 +190,43 @@ pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
 
 impl GEDFScheduler {
     fn invoke_preemption(&self, absolute_deadline: u64) {
-        // Get running tasks and filter out tasks with task_id == 0.
-        let mut tasks = get_tasks_running();
-        tasks.retain(|task| task.task_id != 0);
-
-        // If the number of running tasks is less than the number of non-primary CPUs, preempt is not required.
-        let num_non_primary_cpus = num_cpu() - 1;
-        if tasks.len() < num_non_primary_cpus {
-            return;
-        }
-
-        let task_with_max_deadline = tasks
-            .iter()
-            .filter_map(|task| {
-                get_absolute_deadline_by_task_id(task.task_id).map(|deadline| (task, deadline))
-            })
-            .max_by_key(|&(_, deadline)| deadline);
-
-        if let Some((task, max_absolute_deadline)) = task_with_max_deadline {
-            if max_absolute_deadline > absolute_deadline {
-                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                set_need_preemption(task.task_id, task.cpu_id);
-                awkernel_lib::interrupt::send_ipi(preempt_irq, task.cpu_id as u32);
+        fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+            let tasks_running = get_tasks_running()
+                .into_iter()
+                .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
+                .collect::<Vec<_>>();
+    
+            // If the task has already been running, preempt is not required.
+            if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
+                return false;
             }
+    
+            let preemption_target = tasks_running
+                .iter()
+                .filter_map(|rt| {
+                    get_task(rt.task_id).map(|t| {
+                        let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
+                        (max(t, highest_pending), rt.cpu_id)
+                    })
+                })
+                .min()
+                .unwrap();
+    
+            let (target_task, target_cpu) = preemption_target;
+            if task > target_task {
+                push_preemption_pending(target_cpu, task);
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                set_need_preemption(target_task.id, target_cpu);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
+    
+                // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+                // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+                // Therefore, a more sophisticated implementation will be considered in the future.
+    
+                return true;
+            }
+    
+            false
         }
     }
 }
