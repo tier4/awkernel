@@ -604,11 +604,14 @@ pub fn poll_interface(interface_id: u64) -> bool {
 ///
 /// 1. `NetManager.read()`
 /// 2. `POLL_WAKERS.lock()`
-pub fn poll() {
+pub fn poll() -> usize {
     let net_manager = NET_MANAGER.read();
+
+    let mut n = 0;
 
     for (interface_id, if_net) in net_manager.interfaces.iter() {
         if if_net.is_poll_mode && if_net.net_device.poll() {
+            n += 1;
             let mut node = MCSNode::new();
             let mut w = POLL_WAKERS.lock(&mut node);
 
@@ -628,6 +631,8 @@ pub fn poll() {
             }
         }
     }
+
+    n
 }
 
 /// If some packets are processed, true is returned.

@@ -81,7 +81,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
 
             let dur = wake_task(); // Wake executable tasks periodically.
-            awkernel_lib::net::poll(); // Poll network devices.
 
             #[cfg(feature = "std")]
             {
