@@ -80,7 +80,7 @@ impl Scheduler for GEDFScheduler {
             match info.scheduler_type {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    let mut absolute_deadline = wake_time + relative_deadline;
+                    let absolute_deadline ;
                     // DAGに所属している場合
                     if let Some((dag_id, node_index)) = get_dag_info_by_task_id(task.id) {
                         // DAGを取得してソースノードかどうかを判定
