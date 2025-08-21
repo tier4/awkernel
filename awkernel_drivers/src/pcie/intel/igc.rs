@@ -716,6 +716,15 @@ impl IgcInner {
 
             let rdt = read_reg(&self.info, igc_regs::IGC_RDT(i)).unwrap_or(0);
             msg = format!("{msg}RDT{i}: 0x{rdt:#08x}\r\n");
+
+            let rdlen = read_reg(&self.info, igc_regs::IGC_RDLEN(i)).unwrap_or(0);
+            msg = format!("{msg}RDLEN{i}: 0x{rdlen:#08x}\r\n");
+
+            let rdbah = read_reg(&self.info, igc_regs::IGC_RDBAH(i)).unwrap_or(0);
+            msg = format!("{msg}RDBAH{i}: 0x{rdbah:#08x}\r\n");
+
+            let rdbal = read_reg(&self.info, igc_regs::IGC_RDBAL(i)).unwrap_or(0);
+            msg = format!("{msg}RDBAL{i}: 0x{rdbal:#08x}\r\n");
         }
 
         let tctl = read_reg(&self.info, igc_regs::IGC_TCTL).unwrap_or(0);
@@ -730,6 +739,15 @@ impl IgcInner {
 
             let tdt = read_reg(&self.info, igc_regs::IGC_TDT(i)).unwrap_or(0);
             msg = format!("{msg}TDT{i}: 0x{tdt:#08x}\r\n");
+
+            let tdlen = read_reg(&self.info, igc_regs::IGC_TDLEN(i)).unwrap_or(0);
+            msg = format!("{msg}TDLEN{i}: 0x{tdlen:#08x}\r\n");
+
+            let tdbah = read_reg(&self.info, igc_regs::IGC_TDBAH(i)).unwrap_or(0);
+            msg = format!("{msg}TDBAH{i}: 0x{tdbah:#08x}\r\n");
+
+            let tdbal = read_reg(&self.info, igc_regs::IGC_TDBAL(i)).unwrap_or(0);
+            msg = format!("{msg}TDBAL{i}: 0x{tdbal:#08x}\r\n");
         }
 
         log::debug!("igc: dump:\r\n{msg}");
