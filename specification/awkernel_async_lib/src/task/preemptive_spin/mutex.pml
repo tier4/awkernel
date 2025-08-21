@@ -4,12 +4,12 @@ typedef Mutex {
 }
 
 inline lock(tid,mutex) {
-	atomic {
+	d_step {
 		if
-		:: cpu_id(tid) != - 1 -> 
+		:: cpu_id(tid) != - 1 ->
 			mutex.interrupt_flag[tid] = interrupt_enabled[cpu_id(tid)];
 			interrupt_enabled[cpu_id(tid)] = false;
-		:: else
+		:: else// During initialization
 		fi
 	}
 	
@@ -18,13 +18,13 @@ inline lock(tid,mutex) {
 
 inline unlock(tid,mutex) {
 	mutex.is_locked = false;
-
-	atomic {
+	
+	d_step {
 		if
 		:: cpu_id(tid) != - 1 -> 
 			interrupt_enabled[cpu_id(tid)] = mutex.interrupt_flag[tid];
 			mutex.interrupt_flag[tid] = false
-		:: else
-		fi;
+		:: else// During initialization
+		fi
 	}
 }

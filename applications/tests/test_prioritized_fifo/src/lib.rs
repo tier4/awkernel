@@ -25,13 +25,13 @@ pub async fn run() {
                         wait_millisec(100);
                         log::debug!("high priority {i} task finished.");
                     },
-                    SchedulerType::PrioritizedFIFO(0),
+                    SchedulerType::PrioritizedFIFO(31),
                 )
                 .await;
                 wait_millisec(100);
                 log::debug!("low priority {i} task finished.");
             },
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }

@@ -1,12 +1,17 @@
 //! A GEDF scheduler.
 
+use core::cmp::max;
+
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
     dag::{get_dag_absolute_deadline, set_dag_absolute_deadline, get_dag, to_node_index},
-    scheduler::get_priority,
-    task::{get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State, get_dag_info_by_task_id},
+    scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
+    task::{
+        get_absolute_deadline_by_task_id, get_task, get_tasks_running, set_current_task, set_need_preemption, State, 
+        get_dag_info_by_task_id, MAX_TASK_PRIORITY,
+    },
 };
-use alloc::{collections::BinaryHeap, sync::Arc};
+use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
 use awkernel_lib::{
     cpu::num_cpu,
     sync::mutex::{MCSNode, Mutex},
@@ -69,16 +74,13 @@ impl Scheduler for GEDFScheduler {
         let mut data = self.data.lock(&mut node);
         let internal_data = data.get_or_insert_with(GEDFData::new);
 
-        let mut data = self.data.lock(&mut node);
-        let internal_data = data.get_or_insert_with(GEDFData::new);
-
         let (wake_time, absolute_deadline) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             match info.scheduler_type {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    let absolute_deadline = wake_time + relative_deadline;
+                    let mut absolute_deadline = wake_time + relative_deadline;
                     // DAGに所属している場合
                     if let Some((dag_id, node_index)) = get_dag_info_by_task_id(task.id) {
                         // DAGを取得してソースノードかどうかを判定
@@ -126,12 +128,7 @@ impl Scheduler for GEDFScheduler {
                 }
                 _ => unreachable!(),
             }
-        };        
-
-        task.priority
-            .update_priority_info(self.priority, absolute_deadline);
-        info.update_absolute_deadline(absolute_deadline);
-
+        };
         if !self.invoke_preemption(task.clone()) {
             internal_data.queue.push(GEDFTask {
                 task: task.clone(),
@@ -168,6 +165,7 @@ impl Scheduler for GEDFScheduler {
                     task_info.need_preemption = false;
                 }
                 task_info.state = State::Running;
+                set_current_task(awkernel_lib::cpu::cpu_id(), task.task.id);
             }
 
             return Some(task.task);
@@ -189,44 +187,42 @@ pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
 };
 
 impl GEDFScheduler {
-    fn invoke_preemption(&self, absolute_deadline: u64) {
-        fn invoke_preemption(&self, task: Arc<Task>) -> bool {
-            let tasks_running = get_tasks_running()
-                .into_iter()
-                .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
-                .collect::<Vec<_>>();
-    
-            // If the task has already been running, preempt is not required.
-            if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
-                return false;
-            }
-    
-            let preemption_target = tasks_running
-                .iter()
-                .filter_map(|rt| {
-                    get_task(rt.task_id).map(|t| {
-                        let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
-                        (max(t, highest_pending), rt.cpu_id)
-                    })
-                })
-                .min()
-                .unwrap();
-    
-            let (target_task, target_cpu) = preemption_target;
-            if task > target_task {
-                push_preemption_pending(target_cpu, task);
-                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                set_need_preemption(target_task.id, target_cpu);
-                awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
-    
-                // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
-                // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
-                // Therefore, a more sophisticated implementation will be considered in the future.
-    
-                return true;
-            }
-    
-            false
+    fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        let tasks_running = get_tasks_running()
+            .into_iter()
+            .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
+            .collect::<Vec<_>>();
+
+        // If the task has already been running, preempt is not required.
+        if tasks_running.is_empty() || tasks_running.iter().any(|rt| rt.task_id == task.id) {
+            return false;
         }
+
+        let preemption_target = tasks_running
+            .iter()
+            .filter_map(|rt| {
+                get_task(rt.task_id).map(|t| {
+                    let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
+                    (max(t, highest_pending), rt.cpu_id)
+                })
+            })
+            .min()
+            .unwrap();
+
+        let (target_task, target_cpu) = preemption_target;
+        if task > target_task {
+            push_preemption_pending(target_cpu, task);
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(target_task.id, target_cpu);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, target_cpu as u32);
+
+            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+            // Therefore, a more sophisticated implementation will be considered in the future.
+
+            return true;
+        }
+
+        false
     }
 }

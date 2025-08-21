@@ -2,7 +2,7 @@ pan.c: preemptive.pml
 	spin -a $<
 
 pan: pan.c
-	gcc -O3 -DVECTORSZ=5000 -DNFAIR=3 -o $@ $<
+	gcc -O3 -DCOLLAPSE -DVECTORSZ=5000 -DNFAIR=3 -o $@ $<
 
 run: pan
 	rm -f *.trail

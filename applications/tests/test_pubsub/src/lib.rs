@@ -32,7 +32,7 @@ pub async fn run() {
         async move {
             panic!("panic test");
         },
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -44,7 +44,7 @@ pub async fn run() {
                 awkernel_async_lib::sleep(Duration::from_secs(10)).await;
             }
         },
-        SchedulerType::PrioritizedFIFO(31),
+        SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
@@ -60,7 +60,7 @@ pub async fn run() {
                     tx2.send(()).await.unwrap();
                 }
             },
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
 
@@ -80,7 +80,7 @@ pub async fn run() {
                     }
                 }
             },
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }
@@ -98,7 +98,7 @@ pub async fn run() {
                     subscriber.recv().await;
                 }
             },
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
 
@@ -110,7 +110,7 @@ pub async fn run() {
                     publisher.send(()).await;
                 }
             },
-            SchedulerType::PrioritizedFIFO(31),
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }

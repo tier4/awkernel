@@ -18,7 +18,7 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         APP_NAME.into(),
         test_graphics(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(31),
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 }

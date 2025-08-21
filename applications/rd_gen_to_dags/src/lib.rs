@@ -15,10 +15,10 @@ use build_dag::build_dag;
 // const DAG_FILE_0: &str = concat!(include_str!("path/to/dag_0.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("path/to/dag_1.yaml"), "\n");
 
-/// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(31)`.
+/// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    SchedulerType::PrioritizedFIFO(31)
+    SchedulerType::PrioritizedFIFO(0)
 }
 
 pub async fn run() {
