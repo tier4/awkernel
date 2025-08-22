@@ -99,13 +99,25 @@ impl Scheduler for GEDFScheduler {
                                 unreachable!();
                             }  
                         } else {
-                            // DAGの絶対デッドラインが既に設定されている場合（2周期以降）、ソースノード以外ならそれを使用
+                            // DAGの絶対デッドラインが既に設定されている場合（2周期以降）、ソースノードかどうか判定
                             if let Some(dag) = get_dag(dag_id){
                                 // u32-->nodeindex
                                 let current_node_index = to_node_index(node_index);
                                 let is_source_node = dag.is_source_node(current_node_index);
+                                //ソースノードの場合：sink node の相対デッドラインを取得 + wake time = 絶対デッドラインを計算し、DAGにset、source node自身もその絶対デッドラインを優先度として使用
+                                //それ以外の場合：DAGに絶対デッドラインがあるはずなのでそれを取得して優先度として使用する
                                 if is_source_node {
-                                    absolute_deadline = wake_time + relative_deadline;
+                                    let sink_relative_deadline = dag.get_sink_relative_deadline();
+                                    // sink_nodeの相対デッドラインが設定されている場合はそれを使用、
+                                    // そうでなければスケジューラータイプから取得→後で消去
+                                    let relative_deadline_ms = if let Some(deadline) = sink_relative_deadline {
+                                        deadline.as_millis() as u64
+                                    } else {
+                                        relative_deadline
+                                    };
+                                    // 絶対デッドラインを計算してDAGに設定
+                                    absolute_deadline = wake_time + relative_deadline_ms;
+                                    set_dag_absolute_deadline(dag_id, absolute_deadline);
                                 } else {
                                     absolute_deadline = get_dag_absolute_deadline(dag_id).unwrap();
                                 }  
