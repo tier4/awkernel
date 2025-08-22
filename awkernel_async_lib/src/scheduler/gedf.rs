@@ -4,20 +4,15 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    dag::{get_dag_absolute_deadline, set_dag_absolute_deadline, get_dag, to_node_index},
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
-        get_absolute_deadline_by_task_id, get_task, get_tasks_running, set_current_task, set_need_preemption, State, 
-        get_dag_info_by_task_id, MAX_TASK_PRIORITY,
+        get_task, get_tasks_running, set_current_task, set_need_preemption, State,
+        MAX_TASK_PRIORITY, get_dag_info_by_task_id
     },
+    dag::{get_dag_absolute_deadline, set_dag_absolute_deadline, get_dag, to_node_index},
 };
 use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
-use awkernel_lib::{
-    cpu::num_cpu,
-    sync::mutex::{MCSNode, Mutex},
-};
-
-
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // Run queue.
@@ -83,23 +78,12 @@ impl Scheduler for GEDFScheduler {
                     let absolute_deadline ;
                     // DAGに所属している場合
                     if let Some((dag_id, node_index)) = get_dag_info_by_task_id(task.id) {
-                        // DAGを取得してソースノードかどうかを判定
-                        if let Some(dag) = get_dag(dag_id) {
-                            //u32-->nodeindex
-                            // let current_node_index = to_node_index(node_index);
-                            // let is_source_node = dag.is_source_node(current_node_index);
-                        
-                            // DAGの絶対デッドラインを取得
-                            if let Some(dag_absolute_deadline) = get_dag_absolute_deadline(dag_id) {
-                                // DAGの絶対デッドラインが既に設定されている場合、それを使用
-                                absolute_deadline = dag_absolute_deadline;
-                            } else {
-                                // DAGの絶対デッドラインが未設定の場合（最初の周期）
-                                // 最初にwakeしたノードがDAG全体の周期を決定
-                                
-                                // DAGのsink_nodeの相対デッドラインを取得して周期を決定
+                        // DAGの絶対デッドラインを取得
+                        if get_dag_absolute_deadline(dag_id).is_none() {
+                        // DAGの絶対デッドラインが設定されていない場合（1周期目）
+                        // DAGを取得してsinkノードの相対デッドラインを取得
+                            if let Some(dag) = get_dag(dag_id) {
                                 let sink_relative_deadline = dag.get_sink_relative_deadline();
-                                
                                 // sink_nodeの相対デッドラインが設定されている場合はそれを使用、
                                 // そうでなければスケジューラータイプから取得→後で消去
                                 let relative_deadline_ms = if let Some(deadline) = sink_relative_deadline {
@@ -107,28 +91,44 @@ impl Scheduler for GEDFScheduler {
                                 } else {
                                     relative_deadline
                                 };
-                                
                                 // 絶対デッドラインを計算してDAGに設定
                                 absolute_deadline = wake_time + relative_deadline_ms;
                                 set_dag_absolute_deadline(dag_id, absolute_deadline);
-                            }
+                            } else {
+                                // DAGが見つからない場合（エラーケース）
+                                unreachable!();
+                            }  
                         } else {
-                            // DAGが見つからない場合（エラーケース）
-                            unreachable!();
+                            // DAGの絶対デッドラインが既に設定されている場合（2周期以降）、ソースノード以外ならそれを使用
+                            if let Some(dag) = get_dag(dag_id){
+                                // u32-->nodeindex
+                                let current_node_index = to_node_index(node_index);
+                                let is_source_node = dag.is_source_node(current_node_index);
+                                if is_source_node {
+                                    absolute_deadline = wake_time + relative_deadline;
+                                } else {
+                                    absolute_deadline = get_dag_absolute_deadline(dag_id).unwrap();
+                                }  
+                            } else {
+                                // DAGが見つからない場合（エラーケース）
+                                unreachable!();
+                            }
                         }
                     } else {
                         // DAGに所属していない単一タスクの場合
                         absolute_deadline = wake_time + relative_deadline;
                     }
+            
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
-
+                
                     (wake_time, absolute_deadline)
                 }
                 _ => unreachable!(),
             }
         };
+
         if !self.invoke_preemption(task.clone()) {
             internal_data.queue.push(GEDFTask {
                 task: task.clone(),
