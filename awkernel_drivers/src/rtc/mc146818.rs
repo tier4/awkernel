@@ -160,7 +160,6 @@ impl Mc146818Rtc {
 
     pub fn gettime(&self) -> Result<DateTime, RtcError> {
         let regs = {
-            // Protect RTC access with interrupt guard (equivalent to OpenBSD's splclock/splx)
             let _guard = InterruptGuard::new();
             Self::rtcget()?
         };
@@ -197,7 +196,6 @@ impl Mc146818Rtc {
         regs[9] = 0;
 
         {
-            // Protect RTC access with interrupt guard (equivalent to OpenBSD's splclock/splx)
             let _guard = InterruptGuard::new();
             Self::rtcput(&regs)?;
         }
@@ -208,8 +206,6 @@ impl Mc146818Rtc {
     }
 
     pub fn init(&self) {
-        // Set 24-hour mode directly (following OpenBSD's rtcstart())
-        // No need for read-modify-write or interrupt guard during initialization
         Self::mc146818_write(MC_REGB, MC_REGB_24HR);
     }
 }
