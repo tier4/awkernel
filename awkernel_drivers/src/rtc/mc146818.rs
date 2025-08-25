@@ -1,6 +1,7 @@
 //! MC146818-compatible CMOS RTC driver for x86_64, x86
 
 use super::{DateTime, RtcError};
+use awkernel_lib::interrupt::InterruptGuard;
 use core::arch::asm;
 
 const IO_RTC: u16 = 0x070;
@@ -158,7 +159,11 @@ impl Mc146818Rtc {
     }
 
     pub fn gettime(&self) -> Result<DateTime, RtcError> {
-        let regs = Self::rtcget()?;
+        let regs = {
+            // Protect RTC access with interrupt guard (equivalent to OpenBSD's splclock/splx)
+            let _guard = InterruptGuard::new();
+            Self::rtcget()?
+        };
 
         let second = Self::bcdtobin(regs[MC_SEC as usize]);
         let minute = Self::bcdtobin(regs[MC_MIN as usize]);
@@ -191,7 +196,11 @@ impl Mc146818Rtc {
         regs[8] = 0;
         regs[9] = 0;
 
-        Self::rtcput(&regs)?;
+        {
+            // Protect RTC access with interrupt guard (equivalent to OpenBSD's splclock/splx)
+            let _guard = InterruptGuard::new();
+            Self::rtcput(&regs)?;
+        }
 
         // TODO: century byte update
 
@@ -199,7 +208,8 @@ impl Mc146818Rtc {
     }
 
     pub fn init(&self) {
-        let regb = Self::mc146818_read(MC_REGB);
-        Self::mc146818_write(MC_REGB, regb | MC_REGB_24HR);
+        // Set 24-hour mode directly (following OpenBSD's rtcstart())
+        // No need for read-modify-write or interrupt guard during initialization
+        Self::mc146818_write(MC_REGB, MC_REGB_24HR);
     }
 }
