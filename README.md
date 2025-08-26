@@ -122,6 +122,9 @@ $ make x86_64
 
 ### Boot
 
+Qemu 8.x or later is required.
+Qemu 6.x is not supported.
+
 ```text
 $ make qemu-x86_64
 ```
@@ -324,6 +327,6 @@ $ make loom
 
 [Publications](./PUBLICATIONS.md)
 
-## Specification by Formal Methods
+## Specification and Test Results
 
-[Specification](./specification)
+[Specification and Test Results](./SPEC_TEST.md)
