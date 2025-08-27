@@ -1,4 +1,4 @@
-# Verification Result
+# Specification and Test Results
 
 ## Tools
 
