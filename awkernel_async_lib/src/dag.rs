@@ -188,7 +188,7 @@ impl Dag {
     // }
 
     /// 指定されたノードの情報を取得（コールバック版）
-    pub fn with_node_info<F, R>(&self, node_idx: NodeIndex, f: F) -> Option<R>
+    pub fn get_node_info<F, R>(&self, node_idx: NodeIndex, f: F) -> Option<R>
     where
         F: FnOnce(&NodeInfo) -> R,
     {
@@ -250,7 +250,7 @@ impl Dag {
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
         let sink_nodes = self.get_sink_nodes();
         if let Some(sink_node_index) = sink_nodes.first() {
-            self.with_node_info(*sink_node_index, |info| info.get_relative_deadline())?
+            self.get_node_info(*sink_node_index, |info| info.get_relative_deadline())?
         } else {
             None
         }
@@ -258,7 +258,7 @@ impl Dag {
 
     /// 指定されたノードの相対デッドラインを取得
     pub fn get_node_relative_deadline(&self, node_idx: NodeIndex) -> Option<Duration> {
-        self.with_node_info(node_idx, |info| info.get_relative_deadline())?
+        self.get_node_info(node_idx, |info| info.get_relative_deadline())?
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
