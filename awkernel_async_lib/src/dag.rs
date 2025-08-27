@@ -180,23 +180,22 @@ impl Dag {
         self.id
     }
 
-    /// 引数のnode_idxが今動かしているDAGに所属しているか
-    /// 将来的にいらなさそう
-    // pub fn get_node_dag_id(&self, node_idx: NodeIndex) -> Option<u32> {
+    /// 指定されたノードの情報を取得（従来のクローン版）
+    // pub fn get_node_info(&self, node_idx: NodeIndex) -> Option<NodeInfo> {
     //     let mut node = MCSNode::new();
     //     let graph = self.graph.lock(&mut node);
-    //     graph.node_weight(node_idx).map(|node_info| node_info.dag_id)
+    //     graph.node_weight(node_idx).cloned()
     // }
 
-    /// 指定されたノードの情報を取得
-    pub fn get_node_info(&self, node_idx: NodeIndex) -> Option<NodeInfo> {
+    /// 指定されたノードの情報を取得（コールバック版）
+    pub fn with_node_info<F, R>(&self, node_idx: NodeIndex, f: F) -> Option<R>
+    where
+        F: FnOnce(&NodeInfo) -> R,
+    {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
-        graph.node_weight(node_idx).cloned()
-        //ここは参照を返す方が良さそう、将来的に変える
+        graph.node_weight(node_idx).map(f)
     }
-
-
 
     /// 指定されたtask_idを持つノードを検索
     pub fn find_node_by_task_id(&self, task_id: u32) -> Option<NodeIndex> {
@@ -251,7 +250,7 @@ impl Dag {
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
         let sink_nodes = self.get_sink_nodes();
         if let Some(sink_node_index) = sink_nodes.first() {
-            self.get_node_info(*sink_node_index)?.get_relative_deadline()
+            self.with_node_info(*sink_node_index, |info| info.get_relative_deadline())?
         } else {
             None
         }
@@ -259,7 +258,7 @@ impl Dag {
 
     /// 指定されたノードの相対デッドラインを取得
     pub fn get_node_relative_deadline(&self, node_idx: NodeIndex) -> Option<Duration> {
-        self.get_node_info(node_idx)?.get_relative_deadline()
+        self.with_node_info(node_idx, |info| info.get_relative_deadline())?
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -275,7 +274,6 @@ impl Dag {
     ) -> NodeIndex {
         let add_node_info = NodeInfo {
             task_id: 0, // Temporary task_id
-            dag_id: self.id,
             subscribe_topic_names: subscribe_topic_names.to_vec(),
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
@@ -558,7 +556,6 @@ impl PendingTask {
 #[derive(Clone)]
 struct NodeInfo {
     task_id: u32,
-    dag_id: u32,  // どのDAGからspawnされたかを示す：多分いらない、taskinfoの方にdag_idが必要
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
@@ -971,7 +968,7 @@ async fn spawn_dag(dag: &Arc<Dag>) {
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
             //ここでdag_idを設定
-            node_info.dag_id = dag_id;
+            // node_info.dag_id = dag_id;
         }
         
         // タスクのDAG情報を設定上で設定しているのでここはいらなさそう
@@ -992,7 +989,7 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
         //ここでdag_idを設定
-         node_info.dag_id = dag_id;
+        //  node_info.dag_id = dag_id;
     }
     
     // ソースタスクのDAG情報を設定上で設定しているのでここはいらなさそう

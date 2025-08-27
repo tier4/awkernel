@@ -1007,32 +1007,6 @@ pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
     })
 }
 
-/// タスクIDからDAG IDを取得
-#[inline(always)]
-pub fn get_dag_id_by_task_id(task_id: u32) -> Option<u32> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).and_then(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_dag_id()
-    })
-}
-
-/// タスクIDからノードインデックスを取得
-#[inline(always)]
-pub fn get_node_index_by_task_id(task_id: u32) -> Option<u32> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).and_then(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_node_index()
-    })
-}
-
 /// タスクのDAG情報を設定
 #[inline(always)]
 pub fn set_dag_info_by_task_id(task_id: u32, dag_id: u32, node_index: u32) -> bool {
