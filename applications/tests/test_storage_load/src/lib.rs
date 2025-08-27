@@ -2,13 +2,13 @@
 
 extern crate alloc;
 
-use alloc::{borrow::Cow, format, vec};
+use alloc::{borrow::Cow, format, vec, vec::Vec};
 use awkernel_async_lib::task::spawn;
 use awkernel_lib::{
     delay::uptime,
     storage::{self, StorageDeviceType},
 };
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use log::{error, info, warn};
 
 // Test configuration constants
@@ -18,8 +18,8 @@ const LARGE_BLOCK_SIZE: usize = 32768; // 32KB - large transfer
 const MEGA_BLOCK_SIZE: usize = 65536; // 128 blocks * 512 bytes = 64KB
 
 // Number of operations for different test scenarios
-const QUICK_TEST_OPS: usize = 2; // Reduced for faster testing
-const NORMAL_TEST_OPS: usize = 4; // Reduced for faster testing
+const QUICK_TEST_OPS: usize = 10; // Balance between measurement accuracy and speed
+const NORMAL_TEST_OPS: usize = 20; // More operations for thorough testing
 
 // Concurrent task counts
 const LOW_CONCURRENCY: usize = 2;
@@ -33,6 +33,12 @@ static TOTAL_BYTES_READ: AtomicU64 = AtomicU64::new(0);
 static TOTAL_BYTES_WRITTEN: AtomicU64 = AtomicU64::new(0);
 static TOTAL_ERRORS: AtomicU64 = AtomicU64::new(0);
 static TEST_PASSED: AtomicBool = AtomicBool::new(false);
+
+// Concurrent test synchronization
+static CONCURRENT_TASKS_SPAWNED: AtomicUsize = AtomicUsize::new(0);
+static CONCURRENT_TASKS_COMPLETED: AtomicUsize = AtomicUsize::new(0);
+static CONCURRENT_OPS_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static CONCURRENT_BYTES_TRANSFERRED: AtomicU64 = AtomicU64::new(0);
 
 struct TestStats {
     operations: u64,
@@ -115,7 +121,7 @@ pub async fn run() -> Result<(), alloc::borrow::Cow<'static, str>> {
     // Run test suite
     let mut all_passed = true;
 
-    // Skip other tests to focus on 64KB issue
+    // Skip slow sequential tests to focus on concurrent test
     // Test 1: Sequential Read Performance
     info!("\n=== Test 1: Sequential Read Performance ===");
     if !test_sequential_reads(device_id, block_size).await {
@@ -449,13 +455,21 @@ async fn test_concurrent_io(device_id: u64, block_size: usize) -> bool {
     for (num_tasks, desc) in &concurrency_levels {
         info!("  Testing with {desc} concurrency ({num_tasks} tasks)...");
 
-        let start = uptime() / 1000;
+        // Reset counters for this test
+        CONCURRENT_TASKS_SPAWNED.store(0, Ordering::SeqCst);
+        CONCURRENT_TASKS_COMPLETED.store(0, Ordering::SeqCst);
+        CONCURRENT_OPS_COMPLETED.store(0, Ordering::SeqCst);
+        CONCURRENT_BYTES_TRANSFERRED.store(0, Ordering::SeqCst);
+
         // Ensure each task has at least 2 operations
         let ops_per_task = core::cmp::max(2, QUICK_TEST_OPS / num_tasks);
+
+        let start = uptime() / 1000;
 
         // Spawn concurrent tasks
         for task_id in 0..*num_tasks {
             let task_name = format!("io_task_{task_id}").into();
+            CONCURRENT_TASKS_SPAWNED.fetch_add(1, Ordering::SeqCst);
             spawn(
                 task_name,
                 concurrent_io_task(device_id, block_size, task_id, ops_per_task),
@@ -463,18 +477,39 @@ async fn test_concurrent_io(device_id: u64, block_size: usize) -> bool {
             );
         }
 
-        // Wait for all tasks to complete
-        // Since we can't join tasks directly, we'll just wait a bit
-        awkernel_lib::delay::wait_millisec(2000);
+        // Wait for all tasks to complete by polling the completion counter
+        let mut wait_iterations = 0;
+        loop {
+            let completed = CONCURRENT_TASKS_COMPLETED.load(Ordering::SeqCst);
+            if completed >= *num_tasks {
+                break;
+            }
+
+            // Short delay to avoid busy-waiting too aggressively
+            awkernel_lib::delay::wait_millisec(10);
+            wait_iterations += 1;
+
+            // Timeout after 30 seconds (3000 iterations of 10ms)
+            if wait_iterations > 3000 {
+                error!("    Timeout waiting for concurrent tasks to complete");
+                return false;
+            }
+        }
 
         let duration_ms = (uptime() / 1000) - start;
-        let total_ops = (*num_tasks * ops_per_task) as u64;
-        let total_bytes = total_ops * block_size as u64;
+        let total_ops = CONCURRENT_OPS_COMPLETED.load(Ordering::SeqCst);
+        let total_bytes = CONCURRENT_BYTES_TRANSFERRED.load(Ordering::SeqCst);
 
-        let throughput = (total_bytes as f32 / 1024.0 / 1024.0) / (duration_ms as f32 / 1000.0);
-        let iops = total_ops as f32 / (duration_ms as f32 / 1000.0);
-
-        info!("    {desc} concurrency: {throughput:.2} MB/s, {iops:.0} IOPS");
+        if duration_ms > 0 {
+            let throughput = (total_bytes as f32 / 1024.0 / 1024.0) / (duration_ms as f32 / 1000.0);
+            let iops = total_ops as f32 / (duration_ms as f32 / 1000.0);
+            info!(
+                "    {desc} concurrency: {throughput:.2} MB/s, {iops:.0} IOPS, {} ops in {}ms",
+                total_ops, duration_ms
+            );
+        } else {
+            info!("    {desc} concurrency: completed too quickly to measure");
+        }
     }
 
     true
@@ -486,18 +521,26 @@ async fn concurrent_io_task(
     task_id: usize,
     num_ops: usize,
 ) -> Result<(), Cow<'static, str>> {
-    let mut buffer = vec![0u8; block_size];
-    let base_lba = 1000u64 + (task_id as u64 * 100); // Each task gets its own LBA range (within 4096 blocks)
+    // Each task performs its I/O operations sequentially,
+    // but multiple tasks run concurrently to achieve parallelism
 
+    let base_lba = 1000u64 + (task_id as u64 * 100);
+    let mut local_ops = 0u64;
+    let mut local_bytes = 0u64;
+
+    // Each task does its operations - the concurrency comes from multiple tasks
     for i in 0..num_ops {
         let lba = base_lba + (i as u64 % 100);
 
-        // Alternate between reads and writes
         if (i % 2) == 0 {
+            // Read operation
+            let mut buffer = vec![0u8; block_size];
             match storage::async_read_block(device_id, lba, &mut buffer).await {
                 Ok(()) => {
+                    local_ops += 1;
+                    local_bytes += block_size as u64;
                     TOTAL_READS.fetch_add(1, Ordering::Relaxed);
-                    TOTAL_BYTES_READ.fetch_add(buffer.len() as u64, Ordering::Relaxed);
+                    TOTAL_BYTES_READ.fetch_add(block_size as u64, Ordering::Relaxed);
                 }
                 Err(e) => {
                     error!("Concurrent read failed at LBA {lba}: {e:?}");
@@ -505,14 +548,18 @@ async fn concurrent_io_task(
                 }
             }
         } else {
-            // Fill with pattern
+            // Write operation
+            let mut buffer = vec![0u8; block_size];
             for (j, byte) in buffer.iter_mut().enumerate() {
                 *byte = ((task_id + j) & 0xFF) as u8;
             }
+
             match storage::async_write_block(device_id, lba, &buffer).await {
                 Ok(()) => {
+                    local_ops += 1;
+                    local_bytes += block_size as u64;
                     TOTAL_WRITES.fetch_add(1, Ordering::Relaxed);
-                    TOTAL_BYTES_WRITTEN.fetch_add(buffer.len() as u64, Ordering::Relaxed);
+                    TOTAL_BYTES_WRITTEN.fetch_add(block_size as u64, Ordering::Relaxed);
                 }
                 Err(e) => {
                     error!("Concurrent write failed at LBA {lba}: {e:?}");
@@ -521,6 +568,13 @@ async fn concurrent_io_task(
             }
         }
     }
+
+    // Update global counters
+    CONCURRENT_OPS_COMPLETED.fetch_add(local_ops, Ordering::SeqCst);
+    CONCURRENT_BYTES_TRANSFERRED.fetch_add(local_bytes, Ordering::SeqCst);
+
+    // Mark task as completed
+    CONCURRENT_TASKS_COMPLETED.fetch_add(1, Ordering::SeqCst);
 
     Ok(())
 }
