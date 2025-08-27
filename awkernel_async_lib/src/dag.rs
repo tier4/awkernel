@@ -511,15 +511,6 @@ impl Dag {
         }
     }
 
-    // タスクのDAG情報を取得（タプル形式）
-    #[inline(always)]
-    pub fn get_dag_info(&self, node_idx: NodeIndex) -> Option<(u32, u32)> {
-        match (self.get_id(), self.get_node_info(node_idx)) {
-            (dag_id, Some(node_info)) => Some((dag_id, node_info.task_id)),
-            _ => None,
-        }
-    }
-
     // DAG絶対デッドライン管理メソッド
 
     // DAGの絶対デッドラインを設定
