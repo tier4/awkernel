@@ -22,7 +22,7 @@ inline remove_from_channel(ch,msg) {
 }
 
 inline move_channel(src_ch,dst_ch) {
-	d_step {
+	atomic {// Don't use d_step here because the `transition failed` may occur.
 		assert(empty(dst_ch));assert(nempty(src_ch));
 
 		byte msg_i;byte tmp_msg;byte src_len = len(src_ch);
