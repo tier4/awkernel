@@ -204,11 +204,7 @@ impl DmaMap {
     /// Load buffer using bounce buffer
     fn load_with_bounce(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         let pages = size.div_ceil(PAGESIZE);
-        log::warn!(
-            "Allocating bounce buffer: size={} bytes, pages={}",
-            size,
-            pages
-        );
+        log::warn!("Allocating bounce buffer: size={size} bytes, pages={pages}");
 
         let bounce = DMAPool::<u8>::new(self.numa_id, pages).ok_or(DmaError::OutOfMemory)?;
 
