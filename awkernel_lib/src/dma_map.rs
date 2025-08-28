@@ -2,9 +2,9 @@
 //!
 //! This DMA mapping layer expects that transfers passed to it are already
 //! limited to the device's Maximum Data Transfer Size (MDTS, stored in
-//! DmaTag::maxsize). If a transfer exceeds maxsize, this layer will return
+//! DmaConstraints::maxsize). If a transfer exceeds maxsize, this layer will return
 //! DmaError::SizeTooLarge rather than attempting to split it. For transfers
-//! within MDTS but requiring too many segments (exceeding DmaTag::nsegments),
+//! within MDTS but requiring too many segments (exceeding DmaConstraints::nsegments),
 //! this layer WILL automatically use bounce buffers to consolidate segments.
 
 use crate::{
@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 
 /// DMA constraints for a device
 #[derive(Debug, Clone, Copy)]
-pub struct DmaTag {
+pub struct DmaConstraints {
     pub boundary: u64,
     pub maxsegsz: usize,
     pub nsegments: usize,
@@ -24,8 +24,8 @@ pub struct DmaTag {
     pub alignment: usize,
 }
 
-impl Default for DmaTag {
-    /// Create a default DMA tag for 64-bit devices
+impl Default for DmaConstraints {
+    /// Create default DMA constraints for 64-bit devices
     fn default() -> Self {
         Self {
             boundary: 0,
@@ -46,7 +46,7 @@ pub struct DmaSegment {
 
 /// DMA map structure
 pub struct DmaMap {
-    tag: DmaTag,
+    tag: DmaConstraints,
     segments: Vec<DmaSegment>,
     /// Memory owned by this map (either bounce buffer or pre-allocated DMA pool)
     owned_memory: Option<DMAPool<u8>>,
@@ -70,7 +70,7 @@ pub enum DmaError {
 
 impl DmaMap {
     /// Create a new DMA map
-    pub fn new(tag: DmaTag, numa_id: usize) -> Result<Self, DmaError> {
+    pub fn new(tag: DmaConstraints, numa_id: usize) -> Result<Self, DmaError> {
         Ok(Self {
             tag,
             segments: Vec::new(),
