@@ -119,7 +119,6 @@ pub struct StorageManager {
     interface_id: u64,
 }
 
-
 enum IRQWaker {
     Waker(core::task::Waker),
     Interrupted,
@@ -301,7 +300,6 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
         .and_then(|info| info.namespace_id)
 }
 
-
 /// Get the block size for a storage device
 pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
     let device = get_storage_device(device_id)?;
@@ -363,46 +361,31 @@ impl Future for TransferCompletionFuture {
     }
 }
 
-/// Async read operation (handles both single and multi-block)
-/// Buffer size determines number of blocks to read
 pub async fn async_read_block(
     device_id: u64,
-    start_lba: u64, // Renamed for clarity
+    start_lba: u64,
     buf: &mut [u8],
 ) -> Result<(), StorageManagerError> {
-    // Get block size to calculate number of blocks
     let block_size = get_device_block_size(device_id)?;
-
-    // Calculate number of blocks from buffer size
     let num_blocks = buf.len() / block_size;
     if buf.len() % block_size != 0 {
         return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
     }
 
-    // Allocate transfer
     let transfer_id = allocate_transfer(device_id)?;
-
-    // Set up the transfer metadata
     let nsid = get_device_namespace(device_id).unwrap_or(0);
     transfer_set_params(transfer_id, start_lba, num_blocks as u32, true, nsid)?;
 
-    // Get the device and submit I/O directly
     let device = get_storage_device(device_id)?;
-    
-    // Submit I/O directly to device (no queueing!)
     let submit_result = device.read_blocks(buf, transfer_id);
-    
-    // If submission failed, mark the transfer as failed and return error
+
     if submit_result.is_err() {
         transfer_mark_completed(transfer_id, 1)?; // Non-zero = error
         let _ = free_transfer(transfer_id);
         return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
     }
 
-    // Create completion future that will register its waker
     let completion_future = TransferCompletionFuture::new(transfer_id);
-
-    // Wait for completion
     let result = completion_future.await;
 
     // Always free transfer
@@ -410,51 +393,34 @@ pub async fn async_read_block(
     result
 }
 
-/// Async write operation (handles both single and multi-block)
-/// Buffer size determines number of blocks to write
 pub async fn async_write_block(
     device_id: u64,
-    start_lba: u64, // Renamed for clarity
+    start_lba: u64,
     buf: &[u8],
 ) -> Result<(), StorageManagerError> {
-    // Get block size to calculate number of blocks
     let block_size = get_device_block_size(device_id)?;
-
-    // Calculate number of blocks from buffer size
     let num_blocks = buf.len() / block_size;
     if buf.len() % block_size != 0 {
         return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
     }
 
-    // Allocate transfer
     let transfer_id = allocate_transfer(device_id)?;
-
-    // Set up the transfer metadata
     let nsid = get_device_namespace(device_id).unwrap_or(0);
     transfer_set_params(transfer_id, start_lba, num_blocks as u32, false, nsid)?;
 
-    // Get the device and submit I/O directly
     let device = get_storage_device(device_id)?;
-    
-    // Submit I/O directly to device (no queueing!)
     let submit_result = device.write_blocks(buf, transfer_id);
-    
-    // If submission failed, mark the transfer as failed and return error
+
     if submit_result.is_err() {
         transfer_mark_completed(transfer_id, 1)?; // Non-zero = error
         let _ = free_transfer(transfer_id);
         return Err(StorageManagerError::DeviceError(StorageDevError::IoError));
     }
 
-    // Create completion future that will register its waker
     let completion_future = TransferCompletionFuture::new(transfer_id);
-
-    // Wait for completion
     let result = completion_future.await;
 
-    // Always free transfer
     let _ = free_transfer(transfer_id);
 
     result
 }
-
