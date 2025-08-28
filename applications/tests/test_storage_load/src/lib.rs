@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::{borrow::Cow, format, vec, vec::Vec};
+use alloc::{borrow::Cow, format, vec};
 use awkernel_async_lib::task::spawn;
 use awkernel_lib::{
     delay::uptime,

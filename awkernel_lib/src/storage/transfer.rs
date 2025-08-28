@@ -6,34 +6,6 @@ use core::task::Waker;
 
 use super::{StorageDevError, StorageManagerError};
 
-/// Storage operation type for request queue
-#[derive(Debug, Clone)]
-pub enum StorageOp {
-    Read { buf_ptr: *mut u8, buf_len: usize },
-    Write { buf_ptr: *const u8, buf_len: usize },
-    Flush,
-}
-
-// SAFETY: StorageOp can be sent between threads because:
-// 1. The buffer pointers are valid for the duration of the async operation
-// 2. The async functions ensure buffers remain pinned in memory until completion
-// 3. The submission task correctly handles the pointers with unsafe blocks
-unsafe impl Send for StorageOp {}
-
-/// Storage request for submission queue
-pub struct StorageRequest {
-    pub transfer_id: u16,
-    pub device_id: u64,
-    pub operation: StorageOp,
-    pub waker: Option<Waker>,
-}
-
-// SAFETY: StorageRequest can be sent between threads because:
-// 1. StorageOp is Send (see above)
-// 2. All other fields are Send by default
-// 3. The request lifetime is managed by the async operation
-unsafe impl Send for StorageRequest {}
-
 pub const DEFAULT_IO_TIMEOUT_MS: u32 = 5000; // 5 seconds for I/O operations
 pub const DEFAULT_TRANSFER_TIMEOUT_MS: u32 = 10000; // 10 seconds for transfers
 
@@ -68,24 +40,21 @@ impl Default for StorageTransfer {
 }
 
 pub struct StorageTransferPool {
-    // Each transfer wrapped in Mutex for fine-grained locking.
-    // The free_list ensures exclusive ownership, so there's no contention.
+    // The free_list ensures exclusive ownership, so there's no contention actually.
     transfers: Vec<Mutex<StorageTransfer>>,
     free_list: Mutex<Vec<u16>>,
 }
 
 impl StorageTransferPool {
-    /// Get a transfer ID from the free list
     fn transfer_get(&self) -> Result<u16, StorageManagerError> {
         let mut node = MCSNode::new();
         let mut free_list = self.free_list.lock(&mut node);
-        
+
         free_list.pop().ok_or(StorageManagerError::DeviceError(
             StorageDevError::DeviceNotReady,
         ))
     }
-    
-    /// Return a transfer ID to the free list
+
     fn transfer_put(&self, id: u16) -> Result<(), StorageManagerError> {
         let mut node = MCSNode::new();
         let mut free_list = self.free_list.lock(&mut node);
@@ -119,23 +88,20 @@ pub fn init_transfer_pool() {
 
 /// TODO: Could implement async version that waits when pool is exhausted
 pub fn allocate_transfer(device_id: u64) -> Result<u16, StorageManagerError> {
-    // Use read lock since we're not modifying the pool structure
     let storage_transfer_pool = STORAGE_TRANSFER_POOL.read();
 
     let pool = (*storage_transfer_pool)
         .as_ref()
         .ok_or(StorageManagerError::PoolNotInitialized)?;
 
-    // Get ID from free list
     let id = pool.transfer_get()?;
 
-    // Reset the specific transfer with its individual lock
     let mut node = MCSNode::new();
     let mut transfer = pool.transfers[id as usize].lock(&mut node);
     transfer.completed.store(false, Ordering::Release);
     transfer.status.store(0, Ordering::Release);
     transfer.device_id = device_id;
-    transfer.nsid = 0; // Will be set explicitly by caller
+    transfer.nsid = 0;
 
     let mut waker_node = MCSNode::new();
     let mut waker = transfer.waker.lock(&mut waker_node);
@@ -151,7 +117,6 @@ pub fn transfer_set_params(
     read: bool,
     nsid: u32,
 ) -> Result<(), StorageManagerError> {
-    // Use read lock since we're not modifying the pool structure
     let storage_transfer_pool = STORAGE_TRANSFER_POOL.read();
 
     let pool = (*storage_transfer_pool)
@@ -162,7 +127,6 @@ pub fn transfer_set_params(
         return Err(StorageManagerError::InvalidTransferID);
     }
 
-    // Lock only the specific transfer
     let mut node = MCSNode::new();
     let mut transfer = pool.transfers[id as usize].lock(&mut node);
     transfer.lba = lba;
@@ -177,7 +141,6 @@ pub fn transfer_set_poll_mode(
     poll: bool,
     timeout_ms: u32,
 ) -> Result<(), StorageManagerError> {
-    // Use read lock since we're not modifying the pool structure
     let storage_transfer_pool = STORAGE_TRANSFER_POOL.read();
 
     let pool = (*storage_transfer_pool)
@@ -188,7 +151,6 @@ pub fn transfer_set_poll_mode(
         return Err(StorageManagerError::InvalidTransferID);
     }
 
-    // Lock only the specific transfer
     let mut node = MCSNode::new();
     let mut transfer = pool.transfers[id as usize].lock(&mut node);
     transfer.poll = poll;
@@ -307,6 +269,12 @@ pub fn transfer_mark_completed(id: u16, status: u16) -> Result<(), StorageManage
     let transfer = pool.transfers[id as usize].lock(&mut node);
     transfer.status.store(status, Ordering::Release);
     transfer.completed.store(true, Ordering::Release);
+
+    let mut waker_node = MCSNode::new();
+    if let Some(waker) = transfer.waker.lock(&mut waker_node).take() {
+        waker.wake();
+    }
+
     Ok(())
 }
 
@@ -399,12 +367,12 @@ pub fn wake_completed_transfers(device_id: u64) {
 
     let mut wakers_to_wake = alloc::vec::Vec::new();
 
-    for (_idx, transfer_mutex) in pool.transfers.iter().enumerate() {
+    for transfer_mutex in pool.transfers.iter() {
         let mut node = MCSNode::new();
         let transfer = transfer_mutex.lock(&mut node);
         let is_completed = transfer.completed.load(Ordering::Acquire);
         let transfer_device_id = transfer.device_id;
-        
+
         if transfer_device_id == device_id && is_completed {
             let mut waker_node = MCSNode::new();
             let mut waker_guard = transfer.waker.lock(&mut waker_node);

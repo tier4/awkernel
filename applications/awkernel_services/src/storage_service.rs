@@ -18,22 +18,7 @@ pub async fn run() {
     for storage_status in awkernel_lib::storage::get_all_storage_statuses() {
         log::info!("Initializing interrupt handlers for {}.", storage_status.device_name);
         
-        // Clone for the submission task
-        let device_id = storage_status.interface_id;
-        let device_name = storage_status.device_name.clone();
-        
         spawn_handlers(storage_status, &mut _ch_irq_handlers).await;
-        
-        // Spawn submission task for this device with high priority
-        // Use priority 0 (highest) to ensure it runs before I/O tasks
-        log::info!("Starting submission task for {}.", device_name);
-        let task_name = format!("storage_submission_{}", device_id);
-        awkernel_async_lib::spawn(
-            task_name.into(),
-            awkernel_lib::storage::storage_submission_task(device_id),
-            SchedulerType::PrioritizedFIFO(0),  // Highest priority
-        )
-        .await;
     }
 
     let subscriber = pubsub::create_subscriber::<(&'static str, u64)>(

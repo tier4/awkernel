@@ -7,7 +7,7 @@ use awkernel_lib::{
         BUS_SPACE_BARRIER_WRITE,
     },
     delay::wait_microsec,
-    dma_map::{DmaMap, DmaSyncOp, DmaTag},
+    dma_map::{DmaMap, DmaSyncOp, DmaConstraints},
     dma_pool::DMAPool,
     file::block_device_adapter::{BlockDeviceError, BlockResult},
     interrupt::IRQ,
@@ -418,7 +418,7 @@ impl NvmeInner {
 
         // Create DMA map that takes ownership of the PRP list pool
         // Note: PRP list itself doesn't need boundary restrictions, only the I/O buffers do
-        let prpl_tag = DmaTag::default();
+        let prpl_tag = DmaConstraints::default();
         let prpl_map =
             DmaMap::from_dma_pool(prpl_dma, prpl_tag).map_err(|_| NvmeDriverErr::DMAPool)?;
 
@@ -433,7 +433,7 @@ impl NvmeInner {
             // - maxsegsz = sc_mps = PAGE_SIZE
             // - boundary = sc_mps = PAGE_SIZE
             // NVMe requires separate PRP entries for each page crossing, even if physically contiguous
-            let tag = DmaTag {
+            let tag = DmaConstraints {
                 boundary: self.mps as u64,      // NVMe PRP requirement: separate entries at page boundaries
                 maxsegsz: self.mps,             // Maximum segment size = page size
                 nsegments: self.max_prpl + 1,   // Max PRP list entries + 1 free in SQE (33)
@@ -929,16 +929,6 @@ impl NvmeInner {
     fn submit_io(&self, io_q: &Queue, transfer_id: u16, buf: &[u8]) -> Result<(), NvmeDriverErr> {
         use awkernel_lib::addr::virt_addr::VirtAddr;
 
-        // Check if this transfer is already completed
-        // This prevents double-submission which can crash the system
-        if storage::transfer_is_completed(transfer_id).unwrap_or(false) {
-            log::warn!(
-                "Transfer {} is already completed, skipping submission",
-                transfer_id
-            );
-            return Ok(());
-        }
-
         let (lba, blocks, nsid, read) =
             storage::transfer_get_info(transfer_id).map_err(|_| NvmeDriverErr::InitFailure)?;
 
@@ -977,7 +967,33 @@ impl NvmeInner {
             log::warn!("Buffer not 4-byte aligned: 0x{:x}", buf_addr);
         }
 
-        let ccb_id = self.ccb_get()?.ok_or(NvmeDriverErr::NoCcb)?;
+        // Try to get a CCB, processing completions if needed
+        let ccb_id = match self.ccb_get()? {
+            Some(id) => id,
+            None => {
+                // No CCBs available - try processing completions to free some
+                let mut retries = 0;
+                loop {
+                    // Process any pending completions on the I/O queue
+                    let _ = io_q.complete(self);
+                    
+                    // Try again
+                    if let Some(id) = self.ccb_get()? {
+                        break id;
+                    }
+                    
+                    retries += 1;
+                    if retries > 100 {
+                        // Still no CCBs after many retries
+                        log::error!("No CCBs available after {} completion processing attempts", retries);
+                        return Err(NvmeDriverErr::NoCcb);
+                    }
+                    
+                    // Small delay before retrying
+                    awkernel_lib::delay::wait_microsec(100);
+                }
+            }
+        };
 
         let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
         let mut node = MCSNode::new();
@@ -995,22 +1011,41 @@ impl NvmeInner {
 
         if let Some(ref mut dmamap) = ccb.dmamap {
             let vaddr = VirtAddr::new(buf.as_ptr() as usize);
-            dmamap.load(vaddr, transfer_size).map_err(|e| {
+            if let Err(e) = dmamap.load(vaddr, transfer_size) {
                 log::error!("DMA load failed: {:?}", e);
-                NvmeDriverErr::DmaError
-            })?;
+                // Clean up CCB before returning error
+                ccb.transfer_id = None;
+                ccb.done = None;
+                ccb.cookie = None;
+                drop(ccb_guard);
+                let _ = self.ccb_put(ccb_id);
+                return Err(NvmeDriverErr::DmaError);
+            }
 
             let sync_op = if read {
                 DmaSyncOp::PreRead
             } else {
                 DmaSyncOp::PreWrite
             };
-            dmamap.sync(0, transfer_size, sync_op).map_err(|e| {
+            if let Err(e) = dmamap.sync(0, transfer_size, sync_op) {
                 log::error!("DMA sync failed: {:?}", e);
-                NvmeDriverErr::DmaError
-            })?;
+                // Clean up CCB and DMA map before returning error
+                dmamap.unload();
+                ccb.transfer_id = None;
+                ccb.done = None;
+                ccb.cookie = None;
+                drop(ccb_guard);
+                let _ = self.ccb_put(ccb_id);
+                return Err(NvmeDriverErr::DmaError);
+            }
         } else {
             log::error!("CCB has no DMA map!");
+            // Clean up CCB before returning error
+            ccb.transfer_id = None;
+            ccb.done = None;
+            ccb.cookie = None;
+            drop(ccb_guard);
+            let _ = self.ccb_put(ccb_id);
             return Err(NvmeDriverErr::DmaError);
         }
 
@@ -1029,12 +1064,30 @@ impl NvmeInner {
                             prp_entries_needed,
                             self.max_prpl
                         );
+                        // Clean up CCB and DMA map before returning error
+                        if let Some(ref mut dmamap) = ccb.dmamap {
+                            dmamap.unload();
+                        }
+                        ccb.transfer_id = None;
+                        ccb.done = None;
+                        ccb.cookie = None;
+                        drop(ccb_guard);
+                        let _ = self.ccb_put(ccb_id);
                         return Err(NvmeDriverErr::TooManySegments);
                     }
 
                     // Check alignment
                     if prpl_ptr % core::mem::align_of::<u64>() != 0 {
                         log::error!("PRP list pointer not aligned: 0x{:x}", prpl_ptr);
+                        // Clean up CCB and DMA map before returning error
+                        if let Some(ref mut dmamap) = ccb.dmamap {
+                            dmamap.unload();
+                        }
+                        ccb.transfer_id = None;
+                        ccb.done = None;
+                        ccb.cookie = None;
+                        drop(ccb_guard);
+                        let _ = self.ccb_put(ccb_id);
                         return Err(NvmeDriverErr::DmaError);
                     }
 
@@ -1282,7 +1335,8 @@ impl Nvme {
 
         // We now know the real values of sc_mdts and sc_max_prpl.
         inner.ccbs_free();
-        inner.ccbs_alloc(64)?;
+        // Allocate CCBs to match queue size (128) for better sustained load performance
+        inner.ccbs_alloc(128)?;
 
         inner.setup_interrupts();
         write_reg(&inner.info, NVME_INTMC, 0x1)?;

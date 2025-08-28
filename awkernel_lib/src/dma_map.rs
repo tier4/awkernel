@@ -2,17 +2,15 @@
 //!
 //! This DMA mapping layer expects that transfers passed to it are already
 //! limited to the device's Maximum Data Transfer Size (MDTS, stored in
-//! DmaTag::maxsize). If a transfer exceeds maxsize, this layer will return
-//! DmaError::SizeTooLarge rather than attempting to split it.
-//!
-//! In OpenBSD, the physio() layer calls minphys() to limit transfer sizes
-//! before they reach device drivers. AWKernel currently lacks an equivalent
-//! physio layer, so upper layers (storage, filesystem) are responsible for
-//! ensuring transfers do not exceed device limits.
-//!
-//! For transfers within MDTS but requiring too many segments (exceeding
-//! DmaTag::nsegments), this layer WILL automatically use bounce buffers
-//! to consolidate segments.
+//! DmaConstraints::maxsize). If a transfer exceeds maxsize, this layer will return
+//! DmaError::SizeTooLarge rather than attempting to split it. For transfers
+//! within MDTS but requiring too many segments (exceeding DmaConstraints::nsegments),
+//! this layer WILL automatically use bounce buffers to consolidate segments.
+//! 
+//! TODO: DMA Coherency Support
+//! Currently treats all devices as cache-coherent (no cache operations).
+//! This works for x86_64 and QEMU but not for non-coherent devices on ARM64/RISC-V.
+//! Needed: Add `coherent` flag to DmaConstraints, set by platform/bus layer based on device tree or architecture guarantees.
 
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -23,7 +21,7 @@ use alloc::vec::Vec;
 
 /// DMA constraints for a device
 #[derive(Debug, Clone, Copy)]
-pub struct DmaTag {
+pub struct DmaConstraints {
     pub boundary: u64,
     pub maxsegsz: usize,
     pub nsegments: usize,
@@ -31,8 +29,8 @@ pub struct DmaTag {
     pub alignment: usize,
 }
 
-impl Default for DmaTag {
-    /// Create a default DMA tag for 64-bit devices
+impl Default for DmaConstraints {
+    /// Create default DMA constraints for 64-bit devices
     fn default() -> Self {
         Self {
             boundary: 0,
@@ -58,7 +56,7 @@ pub struct DmaSegment {
 
 /// DMA map structure
 pub struct DmaMap {
-    tag: DmaTag,
+    tag: DmaConstraints,
     segments: Vec<DmaSegment>,
     /// Memory owned by this map (either bounce buffer or pre-allocated DMA pool)
     owned_memory: Option<DMAPool<u8>>,
@@ -91,7 +89,7 @@ pub enum DmaError {
 
 impl DmaMap {
     /// Create a new DMA map
-    pub fn new(tag: DmaTag, numa_id: usize) -> Result<Self, DmaError> {
+    pub fn new(tag: DmaConstraints, numa_id: usize) -> Result<Self, DmaError> {
         Ok(Self {
             tag,
             segments: Vec::new(),
@@ -205,9 +203,7 @@ impl DmaMap {
     fn load_with_bounce(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         let pages = size.div_ceil(PAGESIZE);
         log::warn!(
-            "Allocating bounce buffer: size={} bytes, pages={}",
-            size,
-            pages
+            "Allocating bounce buffer: size={size} bytes, pages={pages}"
         );
 
         let bounce = DMAPool::<u8>::new(self.numa_id, pages).ok_or(DmaError::OutOfMemory)?;
@@ -309,7 +305,7 @@ impl DmaMap {
 }
 
 impl DmaMap {
-    pub fn from_dma_pool<T>(pool: DMAPool<T>, tag: DmaTag) -> Result<Self, DmaError> {
+    pub fn from_dma_pool<T>(pool: DMAPool<T>, tag: DmaConstraints) -> Result<Self, DmaError> {
         let paddr = pool.get_phy_addr();
         let size = pool.get_size();
         let vaddr = pool.get_virt_addr();
