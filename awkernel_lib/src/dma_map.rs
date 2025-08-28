@@ -3,16 +3,9 @@
 //! This DMA mapping layer expects that transfers passed to it are already
 //! limited to the device's Maximum Data Transfer Size (MDTS, stored in
 //! DmaTag::maxsize). If a transfer exceeds maxsize, this layer will return
-//! DmaError::SizeTooLarge rather than attempting to split it.
-//!
-//! In OpenBSD, the physio() layer calls minphys() to limit transfer sizes
-//! before they reach device drivers. AWKernel currently lacks an equivalent
-//! physio layer, so upper layers (storage, filesystem) are responsible for
-//! ensuring transfers do not exceed device limits.
-//!
-//! For transfers within MDTS but requiring too many segments (exceeding
-//! DmaTag::nsegments), this layer WILL automatically use bounce buffers
-//! to consolidate segments.
+//! DmaError::SizeTooLarge rather than attempting to split it. For transfers
+//! within MDTS but requiring too many segments (exceeding DmaTag::nsegments),
+//! this layer WILL automatically use bounce buffers to consolidate segments.
 
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -45,11 +38,6 @@ impl Default for DmaTag {
 }
 
 /// DMA segment descriptor
-///
-/// NOTE: OpenBSD tracks _ds_va and _ds_bounce_va per segment for copying data
-/// between original and bounce buffers. AWKernel doesn't need these because:
-/// 1. We store virtual addresses at the map level (orig_vaddr, owned_memory)
-/// 2. Bounce buffer is a single contiguous segment - we copy the entire range at once
 #[derive(Debug, Clone, Copy)]
 pub struct DmaSegment {
     pub ds_addr: PhyAddr,
@@ -66,15 +54,6 @@ pub struct DmaMap {
     orig_vaddr: Option<VirtAddr>,
     mapsize: usize,
     numa_id: usize,
-}
-
-/// DMA synchronization operations
-#[derive(Debug, Clone, Copy)]
-pub enum DmaSyncOp {
-    PreRead,
-    PostRead,
-    PreWrite,
-    PostWrite,
 }
 
 /// Errors that can occur during DMA operations
@@ -107,7 +86,6 @@ impl DmaMap {
     }
 
     /// Load a buffer into the DMA map
-    /// Based on OpenBSD's _bus_dmamap_load_buffer (sys/arch/amd64/amd64/bus_dma.c:722-823)
     pub fn load(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         if size > self.tag.maxsize {
             return Err(DmaError::SizeTooLarge);
