@@ -14,7 +14,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 
-/// DMA constraints for a device
 #[derive(Debug, Clone, Copy)]
 pub struct DmaConstraints {
     pub boundary: u64,
@@ -25,7 +24,6 @@ pub struct DmaConstraints {
 }
 
 impl Default for DmaConstraints {
-    /// Create default DMA constraints for 64-bit devices
     fn default() -> Self {
         Self {
             boundary: 0,
@@ -37,14 +35,12 @@ impl Default for DmaConstraints {
     }
 }
 
-/// DMA segment descriptor
 #[derive(Debug, Clone, Copy)]
 pub struct DmaSegment {
     pub ds_addr: PhyAddr,
     pub ds_len: usize,
 }
 
-/// DMA map structure
 pub struct DmaMap {
     tag: DmaConstraints,
     segments: Vec<DmaSegment>,
@@ -56,7 +52,6 @@ pub struct DmaMap {
     numa_id: usize,
 }
 
-/// Errors that can occur during DMA operations
 #[derive(Debug)]
 pub enum DmaError {
     AddressTooHigh,
@@ -69,7 +64,6 @@ pub enum DmaError {
 }
 
 impl DmaMap {
-    /// Create a new DMA map
     pub fn new(tag: DmaConstraints, numa_id: usize) -> Result<Self, DmaError> {
         Ok(Self {
             tag,
@@ -85,7 +79,6 @@ impl DmaMap {
         self.mapsize
     }
 
-    /// Load a buffer into the DMA map
     pub fn load(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         if size > self.tag.maxsize {
             return Err(DmaError::SizeTooLarge);
@@ -179,7 +172,6 @@ impl DmaMap {
         Ok(())
     }
 
-    /// Load buffer using bounce buffer
     fn load_with_bounce(&mut self, vaddr: VirtAddr, size: usize) -> Result<(), DmaError> {
         let pages = size.div_ceil(PAGESIZE);
         log::warn!("Allocating bounce buffer: size={size} bytes, pages={pages}");
@@ -204,7 +196,6 @@ impl DmaMap {
         Ok(())
     }
 
-    /// Unload the DMA map
     pub fn unload(&mut self) {
         self.segments.clear();
         self.owned_memory = None;
