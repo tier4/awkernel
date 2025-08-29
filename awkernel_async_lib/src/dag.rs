@@ -180,13 +180,13 @@ impl Dag {
         self.id
     }
 
-    pub fn get_source_nodes(&self) -> Vec<NodeIndex> {
+    fn get_source_nodes(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.externals(Direction::Incoming).collect()
     }
 
-    pub fn get_sink_nodes(&self) -> Vec<NodeIndex> {
+    fn get_sink_nodes(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.externals(Direction::Outgoing).collect()
@@ -490,7 +490,6 @@ impl PendingTask {
     }
 }
 
-#[derive(Clone)]
 struct NodeInfo {
     task_id: u32,
     subscribe_topic_names: Vec<Cow<'static, str>>,

@@ -85,6 +85,8 @@ impl SchedulerType {
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
                 | (SchedulerType::GEDFNoArg, SchedulerType::GEDFNoArg)
+                | (SchedulerType::GEDFNoArg, SchedulerType::GEDF(_))
+                | (SchedulerType::GEDF(_), SchedulerType::GEDFNoArg)
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
@@ -111,11 +113,12 @@ impl SchedulerType {
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 4] = [
-    SchedulerType::Panicked,
-    SchedulerType::PrioritizedRR(0),
-    SchedulerType::PrioritizedFIFO(0),
+static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::GEDF(0),
+    SchedulerType::GEDFNoArg,
+    SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::PrioritizedRR(0),
+    SchedulerType::Panicked, 
 ];
 
 pub(crate) trait Scheduler {
