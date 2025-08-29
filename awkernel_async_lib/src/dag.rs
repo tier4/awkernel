@@ -169,7 +169,7 @@ impl core::fmt::Display for DagError {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
-    absolute_deadline: Mutex<Option<u64>>,  // DAG全体の絶対デッドライン
+    absolute_deadline: Mutex<Option<u64>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -180,42 +180,12 @@ impl Dag {
         self.id
     }
 
-    /// 指定されたノードの情報を取得（従来のクローン版）
-    // pub fn get_node_info(&self, node_idx: NodeIndex) -> Option<NodeInfo> {
-    //     let mut node = MCSNode::new();
-    //     let graph = self.graph.lock(&mut node);
-    //     graph.node_weight(node_idx).cloned()
-    // }
-
-    /// 指定されたノードの情報を取得（コールバック版）
-    pub fn get_node_info<F, R>(&self, node_idx: NodeIndex, f: F) -> Option<R>
-    where
-        F: FnOnce(&NodeInfo) -> R,
-    {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_weight(node_idx).map(f)
-    }
-
-    /// 指定されたtask_idを持つノードを検索
-    pub fn find_node_by_task_id(&self, task_id: u32) -> Option<NodeIndex> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_indices().find(|&idx| {
-            graph.node_weight(idx)
-                .map(|node_info| node_info.task_id == task_id)
-                .unwrap_or(false)
-        })
-    }
-
-    /// このDAGに属するすべてのノードのインデックスを取得
     pub fn get_all_node_indices(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.node_indices().collect()
     }
 
-    /// このDAGに属するすべてのノードの情報を取得
     pub fn get_all_node_infos(&self) -> Vec<(NodeIndex, NodeInfo)> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -234,31 +204,32 @@ impl Dag {
         graph.externals(Direction::Outgoing).collect()
     }
 
-    /// 指定されたノードインデックスがソースノードかどうかを判定
     pub fn is_source_node(&self, node_index: NodeIndex) -> bool {
         let source_nodes = self.get_source_nodes();
         source_nodes.contains(&node_index)
     }
     
-    /// 指定されたノードインデックスがシンクノードかどうかを判定
     pub fn is_sink_node(&self, node_index: NodeIndex) -> bool {
         let sink_nodes = self.get_sink_nodes();
         sink_nodes.contains(&node_index)
     }
     
-    /// このDAGのシンクノードの相対デッドラインを取得
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
-        let sink_nodes = self.get_sink_nodes();
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        let sink_nodes: Vec<NodeIndex> = graph.externals(Direction::Outgoing).collect();
+        
         if let Some(sink_node_index) = sink_nodes.first() {
-            self.get_node_info(*sink_node_index, |info| info.get_relative_deadline())?
+            graph.node_weight(*sink_node_index)?.relative_deadline
         } else {
             None
         }
     }
 
-    /// 指定されたノードの相対デッドラインを取得
     pub fn get_node_relative_deadline(&self, node_idx: NodeIndex) -> Option<Duration> {
-        self.get_node_info(node_idx, |info| info.get_relative_deadline())?
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_weight(node_idx)?.relative_deadline
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -509,9 +480,6 @@ impl Dag {
         }
     }
 
-    // DAG絶対デッドライン管理メソッド
-
-    // DAGの絶対デッドラインを設定
     #[inline(always)]
     pub fn set_absolute_deadline(&self, deadline: u64) {
         let mut node = MCSNode::new();
@@ -519,7 +487,6 @@ impl Dag {
         *absolute_deadline = Some(deadline);
     }
 
-    // DAGの絶対デッドラインを取得
     #[inline(always)]
     pub fn get_absolute_deadline(&self) -> Option<u64> {
         let mut node = MCSNode::new();
@@ -527,13 +494,6 @@ impl Dag {
         *absolute_deadline
     }
 
-    // DAGの絶対デッドラインをクリア：多分いらない
-    // #[inline(always)]
-    // pub fn clear_absolute_deadline(&self) {
-    //     let mut node = MCSNode::new();
-    //     let mut absolute_deadline = self.absolute_deadline.lock(&mut node);
-    //     *absolute_deadline = None;
-    // }
 }
 
 struct PendingTask {
@@ -561,22 +521,9 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
-impl NodeInfo {
-    /// ノードの相対デッドラインを取得
-    pub fn get_relative_deadline(&self) -> Option<Duration> {
-        self.relative_deadline
-    }
-}
-
-
-
-
-
 pub fn to_node_index(index: u32) -> NodeIndex {
     NodeIndex::new(index as usize)
 }
-
-
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
 }
@@ -640,38 +587,11 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-/// 指定されたDAG IDとノードインデックスからノードのDAG IDを取得
-// pub fn get_node_dag_id(dag_id: u32, node_idx: NodeIndex) -> Option<u32> {
-//     get_dag(dag_id)?.get_node_dag_id(node_idx)
-// }
-
-/// 指定されたDAG IDとノードインデックスからノード情報を取得
-// pub fn get_node_info(dag_id: u32, node_idx: NodeIndex) -> Option<&NodeInfo> {
-//     get_dag(dag_id)?.get_node_info(node_idx)
-// }
-
-/// 指定されたtask_idを持つノードを全DAGから検索
-pub fn find_node_by_task_id_global(task_id: u32) -> Option<(u32, NodeIndex)> {
-    let mut node = MCSNode::new();
-    let dags = DAGS.lock(&mut node);
-    
-    for (dag_id, dag) in dags.id_to_dag.iter() {
-        if let Some(node_idx) = dag.find_node_by_task_id(task_id) {
-            return Some((*dag_id, node_idx));
-        }
-    }
-    None
-}
-
-
-
-/// DAG IDから絶対デッドラインを取得
 #[inline(always)]
 pub fn get_dag_absolute_deadline(dag_id: u32) -> Option<u64> {
     get_dag(dag_id)?.get_absolute_deadline()
 }
 
-/// DAG IDから絶対デッドラインを設定
 #[inline(always)]
 pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
     if let Some(dag) = get_dag(dag_id) {
@@ -681,8 +601,6 @@ pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
         false
     }
 }
-
-
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     match validate_all_rules(dags) {
@@ -967,11 +885,7 @@ async fn spawn_dag(dag: &Arc<Dag>) {
         let mut graph = dag.graph.lock(&mut node);
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
-            //ここでdag_idを設定
-            // node_info.dag_id = dag_id;
         }
-        
-        // タスクのDAG情報を設定上で設定しているのでここはいらなさそう
         task::set_dag_info_by_task_id(task_id, dag_id, task.node_idx.index() as u32);
     }
 
@@ -988,11 +902,7 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     let mut graph = dag.graph.lock(&mut node);
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
-        //ここでdag_idを設定
-        //  node_info.dag_id = dag_id;
     }
-    
-    // ソースタスクのDAG情報を設定上で設定しているのでここはいらなさそう
     task::set_dag_info_by_task_id(task_id, dag_id, source_pending_task.node_idx.index() as u32);
 }
 

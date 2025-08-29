@@ -73,6 +73,7 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
+    GEDFNoArg, // GEDF without argument, internally uses GEDF(0)
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -83,6 +84,7 @@ impl SchedulerType {
         matches!(
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
+                | (SchedulerType::GEDFNoArg, SchedulerType::GEDFNoArg)
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
@@ -151,6 +153,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
+        SchedulerType::GEDFNoArg => &gedf::SCHEDULER, // GEDFNoArg is internally GEDF(0)
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }

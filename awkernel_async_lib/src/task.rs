@@ -157,10 +157,8 @@ pub struct TaskInfo {
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
-
-    // DAG関連の情報
-    pub(crate) dag_id: Option<u32>,           // 所属するDAGのID
-    pub(crate) node_index: Option<u32>,       // DAG内のノードインデックス
+    pub(crate) dag_id: Option<u32>,           
+    pub(crate) node_index: Option<u32>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -224,28 +222,22 @@ impl TaskInfo {
         self.panicked
     }
 
-    // DAG関連のメソッド
-
-    /// タスクが所属するDAGのIDを取得
     #[inline(always)]
     pub fn get_dag_id(&self) -> Option<u32> {
         self.dag_id
     }
 
-    /// タスクがDAG内で占めるノードインデックスを取得
     #[inline(always)]
     pub fn get_node_index(&self) -> Option<u32> {
         self.node_index
     }
 
-    /// タスクのDAG情報を設定
     #[inline(always)]
     pub fn set_dag_info(&mut self, dag_id: u32, node_index: u32) {
         self.dag_id = Some(dag_id);
         self.node_index = Some(node_index);
     }
 
-    /// タスクのDAG情報を取得（タプル形式）
     #[inline(always)]
     pub fn get_dag_info(&self) -> Option<(u32, u32)> {
         match (self.dag_id, self.node_index) {
@@ -306,8 +298,6 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
-
-                    // DAG関連の情報
                     dag_id: None,
                     node_index: None,
 
@@ -994,7 +984,6 @@ pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
     })
 }
 
-/// タスクIDからDAG情報を取得
 #[inline(always)]
 pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
     let mut node = MCSNode::new();
@@ -1007,7 +996,6 @@ pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
     })
 }
 
-/// タスクのDAG情報を設定
 #[inline(always)]
 pub fn set_dag_info_by_task_id(task_id: u32, dag_id: u32, node_index: u32) -> bool {
     let mut node = MCSNode::new();
