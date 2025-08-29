@@ -202,4 +202,97 @@ impl DmaMap {
         self.orig_vaddr = None;
         self.mapsize = 0;
     }
+
+    pub fn sync(&self, offset: usize, len: usize, op: DmaSyncOp) -> Result<(), DmaError> {
+        if self.segments.is_empty() {
+            return Err(DmaError::NotLoaded);
+        }
+
+        // Validate offset and length
+        if offset + len > self.mapsize {
+            return Err(DmaError::SizeTooLarge);
+        }
+
+        if let (Some(ref bounce), Some(orig_vaddr)) = (&self.owned_memory, self.orig_vaddr) {
+            match op {
+                // READ: device -> memory
+                DmaSyncOp::PostRead => unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        bounce.get_virt_addr().as_ptr::<u8>().add(offset),
+                        orig_vaddr.as_mut_ptr::<u8>().add(offset),
+                        len,
+                    );
+                },
+                // WRITE: memory -> device
+                DmaSyncOp::PreWrite => unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        orig_vaddr.as_ptr::<u8>().add(offset),
+                        bounce.get_virt_addr().as_mut_ptr::<u8>().add(offset),
+                        len,
+                    );
+                },
+                // PREREAD and POSTWRITE are no-ops.
+                _ => (),
+            }
+        }
+
+        // TODO: Implement cache operations for non-coherent devices.
+        // Currently only memory barriers are implemented, which is insufficient
+        // for non-coherent devices but works for cache-coherent systems.
+        //
+        // Note: The barrier and cache invalidation are not atomic, which could
+        // theoretically allow speculative loads between them. This is mitigated
+        // in practice by running in interrupt context and exclusive buffer access.
+
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        if matches!(op, DmaSyncOp::PostRead) {
+            crate::barrier::membar_sync();
+            // TODO: cpu_dcache_inv_range(paddr, len)
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        if matches!(op, DmaSyncOp::PostRead) {
+            crate::barrier::membar_sync();
+            // TODO: cpu_dcache_inv_range(paddr, len)
+        }
+
+        Ok(())
+    }
+
+    pub fn get_segment(&self) -> Option<&DmaSegment> {
+        self.segments.first()
+    }
+
+    pub fn get_segments(&self) -> &[DmaSegment] {
+        &self.segments
+    }
+
+    pub fn is_bounced(&self) -> bool {
+        self.owned_memory.is_some()
+    }
+}
+
+impl DmaMap {
+    pub fn from_dma_pool<T>(pool: DMAPool<T>, tag: DmaConstraints) -> Result<Self, DmaError> {
+        let paddr = pool.get_phy_addr();
+        let size = pool.get_size();
+        let vaddr = pool.get_virt_addr();
+        let numa_id = pool.get_numa_id();
+
+        if size > tag.maxsize {
+            return Err(DmaError::SizeTooLarge);
+        }
+
+        Ok(Self {
+            tag,
+            segments: alloc::vec![DmaSegment {
+                ds_addr: paddr,
+                ds_len: size,
+            }],
+            owned_memory: Some(pool.into_bytes()),
+            orig_vaddr: Some(vaddr),
+            mapsize: size,
+            numa_id,
+        })
+    }
 }
