@@ -150,7 +150,7 @@ impl Queue {
                 let mut ccb = ccbs[cid as usize].lock(&mut node);
                 if let Some(done_fn) = ccb.done {
                     // OpenBSD style: pass device and ccb to handler
-                    done_fn(device_ptr, &mut *ccb, cqe);
+                    done_fn(device_ptr, &mut ccb, cqe);
                 }
                 // Check if the handler cleared the done pointer (indicating it should be freed)
                 ccb.done.is_none()
@@ -233,13 +233,13 @@ impl NvmeInner {
         };
 
         // Debug output for mps calculation
-        log::warn!("NVMe: mps (max segment size) = {} bytes (0x{:x})", mps, mps);
+        log::warn!("NVMe: mps (max segment size) = {mps} bytes (0x{mps:x})");
         log::warn!(
             "NVMe: PAGE_SHIFT = {}, PAGE_SIZE = {}",
             PAGE_SHIFT,
             1 << PAGE_SHIFT
         );
-        log::warn!("NVMe: mpsmax from CAP register = {}", mpsmax);
+        log::warn!("NVMe: mpsmax from CAP register = {mpsmax}");
 
         let rdy_to = NVME_CAP_TO(cap);
         let mdts = MAXPHYS;
@@ -253,8 +253,8 @@ impl NvmeInner {
             dstrd,
             rdy_to,
             mps,
-            mdts: mdts,
-            max_prpl: max_prpl,
+            mdts,
+            max_prpl,
             ccb_list: None,
             ccbs: None,
             ccb_prpls: None,
@@ -444,7 +444,7 @@ impl NvmeInner {
             // Debug output for DMA tag configuration
             if i == 0 {
                 // Only log for first CCB to avoid spam
-                log::warn!("NVMe CCB {}: DMA tag configured:", i);
+                log::warn!("NVMe CCB {i}: DMA tag configured:");
                 log::warn!("  maxsegsz = {} bytes (0x{:x})", tag.maxsegsz, tag.maxsegsz);
                 log::warn!("  nsegments = {}", tag.nsegments);
                 log::warn!("  boundary = 0x{:x}", tag.boundary);
@@ -544,7 +544,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
             let mut node = MCSNode::new();
             let ccb = ccbs[ccb_id as usize].lock(&mut node);
-            fill_fn(&*ccb, &mut state._sqe);
+            fill_fn(&ccb, &mut state._sqe);
         }
 
         let (original_done, original_cookie) = {

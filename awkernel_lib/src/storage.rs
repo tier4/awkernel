@@ -275,17 +275,14 @@ pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
         return false;
     };
 
-    // Call the device's interrupt handler
     let _ = device_info.device.interrupt(irq);
 
-    // Drop the manager lock before waking tasks to avoid potential deadlocks
     drop(manager);
 
-    // Wake any async tasks waiting on completed transfers for this device
     // interface_id is the same as device_id for storage devices
     wake_completed_transfers(interface_id);
 
-    // For now, assume no more work is pending
+    // ENHANCE: For now, assume no more work is pending
     // Individual drivers can implement more sophisticated logic
     false
 }
@@ -331,7 +328,6 @@ impl Future for TransferCompletionFuture {
         // if the transfer completes after we check
         transfer_set_waker(self.transfer_id, Some(cx.waker().clone()))?;
 
-        // Check if transfer is completed
         let completed = transfer_is_completed(self.transfer_id)?;
 
         if completed {
@@ -344,7 +340,6 @@ impl Future for TransferCompletionFuture {
                 )))
             }
         } else {
-            // For polling mode timeout check
             let is_poll = transfer_is_poll_mode(self.transfer_id)?;
             if is_poll {
                 let timeout_ms = transfer_get_timeout_ms(self.transfer_id)?;
