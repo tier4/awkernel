@@ -223,16 +223,6 @@ impl TaskInfo {
     }
 
     #[inline(always)]
-    pub fn get_dag_id(&self) -> Option<u32> {
-        self.dag_id
-    }
-
-    #[inline(always)]
-    pub fn get_node_index(&self) -> Option<u32> {
-        self.node_index
-    }
-
-    #[inline(always)]
     pub fn set_dag_info(&mut self, dag_id: u32, node_index: u32) {
         self.dag_id = Some(dag_id);
         self.node_index = Some(node_index);

@@ -180,18 +180,6 @@ impl Dag {
         self.id
     }
 
-    pub fn get_all_node_indices(&self) -> Vec<NodeIndex> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_indices().collect()
-    }
-
-    pub fn get_all_node_infos(&self) -> Vec<(NodeIndex, NodeInfo)> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_references().map(|node_ref| (node_ref.id(), node_ref.weight().clone())).collect()
-    }
-
     pub fn get_source_nodes(&self) -> Vec<NodeIndex> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -209,11 +197,6 @@ impl Dag {
         source_nodes.contains(&node_index)
     }
     
-    pub fn is_sink_node(&self, node_index: NodeIndex) -> bool {
-        let sink_nodes = self.get_sink_nodes();
-        sink_nodes.contains(&node_index)
-    }
-    
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -224,12 +207,6 @@ impl Dag {
         } else {
             None
         }
-    }
-
-    pub fn get_node_relative_deadline(&self, node_idx: NodeIndex) -> Option<Duration> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.node_weight(node_idx)?.relative_deadline
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
