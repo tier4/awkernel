@@ -963,27 +963,15 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 }
 
 #[inline(always)]
-pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).and_then(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_absolute_deadline()
-    })
-}
-
-#[inline(always)]
 pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
-    tasks.id_to_task.get(&task_id).and_then(|task| {
+    tasks.id_to_task.get(&task_id).map(|task| {
         let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
         info.get_dag_info()
-    })
+    })?
 }
 
 #[inline(always)]
