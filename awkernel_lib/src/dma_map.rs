@@ -259,10 +259,6 @@ impl DmaMap {
         Ok(())
     }
 
-    pub fn get_segment(&self) -> Option<&DmaSegment> {
-        self.segments.first()
-    }
-
     pub fn get_segments(&self) -> &[DmaSegment] {
         &self.segments
     }
