@@ -70,11 +70,9 @@ impl Scheduler for GEDFScheduler {
         let internal_data = data.get_or_insert_with(GEDFData::new);
 
         let (wake_time, absolute_deadline) = {
-            //If we do not perform get_dag_info_by_task_id here, it will cause a deadlock with info.
-            let dag_info = get_dag_info_by_task_id(task.id);
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
-            
+            let dag_info = info.get_dag_info();
             match info.scheduler_type {                
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
@@ -130,6 +128,7 @@ impl Scheduler for GEDFScheduler {
                 SchedulerType::GEDFNoArg => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline ;
+                    log::debug!("GEDFNoArg scheduler: dag_info={:?}", dag_info);
                     
                     if let Some((dag_id, node_index)) = dag_info {
                         if get_dag_absolute_deadline(dag_id).is_none() {
@@ -165,8 +164,9 @@ impl Scheduler for GEDFScheduler {
                         }
                     } else {
                         log::debug!("GEDFNoArg scheduler: Task {} DAG info not yet set, using default deadline", task.id);
-                        absolute_deadline = wake_time + 1000;
+                        absolute_deadline = wake_time + 1000; // Default 1 second deadline
                     }
+                    
             
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);

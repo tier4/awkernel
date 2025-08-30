@@ -862,7 +862,10 @@ async fn spawn_dag(dag: &Arc<Dag>) {
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
         }
-        task::set_dag_info_by_task_id(task_id, dag_id, task.node_idx.index() as u32);
+        {
+            log::debug!("spawn_dag: setting DAG info for task {}", task_id);
+            task::set_dag_info_by_task_id(task_id, dag_id, task.node_idx.index() as u32);
+        }
     }
 
     // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
@@ -879,7 +882,10 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
     }
-    task::set_dag_info_by_task_id(task_id, dag_id, source_pending_task.node_idx.index() as u32);
+    {
+        log::debug!("spawn_dag: setting DAG info for source task {}", task_id);
+        task::set_dag_info_by_task_id(task_id, dag_id, source_pending_task.node_idx.index() as u32);
+    }
 }
 
 async fn spawn_reactor<F, Args, Ret>(
