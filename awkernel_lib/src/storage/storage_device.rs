@@ -43,4 +43,8 @@ pub trait StorageDevice: Send + Sync {
     fn flush(&self, _transfer_id: u16) -> Result<(), StorageDevError> {
         Ok(())
     }
+
+    fn get_namespace_id(&self) -> Option<u32> {
+        None
+    }
 }
