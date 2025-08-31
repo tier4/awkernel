@@ -80,7 +80,7 @@ static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
 
 struct DeviceInfo {
     device: Arc<dyn StorageDevice>,
-    _namespace_id: Option<u32>,
+    namespace_id: Option<u32>,
 }
 
 pub struct StorageManager {
@@ -125,7 +125,7 @@ where
 
     let device_info = DeviceInfo {
         device: device.clone() as Arc<dyn StorageDevice>,
-        _namespace_id: namespace_id,
+        namespace_id,
     };
     manager.devices.insert(id, device_info);
 
