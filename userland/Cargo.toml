@@ -107,9 +107,13 @@ optional = true
 path = "../applications/tests/test_nvme_fatfs_rw"
 optional = true
 
+[dependencies.test_storage_load]
+path = "../applications/tests/test_storage_load"
+optional = true
+
 [features]
 #default = ["test_nvme", "test_storage_interrupt", "test_nvme_namespace", "test_nvme_fatfs", "test_storage_async"]
-default = ["test_storage_async"]
+default = ["test_storage_load"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -137,3 +141,4 @@ test_nvme = ["dep:test_nvme"]
 test_storage_interrupt = ["dep:test_storage_interrupt"]
 test_storage_async = ["dep:test_storage_async"]
 test_nvme_fatfs_rw = ["dep:test_nvme_fatfs_rw"]
+test_storage_load= ["dep:test_storage_load"]
