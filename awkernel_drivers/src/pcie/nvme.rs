@@ -1548,7 +1548,7 @@ pub(super) fn attach(
             {
                 let namespace = NvmeNamespace::new(nvme_arc.clone(), nsid);
                 let ns_arc = Arc::new(namespace);
-                let storage_id = storage::add_storage_device(ns_arc.clone(), Some(nsid));
+                let storage_id = storage::add_storage_device(ns_arc.clone());
 
                 // Use safe interior mutability instead of unsafe pointer manipulation
                 ns_arc.set_device_id(storage_id);
@@ -1687,5 +1687,9 @@ impl StorageDevice for NvmeNamespace {
         self.controller
             .flush(self.namespace_id, transfer_id)
             .map_err(|_| StorageDevError::IoError)
+    }
+
+    fn get_namespace_id(&self) -> Option<u32> {
+        Some(self.namespace_id)
     }
 }

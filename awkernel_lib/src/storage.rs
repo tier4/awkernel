@@ -87,6 +87,12 @@ pub trait StorageDevice: Send + Sync {
     fn flush(&self, _transfer_id: u16) -> Result<(), StorageDevError> {
         Ok(())
     }
+
+    /// Get the namespace ID for this device (if applicable)
+    /// Returns None for devices that don't have namespaces
+    fn get_namespace_id(&self) -> Option<u32> {
+        None
+    }
 }
 
 static STORAGE_MANAGER: RwLock<StorageManager> = RwLock::new(StorageManager {
@@ -98,7 +104,6 @@ static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
 
 struct DeviceInfo {
     device: Arc<dyn StorageDevice>,
-    namespace_id: Option<u32>,
     // Store the concrete type for downcasting when needed (e.g., for FatFS)
     concrete_device: Arc<dyn Any + Send + Sync>,
 }
@@ -114,7 +119,7 @@ enum IRQWaker {
 }
 
 /// Add a storage device to the manager
-pub fn add_storage_device<T>(device: Arc<T>, namespace_id: Option<u32>) -> u64
+pub fn add_storage_device<T>(device: Arc<T>) -> u64
 where
     T: StorageDevice + Send + Sync + 'static,
 {
@@ -129,7 +134,6 @@ where
 
     let device_info = DeviceInfo {
         device: device.clone() as Arc<dyn StorageDevice>,
-        namespace_id,
         // Store the concrete type for potential downcasting
         concrete_device: device.clone() as Arc<dyn Any + Send + Sync>,
     };
@@ -281,7 +285,7 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
     manager
         .devices
         .get(&device_id)
-        .and_then(|info| info.namespace_id)
+        .and_then(|info| info.device.get_namespace_id())
 }
 
 /// Get the block size for a storage device

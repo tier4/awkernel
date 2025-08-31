@@ -339,7 +339,7 @@ async fn test_large_file_operations() {
 
     // Create a memory device large enough for testing
     let device = Arc::new(MemoryBlockDevice::new(512, 8192)); // 4MB
-    let device_id = storage::add_storage_device(device.clone(), None);
+    let device_id = storage::add_storage_device(device.clone());
 
     // Mount with format
     match awkernel_async_lib::file::mount::mount(
@@ -507,7 +507,7 @@ async fn test_memory_with_async_mount() {
 
     // Create a memory block device
     let mem_device = Arc::new(MemoryBlockDevice::new(512, 2048)); // 1MB
-    let device_id = storage::add_storage_device(mem_device.clone(), None);
+    let device_id = storage::add_storage_device(mem_device.clone());
 
     // Mount it using the new builder pattern
     match awkernel_async_lib::file::mount::mount(
