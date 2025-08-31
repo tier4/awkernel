@@ -119,10 +119,8 @@ pub fn get_all_storage_statuses() -> Vec<StorageStatus> {
 pub fn get_device_namespace(device_id: u64) -> Option<u32> {
     let manager = STORAGE_MANAGER.read();
 
-    manager
-        .devices
-        .get(&device_id)
-        .and_then(|device| device.get_namespace_id())
+    let device = manager.devices.get(&device_id)?;
+    device.get_namespace_id()
 }
 
 /// Service routine for storage device interrupt.
