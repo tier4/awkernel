@@ -93,6 +93,22 @@ enum IRQWaker {
     Interrupted,
 }
 
+/// Get the namespace ID for a storage device
+pub fn get_device_namespace(device_id: u64) -> Option<u32> {
+    let manager = STORAGE_MANAGER.read();
+
+    manager
+        .devices
+        .get(&device_id)
+        .and_then(|info| info.namespace_id)
+}
+
+/// Get the block size for a storage device
+pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
+    let device = get_storage_device(device_id)?;
+    Ok(device.block_size())
+}
+
 /// Add a storage device to the manager
 pub fn add_storage_device<T>(device: Arc<T>, namespace_id: Option<u32>) -> u64
 where
