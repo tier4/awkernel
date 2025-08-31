@@ -83,7 +83,7 @@ pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerErro
     Ok(device_info.device.block_size())
 }
 
-pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
+pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
     let device_info = manager
@@ -91,7 +91,7 @@ pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerErro
         .get(&device_id)
         .ok_or(StorageManagerError::InvalidDeviceID)?;
 
-    Ok(device_info.device.block_size())
+    Ok(device_info.device.clone())
 }
 
 pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
