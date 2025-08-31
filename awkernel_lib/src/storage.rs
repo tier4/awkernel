@@ -106,10 +106,10 @@ pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerErro
     Ok(device.block_size())
 }
 
-pub fn add_storage_device<T>(device: Arc<T>, namespace_id: Option<u32>) -> u64
-where
-    T: StorageDevice + Send + Sync + 'static,
-{
+pub fn add_storage_device(
+    device: Arc<dyn StorageDevice + Sync + Send>,
+    namespace_id: Option<u32>,
+) -> u64 {
     let mut manager = STORAGE_MANAGER.write();
 
     if manager.device_id == u64::MAX {
