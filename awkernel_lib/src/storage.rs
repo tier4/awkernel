@@ -83,6 +83,17 @@ pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerErro
     Ok(device_info.device.block_size())
 }
 
+pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
+    let manager = STORAGE_MANAGER.read();
+
+    let device_info = manager
+        .devices
+        .get(&device_id)
+        .ok_or(StorageManagerError::InvalidDeviceID)?;
+
+    Ok(device_info.device.block_size())
+}
+
 pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
