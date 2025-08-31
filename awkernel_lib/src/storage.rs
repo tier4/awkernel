@@ -64,7 +64,7 @@ pub fn add_storage_device(
     manager.device_id += 1;
 
     let device_info = DeviceInfo {
-        device: device.clone() as Arc<dyn StorageDevice>,
+        device,
         namespace_id,
     };
     manager.devices.insert(id, device_info);
@@ -72,7 +72,7 @@ pub fn add_storage_device(
     id
 }
 
-pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
+pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
     let device_info = manager
@@ -80,7 +80,7 @@ pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, Stor
         .get(&device_id)
         .ok_or(StorageManagerError::InvalidDeviceID)?;
 
-    Ok(device_info.device.clone())
+    Ok(device_info.device.block_size())
 }
 
 pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
@@ -126,11 +126,6 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
         .devices
         .get(&device_id)
         .and_then(|info| info.namespace_id)
-}
-
-pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
-    let device = get_storage_device(device_id)?;
-    Ok(device.block_size())
 }
 
 /// Service routine for storage device interrupt.
