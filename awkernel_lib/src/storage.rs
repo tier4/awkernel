@@ -35,13 +35,8 @@ static STORAGE_MANAGER: RwLock<StorageManager> = RwLock::new(StorageManager {
 
 static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
 
-struct DeviceInfo {
-    device: Arc<dyn StorageDevice>,
-    namespace_id: Option<u32>,
-}
-
 pub struct StorageManager {
-    devices: BTreeMap<u64, DeviceInfo>,
+    devices: BTreeMap<u64, Arc<dyn StorageDevice>>,
     device_id: u64,
 }
 
@@ -50,10 +45,7 @@ enum IRQWaker {
     Interrupted,
 }
 
-pub fn add_storage_device(
-    device: Arc<dyn StorageDevice + Sync + Send>,
-    namespace_id: Option<u32>,
-) -> u64 {
+pub fn add_storage_device(device: Arc<dyn StorageDevice + Sync + Send>) -> u64 {
     let mut manager = STORAGE_MANAGER.write();
 
     if manager.device_id == u64::MAX {
@@ -63,11 +55,7 @@ pub fn add_storage_device(
     let id = manager.device_id;
     manager.device_id += 1;
 
-    let device_info = DeviceInfo {
-        device,
-        namespace_id,
-    };
-    manager.devices.insert(id, device_info);
+    manager.devices.insert(id, device);
 
     id
 }
@@ -75,34 +63,32 @@ pub fn add_storage_device(
 pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
-    let device_info = manager
+    let device = manager
         .devices
         .get(&device_id)
         .ok_or(StorageManagerError::InvalidDeviceID)?;
 
-    Ok(device_info.device.block_size())
+    Ok(device.block_size())
 }
 
 pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
-    let device_info = manager
+    let device = manager
         .devices
         .get(&device_id)
         .ok_or(StorageManagerError::InvalidDeviceID)?;
 
-    Ok(device_info.device.clone())
+    Ok(device.clone())
 }
 
 pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
-    let device_info = manager
+    let device = manager
         .devices
         .get(&device_id)
         .ok_or(StorageManagerError::InvalidDeviceID)?;
-
-    let device = &device_info.device;
 
     let status = StorageStatus {
         device_id,
@@ -136,7 +122,7 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
     manager
         .devices
         .get(&device_id)
-        .and_then(|info| info.namespace_id)
+        .and_then(|device| device.get_namespace_id())
 }
 
 /// Service routine for storage device interrupt.
