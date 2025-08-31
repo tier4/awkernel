@@ -99,7 +99,7 @@ pub async fn run() -> Result<(), alloc::borrow::Cow<'static, str>> {
     for device in &devices {
         info!(
             "  Device {}: {} ({:?})",
-            device.interface_id, device.device_name, device.device_type
+            device.device_id, device.device_name, device.device_type
         );
     }
 
@@ -110,7 +110,7 @@ pub async fn run() -> Result<(), alloc::borrow::Cow<'static, str>> {
         .or_else(|| devices.first())
         .unwrap();
 
-    let device_id = test_device.interface_id;
+    let device_id = test_device.device_id;
     let block_size = test_device.block_size;
 
     info!(
@@ -504,8 +504,7 @@ async fn test_concurrent_io(device_id: u64, block_size: usize) -> bool {
             let throughput = (total_bytes as f32 / 1024.0 / 1024.0) / (duration_ms as f32 / 1000.0);
             let iops = total_ops as f32 / (duration_ms as f32 / 1000.0);
             info!(
-                "    {desc} concurrency: {throughput:.2} MB/s, {iops:.0} IOPS, {} ops in {}ms",
-                total_ops, duration_ms
+                "    {desc} concurrency: {throughput:.2} MB/s, {iops:.0} IOPS, {total_ops} ops in {duration_ms}ms"
             );
         } else {
             info!("    {desc} concurrency: completed too quickly to measure");
@@ -587,8 +586,7 @@ async fn test_large_blocks(device_id: u64, block_size: usize) -> bool {
     let blocks = large_size / block_size;
 
     info!(
-        "  Block size: {}, transfer size: {}, blocks: {}",
-        block_size, large_size, blocks
+        "  Block size: {block_size}, transfer size: {large_size}, blocks: {blocks}"
     );
 
     if blocks == 0 {
@@ -658,8 +656,7 @@ async fn test_large_blocks(device_id: u64, block_size: usize) -> bool {
                 }
                 if mismatches > 0 {
                     error!(
-                        "    Total {mismatches} bytes mismatched out of {} bytes",
-                        large_size
+                        "    Total {mismatches} bytes mismatched out of {large_size} bytes"
                     );
                     if let Some(offset) = first_mismatch {
                         error!(

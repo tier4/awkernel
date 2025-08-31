@@ -126,6 +126,7 @@ impl BlockDeviceAdapter {
                 // Perform the read (read_blocks works for single blocks too)
                 let result = self.device
                     .read_blocks(&mut data, transfer_id)
+                    .map_err(BlockDeviceError::from)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
                 // Always free the transfer
@@ -162,6 +163,7 @@ impl BlockDeviceAdapter {
                 // Perform the write (write_blocks works for single blocks too)
                 let result = self.device
                     .write_blocks(&cache.data, transfer_id)
+                    .map_err(BlockDeviceError::from)
                     .map_err(|_| BlockDeviceAdapterError::IoError);
                 
                 // Always free the transfer
@@ -273,6 +275,7 @@ impl Write for BlockDeviceAdapter {
             
             // Perform flush
             let result = self.device.flush(transfer_id)
+                .map_err(BlockDeviceError::from)
                 .map_err(|_| BlockDeviceAdapterError::IoError);
             
             // Always free the transfer
@@ -384,3 +387,18 @@ pub enum BlockDeviceError {
 
 /// Result type for block device operations
 pub type BlockResult<T> = Result<T, BlockDeviceError>;
+
+// Conversion from StorageDevError to BlockDeviceError
+impl From<crate::storage::StorageDevError> for BlockDeviceError {
+    fn from(err: crate::storage::StorageDevError) -> Self {
+        use crate::storage::StorageDevError;
+        match err {
+            StorageDevError::IoError => BlockDeviceError::IoError,
+            StorageDevError::InvalidCommand => BlockDeviceError::NotSupported,
+            StorageDevError::DeviceNotReady => BlockDeviceError::IoError,
+            StorageDevError::InvalidBlock => BlockDeviceError::InvalidBlock,
+            StorageDevError::BufferTooSmall => BlockDeviceError::InvalidBlock,
+            StorageDevError::NotSupported => BlockDeviceError::NotSupported,
+        }
+    }
+}

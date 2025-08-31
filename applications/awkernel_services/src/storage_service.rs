@@ -77,7 +77,7 @@ async fn spawn_handlers(
 
         awkernel_async_lib::spawn(
             name.into(),
-            interrupt_handler(storage_status.interface_id, irq, server),
+            interrupt_handler(storage_status.device_id, irq, server),
             SchedulerType::FIFO,
         )
         .await;

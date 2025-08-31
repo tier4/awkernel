@@ -9,7 +9,6 @@ use awkernel_lib::{
     delay::wait_microsec,
     dma_map::{DmaMap, DmaSyncOp, DmaConstraints},
     dma_pool::DMAPool,
-    file::block_device_adapter::{BlockDeviceError, BlockResult},
     interrupt::IRQ,
     paging::PAGESIZE,
     storage::{self, StorageDevError, StorageDevice, StorageDeviceType},
@@ -564,7 +563,7 @@ impl NvmeInner {
             let ccbs = self.ccbs.as_ref().ok_or(NvmeDriverErr::InitFailure)?;
             let mut node = MCSNode::new();
             let ccb = ccbs[ccb_id as usize].lock(&mut node);
-            q.submit(&self.info, &*ccb, Self::poll_fill)?;
+            q.submit(&self.info, &ccb, Self::poll_fill)?;
         }
 
         let mut us = if ms == 0 { u32::MAX } else { ms * 1000 };
@@ -609,7 +608,7 @@ impl NvmeInner {
             };
             ccb.cookie = original_cookie;
             if let Some(done_fn) = original_done {
-                done_fn(self_ptr, &mut *ccb, &cqe);
+                done_fn(self_ptr, &mut ccb, &cqe);
             }
             cqe
         };
@@ -855,10 +854,7 @@ impl NvmeInner {
                     sqe_io.entry.prp[0] = (segments[0].ds_addr.as_usize() as u64).to_le();
                     sqe_io.entry.prp[1] = match segments.len() {
                         1 => 0,
-                        2 => {
-                            let addr = (segments[1].ds_addr.as_usize() as u64).to_le();
-                            addr
-                        }
+                        2 => (segments[1].ds_addr.as_usize() as u64).to_le(),
                         _ => {
                             // For >2 segments, use PRP list
                             ccb.prpl_dva.to_le()
@@ -964,7 +960,7 @@ impl NvmeInner {
         // Check buffer alignment
         let buf_addr = buf.as_ptr() as usize;
         if buf_addr % 4 != 0 {
-            log::warn!("Buffer not 4-byte aligned: 0x{:x}", buf_addr);
+            log::warn!("Buffer not 4-byte aligned: 0x{buf_addr:x}");
         }
 
         // Try to get a CCB, processing completions if needed
@@ -985,7 +981,7 @@ impl NvmeInner {
                     retries += 1;
                     if retries > 100 {
                         // Still no CCBs after many retries
-                        log::error!("No CCBs available after {} completion processing attempts", retries);
+                        log::error!("No CCBs available after {retries} completion processing attempts");
                         return Err(NvmeDriverErr::NoCcb);
                     }
                     
@@ -1012,7 +1008,7 @@ impl NvmeInner {
         if let Some(ref mut dmamap) = ccb.dmamap {
             let vaddr = VirtAddr::new(buf.as_ptr() as usize);
             if let Err(e) = dmamap.load(vaddr, transfer_size) {
-                log::error!("DMA load failed: {:?}", e);
+                log::error!("DMA load failed: {e:?}");
                 // Clean up CCB before returning error
                 ccb.transfer_id = None;
                 ccb.done = None;
@@ -1028,7 +1024,7 @@ impl NvmeInner {
                 DmaSyncOp::PreWrite
             };
             if let Err(e) = dmamap.sync(0, transfer_size, sync_op) {
-                log::error!("DMA sync failed: {:?}", e);
+                log::error!("DMA sync failed: {e:?}");
                 // Clean up CCB and DMA map before returning error
                 dmamap.unload();
                 ccb.transfer_id = None;
@@ -1078,7 +1074,7 @@ impl NvmeInner {
 
                     // Check alignment
                     if prpl_ptr % core::mem::align_of::<u64>() != 0 {
-                        log::error!("PRP list pointer not aligned: 0x{:x}", prpl_ptr);
+                        log::error!("PRP list pointer not aligned: 0x{prpl_ptr:x}");
                         // Clean up CCB and DMA map before returning error
                         if let Some(ref mut dmamap) = ccb.dmamap {
                             dmamap.unload();
@@ -1198,10 +1194,8 @@ impl NvmeInner {
             rv = io_q.complete(self)?;
         }
 
-        if self.ccbs.is_some() {
-            if admin_q.complete(self)? {
-                rv = true;
-            }
+        if self.ccbs.is_some() && admin_q.complete(self)? {
+            rv = true;
         }
 
         Ok(rv)
@@ -1427,7 +1421,7 @@ impl Nvme {
         match inner.intr(&self.admin_q, &self.io_q) {
             Ok(_had_completions) => Ok(()),
             Err(e) => {
-                log::error!("NVMe interrupt handler error: {:?}", e);
+                log::error!("NVMe interrupt handler error: {e:?}");
                 Err(StorageDevError::IoError)
             }
         }
@@ -1659,39 +1653,39 @@ impl StorageDevice for NvmeNamespace {
         }
     }
 
-    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()> {
+    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> Result<(), StorageDevError> {
         let (_lba, blocks, _nsid, _is_read) =
-            storage::transfer_get_info(transfer_id).map_err(|_| BlockDeviceError::IoError)?;
+            storage::transfer_get_info(transfer_id).map_err(|_| StorageDevError::IoError)?;
         let total_size = self.block_size() * blocks as usize;
         // For reads, buffer must be at least the required size
         if buf.len() < total_size {
-            return Err(BlockDeviceError::InvalidBlock);
+            return Err(StorageDevError::BufferTooSmall);
         }
 
         let inner = self.controller.inner.read();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
-            .map_err(|_| BlockDeviceError::IoError)
+            .map_err(|_| StorageDevError::IoError)
     }
 
-    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()> {
+    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> Result<(), StorageDevError> {
         let (_lba, blocks, _nsid, _is_read) =
-            storage::transfer_get_info(transfer_id).map_err(|_| BlockDeviceError::IoError)?;
+            storage::transfer_get_info(transfer_id).map_err(|_| StorageDevError::IoError)?;
         let total_size = self.block_size() * blocks as usize;
         // For writes, buffer must be exactly the right size
         if buf.len() != total_size {
-            return Err(BlockDeviceError::InvalidBlock);
+            return Err(StorageDevError::InvalidBlock);
         }
 
         let inner = self.controller.inner.read();
         inner
             .submit_io(&self.controller.io_q, transfer_id, buf)
-            .map_err(|_| BlockDeviceError::IoError)
+            .map_err(|_| StorageDevError::IoError)
     }
 
-    fn flush(&self, transfer_id: u16) -> BlockResult<()> {
+    fn flush(&self, transfer_id: u16) -> Result<(), StorageDevError> {
         self.controller
             .flush(self.namespace_id, transfer_id)
-            .map_err(|_| BlockDeviceError::IoError)
+            .map_err(|_| StorageDevError::IoError)
     }
 }

@@ -1,6 +1,5 @@
 //! Memory-based filesystem implementations
 
-use super::block_device_adapter::{BlockDeviceError, BlockResult};
 use crate::storage::{transfer_get_info, transfer_mark_completed, StorageDevice, StorageDevError, StorageDeviceType};
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{borrow::Cow, sync::Arc, vec, vec::Vec};
@@ -100,15 +99,15 @@ impl StorageDevice for MemoryBlockDevice {
         self.num_blocks
     }
     
-    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()> {
+    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> Result<(), StorageDevError> {
         // Get transfer parameters
         let (start_lba, num_blocks, _nsid, _is_read) = transfer_get_info(transfer_id)
-            .map_err(|_| BlockDeviceError::IoError)?;
+            .map_err(|_| StorageDevError::IoError)?;
         
         // Validate buffer size
         let total_size = self.block_size * num_blocks as usize;
         if buf.len() < total_size {
-            return Err(BlockDeviceError::InvalidBlock);
+            return Err(StorageDevError::BufferTooSmall);
         }
         
         // Lock data once for all blocks
@@ -118,7 +117,7 @@ impl StorageDevice for MemoryBlockDevice {
         // Read all blocks
         for i in 0..num_blocks {
             let lba = start_lba + i as u64;
-            let offset = self.block_offset(lba).ok_or(BlockDeviceError::InvalidBlock)?;
+            let offset = self.block_offset(lba).ok_or(StorageDevError::InvalidBlock)?;
             let buf_offset = (i as usize) * self.block_size;
             buf[buf_offset..buf_offset + self.block_size]
                 .copy_from_slice(&data[offset..offset + self.block_size]);
@@ -130,15 +129,15 @@ impl StorageDevice for MemoryBlockDevice {
         Ok(())
     }
     
-    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()> {
+    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> Result<(), StorageDevError> {
         // Get transfer parameters
         let (start_lba, num_blocks, _nsid, _is_read) = transfer_get_info(transfer_id)
-            .map_err(|_| BlockDeviceError::IoError)?;
+            .map_err(|_| StorageDevError::IoError)?;
         
         // Validate buffer size
         let total_size = self.block_size * num_blocks as usize;
         if buf.len() < total_size {
-            return Err(BlockDeviceError::InvalidBlock);
+            return Err(StorageDevError::InvalidBlock);
         }
         
         // Lock data once for all blocks
@@ -148,7 +147,7 @@ impl StorageDevice for MemoryBlockDevice {
         // Write all blocks
         for i in 0..num_blocks {
             let lba = start_lba + i as u64;
-            let offset = self.block_offset(lba).ok_or(BlockDeviceError::InvalidBlock)?;
+            let offset = self.block_offset(lba).ok_or(StorageDevError::InvalidBlock)?;
             let buf_offset = (i as usize) * self.block_size;
             data[offset..offset + self.block_size]
                 .copy_from_slice(&buf[buf_offset..buf_offset + self.block_size]);
@@ -160,7 +159,7 @@ impl StorageDevice for MemoryBlockDevice {
         Ok(())
     }
     
-    fn flush(&self, transfer_id: u16) -> BlockResult<()> {
+    fn flush(&self, transfer_id: u16) -> Result<(), StorageDevError> {
         // Memory device flushes are no-op but we complete the transfer for consistency
         let _ = transfer_mark_completed(transfer_id, 0); // 0 = success
         Ok(())

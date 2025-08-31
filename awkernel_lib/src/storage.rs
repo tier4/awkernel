@@ -21,11 +21,9 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::file::block_device_adapter::BlockResult;
-
 #[derive(Debug)]
 pub enum StorageManagerError {
-    InvalidInterfaceID,
+    InvalidDeviceID,
     InvalidTransferID,
     DeviceError(StorageDevError),
     NotYetImplemented,
@@ -37,11 +35,14 @@ pub enum StorageDevError {
     IoError,
     InvalidCommand,
     DeviceNotReady,
+    InvalidBlock,
+    BufferTooSmall,
+    NotSupported,
 }
 
 #[derive(Debug)]
 pub struct StorageStatus {
-    pub interface_id: u64,
+    pub device_id: u64,
     pub device_name: Cow<'static, str>,
     pub device_type: StorageDeviceType,
     pub irqs: Vec<u16>,
@@ -79,30 +80,18 @@ pub trait StorageDevice: Send + Sync {
     /// Get the total number of blocks  
     fn num_blocks(&self) -> u64;
 
-    /// Read blocks into the provided buffer
-    ///
-    /// The buffer must be at least `block_size() * transfer.blocks` bytes.
-    /// For single block operations, set transfer.blocks = 1.
-    /// transfer_id: Pre-allocated transfer ID with parameters already set
-    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> BlockResult<()>;
+    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> Result<(), StorageDevError>;
 
-    /// Write blocks from the provided buffer
-    ///
-    /// The buffer must be exactly `block_size() * transfer.blocks` bytes.
-    /// For single block operations, set transfer.blocks = 1.
-    /// transfer_id: Pre-allocated transfer ID with parameters already set
-    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> BlockResult<()>;
+    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> Result<(), StorageDevError>;
 
-    /// Flush any cached writes to the device
-    /// transfer_id: Pre-allocated transfer ID for tracking the operation
-    fn flush(&self, _transfer_id: u16) -> BlockResult<()> {
+    fn flush(&self, _transfer_id: u16) -> Result<(), StorageDevError> {
         Ok(())
     }
 }
 
 static STORAGE_MANAGER: RwLock<StorageManager> = RwLock::new(StorageManager {
     devices: BTreeMap::new(),
-    interface_id: 0,
+    device_id: 0,
 });
 
 static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
@@ -116,7 +105,7 @@ struct DeviceInfo {
 
 pub struct StorageManager {
     devices: BTreeMap<u64, DeviceInfo>,
-    interface_id: u64,
+    device_id: u64,
 }
 
 enum IRQWaker {
@@ -131,12 +120,12 @@ where
 {
     let mut manager = STORAGE_MANAGER.write();
 
-    if manager.interface_id == u64::MAX {
-        panic!("storage interface id overflow");
+    if manager.device_id == u64::MAX {
+        panic!("storage device id overflow");
     }
 
-    let id = manager.interface_id;
-    manager.interface_id += 1;
+    let id = manager.device_id;
+    manager.device_id += 1;
 
     let device_info = DeviceInfo {
         device: device.clone() as Arc<dyn StorageDevice>,
@@ -151,43 +140,43 @@ where
 
 /// Get a storage device as Arc<dyn StorageDevice>
 pub fn get_storage_device(
-    interface_id: u64,
+    device_id: u64,
 ) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
     let device_info = manager
         .devices
-        .get(&interface_id)
-        .ok_or(StorageManagerError::InvalidInterfaceID)?;
+        .get(&device_id)
+        .ok_or(StorageManagerError::InvalidDeviceID)?;
 
     Ok(device_info.device.clone())
 }
 
 /// Downcast a storage device to its concrete type
 pub fn downcast_storage_device<T: StorageDevice + Send + Sync + 'static>(
-    interface_id: u64,
+    device_id: u64,
 ) -> Option<Arc<T>> {
     let manager = STORAGE_MANAGER.read();
 
-    manager.devices.get(&interface_id).and_then(|info| {
+    manager.devices.get(&device_id).and_then(|info| {
         // Attempt to downcast Arc<dyn Any> to Arc<T>
         Arc::downcast::<T>(info.concrete_device.clone()).ok()
     })
 }
 
 /// Get status information about a storage device
-pub fn get_storage_status(interface_id: u64) -> Result<StorageStatus, StorageManagerError> {
+pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
     let device_info = manager
         .devices
-        .get(&interface_id)
-        .ok_or(StorageManagerError::InvalidInterfaceID)?;
+        .get(&device_id)
+        .ok_or(StorageManagerError::InvalidDeviceID)?;
 
     let device = &device_info.device;
 
     let status = StorageStatus {
-        interface_id,
+        device_id,
         device_name: device.device_name(),
         device_type: device.device_type(),
         irqs: device.irqs(),
@@ -268,10 +257,10 @@ pub fn register_waker_for_storage_interrupt(irq: u16, waker: core::task::Waker) 
 
 /// Handle a storage interrupt
 /// Returns true if more work is pending
-pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
+pub fn handle_storage_interrupt(device_id: u64, irq: u16) -> bool {
     let manager = STORAGE_MANAGER.read();
 
-    let Some(device_info) = manager.devices.get(&interface_id) else {
+    let Some(device_info) = manager.devices.get(&device_id) else {
         return false;
     };
 
@@ -279,11 +268,9 @@ pub fn handle_storage_interrupt(interface_id: u64, irq: u16) -> bool {
 
     drop(manager);
 
-    // interface_id is the same as device_id for storage devices
-    wake_completed_transfers(interface_id);
+    // Wake any transfers completed by this device  
+    wake_completed_transfers(device_id);
 
-    // ENHANCE: For now, assume no more work is pending
-    // Individual drivers can implement more sophisticated logic
     false
 }
 
