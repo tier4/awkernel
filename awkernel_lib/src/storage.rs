@@ -5,6 +5,9 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use storage_device::{StorageDevError, StorageDevice, StorageDeviceType};
+
+pub mod storage_device;
 
 #[derive(Debug)]
 pub enum StorageManagerError {
@@ -16,16 +19,6 @@ pub enum StorageManagerError {
 }
 
 #[derive(Debug)]
-pub enum StorageDevError {
-    IoError,
-    InvalidCommand,
-    DeviceNotReady,
-    InvalidBlock,
-    BufferTooSmall,
-    NotSupported,
-}
-
-#[derive(Debug)]
 pub struct StorageStatus {
     pub device_id: u64,
     pub device_name: Cow<'static, str>,
@@ -33,41 +26,6 @@ pub struct StorageStatus {
     pub irqs: Vec<u16>,
     pub block_size: usize,
     pub num_blocks: u64,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum StorageDeviceType {
-    NVMe,
-    SATA,
-    USB,
-    VirtIO,
-    Memory,
-}
-
-pub trait StorageDevice: Send + Sync {
-    fn device_id(&self) -> u64;
-
-    fn device_name(&self) -> Cow<'static, str>;
-
-    fn device_short_name(&self) -> Cow<'static, str>;
-
-    fn device_type(&self) -> StorageDeviceType;
-
-    fn irqs(&self) -> Vec<u16>;
-
-    fn interrupt(&self, irq: u16) -> Result<(), StorageDevError>;
-
-    fn block_size(&self) -> usize;
-
-    fn num_blocks(&self) -> u64;
-
-    fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> Result<(), StorageDevError>;
-
-    fn write_blocks(&self, buf: &[u8], transfer_id: u16) -> Result<(), StorageDevError>;
-
-    fn flush(&self, _transfer_id: u16) -> Result<(), StorageDevError> {
-        Ok(())
-    }
 }
 
 static STORAGE_MANAGER: RwLock<StorageManager> = RwLock::new(StorageManager {
