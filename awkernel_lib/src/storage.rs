@@ -59,7 +59,6 @@ pub trait StorageDevice: Send + Sync {
 
     fn block_size(&self) -> usize;
 
-    /// Get the total number of blocks  
     fn num_blocks(&self) -> u64;
 
     fn read_blocks(&self, buf: &mut [u8], transfer_id: u16) -> Result<(), StorageDevError>;
@@ -93,7 +92,6 @@ enum IRQWaker {
     Interrupted,
 }
 
-/// Get the namespace ID for a storage device
 pub fn get_device_namespace(device_id: u64) -> Option<u32> {
     let manager = STORAGE_MANAGER.read();
 
@@ -103,13 +101,11 @@ pub fn get_device_namespace(device_id: u64) -> Option<u32> {
         .and_then(|info| info.namespace_id)
 }
 
-/// Get the block size for a storage device
 pub fn get_device_block_size(device_id: u64) -> Result<usize, StorageManagerError> {
     let device = get_storage_device(device_id)?;
     Ok(device.block_size())
 }
 
-/// Add a storage device to the manager
 pub fn add_storage_device<T>(device: Arc<T>, namespace_id: Option<u32>) -> u64
 where
     T: StorageDevice + Send + Sync + 'static,
@@ -132,7 +128,6 @@ where
     id
 }
 
-/// Get a storage device as Arc<dyn StorageDevice>
 pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
@@ -144,7 +139,6 @@ pub fn get_storage_device(device_id: u64) -> Result<Arc<dyn StorageDevice>, Stor
     Ok(device_info.device.clone())
 }
 
-/// Get status information about a storage device
 pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManagerError> {
     let manager = STORAGE_MANAGER.read();
 
@@ -167,7 +161,6 @@ pub fn get_storage_status(device_id: u64) -> Result<StorageStatus, StorageManage
     Ok(status)
 }
 
-/// Get status information for all storage devices
 pub fn get_all_storage_statuses() -> Vec<StorageStatus> {
     let manager = STORAGE_MANAGER.read();
 
