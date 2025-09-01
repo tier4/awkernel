@@ -4,6 +4,7 @@ extern crate alloc;
 
 mod buffered_logger;
 mod network_service;
+mod storage_service;
 
 use core::time::Duration;
 

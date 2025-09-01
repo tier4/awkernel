@@ -16,8 +16,11 @@ pub async fn run() {
     let mut _ch_irq_handlers = BTreeMap::new();
 
     for storage_status in awkernel_lib::storage::get_all_storage_statuses() {
-        log::info!("Initializing interrupt handlers for {}.", storage_status.device_name);
-        
+        log::info!(
+            "Initializing interrupt handlers for {}.",
+            storage_status.device_name
+        );
+
         spawn_handlers(storage_status, &mut _ch_irq_handlers).await;
     }
 
@@ -78,7 +81,7 @@ async fn spawn_handlers(
         awkernel_async_lib::spawn(
             name.into(),
             interrupt_handler(storage_status.device_id, irq, server),
-            SchedulerType::FIFO,
+            SchedulerType::PrioritizedFIFO(0),
         )
         .await;
     }

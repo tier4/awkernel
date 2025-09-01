@@ -179,67 +179,15 @@ pub fn register_waker_for_storage_interrupt(irq: u16, waker: core::task::Waker) 
 pub fn handle_storage_interrupt(device_id: u64, irq: u16) -> bool {
     let manager = STORAGE_MANAGER.read();
 
-    let Some(device_info) = manager.devices.get(&device_id) else {
+    let Some(device) = manager.devices.get(&device_id) else {
         return false;
     };
 
-    let _ = device_info.device.interrupt(irq);
+    let _ = device.interrupt(irq);
 
     drop(manager);
 
     // TODO: Wake tasks waiting for completion
 
     false
-}
-
-struct TransferCompletionFuture {
-    transfer_id: u16,
-    poll_count: u32,
-}
-
-impl TransferCompletionFuture {
-    fn new(transfer_id: u16) -> Self {
-        Self {
-            transfer_id,
-            poll_count: 0,
-        }
-    }
-}
-
-impl Future for TransferCompletionFuture {
-    type Output = Result<(), StorageManagerError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        self.poll_count += 1;
-
-        // Register waker first - this ensures the interrupt handler can wake us
-        // if the transfer completes after we check
-        transfer_set_waker(self.transfer_id, Some(cx.waker().clone()))?;
-
-        let completed = transfer_is_completed(self.transfer_id)?;
-
-        if completed {
-            let status = transfer_get_status(self.transfer_id)?;
-            if status == 0 {
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Ready(Err(StorageManagerError::DeviceError(
-                    StorageDevError::IoError,
-                )))
-            }
-        } else {
-            let is_poll = transfer_is_poll_mode(self.transfer_id)?;
-            if is_poll {
-                let timeout_ms = transfer_get_timeout_ms(self.transfer_id)?;
-                if self.poll_count > timeout_ms {
-                    transfer_mark_completed(self.transfer_id, 1)?;
-                    return Poll::Ready(Err(StorageManagerError::DeviceError(
-                        StorageDevError::IoError,
-                    )));
-                }
-            }
-
-            Poll::Pending
-        }
-    }
 }
