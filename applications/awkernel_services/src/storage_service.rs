@@ -13,48 +13,10 @@ type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>
 pub async fn run() {
     log::info!("Starting {}.", crate::STORAGE_SERVICE_NAME);
 
-    let mut _ch_irq_handlers = BTreeMap::new();
+    let mut ch_irq_handlers = BTreeMap::new();
 
     for storage_status in awkernel_lib::storage::get_all_storage_statuses() {
-        log::info!(
-            "Initializing interrupt handlers for {}.",
-            storage_status.device_name
-        );
-
-        spawn_handlers(storage_status, &mut _ch_irq_handlers).await;
-    }
-
-    let subscriber = pubsub::create_subscriber::<(&'static str, u64)>(
-        STORAGE_SERVICE_RENDEZVOUS.into(),
-        pubsub::Attribute {
-            queue_size: 8,
-            flow_control: true,
-            transient_local: false,
-            lifespan: pubsub::Lifespan::Permanent,
-        },
-    )
-    .unwrap();
-
-    loop {
-        let data = subscriber.recv().await;
-
-        match data.data {
-            // Storage devices don't support runtime up/down like network devices
-            // Following the OpenBSD model: storage devices are operational once attached
-            ("up", _id) | ("down", _id) => {
-                log::warn!("Storage devices don't support runtime up/down operations");
-            }
-            ("shutdown", _id) => {
-                // On shutdown, properly close all interrupt handler channels
-                while let Some((_irq, ch)) = _ch_irq_handlers.pop_first() {
-                    let ch = ch.send(()).await;
-                    let (ch, _) = ch.recv().await;
-                    ch.close();
-                }
-                break;
-            }
-            _ => (),
-        }
+        spawn_handlers(storage_status, &mut ch_irq_handlers).await;
     }
 }
 
@@ -64,7 +26,6 @@ async fn spawn_handlers(
 ) {
     for irq in storage_status.irqs {
         // Check if we already have a handler for this IRQ
-        // Multiple devices might share the same IRQ (e.g., NVMe controller and its namespaces)
         if ch_irq_handlers.contains_key(&irq) {
             continue;
         }
