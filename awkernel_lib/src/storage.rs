@@ -175,3 +175,19 @@ pub fn register_waker_for_storage_interrupt(irq: u16, waker: core::task::Waker) 
         }
     }
 }
+
+pub fn handle_storage_interrupt(device_id: u64, irq: u16) -> bool {
+    let manager = STORAGE_MANAGER.read();
+
+    let Some(device) = manager.devices.get(&device_id) else {
+        return false;
+    };
+
+    let _ = device.interrupt(irq);
+
+    drop(manager);
+
+    // TODO: Wake tasks waiting for completion
+
+    false
+}
