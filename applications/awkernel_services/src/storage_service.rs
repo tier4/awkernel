@@ -2,10 +2,8 @@ use core::{future::Future, task::Poll};
 
 use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
-    future::FutureExt, pubsub, scheduler::SchedulerType, select_biased, session_types::*,
+    future::FutureExt, scheduler::SchedulerType, select_biased, session_types::*,
 };
-
-const STORAGE_SERVICE_RENDEZVOUS: &str = "/awkernel/storage_service";
 
 type ProtoInterruptHandler = Recv<(), Send<(), Eps>>;
 type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>::Dual>;
