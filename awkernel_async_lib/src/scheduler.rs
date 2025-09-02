@@ -156,12 +156,12 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
 }
 
 pub const fn get_priority(sched_type: SchedulerType) -> u8 {
-    let mut priority = 0;
-    while priority < PRIORITY_LIST.len() {
-        if PRIORITY_LIST[priority].equals(&sched_type) {
-            return priority as u8;
+    let mut index = 0;
+    while index < PRIORITY_LIST.len() {
+        if PRIORITY_LIST[index].equals(&sched_type) {
+            return (PRIORITY_LIST.len() - 1 - index) as u8;
         }
-        priority += 1;
+        index += 1;
     }
     panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
 }
