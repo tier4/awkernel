@@ -110,10 +110,10 @@ impl SchedulerType {
 /// - The lowest priority.
 ///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 4] = [
-    SchedulerType::Panicked,
-    SchedulerType::PrioritizedRR(0),
-    SchedulerType::PrioritizedFIFO(0),
     SchedulerType::GEDF(0),
+    SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::PrioritizedRR(0),
+    SchedulerType::Panicked,
 ];
 
 pub(crate) trait Scheduler {
