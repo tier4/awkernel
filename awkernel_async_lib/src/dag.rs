@@ -303,6 +303,10 @@ impl Dag {
         self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
         self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
+        // 必要な値を事前にコピー
+        let dag_id = self.id;
+        let node_index = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
         pending_tasks
@@ -316,6 +320,8 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
+                        dag_id,
+                        node_index,
                     )
                     .await
                 })
@@ -349,6 +355,9 @@ impl Dag {
             }
         };
 
+        // 必要な値を事前にコピー
+        let dag_id = self.id;
+        let node_index = node_idx.index() as u32;
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
         source_pending_tasks.insert(
@@ -362,6 +371,8 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
+                        dag_id,
+                        node_index,
                     )
                     .await
                 })
@@ -403,6 +414,9 @@ impl Dag {
             }
         };
 
+        // 必要な値を事前にコピー
+        let dag_id = self.id;
+        let node_index = node_idx.index() as u32;
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
         pending_tasks
@@ -415,6 +429,8 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
+                        dag_id,
+                        node_index,
                     )
                     .await
                 })
@@ -862,10 +878,6 @@ async fn spawn_dag(dag: &Arc<Dag>) {
         if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
             node_info.task_id = task_id;
         }
-        {
-            log::debug!("spawn_dag: setting DAG info for task {}", task_id);
-            task::set_dag_info_by_task_id(task_id, dag_id, task.node_idx.index() as u32);
-        }
     }
 
     // To prevent message drops, source reactor is spawned after all subsequent reactors have been spawned.
@@ -882,10 +894,6 @@ async fn spawn_dag(dag: &Arc<Dag>) {
     if let Some(node_info) = graph.node_weight_mut(source_pending_task.node_idx) {
         node_info.task_id = task_id;
     }
-    {
-        log::debug!("spawn_dag: setting DAG info for source task {}", task_id);
-        task::set_dag_info_by_task_id(task_id, dag_id, source_pending_task.node_idx.index() as u32);
-    }
 }
 
 async fn spawn_reactor<F, Args, Ret>(
@@ -894,6 +902,8 @@ async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
+    dag_id: u32,        // DAG IDを追加
+    node_index: u32,    // ノードインデックスを追加
 ) -> u32
 where
     F: Fn(
@@ -923,7 +933,7 @@ where
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index)
 }
 
 async fn spawn_periodic_reactor<F, Ret>(
@@ -933,6 +943,8 @@ async fn spawn_periodic_reactor<F, Ret>(
     sched_type: SchedulerType,
     period: Duration,
     _release_measure: Option<MeasureF>,
+    dag_id: u32,        // DAG IDを追加
+    node_index: u32,    // ノードインデックスを追加
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -970,7 +982,7 @@ where
         }
     };
 
-    let task_id = crate::task::spawn(reactor_name, future, sched_type);
+    let task_id = crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index);
 
     #[cfg(feature = "perf")]
     release_measure();
@@ -983,6 +995,8 @@ async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
+    dag_id: u32,        // DAG IDを追加
+    node_index: u32,    // ノードインデックスを追加
 ) -> u32
 where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
@@ -994,11 +1008,11 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+            let args: <Args::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
             f(args);
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index)
 }

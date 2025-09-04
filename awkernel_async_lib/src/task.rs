@@ -270,6 +270,7 @@ impl Tasks {
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
+        dag_info: Option<(u32, u32)>,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
@@ -288,8 +289,8 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
-                    dag_id: None,
-                    node_index: None,
+                    dag_id: dag_info.map(|(d, n)| d),
+                    node_index: dag_info.map(|(_, n)| n),
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -370,7 +371,55 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, None);
+    let task = tasks.id_to_task.get(&id).cloned();
+    drop(tasks);
+
+    if let Some(task) = task {
+        task.wake();
+    }
+
+    id
+}
+
+/// Spawn a detached task with DAG information.
+/// This function is similar to `spawn` but automatically sets DAG information
+/// for the task, which is useful for DAG-based schedulers like GEDFNoArg.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_async_lib::{scheduler::SchedulerType, task};
+/// let task_id = task::spawn_with_dag_info(
+///     "dag task".into(), 
+///     async { Ok(()) }, 
+///     SchedulerType::GEDFNoArg,
+///     1,  // dag_id
+///     0   // node_index
+/// );
+/// ```
+pub fn spawn_with_dag_info(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    dag_id: u32,
+    node_index: u32,
+) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > HIGHEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {HIGHEST_PRIORITY}. It is addressed as {HIGHEST_PRIORITY}."
+            );
+        }
+    }
+
+    let future = future.boxed();
+
+    let scheduler = get_scheduler(sched_type);
+
+    let mut node = MCSNode::new();
+    let mut tasks = TASKS.lock(&mut node);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, Some((dag_id, node_index)));
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 

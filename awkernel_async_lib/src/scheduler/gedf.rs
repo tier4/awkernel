@@ -163,8 +163,7 @@ impl Scheduler for GEDFScheduler {
                             }  
                         }
                     } else {
-                        log::debug!("GEDFNoArg scheduler: Task {} DAG info not yet set, using default deadline", task.id);
-                        absolute_deadline = wake_time + 1000; // Default 1 second deadline
+                        panic!("GEDFNoArg scheduler: Task {} DAG info not yet set, using default deadline", task.id);
                     }
                     
             
