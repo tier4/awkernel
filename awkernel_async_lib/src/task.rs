@@ -389,7 +389,7 @@ pub fn spawn(
 /// # Example
 ///
 /// ```
-/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::*};
+/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::{create_dag, add_node_with_topic_edges_public, set_relative_deadline_public}};
 /// use core::time::Duration;
 /// let dag = create_dag();
 /// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
