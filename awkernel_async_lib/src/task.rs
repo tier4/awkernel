@@ -390,7 +390,9 @@ pub fn spawn(
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::create_dag};
+/// use core::time::Duration;
 /// let dag = create_dag();
+/// dag.set_sink_relative_deadline(Duration::from_secs(1));
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
 ///     async { Ok(()) },
