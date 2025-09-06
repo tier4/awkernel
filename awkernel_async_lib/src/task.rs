@@ -221,20 +221,6 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
-
-    #[inline(always)]
-    pub fn set_dag_info(&mut self, dag_id: u32, node_index: u32) {
-        self.dag_id = Some(dag_id);
-        self.node_index = Some(node_index);
-    }
-
-    #[inline(always)]
-    pub fn get_dag_info(&self) -> Option<(u32, u32)> {
-        match (self.dag_id, self.node_index) {
-            (Some(dag_id), Some(node_index)) => Some((dag_id, node_index)),
-            _ => None,
-        }
-    }
 }
 
 /// State of task.
