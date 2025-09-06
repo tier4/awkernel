@@ -80,9 +80,8 @@ impl Scheduler for GEDFScheduler {
 
                     if let Some((dag_id, node_index)) = dag_info {
                         if get_dag_absolute_deadline(dag_id).is_none() {
-                            let dag = get_dag(dag_id).unwrap_or_else(|| {
-                                unreachable!();
-                            });
+                            let dag =
+                                get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
                             let relative_deadline_ms = dag
                                 .get_sink_relative_deadline()
                                 .map(|deadline| deadline.as_millis() as u64)
@@ -92,9 +91,8 @@ impl Scheduler for GEDFScheduler {
                             absolute_deadline = wake_time + relative_deadline_ms;
                             set_dag_absolute_deadline(dag_id, absolute_deadline);
                         } else {
-                            let dag = get_dag(dag_id).unwrap_or_else(|| {
-                                unreachable!();
-                            });
+                            let dag =
+                                get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
                             // Use `to_node_index` to convert the u32 type to NodeIndex
                             // for use with the method that determines whether it is a source node.
                             let current_node_index = to_node_index(node_index);
