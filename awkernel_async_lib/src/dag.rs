@@ -319,8 +319,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
-                        dag_id,
-                        node_index,
+                        Some((dag_id, node_index)),
                     )
                     .await
                 })
@@ -371,8 +370,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        dag_id,
-                        node_index,
+                        Some((dag_id, node_index)),
                     )
                     .await
                 })
@@ -430,8 +428,7 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
-                        dag_id,
-                        node_index,
+                        Some((dag_id, node_index)),
                     )
                     .await
                 })
@@ -902,8 +899,7 @@ async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_id: u32,
-    node_index: u32,
+    dag_info: Option<(u32, u32)>,
 ) -> u32
 where
     F: Fn(
@@ -933,7 +929,7 @@ where
         }
     };
 
-    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info)
 }
 
 async fn spawn_periodic_reactor<F, Ret>(
@@ -943,8 +939,7 @@ async fn spawn_periodic_reactor<F, Ret>(
     sched_type: SchedulerType,
     period: Duration,
     _release_measure: Option<MeasureF>,
-    dag_id: u32,
-    node_index: u32,
+    dag_info: Option<(u32, u32)>,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -983,7 +978,7 @@ where
     };
 
     let task_id =
-        crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index);
+        crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info);
 
     #[cfg(feature = "perf")]
     release_measure();
@@ -996,8 +991,7 @@ async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_id: u32,
-    node_index: u32,
+    dag_info: Option<(u32, u32)>,
 ) -> u32
 where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
@@ -1014,5 +1008,5 @@ where
         }
     };
 
-    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_id, node_index)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info)
 }

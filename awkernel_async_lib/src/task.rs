@@ -402,8 +402,7 @@ pub fn spawn_with_dag_info(
     name: Cow<'static, str>,
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
-    dag_id: u32,
-    node_index: u32,
+    dag_info: Option<(u32, u32)>,
 ) -> u32 {
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
         if p > HIGHEST_PRIORITY {
@@ -424,7 +423,7 @@ pub fn spawn_with_dag_info(
         future.fuse(),
         scheduler,
         sched_type,
-        Some((dag_id, node_index)),
+        dag_info,
     );
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
