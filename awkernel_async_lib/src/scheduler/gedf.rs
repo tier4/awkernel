@@ -88,9 +88,7 @@ impl Scheduler for GEDFScheduler {
                                 .map(|deadline| deadline.as_millis() as u64)
                                 .unwrap_or_else(|| {
                                     panic!(
-                                        "GEDF scheduler: DAG {} has no sink relative deadline set",
-                                        dag_id
-                                    );
+                                        "GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
                                 });
                             absolute_deadline = wake_time + relative_deadline_ms;
                             set_dag_absolute_deadline(dag_id, absolute_deadline);
@@ -106,7 +104,7 @@ impl Scheduler for GEDFScheduler {
                                 let relative_deadline_ms = dag.get_sink_relative_deadline()
                                     .map(|deadline| deadline.as_millis() as u64)
                                     .unwrap_or_else(|| {
-                                        panic!("GEDF scheduler: DAG {} has no sink relative deadline set", dag_id);
+                                        panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
                                     });
                                 absolute_deadline = wake_time + relative_deadline_ms;
                                 set_dag_absolute_deadline(dag_id, absolute_deadline);
