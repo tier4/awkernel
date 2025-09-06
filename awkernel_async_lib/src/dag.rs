@@ -491,12 +491,12 @@ impl Dag {
         subscribe_topic_names: &[Cow<'static, str>],
         publish_topic_names: &[Cow<'static, str>],
     ) -> NodeIndex {
-        add_node_with_topic_edges(dag, subscribe_topic_names, publish_topic_names)
+        dag.add_node_with_topic_edges(subscribe_topic_names, publish_topic_names)
     }
 
     //for test
     pub fn set_relative_deadline_public(dag: &Arc<Dag>, node_idx: NodeIndex, deadline: Duration) {
-        set_relative_deadline(dag, node_idx, deadline)
+        dag.set_relative_deadline(node_idx, deadline)
     }
 }
 
