@@ -977,8 +977,7 @@ where
         }
     };
 
-    let task_id =
-        crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info);
+    let task_id = crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info);
 
     #[cfg(feature = "perf")]
     release_measure();

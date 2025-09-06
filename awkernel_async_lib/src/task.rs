@@ -418,13 +418,7 @@ pub fn spawn_with_dag_info(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(
-        name,
-        future.fuse(),
-        scheduler,
-        sched_type,
-        dag_info,
-    );
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, dag_info);
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 
