@@ -484,20 +484,6 @@ impl Dag {
         let absolute_deadline = self.absolute_deadline.lock(&mut node);
         *absolute_deadline
     }
-
-    // for test
-    pub fn add_node_with_topic_edges_public(
-        dag: &Arc<Dag>,
-        subscribe_topic_names: &[Cow<'static, str>],
-        publish_topic_names: &[Cow<'static, str>],
-    ) -> NodeIndex {
-        dag.add_node_with_topic_edges(subscribe_topic_names, publish_topic_names)
-    }
-
-    //for test
-    pub fn set_relative_deadline_public(dag: &Arc<Dag>, node_idx: NodeIndex, deadline: Duration) {
-        dag.set_relative_deadline(node_idx, deadline)
-    }
 }
 
 struct PendingTask {
@@ -603,6 +589,20 @@ pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
     } else {
         false
     }
+}
+
+// for test
+pub fn add_node_with_topic_edges_public(
+    dag: &Arc<Dag>,
+    subscribe_topic_names: &[Cow<'static, str>],
+    publish_topic_names: &[Cow<'static, str>],
+) -> NodeIndex {
+    dag.add_node_with_topic_edges(subscribe_topic_names, publish_topic_names)
+}
+
+//for test
+pub fn set_relative_deadline_public(dag: &Arc<Dag>, node_idx: NodeIndex, deadline: Duration) {
+    dag.set_relative_deadline(node_idx, deadline)
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
