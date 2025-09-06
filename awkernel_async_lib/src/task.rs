@@ -289,7 +289,7 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
-                    dag_id: dag_info.map(|(d, n)| d),
+                    dag_id: dag_info.map(|(d, _)| d),
                     node_index: dag_info.map(|(_, n)| n),
 
                     #[cfg(not(feature = "no_preempt"))]
@@ -384,7 +384,7 @@ pub fn spawn(
 
 /// Spawn a detached task with DAG information.
 /// This function is similar to `spawn` but automatically sets DAG information
-/// for the task, which is useful for DAG-based schedulers like GEDFNoArg.
+/// for the task, which is useful for DAG-based schedulers like GEDF.
 ///
 /// # Example
 ///

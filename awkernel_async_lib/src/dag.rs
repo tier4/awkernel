@@ -53,7 +53,6 @@ mod visit;
 #[cfg(feature = "perf")]
 mod performance;
 
-use crate::task;
 use crate::{
     dag::{
         graph::{
@@ -303,7 +302,7 @@ impl Dag {
         self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
         self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
-        // 必要な値を事前にコピー
+        // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_index = node_idx.index() as u32;
 
@@ -355,9 +354,10 @@ impl Dag {
             }
         };
 
-        // 必要な値を事前にコピー
+        // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_index = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
         source_pending_tasks.insert(
@@ -414,9 +414,10 @@ impl Dag {
             }
         };
 
-        // 必要な値を事前にコピー
+        // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_index = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
         pending_tasks
@@ -902,8 +903,8 @@ async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_id: u32,        // DAG IDを追加
-    node_index: u32,    // ノードインデックスを追加
+    dag_id: u32,        
+    node_index: u32,    
 ) -> u32
 where
     F: Fn(
@@ -943,8 +944,8 @@ async fn spawn_periodic_reactor<F, Ret>(
     sched_type: SchedulerType,
     period: Duration,
     _release_measure: Option<MeasureF>,
-    dag_id: u32,        // DAG IDを追加
-    node_index: u32,    // ノードインデックスを追加
+    dag_id: u32,         
+    node_index: u32,    
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -995,8 +996,8 @@ async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_id: u32,        // DAG IDを追加
-    node_index: u32,    // ノードインデックスを追加
+    dag_id: u32,        
+    node_index: u32, 
 ) -> u32
 where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
