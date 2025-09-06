@@ -214,27 +214,6 @@ impl Dag {
         graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(deadline);
     }
 
-    pub fn set_sink_relative_deadline(&self, deadline: Duration) {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-
-        let sink_nodes: Vec<NodeIndex> = graph.externals(Direction::Outgoing).collect();
-
-        if sink_nodes.len() != 1 {
-            panic!(
-                "DAG {} must have exactly one sink node, but found {}",
-                self.id,
-                sink_nodes.len()
-            );
-        }
-
-        let sink_node_index = sink_nodes[0];
-        let sink_node = graph
-            .node_weight_mut(sink_node_index)
-            .expect("Sink node not found");
-        sink_node.relative_deadline = Some(deadline);
-    }
-
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
