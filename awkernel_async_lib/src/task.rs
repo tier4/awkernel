@@ -389,16 +389,11 @@ pub fn spawn(
 /// # Example
 ///
 /// ```
-/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::create_dag};
+/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::{create_dag, add_node_with_topic_edges_public, set_relative_deadline_public}};
 /// use core::time::Duration;
 /// let dag = create_dag();
-/// let node_idx = dag.add_node_with_topic_edges(&[], &[]);
-/// let sink_nodes = dag.get_sink_nodes();
-/// if let Some(sink_node_index) = sink_nodes.first() {
-///  dag.set_relative_deadline(*sink_node_index, Duration::from_millis(100));
-/// } else {
-///    panic!("No sink node found in the DAG!");
-/// }
+/// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
+/// set_relative_deadline_public(&dag, sink_node_idx, deadline);
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
 ///     async { Ok(()) },
