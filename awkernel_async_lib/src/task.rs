@@ -1015,33 +1015,6 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 }
 
 #[inline(always)]
-pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).map(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_dag_info()
-    })?
-}
-
-#[inline(always)]
-pub fn set_dag_info_by_task_id(task_id: u32, dag_id: u32, node_index: u32) -> bool {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    if let Some(task) = tasks.id_to_task.get(&task_id) {
-        let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
-        info.set_dag_info(dag_id, node_index);
-        true
-    } else {
-        false
-    }
-}
-
-#[inline(always)]
 pub fn set_need_preemption(task_id: u32, cpu_id: usize) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
