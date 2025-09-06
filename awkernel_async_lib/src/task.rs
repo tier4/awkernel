@@ -389,7 +389,8 @@ pub fn spawn(
 /// # Example
 ///
 /// ```
-/// use awkernel_async_lib::{scheduler::SchedulerType, task};
+/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::create_dag};
+/// let dag = create_dag();
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
 ///     async { Ok(()) },
