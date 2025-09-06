@@ -393,9 +393,8 @@ pub fn spawn(
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
 ///     async { Ok(()) },
-///     SchedulerType::GEDFNoArg,
-///     1,  // dag_id
-///     0   // node_index
+///     SchedulerType::GEDF(0),
+///     Some((1, 0))  // dag_info as Option<(u32, u32)>
 /// );
 /// ```
 pub fn spawn_with_dag_info(
