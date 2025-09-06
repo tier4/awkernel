@@ -393,7 +393,7 @@ pub fn spawn(
 /// use core::time::Duration;
 /// let dag = create_dag();
 /// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
-/// let deadline = Duration::from_millis(100); 
+/// let deadline = Duration::from_millis(100);
 /// set_relative_deadline_public(&dag, sink_node_idx, deadline);
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
