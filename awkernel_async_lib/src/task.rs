@@ -157,6 +157,8 @@ pub struct TaskInfo {
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
+    pub(crate) dag_id: Option<u32>,
+    pub(crate) node_index: Option<u32>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -219,6 +221,20 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
+
+    #[inline(always)]
+    pub fn set_dag_info(&mut self, dag_id: u32, node_index: u32) {
+        self.dag_id = Some(dag_id);
+        self.node_index = Some(node_index);
+    }
+
+    #[inline(always)]
+    pub fn get_dag_info(&self) -> Option<(u32, u32)> {
+        match (self.dag_id, self.node_index) {
+            (Some(dag_id), Some(node_index)) => Some((dag_id, node_index)),
+            _ => None,
+        }
+    }
 }
 
 /// State of task.
@@ -254,6 +270,7 @@ impl Tasks {
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
+        dag_info: Option<(u32, u32)>,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
@@ -272,6 +289,8 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
+                    dag_id: dag_info.map(|(d, _)| d),
+                    node_index: dag_info.map(|(_, n)| n),
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -352,7 +371,59 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, None);
+    let task = tasks.id_to_task.get(&id).cloned();
+    drop(tasks);
+
+    if let Some(task) = task {
+        task.wake();
+    }
+
+    id
+}
+
+/// Spawn a detached task with DAG information.
+/// This function is similar to `spawn` but automatically sets DAG information
+/// for the task, which is useful for DAG-based schedulers like GEDF.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::create_dag;
+/// use core::time::Duration;
+/// use crate::dag::{add_node_with_topic_edges_public, set_relative_deadline_public}
+/// let dag = create_dag();
+/// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
+/// let deadline = Duration::from_millis(100);
+/// set_relative_deadline_public(&dag, sink_node_idx, deadline);
+/// let task_id = task::spawn_with_dag_info(
+///     "dag task".into(),
+///     async { Ok(()) },
+///     SchedulerType::GEDF(0),
+///     Some((1, 0))  // dag_info as Option<(u32, u32)>
+/// );
+/// ```
+pub fn spawn_with_dag_info(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    dag_info: Option<(u32, u32)>,
+) -> u32 {
+    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+        if p > HIGHEST_PRIORITY {
+            log::warn!(
+                "Task priority should be between 0 and {HIGHEST_PRIORITY}. It is addressed as {HIGHEST_PRIORITY}."
+            );
+        }
+    }
+
+    let future = future.boxed();
+
+    let scheduler = get_scheduler(sched_type);
+
+    let mut node = MCSNode::new();
+    let mut tasks = TASKS.lock(&mut node);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, dag_info);
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 
@@ -942,6 +1013,33 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
         let info = task.info.lock(&mut node);
         info.get_scheduler_type()
     })
+}
+
+#[inline(always)]
+pub fn get_dag_info_by_task_id(task_id: u32) -> Option<(u32, u32)> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_dag_info()
+    })?
+}
+
+#[inline(always)]
+pub fn set_dag_info_by_task_id(task_id: u32, dag_id: u32, node_index: u32) -> bool {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    if let Some(task) = tasks.id_to_task.get(&task_id) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.set_dag_info(dag_id, node_index);
+        true
+    } else {
+        false
+    }
 }
 
 #[inline(always)]
