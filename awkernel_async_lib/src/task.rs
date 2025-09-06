@@ -157,7 +157,7 @@ pub struct TaskInfo {
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
-    pub(crate) dag_id: Option<u32>,           
+    pub(crate) dag_id: Option<u32>,
     pub(crate) node_index: Option<u32>,
 
     #[cfg(not(feature = "no_preempt"))]
@@ -391,8 +391,8 @@ pub fn spawn(
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
 /// let task_id = task::spawn_with_dag_info(
-///     "dag task".into(), 
-///     async { Ok(()) }, 
+///     "dag task".into(),
+///     async { Ok(()) },
 ///     SchedulerType::GEDFNoArg,
 ///     1,  // dag_id
 ///     0   // node_index
@@ -419,7 +419,13 @@ pub fn spawn_with_dag_info(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, Some((dag_id, node_index)));
+    let id = tasks.spawn(
+        name,
+        future.fuse(),
+        scheduler,
+        sched_type,
+        Some((dag_id, node_index)),
+    );
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 

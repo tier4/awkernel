@@ -4,12 +4,12 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
+    dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
         get_task, get_tasks_running, set_current_task, set_need_preemption, State,
-        MAX_TASK_PRIORITY
+        MAX_TASK_PRIORITY,
     },
-    dag::{get_dag_absolute_deadline, set_dag_absolute_deadline, get_dag, to_node_index},
 };
 use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
@@ -73,24 +73,32 @@ impl Scheduler for GEDFScheduler {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             let dag_info = info.get_dag_info();
-            match info.scheduler_type {                
+            match info.scheduler_type {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    let absolute_deadline ;
-                    
+                    let absolute_deadline;
+
                     if let Some((dag_id, node_index)) = dag_info {
                         if get_dag_absolute_deadline(dag_id).is_none() {
-                            let dag = get_dag(dag_id).unwrap_or_else(|| { unreachable!(); });
-                            let relative_deadline_ms = dag.get_sink_relative_deadline()
+                            let dag = get_dag(dag_id).unwrap_or_else(|| {
+                                unreachable!();
+                            });
+                            let relative_deadline_ms = dag
+                                .get_sink_relative_deadline()
                                 .map(|deadline| deadline.as_millis() as u64)
                                 .unwrap_or_else(|| {
-                                    panic!("GEDF scheduler: DAG {} has no sink relative deadline set", dag_id);
+                                    panic!(
+                                        "GEDF scheduler: DAG {} has no sink relative deadline set",
+                                        dag_id
+                                    );
                                 });
                             absolute_deadline = wake_time + relative_deadline_ms;
                             set_dag_absolute_deadline(dag_id, absolute_deadline);
                         } else {
-                            let dag = get_dag(dag_id).unwrap_or_else(|| { unreachable!(); });
-                            // Use `to_node_index` to convert the u32 type to NodeIndex 
+                            let dag = get_dag(dag_id).unwrap_or_else(|| {
+                                unreachable!();
+                            });
+                            // Use `to_node_index` to convert the u32 type to NodeIndex
                             // for use with the method that determines whether it is a source node.
                             let current_node_index = to_node_index(node_index);
                             let is_source_node = dag.is_source_node(current_node_index);
@@ -104,17 +112,17 @@ impl Scheduler for GEDFScheduler {
                                 set_dag_absolute_deadline(dag_id, absolute_deadline);
                             } else {
                                 absolute_deadline = get_dag_absolute_deadline(dag_id).unwrap();
-                            }  
+                            }
                         }
                     } else {
                         log::debug!("GEDF scheduler: Task {} DAG info not yet set, using provided relative_deadline: {}", task.id, relative_deadline);
                         absolute_deadline = wake_time + relative_deadline;
                     }
-            
+
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
-                
+
                     (wake_time, absolute_deadline)
                 }
                 _ => unreachable!(),
