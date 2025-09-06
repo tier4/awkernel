@@ -12,6 +12,7 @@ mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending,Preempted }// Panic 
 /* awkernel_async_lib::task::TaskInfo */
 typedef TaskInfo {
 	mtype state = Ready;
+	byte scheduler_type;// The lower the value, the higher the priority.
 	bool need_sched = false;
 	byte id;// This also represents the priority of the task. The lower the value,the higher the priority.
 	bool need_preemption = false;
@@ -26,13 +27,13 @@ chan ipi_requests[CPU_NUM] = [TASK_NUM] of { byte }// task_id that requested pre
 short NEXT_TASK[CPU_NUM] = - 1// Although this is a vector in Awkernel, this model addresses these like atomic variables.
 chan PREEMPTED_TASK[CPU_NUM] = [TASK_NUM] of { byte }// Preempted task_id.
 
-/* Queue of the PrioritizedFIFO scheduler */ 
-chan queue = [TASK_NUM] of { byte }// task_ids in ascending order of priority.
+/* Scheduler queues */ 
+chan queue[SCHEDULER_TYPE_NUM] = [TASK_NUM] of { byte }// task_ids in ascending order of priority.
 
 #define cpu_id(tid) workers[tid].executing_in
 
 #include "mutex.pml"
 Mutex lock_info[TASK_NUM]
-Mutex lock_queue
+Mutex lock_queue[SCHEDULER_TYPE_NUM]
 
 #define BYTE_MAX 255
