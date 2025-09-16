@@ -2,6 +2,7 @@
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
 #define CPU_NUM 2
+#define SCHEDULER_TYPE_NUM 2
 
 #include "data_structure.pml"
 #include "for_verification.pml"
@@ -81,19 +82,19 @@ inline invoke_preemption(tid,task,ret) {
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()*/ 
 inline wake_task(tid,task) {
 	bool preemption_invoked;
-	lock(tid,lock_queue);
+	lock(tid,lock_queue[tasks[task].scheduler_type]);
 	invoke_preemption(tid,task,preemption_invoked);
 	
 	if
 	:: !preemption_invoked -> 
 		d_step{
 			printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);
-			queue!!task
+			queue[tasks[task].scheduler_type]!!task
 		}
 	:: else
 	fi
 	
-	unlock(tid,lock_queue);
+	unlock(tid,lock_queue[tasks[task].scheduler_type]);
 	d_step {
 		assert(waking[task] > 0);
 		waking[task]--
@@ -134,15 +135,15 @@ inline wake(tid,task) {
 }
 
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
-inline scheduler_get_next(tid,ret) {
-	lock(tid,lock_queue);
+inline get_next_each_scheduler(tid,ret,sched_type) {
+	lock(tid,lock_queue[sched_type]);
 	
 	byte head;
 	
 	start_get_next:
 	
 	if
-	:: d_step { queue?[head] -> queue?head };
+	:: d_step { queue[sched_type]?[head] -> queue[sched_type]?head };
 		lock(tid,lock_info[head]);
 		
 		if
@@ -166,12 +167,24 @@ inline scheduler_get_next(tid,ret) {
 		}
 		
 		unlock(tid,lock_info[head]);
-		unlock(tid,lock_queue);
+		unlock(tid,lock_queue[sched_type]);
 		ret = head
 	:: else -> 
-		unlock(tid,lock_queue);
+		unlock(tid,lock_queue[sched_type]);
 		ret = - 1
 	fi
+}
+
+/* awkernel_async_lib::task::scheduler::get_next_task() */
+inline scheduler_get_next(tid,ret) {
+	byte sched_i;
+	for (sched_i : 0 .. SCHEDULER_TYPE_NUM - 1) {
+		get_next_each_scheduler(tid,ret,sched_i);
+		if
+		:: ret != - 1 -> break
+		:: else
+		fi
+	}
 }
 
 /* awkernel_async_lib::task::preempt::get_next_task()*/ 
@@ -492,6 +505,16 @@ init {
 	for (i: 0 .. TASK_NUM - 1) {
 		tasks[i].id = i;
 	}
+	tasks[0].scheduler_type = 0;
+#if SCHED_TYPE_PATTERN==0
+	tasks[1].scheduler_type = 0;tasks[2].scheduler_type = 0;tasks[3].scheduler_type = 0;
+#elif SCHED_TYPE_PATTERN==1
+	tasks[1].scheduler_type = 0;tasks[2].scheduler_type = 0;tasks[3].scheduler_type = 1;
+#elif SCHED_TYPE_PATTERN==2
+	tasks[1].scheduler_type = 0;tasks[2].scheduler_type = 1;tasks[3].scheduler_type = 1;
+#elif SCHED_TYPE_PATTERN==3
+	tasks[1].scheduler_type = 1;tasks[2].scheduler_type = 1;tasks[3].scheduler_type = 1;
+#endif
 	
 	wake(0,INIT_TASK);
 	

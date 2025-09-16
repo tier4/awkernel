@@ -26,6 +26,7 @@ pub mod mmio;
 pub mod net;
 pub mod priority_queue;
 pub mod sanity;
+pub mod storage;
 pub mod sync;
 pub mod time;
 pub mod timer;
