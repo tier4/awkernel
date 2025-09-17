@@ -54,7 +54,6 @@ mod visit;
 mod performance;
 
 use crate::{
-    task::DagInfo,
     dag::{
         graph::{
             algo::{connected_components, is_cyclic_directed},
@@ -64,6 +63,7 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
+    task::DagInfo,
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -371,7 +371,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        DagInfo { dag_id, node_index }
+                        DagInfo { dag_id, node_index },
                     )
                     .await
                 })
