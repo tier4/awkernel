@@ -26,6 +26,7 @@ pub mod mmio;
 pub mod net;
 pub mod priority_queue;
 pub mod sanity;
+pub mod storage;
 pub mod sync;
 pub mod time;
 pub mod timer;
@@ -42,6 +43,9 @@ pub mod heap;
 
 #[cfg(not(feature = "std"))]
 pub mod dma_pool;
+
+#[cfg(not(feature = "std"))]
+pub mod dma_map;
 
 #[cfg(not(feature = "std"))]
 pub mod context;
