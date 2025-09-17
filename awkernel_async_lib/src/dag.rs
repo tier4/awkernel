@@ -54,6 +54,7 @@ mod visit;
 mod performance;
 
 use crate::{
+    task::DagInfo,
     dag::{
         graph::{
             algo::{connected_components, is_cyclic_directed},
@@ -319,7 +320,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
-                        Some((dag_id, node_index)),
+                        DagInfo { dag_id, node_index },
                     )
                     .await
                 })
@@ -370,7 +371,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        Some((dag_id, node_index)),
+                        DagInfo { dag_id, node_index }
                     )
                     .await
                 })
@@ -428,7 +429,7 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
-                        Some((dag_id, node_index)),
+                        DagInfo { dag_id, node_index },
                     )
                     .await
                 })
@@ -513,6 +514,7 @@ struct NodeInfo {
 pub fn to_node_index(index: u32) -> NodeIndex {
     NodeIndex::new(index as usize)
 }
+
 struct EdgeInfo {
     topic_name: Cow<'static, str>,
 }
@@ -589,20 +591,6 @@ pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
     } else {
         false
     }
-}
-
-// for test
-pub fn add_node_with_topic_edges_public(
-    dag: &Arc<Dag>,
-    subscribe_topic_names: &[Cow<'static, str>],
-    publish_topic_names: &[Cow<'static, str>],
-) -> NodeIndex {
-    dag.add_node_with_topic_edges(subscribe_topic_names, publish_topic_names)
-}
-
-//for test
-pub fn set_relative_deadline_public(dag: &Arc<Dag>, node_idx: NodeIndex, deadline: Duration) {
-    dag.set_relative_deadline(node_idx, deadline)
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
@@ -913,7 +901,7 @@ async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_info: Option<(u32, u32)>,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn(
@@ -953,7 +941,7 @@ async fn spawn_periodic_reactor<F, Ret>(
     sched_type: SchedulerType,
     period: Duration,
     _release_measure: Option<MeasureF>,
-    dag_info: Option<(u32, u32)>,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -1004,7 +992,7 @@ async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-    dag_info: Option<(u32, u32)>,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,

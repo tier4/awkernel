@@ -7,7 +7,7 @@ use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
 use core::time::Duration;
 
-const LOG_ENABLE: bool = false;
+const LOG_ENABLE: bool = true;
 
 pub async fn run() {
     wait_microsec(1000000);
@@ -30,7 +30,7 @@ pub async fn run() {
             (number,)
         },
         vec![Cow::from("topic0")],
-        SchedulerType::PrioritizedFIFO(30),
+        SchedulerType::GEDF(0),
         period,
     )
     .await;
@@ -47,7 +47,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic0")],
         vec![Cow::from("topic1"), Cow::from("topic2")],
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::GEDF(0),
     )
     .await;
 
@@ -62,7 +62,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic1")],
         vec![Cow::from("topic3")],
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::GEDF(0),
     )
     .await;
 
@@ -77,7 +77,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic2")],
         vec![Cow::from("topic4")],
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::GEDF(0),
     )
     .await;
 
@@ -90,7 +90,7 @@ pub async fn run() {
             }
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::GEDF(0),
         Duration::from_secs(1),
     )
     .await;

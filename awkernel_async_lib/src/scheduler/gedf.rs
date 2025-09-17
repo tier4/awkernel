@@ -78,7 +78,9 @@ impl Scheduler for GEDFScheduler {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline;
 
-                    if let Some((dag_id, node_index)) = dag_info {
+                    if let Some(dag_info) = dag_info {
+                        let dag_id = dag_info.dag_id;
+                        let node_index = dag_info.node_index;
                         if get_dag_absolute_deadline(dag_id).is_none() {
                             let dag =
                                 get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");

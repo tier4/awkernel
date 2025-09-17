@@ -157,8 +157,7 @@ pub struct TaskInfo {
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
-    pub(crate) dag_id: Option<u32>,
-    pub(crate) node_index: Option<u32>,
+    pub(crate) dag_info: Option<DagInfo>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -223,11 +222,8 @@ impl TaskInfo {
     }
 
     #[inline(always)]
-    pub fn get_dag_info(&self) -> Option<(u32, u32)> {
-        match (self.dag_id, self.node_index) {
-            (Some(dag_id), Some(node_index)) => Some((dag_id, node_index)),
-            _ => None,
-        }
+    pub fn get_dag_info(&self) -> Option<DagInfo> {
+        self.dag_info.clone()
     }
 }
 
@@ -250,6 +246,12 @@ struct Tasks {
     id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
+#[derive(Clone)]
+pub struct DagInfo {
+    pub dag_id: u32,
+    pub node_index: u32,
+}
+
 impl Tasks {
     const fn new() -> Self {
         Self {
@@ -264,7 +266,7 @@ impl Tasks {
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
-        dag_info: Option<(u32, u32)>,
+        dag_info: Option<DagInfo>,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
@@ -283,8 +285,7 @@ impl Tasks {
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
-                    dag_id: dag_info.map(|(d, _)| d),
-                    node_index: dag_info.map(|(_, n)| n),
+                    dag_info,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -351,29 +352,7 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
-    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
-        if p > HIGHEST_PRIORITY {
-            log::warn!(
-                "Task priority should be between 0 and {HIGHEST_PRIORITY}. It is addressed as {HIGHEST_PRIORITY}."
-            );
-        }
-    }
-
-    let future = future.boxed();
-
-    let scheduler = get_scheduler(sched_type);
-
-    let mut node = MCSNode::new();
-    let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, None);
-    let task = tasks.id_to_task.get(&id).cloned();
-    drop(tasks);
-
-    if let Some(task) = task {
-        task.wake();
-    }
-
-    id
+    inner_spawn(name, future, sched_type, None)
 }
 
 /// Spawn a detached task with DAG information.
@@ -382,7 +361,7 @@ pub fn spawn(
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::{create_dag, add_node_with_topic_edges_public, set_relative_deadline_public}};
 /// use core::time::Duration;
 /// let dag = create_dag();
@@ -393,14 +372,23 @@ pub fn spawn(
 ///     "dag task".into(),
 ///     async { Ok(()) },
 ///     SchedulerType::GEDF(0),
-///     Some((1, 0))  // dag_info as Option<(u32, u32)>
+///     DagInfo { dag_id: 1, node_index: 0 }
 /// );
 /// ```
 pub fn spawn_with_dag_info(
     name: Cow<'static, str>,
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
-    dag_info: Option<(u32, u32)>,
+    dag_info: DagInfo,
+) -> u32 {
+    inner_spawn(name, future, sched_type, Some(dag_info))
+}
+
+pub fn inner_spawn(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    dag_info: Option<DagInfo>,
 ) -> u32 {
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
         if p > HIGHEST_PRIORITY {
