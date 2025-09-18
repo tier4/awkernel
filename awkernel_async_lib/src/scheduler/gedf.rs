@@ -196,32 +196,32 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> 
     let dag_id = dag_info.dag_id;
     let node_index = dag_info.node_index;
 
-    if get_dag_absolute_deadline(dag_id).is_none() {
+    if let Some(absolute_deadline) = get_dag_absolute_deadline(dag_id) {
         let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
+        let current_node_index = to_node_index(node_index);
+        if !dag.is_source_node(current_node_index) {
+            return absolute_deadline;
+        }
+
         let relative_deadline_ms = dag
             .get_sink_relative_deadline()
             .map(|deadline| deadline.as_millis() as u64)
             .unwrap_or_else(|| {
                 panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
             });
-        let absolute_deadline = wake_time + relative_deadline_ms;
-        set_dag_absolute_deadline(dag_id, absolute_deadline);
-        absolute_deadline
-    } else {
-        let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
-        let current_node_index = to_node_index(node_index);
-        if dag.is_source_node(current_node_index) {
-            let relative_deadline_ms = dag
-                .get_sink_relative_deadline()
-                .map(|deadline| deadline.as_millis() as u64)
-                .unwrap_or_else(|| {
-                    panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
-                });
-            let absolute_deadline = wake_time + relative_deadline_ms;
-            set_dag_absolute_deadline(dag_id, absolute_deadline);
-            absolute_deadline
-        } else {
-            get_dag_absolute_deadline(dag_id).unwrap()
-        }
+        let dag_absolute_deadline = wake_time + relative_deadline_ms;
+        set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+        return dag_absolute_deadline;
     }
+
+    let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
+    let relative_deadline_ms = dag
+        .get_sink_relative_deadline()
+        .map(|deadline| deadline.as_millis() as u64)
+        .unwrap_or_else(|| {
+            panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
+        });
+    let dag_absolute_deadline = wake_time + relative_deadline_ms;
+    set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+    dag_absolute_deadline
 }
