@@ -7,7 +7,7 @@ use crate::{
     dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
-        get_task, get_tasks_running, set_current_task, set_need_preemption, State,
+        get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
         MAX_TASK_PRIORITY,
     },
 };
@@ -76,45 +76,11 @@ impl Scheduler for GEDFScheduler {
             match info.scheduler_type {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    let absolute_deadline;
-
-                    if let Some(dag_info) = dag_info {
-                        let dag_id = dag_info.dag_id;
-                        let node_index = dag_info.node_index;
-                        if get_dag_absolute_deadline(dag_id).is_none() {
-                            let dag =
-                                get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
-                            let relative_deadline_ms = dag
-                                .get_sink_relative_deadline()
-                                .map(|deadline| deadline.as_millis() as u64)
-                                .unwrap_or_else(|| {
-                                    panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
-                                });
-                            absolute_deadline = wake_time + relative_deadline_ms;
-                            set_dag_absolute_deadline(dag_id, absolute_deadline);
-                        } else {
-                            let dag =
-                                get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
-                            // Use `to_node_index` to convert the u32 type to NodeIndex
-                            // for use with the method that determines whether it is a source node.
-                            let current_node_index = to_node_index(node_index);
-                            let is_source_node = dag.is_source_node(current_node_index);
-                            if is_source_node {
-                                let relative_deadline_ms = dag.get_sink_relative_deadline()
-                                    .map(|deadline| deadline.as_millis() as u64)
-                                    .unwrap_or_else(|| {
-                                        panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
-                                    });
-                                absolute_deadline = wake_time + relative_deadline_ms;
-                                set_dag_absolute_deadline(dag_id, absolute_deadline);
-                            } else {
-                                absolute_deadline = get_dag_absolute_deadline(dag_id).unwrap();
-                            }
-                        }
+                    let absolute_deadline = if let Some(ref dag_info) = dag_info {
+                        calculate_and_update_dag_deadline(dag_info, wake_time)
                     } else {
-                        log::debug!("GEDF scheduler: Task {} DAG info not yet set, using provided relative_deadline: {}", task.id, relative_deadline);
-                        absolute_deadline = wake_time + relative_deadline;
-                    }
+                        wake_time + relative_deadline
+                    };
 
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
@@ -223,5 +189,39 @@ impl GEDFScheduler {
         }
 
         false
+    }
+}
+
+pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
+    let dag_id = dag_info.dag_id;
+    let node_index = dag_info.node_index;
+
+    if get_dag_absolute_deadline(dag_id).is_none() {
+        let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
+        let relative_deadline_ms = dag
+            .get_sink_relative_deadline()
+            .map(|deadline| deadline.as_millis() as u64)
+            .unwrap_or_else(|| {
+                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
+            });
+        let absolute_deadline = wake_time + relative_deadline_ms;
+        set_dag_absolute_deadline(dag_id, absolute_deadline);
+        absolute_deadline
+    } else {
+        let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
+        let current_node_index = to_node_index(node_index);
+        if dag.is_source_node(current_node_index) {
+            let relative_deadline_ms = dag
+                .get_sink_relative_deadline()
+                .map(|deadline| deadline.as_millis() as u64)
+                .unwrap_or_else(|| {
+                    panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
+                });
+            let absolute_deadline = wake_time + relative_deadline_ms;
+            set_dag_absolute_deadline(dag_id, absolute_deadline);
+            absolute_deadline
+        } else {
+            get_dag_absolute_deadline(dag_id).unwrap()
+        }
     }
 }
