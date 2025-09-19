@@ -119,7 +119,6 @@ async fn register_source_node(
 
     let out_links_num = node_data.get_out_links().len();
 
-
     match out_links_num {
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
