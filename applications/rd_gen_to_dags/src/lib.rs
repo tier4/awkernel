@@ -48,6 +48,11 @@ pub async fn run() {
         }
     }
 
+    if success_build_dags.is_empty() {
+        log::error!("Failed to build DAG");
+        return;
+    }
+
     match finish_create_dags(&success_build_dags).await {
         Ok(_) => {
             log::info!("DAGs created successfully.");
