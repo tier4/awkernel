@@ -895,14 +895,17 @@ where
         );
 
         let mut interval = interval(period);
+        // Consume the first tick here to start the loop's main body without an initial delay.
+        interval.tick().await;
 
         loop {
-            interval.tick().await;
             let results = f();
             publishers.send_all(results).await;
 
             #[cfg(feature = "perf")]
             periodic_measure();
+
+            interval.tick().await;
         }
     };
 
