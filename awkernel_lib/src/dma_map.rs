@@ -52,6 +52,14 @@ pub struct DmaMap {
     numa_id: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DmaSyncOp {
+    PreRead,
+    PostRead,
+    PreWrite,
+    PostWrite,
+}
+
 #[derive(Debug)]
 pub enum DmaError {
     AddressTooHigh,
