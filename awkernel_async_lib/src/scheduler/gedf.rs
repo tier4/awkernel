@@ -81,7 +81,7 @@ impl Scheduler for GEDFScheduler {
         };
 
         let mut node = MCSNode::new();
-        GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+        let _ = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
@@ -96,7 +96,7 @@ impl Scheduler for GEDFScheduler {
 
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+        let _ = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
         let mut node_inner = MCSNode::new();
         let mut data = self.data.lock(&mut node_inner);
