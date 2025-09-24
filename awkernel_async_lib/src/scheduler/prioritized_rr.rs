@@ -53,7 +53,7 @@ impl Scheduler for PrioritizedRRScheduler {
         };
 
         let mut node = MCSNode::new();
-        let _ = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+        let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption_wake(task.clone()) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
@@ -70,7 +70,7 @@ impl Scheduler for PrioritizedRRScheduler {
 
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        let _ = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+        let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
         let mut node_inner = MCSNode::new();
         let mut guard = self.data.lock(&mut node_inner);
