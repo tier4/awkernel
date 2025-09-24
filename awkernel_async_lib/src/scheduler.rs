@@ -116,6 +116,11 @@ static PRIORITY_LIST: [SchedulerType; 4] = [
     SchedulerType::Panicked,
 ];
 
+/// For exclusion execution of `wake_task` and `get_next` across all schedulers.
+/// In order to resolve priority inversion in multiple priority-based schedulers,
+/// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
+static GLOBAL_WAKE_GET_MUTEX: Mutex<()> = Mutex::new(());
+
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.

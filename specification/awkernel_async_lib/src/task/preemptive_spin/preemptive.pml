@@ -82,19 +82,21 @@ inline invoke_preemption(tid,task,ret) {
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()*/ 
 inline wake_task(tid,task) {
 	bool preemption_invoked;
-	lock(tid,lock_queue[tasks[task].scheduler_type]);
+	lock(tid,lock_global_wake_get_mutex);
 	invoke_preemption(tid,task,preemption_invoked);
 	
 	if
 	:: !preemption_invoked -> 
+		lock(tid,lock_queue[tasks[task].scheduler_type]);
 		d_step{
 			printf("wake_task(): push to queue: tid = %d,task = %d\n",tid,task);
 			queue[tasks[task].scheduler_type]!!task
 		}
+		unlock(tid,lock_queue[tasks[task].scheduler_type]);
 	:: else
 	fi
 	
-	unlock(tid,lock_queue[tasks[task].scheduler_type]);
+	unlock(tid,lock_global_wake_get_mutex);
 	d_step {
 		assert(waking[task] > 0);
 		waking[task]--
@@ -136,6 +138,7 @@ inline wake(tid,task) {
 
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
 inline get_next_each_scheduler(tid,ret,sched_type) {
+	lock(tid,lock_global_wake_get_mutex);
 	lock(tid,lock_queue[sched_type]);
 	
 	byte head;
@@ -167,12 +170,13 @@ inline get_next_each_scheduler(tid,ret,sched_type) {
 		}
 		
 		unlock(tid,lock_info[head]);
-		unlock(tid,lock_queue[sched_type]);
 		ret = head
 	:: else -> 
-		unlock(tid,lock_queue[sched_type]);
 		ret = - 1
 	fi
+
+	unlock(tid,lock_queue[sched_type]);
+	unlock(tid,lock_global_wake_get_mutex);
 }
 
 /* awkernel_async_lib::task::scheduler::get_next_task() */

@@ -4,7 +4,9 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
+    scheduler::{
+        get_priority, peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
+    },
     task::{
         get_task, get_tasks_running, set_current_task, set_need_preemption, State,
         MAX_TASK_PRIORITY,
@@ -61,13 +63,6 @@ impl GEDFData {
 
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let mut node = MCSNode::new();
-        // The reason for acquiring this lock before invoke_preemption() is to prevent priority inversion from occurring
-        // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
-        // within the scheduler's get_next().
-        let mut data = self.data.lock(&mut node);
-        let internal_data = data.get_or_insert_with(GEDFData::new);
-
         let (wake_time, absolute_deadline) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
@@ -85,7 +80,12 @@ impl Scheduler for GEDFScheduler {
             }
         };
 
+        let mut node = MCSNode::new();
+        GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
+            let mut node_inner = MCSNode::new();
+            let mut data = self.data.lock(&mut node_inner);
+            let internal_data = data.get_or_insert_with(GEDFData::new);
             internal_data.queue.push(GEDFTask {
                 task: task.clone(),
                 absolute_deadline,
@@ -96,7 +96,10 @@ impl Scheduler for GEDFScheduler {
 
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        let mut data = self.data.lock(&mut node);
+        GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+
+        let mut node_inner = MCSNode::new();
+        let mut data = self.data.lock(&mut node_inner);
 
         #[allow(clippy::question_mark)]
         let data = match data.as_mut() {
