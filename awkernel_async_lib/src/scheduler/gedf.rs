@@ -96,10 +96,7 @@ impl Scheduler for GEDFScheduler {
 
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
-
-        let mut node_inner = MCSNode::new();
-        let mut data = self.data.lock(&mut node_inner);
+        let mut data = self.data.lock(&mut node);
 
         #[allow(clippy::question_mark)]
         let data = match data.as_mut() {

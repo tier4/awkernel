@@ -20,7 +20,7 @@ pub async fn run() {
             "low_priority".into(),
             async move {
                 log::debug!("low priority task {i} started. sched_type = {sched_type:?}");
-                wait_millisec(500);
+                wait_millisec(1000);
                 log::debug!("low priority task {i} finished. sched_type = {sched_type:?}");
             },
             sched_type,

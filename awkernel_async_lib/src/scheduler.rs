@@ -139,6 +139,9 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+
     let task = PRIORITY_LIST
         .iter()
         .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));

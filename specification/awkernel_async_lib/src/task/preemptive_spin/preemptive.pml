@@ -138,7 +138,6 @@ inline wake(tid,task) {
 
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
 inline get_next_each_scheduler(tid,ret,sched_type) {
-	lock(tid,lock_global_wake_get_mutex);
 	lock(tid,lock_queue[sched_type]);
 	
 	byte head;
@@ -176,11 +175,11 @@ inline get_next_each_scheduler(tid,ret,sched_type) {
 	fi
 
 	unlock(tid,lock_queue[sched_type]);
-	unlock(tid,lock_global_wake_get_mutex);
 }
 
 /* awkernel_async_lib::task::scheduler::get_next_task() */
 inline scheduler_get_next(tid,ret) {
+	lock(tid,lock_global_wake_get_mutex);
 	byte sched_i;
 	for (sched_i : 0 .. SCHEDULER_TYPE_NUM - 1) {
 		get_next_each_scheduler(tid,ret,sched_i);
@@ -189,6 +188,7 @@ inline scheduler_get_next(tid,ret) {
 		:: else
 		fi
 	}
+	unlock(tid,lock_global_wake_get_mutex);
 }
 
 /* awkernel_async_lib::task::preempt::get_next_task()*/ 
