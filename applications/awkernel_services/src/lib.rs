@@ -4,11 +4,13 @@ extern crate alloc;
 
 mod buffered_logger;
 mod network_service;
+mod storage_service;
 
 use core::time::Duration;
 
-const NETWORK_SERVICE_NAME: &str = "[Awkernel] network service";
 const BUFFERED_LOGGER_NAME: &str = "[Awkernel] buffered logger service";
+const NETWORK_SERVICE_NAME: &str = "[Awkernel] network service";
+const STORAGE_SERVICE_NAME: &str = "[Awkernel] storage service";
 const DISPLAY_SERVICE_NAME: &str = "[Awkernel] display service";
 
 pub async fn run() {
@@ -22,6 +24,13 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         NETWORK_SERVICE_NAME.into(),
         network_service::run(),
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
+    )
+    .await;
+
+    awkernel_async_lib::spawn(
+        STORAGE_SERVICE_NAME.into(),
+        storage_service::run(),
         awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
