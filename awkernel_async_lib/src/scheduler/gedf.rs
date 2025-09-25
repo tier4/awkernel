@@ -220,10 +220,8 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> 
             return absolute_deadline;
         }
 
-        let dag_absolute_deadline = calculate_and_set_dag_deadline(dag_id, wake_time);
-        return dag_absolute_deadline;
+        return calculate_and_set_dag_deadline(dag_id, wake_time);
     }
 
-    let dag_absolute_deadline = calculate_and_set_dag_deadline(dag_id, wake_time);
-    dag_absolute_deadline
+    calculate_and_set_dag_deadline(dag_id, wake_time)
 }
