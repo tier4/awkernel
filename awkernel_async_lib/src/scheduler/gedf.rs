@@ -79,6 +79,8 @@ impl Scheduler for GEDFScheduler {
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
                         calculate_and_update_dag_deadline(dag_info, wake_time)
                     } else {
+                        // If dag_info is not present, the task is treated as a regular task, and
+                        // the absolute_deadline is calculated using the scheduler's relative_deadline.
                         wake_time + relative_deadline
                     };
 
@@ -199,6 +201,13 @@ fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
         .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"))
 }
 
+fn calculate_and_set_dag_deadline(dag_id: u32, wake_time: u64) -> u64 {
+    let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
+    let dag_absolute_deadline = wake_time + relative_deadline_ms;
+    set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+    dag_absolute_deadline
+}
+
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
     let dag_id = dag_info.dag_id;
     let node_id = dag_info.node_id;
@@ -211,14 +220,10 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> 
             return absolute_deadline;
         }
 
-        let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
-        let dag_absolute_deadline = wake_time + relative_deadline_ms;
-        set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+        let dag_absolute_deadline = calculate_and_set_dag_deadline(dag_id, wake_time);
         return dag_absolute_deadline;
     }
 
-    let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
-    let dag_absolute_deadline = wake_time + relative_deadline_ms;
-    set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+    let dag_absolute_deadline = calculate_and_set_dag_deadline(dag_id, wake_time);
     dag_absolute_deadline
 }
