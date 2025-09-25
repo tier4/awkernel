@@ -200,7 +200,7 @@ fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
             panic!(
                 "GEDF scheduler: DAG {} has no sink relative deadline set",
                 dag_id
-            );
+            )
         })
 }
 
