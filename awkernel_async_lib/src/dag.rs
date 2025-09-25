@@ -197,13 +197,12 @@ impl Dag {
         source_nodes.contains(&node_index)
     }
 
+    // Returns the relative deadline of the sink node, if it exists.
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        let sink_nodes: Vec<NodeIndex> = graph.externals(Direction::Outgoing).collect();
+        let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
 
         if let Some(sink_node_index) = sink_nodes.first() {
-            graph.node_weight(*sink_node_index)?.relative_deadline
+            self.graph.lock(&mut MCSNode::new()).node_weight(*sink_node_index)?.relative_deadline
         } else {
             None
         }

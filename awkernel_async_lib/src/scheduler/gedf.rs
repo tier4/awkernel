@@ -11,7 +11,7 @@ use crate::{
         MAX_TASK_PRIORITY,
     },
 };
-use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
+use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec, format};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
@@ -192,35 +192,33 @@ impl GEDFScheduler {
     }
 }
 
+fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
+    let dag = get_dag(dag_id).expect(&format!("GEDF scheduler: DAG {} not found", dag_id));
+    dag.get_sink_relative_deadline()
+        .map(|deadline| deadline.as_millis() as u64)
+        .unwrap_or_else(|| {
+            panic!("GEDF scheduler: DAG {} has no sink relative deadline set", dag_id);
+        })
+}
+
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
     let dag_id = dag_info.dag_id;
     let node_index = dag_info.node_index;
 
     if let Some(absolute_deadline) = get_dag_absolute_deadline(dag_id) {
-        let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
+        let dag = get_dag(dag_id).expect(&format!("GEDF scheduler: DAG {} not found", dag_id));
         let current_node_index = to_node_index(node_index);
         if !dag.is_source_node(current_node_index) {
             return absolute_deadline;
         }
 
-        let relative_deadline_ms = dag
-            .get_sink_relative_deadline()
-            .map(|deadline| deadline.as_millis() as u64)
-            .unwrap_or_else(|| {
-                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
-            });
+        let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
         let dag_absolute_deadline = wake_time + relative_deadline_ms;
         set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
         return dag_absolute_deadline;
     }
 
-    let dag = get_dag(dag_id).expect("GEDF scheduler: DAG {dag_id} not found");
-    let relative_deadline_ms = dag
-        .get_sink_relative_deadline()
-        .map(|deadline| deadline.as_millis() as u64)
-        .unwrap_or_else(|| {
-            panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set");
-        });
+    let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
     let dag_absolute_deadline = wake_time + relative_deadline_ms;
     set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
     dag_absolute_deadline
