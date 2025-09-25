@@ -63,6 +63,7 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
+    task::DagInfo,
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -168,6 +169,7 @@ impl core::fmt::Display for DagError {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
+    absolute_deadline: Mutex<Option<u64>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -188,6 +190,25 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.externals(Direction::Outgoing).collect()
+    }
+
+    pub fn is_source_node(&self, node_index: NodeIndex) -> bool {
+        let source_nodes = self.get_source_nodes();
+        source_nodes.contains(&node_index)
+    }
+
+    // Returns the relative deadline of the first sink node, if it exists.
+    pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
+        let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
+
+        if let Some(sink_node_index) = sink_nodes.first() {
+            self.graph
+                .lock(&mut MCSNode::new())
+                .node_weight(*sink_node_index)?
+                .relative_deadline
+        } else {
+            None
+        }
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -284,6 +305,10 @@ impl Dag {
         self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
         self.check_publish_mismatch::<Ret>(&publish_topic_names, node_idx);
 
+        // To prevent errors caused by ownership moves
+        let dag_id = self.id;
+        let node_id = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
         pending_tasks
@@ -297,6 +322,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
@@ -330,6 +356,10 @@ impl Dag {
             }
         };
 
+        // To prevent errors caused by ownership moves
+        let dag_id = self.id;
+        let node_id = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
         source_pending_tasks.insert(
@@ -343,6 +373,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
@@ -384,6 +415,10 @@ impl Dag {
             }
         };
 
+        // To prevent errors caused by ownership moves
+        let dag_id = self.id;
+        let node_id = node_idx.index() as u32;
+
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
         pending_tasks
@@ -396,6 +431,7 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
@@ -437,6 +473,20 @@ impl Dag {
                 .push(node_idx.index());
         }
     }
+
+    #[inline(always)]
+    pub fn set_absolute_deadline(&self, deadline: u64) {
+        let mut node = MCSNode::new();
+        let mut absolute_deadline = self.absolute_deadline.lock(&mut node);
+        *absolute_deadline = Some(deadline);
+    }
+
+    #[inline(always)]
+    pub fn get_absolute_deadline(&self) -> Option<u64> {
+        let mut node = MCSNode::new();
+        let absolute_deadline = self.absolute_deadline.lock(&mut node);
+        *absolute_deadline
+    }
 }
 
 struct PendingTask {
@@ -461,6 +511,10 @@ struct NodeInfo {
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
+}
+
+pub fn to_node_index(index: u32) -> NodeIndex {
+    NodeIndex::new(index as usize)
 }
 
 struct EdgeInfo {
@@ -489,6 +543,7 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
+                    absolute_deadline: Mutex::new(None),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -523,6 +578,21 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+#[inline(always)]
+pub fn get_dag_absolute_deadline(dag_id: u32) -> Option<u64> {
+    get_dag(dag_id)?.get_absolute_deadline()
+}
+
+#[inline(always)]
+pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
+    if let Some(dag) = get_dag(dag_id) {
+        dag.set_absolute_deadline(deadline);
+        true
+    } else {
+        false
+    }
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
@@ -833,6 +903,7 @@ async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn(
@@ -862,7 +933,7 @@ where
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info)
 }
 
 async fn spawn_periodic_reactor<F, Ret>(
@@ -872,6 +943,7 @@ async fn spawn_periodic_reactor<F, Ret>(
     sched_type: SchedulerType,
     period: Duration,
     _release_measure: Option<MeasureF>,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -909,7 +981,7 @@ where
         }
     };
 
-    let task_id = crate::task::spawn(reactor_name, future, sched_type);
+    let task_id = crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info);
 
     #[cfg(feature = "perf")]
     release_measure();
@@ -922,6 +994,7 @@ async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
+    dag_info: DagInfo,
 ) -> u32
 where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
@@ -933,11 +1006,10 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
-                subscribers.recv_all().await;
+            let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             f(args);
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info)
 }
