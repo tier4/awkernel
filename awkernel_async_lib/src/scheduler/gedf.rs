@@ -201,12 +201,12 @@ fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
 
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
     let dag_id = dag_info.dag_id;
-    let node_index = dag_info.node_index;
+    let node_id = dag_info.node_id;
 
     if let Some(absolute_deadline) = get_dag_absolute_deadline(dag_id) {
         let dag =
             get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
-        let current_node_index = to_node_index(node_index);
+        let current_node_index = to_node_index(node_id);
         if !dag.is_source_node(current_node_index) {
             return absolute_deadline;
         }

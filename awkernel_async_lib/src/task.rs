@@ -249,7 +249,7 @@ struct Tasks {
 #[derive(Clone)]
 pub struct DagInfo {
     pub dag_id: u32,
-    pub node_index: u32,
+    pub node_id: u32,
 }
 
 impl Tasks {
@@ -372,7 +372,7 @@ pub fn spawn(
 ///     "dag task".into(),
 ///     async { Ok(()) },
 ///     SchedulerType::GEDF(0),
-///     DagInfo { dag_id: 1, node_index: 0 }
+///     DagInfo { dag_id: 1, node_id: 0 }
 /// );
 /// ```
 pub fn spawn_with_dag_info(

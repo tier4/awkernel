@@ -307,7 +307,7 @@ impl Dag {
 
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
-        let node_index = node_idx.index() as u32;
+        let node_id = node_idx.index() as u32;
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -322,7 +322,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
-                        DagInfo { dag_id, node_index },
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
@@ -358,7 +358,7 @@ impl Dag {
 
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
-        let node_index = node_idx.index() as u32;
+        let node_id = node_idx.index() as u32;
 
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
@@ -373,7 +373,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        DagInfo { dag_id, node_index },
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
@@ -417,7 +417,7 @@ impl Dag {
 
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
-        let node_index = node_idx.index() as u32;
+        let node_id = node_idx.index() as u32;
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -431,7 +431,7 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
-                        DagInfo { dag_id, node_index },
+                        DagInfo { dag_id, node_id },
                     )
                     .await
                 })
