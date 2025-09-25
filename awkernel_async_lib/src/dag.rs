@@ -197,7 +197,7 @@ impl Dag {
         source_nodes.contains(&node_index)
     }
 
-    // Returns the relative deadline of the sink node, if it exists.
+    // Returns the relative deadline of the first sink node, if it exists.
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
         let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
 
