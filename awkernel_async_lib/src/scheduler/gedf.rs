@@ -11,7 +11,7 @@ use crate::{
         MAX_TASK_PRIORITY,
     },
 };
-use alloc::{collections::BinaryHeap, format, sync::Arc, vec::Vec};
+use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
