@@ -202,7 +202,10 @@ impl Dag {
         let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
 
         if let Some(sink_node_index) = sink_nodes.first() {
-            self.graph.lock(&mut MCSNode::new()).node_weight(*sink_node_index)?.relative_deadline
+            self.graph
+                .lock(&mut MCSNode::new())
+                .node_weight(*sink_node_index)?
+                .relative_deadline
         } else {
             None
         }

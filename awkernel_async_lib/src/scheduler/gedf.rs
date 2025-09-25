@@ -11,7 +11,7 @@ use crate::{
         MAX_TASK_PRIORITY,
     },
 };
-use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec, format};
+use alloc::{collections::BinaryHeap, format, sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
@@ -197,7 +197,10 @@ fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
     dag.get_sink_relative_deadline()
         .map(|deadline| deadline.as_millis() as u64)
         .unwrap_or_else(|| {
-            panic!("GEDF scheduler: DAG {} has no sink relative deadline set", dag_id);
+            panic!(
+                "GEDF scheduler: DAG {} has no sink relative deadline set",
+                dag_id
+            );
         })
 }
 
