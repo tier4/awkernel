@@ -196,12 +196,7 @@ fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
     dag.get_sink_relative_deadline()
         .map(|deadline| deadline.as_millis() as u64)
-        .unwrap_or_else(|| {
-            panic!(
-                "GEDF scheduler: DAG {} has no sink relative deadline set",
-                dag_id
-            )
-        })
+        .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"))
 }
 
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
