@@ -35,5 +35,6 @@ chan queue[SCHEDULER_TYPE_NUM] = [TASK_NUM] of { byte }// task_ids in ascending 
 #include "mutex.pml"
 Mutex lock_info[TASK_NUM]
 Mutex lock_queue[SCHEDULER_TYPE_NUM]
+Mutex lock_global_wake_get_mutex
 
 #define BYTE_MAX 255

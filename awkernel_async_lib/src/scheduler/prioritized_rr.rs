@@ -4,7 +4,10 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    scheduler::{get_next_task, get_priority, peek_preemption_pending, push_preemption_pending},
+    scheduler::{
+        get_next_task, get_priority, peek_preemption_pending, push_preemption_pending,
+        GLOBAL_WAKE_GET_MUTEX,
+    },
     task::{
         get_last_executed_by_task_id, get_task, get_tasks_running, set_current_task,
         set_need_preemption, State,
@@ -40,12 +43,6 @@ impl PrioritizedRRData {
 
 impl Scheduler for PrioritizedRRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let mut node = MCSNode::new();
-        // The reason for acquiring this lock before invoke_preemption() is to prevent priority inversion from occurring
-        // when invoke_preemption() is executed between the time the next task is determined and the RUNNING is updated
-        // within the scheduler's get_next().
-        let mut data = self.data.lock(&mut node);
-        let internal_data = data.get_or_insert_with(PrioritizedRRData::new);
         let priority = {
             let mut node_inner = MCSNode::new();
             let info = task.info.lock(&mut node_inner);
@@ -55,7 +52,12 @@ impl Scheduler for PrioritizedRRScheduler {
             }
         };
 
+        let mut node = MCSNode::new();
+        let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption_wake(task.clone()) {
+            let mut node_inner = MCSNode::new();
+            let mut data = self.data.lock(&mut node_inner);
+            let internal_data = data.get_or_insert_with(PrioritizedRRData::new);
             internal_data.queue.push(
                 priority,
                 PrioritizedRRTask {

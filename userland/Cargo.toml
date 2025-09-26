@@ -38,6 +38,10 @@ optional = true
 path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
+[dependencies.test_multi_prioritized_scheduler]
+path = "../applications/tests/test_multi_prioritized_scheduler"
+optional = true
+
 [dependencies.test_prioritized_rr]
 path = "../applications/tests/test_prioritized_rr"
 optional = true
