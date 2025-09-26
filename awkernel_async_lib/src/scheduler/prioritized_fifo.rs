@@ -11,6 +11,9 @@ use alloc::vec::Vec;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
+#[cfg(feature = "perf")]
+use crate::task::perf::record_timestamp;
+
 pub struct PrioritizedFIFOScheduler {
     data: Mutex<Option<PrioritizedFIFOData>>, // Run queue.
     priority: u8,
@@ -51,6 +54,16 @@ impl Scheduler for PrioritizedFIFOScheduler {
         };
 
         if !self.invoke_preemption(task.clone()) {
+            {
+                let mut node_inner = MCSNode::new();
+                let info = task.info.lock(&mut node_inner);
+                if let Some(dag_info) = &info.dag_info {
+                    if dag_info.node_id == 0 {
+                        #[cfg(feature = "perf")]
+                        record_timestamp();
+                    }
+                }
+            }
             internal_data.queue.push(
                 priority,
                 PrioritizedFIFOTask {

@@ -787,6 +787,7 @@ impl_tuple_to_pub_sub!();
 impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
+impl_tuple_to_pub_sub!(A, B, C, D);
 
 macro_rules! impl_async_receiver_for_tuple {
     () => {
@@ -838,6 +839,7 @@ impl_async_receiver_for_tuple!();
 impl_async_receiver_for_tuple!((A, a, p));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r), (D, d, s));
 
 #[cfg(test)]
 mod tests {

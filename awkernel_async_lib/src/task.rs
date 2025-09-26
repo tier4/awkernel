@@ -507,6 +507,104 @@ pub mod perf {
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    const MAX_LOGS: usize = 2048;
+
+    static TIMESTAMP_RECORDER: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static GOAL_TIMESTAMP_RECORDER: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static RUN_TIME_RECORDER: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+
+    pub fn record_timestamp() {
+        let now = awkernel_lib::time::Time::now();
+        let mut node = MCSNode::new();
+        let mut recorder_opt = TIMESTAMP_RECORDER.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for timestamp_slot in recorder.iter_mut() {
+            if *timestamp_slot == 0 {
+                *timestamp_slot = now.uptime().as_nanos() as u64;
+                return;
+            }
+        }
+    }
+
+    pub fn record_goal_timestamp(goal: u64) {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = GOAL_TIMESTAMP_RECORDER.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for timestamp_slot in recorder.iter_mut() {
+            if *timestamp_slot == 0 {
+                *timestamp_slot = goal;
+                return;
+            }
+        }
+    }
+
+    pub fn record_run_time(run_time: u64) {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RUN_TIME_RECORDER.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for timestamp_slot in recorder.iter_mut() {
+            if *timestamp_slot == 0 {
+                *timestamp_slot = run_time;
+                return;
+            }
+        }
+    }
+
+    pub fn print_timestamps() {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = TIMESTAMP_RECORDER.lock(&mut node);
+
+        if let Some(recorder) = recorder_opt.as_mut() {
+            log::info!("Timestamps (in nanoseconds):");
+            for (i, &timestamp) in recorder.iter().enumerate() {
+                if timestamp != 0 {
+                    log::info!("  {}: {}", i, timestamp);
+                }
+            }
+        } else {
+            log::info!("No timestamps recorded.");
+        }
+    }
+
+    pub fn print_goal_timestamp() {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = GOAL_TIMESTAMP_RECORDER.lock(&mut node);
+
+        if let Some(recorder) = recorder_opt.as_mut() {
+            log::info!("Goal Timestamps (in nanoseconds):");
+            for (i, &timestamp) in recorder.iter().enumerate() {
+                if timestamp != 0 {
+                    log::info!("  {}: {}", i, timestamp);
+                }
+            }
+        } else {
+            log::info!("No goal timestamps recorded.");
+        }
+    }
+
+    pub fn print_run_time() {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RUN_TIME_RECORDER.lock(&mut node);
+
+        if let Some(recorder) = recorder_opt.as_mut() {
+            log::info!("Run Times (in nanoseconds):");
+            for (i, &timestamp) in recorder.iter().enumerate() {
+                if timestamp != 0 {
+                    log::info!("  {}: {}", i, timestamp);
+                }
+            }
+        } else {
+            log::info!("No run times recorded.");
+        }
+    }
+
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
         let cpu_id = awkernel_lib::cpu::cpu_id();

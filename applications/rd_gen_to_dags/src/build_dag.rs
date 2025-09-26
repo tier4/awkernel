@@ -5,7 +5,10 @@ use alloc::{borrow::Cow, format, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
     dag::{Dag, create_dag},
     scheduler::SchedulerType,
+    task::perf::record_run_time,
 };
+
+const LOG_ENABLE: bool = false;
 
 /// Represents errors related to the number of links for a node.
 /// `(DAG ID, Node ID)` tuple to identify the specific DAG and node where the error occurred.
@@ -97,7 +100,10 @@ macro_rules! register_source {
                     simulated_execution_time(execution_time);
 
                     let outputs = ($(execution_time as $T_out,)*);
-                    log::debug!("name: {reactor_name}, outputs: {outputs:?}");
+                    if LOG_ENABLE {
+                        log::debug!("name: {reactor_name}, outputs: {outputs:?}");
+                    }
+                    record_run_time(awkernel_async_lib::time::Time::now().uptime().as_nanos() as u64);
                     outputs
                 },
                 pub_topics,
@@ -123,6 +129,7 @@ async fn register_source_node(
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
         3 => register_source!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_source!(dag, node_data, sched_type, u64, u64, u64, u64),
         _ => Err(LinkNumError::Output(dag_id, node_id)),
     }
 }
@@ -148,7 +155,9 @@ macro_rules! register_sink {
                 reactor_name.clone(),
                 move |inputs: ($($T_in,)*)| {
                     simulated_execution_time(execution_time);
-                    log::debug!("name: {reactor_name}, inputs: {inputs:?}");
+                    if LOG_ENABLE {
+                        log::debug!("name: {reactor_name}, inputs: {inputs:?}");
+                    }
                 },
                 sub_topics,
                 $sched_type,
@@ -173,6 +182,7 @@ async fn register_sink_node(
         1 => register_sink!(dag, node_data, sched_type, u64),
         2 => register_sink!(dag, node_data, sched_type, u64, u64),
         3 => register_sink!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_sink!(dag, node_data, sched_type, u64, u64, u64, u64),
         _ => Err(LinkNumError::Input(dag_id, node_id)),
     }
 }
@@ -209,7 +219,9 @@ macro_rules! register_intermediate {
                 move |inputs: ($($T_in,)*)| -> ($($T_out,)*) {
                     simulated_execution_time(execution_time);
                     let outputs = ($(execution_time as $T_out,)*);
+                    if LOG_ENABLE {
                     log::debug!("name: {reactor_name}, inputs: {inputs:?}, outputs: {outputs:?}");
+                    }
                     outputs
                 },
                 sub_topics,
@@ -236,15 +248,28 @@ async fn register_intermediate_node(
         (1, 1) => register_intermediate!(dag, node_data, sched_type, u64; u64),
         (1, 2) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64),
         (1, 3) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64),
+        (1, 4) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64, u64),
         (2, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64),
         (2, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64),
         (2, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64, u64),
+        (2, 4) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64, u64, u64),
         (3, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64),
         (3, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64),
         (3, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64, u64),
-        (i, o) if i > 3 && o > 3 => Err(LinkNumError::InOut(dag_id, node_id)),
-        (i, _) if i > 3 => Err(LinkNumError::Input(dag_id, node_id)),
-        (_, o) if o > 3 => Err(LinkNumError::Output(dag_id, node_id)),
+        (3, 4) => {
+            register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64, u64, u64)
+        }
+        (4, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64),
+        (4, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64, u64),
+        (4, 3) => {
+            register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64, u64, u64)
+        }
+        (4, 4) => {
+            register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64, u64, u64, u64)
+        }
+        (i, o) if i > 4 && o > 4 => Err(LinkNumError::InOut(dag_id, node_id)),
+        (i, _) if i > 4 => Err(LinkNumError::Input(dag_id, node_id)),
+        (_, o) if o > 4 => Err(LinkNumError::Output(dag_id, node_id)),
         _ => unreachable!(),
     }
 }
@@ -257,7 +282,7 @@ pub(super) async fn build_dag(
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
-            register_source_node(&dag, node, sched_type).await?;
+            register_source_node(&dag, node, SchedulerType::PrioritizedFIFO(0)).await?;
         } else if node.is_sink() {
             register_sink_node(&dag, node, sched_type).await?;
         } else {

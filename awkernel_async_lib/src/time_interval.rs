@@ -28,7 +28,7 @@
 //! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //! SOFTWARE.
 
-use crate::sleep_task::Sleep;
+use crate::{sleep_task::Sleep, task::perf::record_goal_timestamp};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{
@@ -73,7 +73,7 @@ pub enum MissedTickBehavior {
 
 impl Default for MissedTickBehavior {
     fn default() -> Self {
-        Self::Burst
+        Self::Skip
     }
 }
 
@@ -102,7 +102,9 @@ impl Default for MissedTickBehavior {
 ///
 pub fn interval(period: Duration) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    interval_at(Time::now(), period)
+    let now = Time::now();
+    log::info!("[DEBUG] interval called at: {:?}", now.uptime().as_nanos());
+    interval_at(now, period)
 }
 
 pub fn interval_at(start: Time, period: Duration) -> Interval {
@@ -149,7 +151,6 @@ impl Stream for Interval {
             Poll::Pending => Poll::Pending,
             Poll::Ready(_) => {
                 let now = Time::now();
-                // If a tick is missed, determine the target time for the next tick.
                 let next_target = if now > tick_time {
                     match self.missed_tick_behavior {
                         MissedTickBehavior::Burst => tick_time + period,
@@ -165,6 +166,7 @@ impl Stream for Interval {
                     tick_time + period
                 };
                 self.next_tick_target = next_target;
+                record_goal_timestamp(next_target.uptime().as_nanos() as u64);
                 self.delay = None;
 
                 Poll::Ready(Some(tick_time))
