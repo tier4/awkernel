@@ -79,9 +79,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             if last_print.elapsed().as_secs() >= 10 {
                 #[cfg(feature = "perf")]
-                awkernel_async_lib::task::perf::print_timestamps();
+                awkernel_async_lib::task::perf::print_wake_timestamps();
                 // awkernel_async_lib::task::perf::print_run_time();
-                // awkernel_async_lib::task::perf::print_goal_timestamp();
                 last_print = awkernel_lib::time::Time::now();
             }
 

@@ -28,7 +28,7 @@
 //! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //! SOFTWARE.
 
-use crate::{sleep_task::Sleep, task::perf::record_goal_timestamp};
+use crate::sleep_task::Sleep;
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{
@@ -103,7 +103,6 @@ impl Default for MissedTickBehavior {
 pub fn interval(period: Duration) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
     let now = Time::now();
-    log::info!("[DEBUG] interval called at: {:?}", now.uptime().as_nanos());
     interval_at(now, period)
 }
 
@@ -166,7 +165,6 @@ impl Stream for Interval {
                     tick_time + period
                 };
                 self.next_tick_target = next_target;
-                record_goal_timestamp(next_target.uptime().as_nanos() as u64);
                 self.delay = None;
 
                 Poll::Ready(Some(tick_time))

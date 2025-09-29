@@ -111,7 +111,6 @@ impl_tuple_size!();
 impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
-impl_tuple_size!(T1, T2, T3, T4);
 
 #[derive(Clone)]
 pub enum DagError {
