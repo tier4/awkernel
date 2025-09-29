@@ -19,14 +19,14 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         GARBAGE_COLLECTOR_NAME.into(),
         tcp_garbage_collector(),
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::PrioritizedFIFO(1),
     )
     .await;
 
     awkernel_async_lib::spawn(
         NETWORK_IF_POLLER_NAME.into(),
         network_interface_poller(),
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::PrioritizedFIFO(1),
     )
     .await;
 
@@ -140,7 +140,7 @@ async fn spawn_handlers(
         awkernel_async_lib::spawn(
             name.into(),
             interrupt_handler(if_status.interface_id, irq, server),
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::PrioritizedFIFO(1),
         )
         .await;
     }
@@ -158,7 +158,7 @@ async fn spawn_handlers(
         awkernel_async_lib::spawn(
             name.into(),
             poll_handler(if_status.interface_id, server),
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::PrioritizedFIFO(1),
         )
         .await;
     }
@@ -176,7 +176,7 @@ async fn spawn_handlers(
         awkernel_async_lib::spawn(
             name.into(),
             tick_handler(if_status.interface_id, tick_msec, server),
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::PrioritizedFIFO(1),
         )
         .await;
     }

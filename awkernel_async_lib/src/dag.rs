@@ -63,7 +63,13 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    task::DagInfo,
+    task::{
+        perf::{
+            update_fin_recv_inner_timestamp_at, update_fin_recv_outer_timestamp_at,
+            update_pre_send_outer_timestamp_at,
+        },
+        DagInfo,
+    },
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -74,7 +80,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    sync::mutex::{MCSNode, Mutex},
+    time::Time,
+};
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
@@ -111,6 +120,13 @@ impl_tuple_size!();
 impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
+impl_tuple_size!(T1, T2, T3, T4);
+impl_tuple_size!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_tuple_size!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
+impl_tuple_size!(
+    T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21,
+    T22, T23, T24, T25, T26, T27, T28, T29, T30, T31, T32
+);
 
 #[derive(Clone)]
 pub enum DagError {
@@ -925,11 +941,19 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
+        let mut counter = 0;
+
         loop {
-            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
-                subscribers.recv_all().await;
+            let (args, _) = subscribers.recv_all().await;
+
             let results = f(args);
-            publishers.send_all(results).await;
+
+            let outer_sending_time = Time::now().uptime().as_nanos() as u64;
+            publishers.send_all(results, counter, true).await;
+
+            update_pre_send_outer_timestamp_at(counter, outer_sending_time);
+
+            counter += 1;
         }
     };
 
@@ -972,7 +996,7 @@ where
 
         loop {
             let results = f();
-            publishers.send_all(results).await;
+            publishers.send_all(results, 0, false).await;
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1005,8 +1029,15 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
+        let mut counter = 0;
+
         loop {
-            let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
+            let (args, inner_receiving_time) = subscribers.recv_all().await;
+            let outer_receiving_time = Time::now().uptime().as_nanos() as u64;
+            update_fin_recv_inner_timestamp_at(counter, inner_receiving_time);
+            update_fin_recv_outer_timestamp_at(counter, outer_receiving_time);
+            counter += 1;
+
             f(args);
         }
     };

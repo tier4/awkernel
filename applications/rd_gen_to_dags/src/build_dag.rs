@@ -97,7 +97,6 @@ macro_rules! register_source {
                     simulated_execution_time(execution_time);
 
                     let outputs = ($(execution_time as $T_out,)*);
-                    log::debug!("name: {reactor_name}, outputs: {outputs:?}");
                     outputs
                 },
                 pub_topics,
@@ -123,6 +122,19 @@ async fn register_source_node(
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
         3 => register_source!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_source!(dag, node_data, sched_type, u64, u64, u64, u64),
+        8 => register_source!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64
+        ),
+        16 => register_source!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64
+        ),
+        32 => register_source!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64
+        ),
         _ => Err(LinkNumError::Output(dag_id, node_id)),
     }
 }
@@ -146,9 +158,8 @@ macro_rules! register_sink {
             let execution_time = registration_info.execution_time;
             $dag.register_sink_reactor::<_, ($($T_in,)*)>(
                 reactor_name.clone(),
-                move |inputs: ($($T_in,)*)| {
+                move |_inputs: ($($T_in,)*)| {
                     simulated_execution_time(execution_time);
-                    log::debug!("name: {reactor_name}, inputs: {inputs:?}");
                 },
                 sub_topics,
                 $sched_type,
@@ -173,6 +184,19 @@ async fn register_sink_node(
         1 => register_sink!(dag, node_data, sched_type, u64),
         2 => register_sink!(dag, node_data, sched_type, u64, u64),
         3 => register_sink!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_sink!(dag, node_data, sched_type, u64, u64, u64, u64),
+        8 => register_sink!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64
+        ),
+        16 => register_sink!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64
+        ),
+        32 => register_sink!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64
+        ),
         _ => Err(LinkNumError::Input(dag_id, node_id)),
     }
 }
@@ -206,10 +230,9 @@ macro_rules! register_intermediate {
             let reactor_name = registration_info.reactor_name;
             $dag.register_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
                 reactor_name.clone(),
-                move |inputs: ($($T_in,)*)| -> ($($T_out,)*) {
+                move |_inputs: ($($T_in,)*)| -> ($($T_out,)*) {
                     simulated_execution_time(execution_time);
                     let outputs = ($(execution_time as $T_out,)*);
-                    log::debug!("name: {reactor_name}, inputs: {inputs:?}, outputs: {outputs:?}");
                     outputs
                 },
                 sub_topics,
@@ -236,12 +259,28 @@ async fn register_intermediate_node(
         (1, 1) => register_intermediate!(dag, node_data, sched_type, u64; u64),
         (1, 2) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64),
         (1, 3) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64),
+        (1, 4) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64, u64),
+        (1, 8) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64, u64, u64),
+        (1, 16) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64),
+        (1, 32) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64),
         (2, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64),
         (2, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64),
         (2, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64, u64),
         (3, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64),
         (3, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64),
         (3, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64, u64),
+        (4, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64),
+        (8, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64, u64, u64; u64),
+        (16, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64; u64),
+        (32, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+            u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64; u64),
         (i, o) if i > 3 && o > 3 => Err(LinkNumError::InOut(dag_id, node_id)),
         (i, _) if i > 3 => Err(LinkNumError::Input(dag_id, node_id)),
         (_, o) if o > 3 => Err(LinkNumError::Output(dag_id, node_id)),

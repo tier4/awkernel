@@ -454,6 +454,7 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
+    use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
 
@@ -506,6 +507,112 @@ pub mod perf {
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    const MAX_LOGS: usize = 2048;
+
+    static PRE_SEND_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static PRE_SEND_INNER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static FIN_RECV_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static FIN_RECV_INNER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+
+    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = PRE_SEND_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        recorder[index] = new_timestamp;
+    }
+
+    pub fn update_pre_send_inner_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = PRE_SEND_INNER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        recorder[index] = recorder[index].max(new_timestamp);
+    }
+
+    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = FIN_RECV_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        recorder[index] = new_timestamp;
+    }
+
+    pub fn update_fin_recv_inner_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = FIN_RECV_INNER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        recorder[index] = recorder[index].max(new_timestamp);
+    }
+
+    pub fn print_timestamp_table() {
+        // 4つのMutexを安全にロックする
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
+
+        let pre_send_outer_opt = PRE_SEND_OUTER_TIMESTAMP.lock(&mut node1);
+        let pre_send_inner_opt = PRE_SEND_INNER_TIMESTAMP.lock(&mut node2);
+        let fin_recv_inner_opt = FIN_RECV_INNER_TIMESTAMP.lock(&mut node3);
+        let fin_recv_outer_opt = FIN_RECV_OUTER_TIMESTAMP.lock(&mut node4);
+
+        // --- ヘッダーの出力 ---
+        log::info!("--- Timestamp Summary (Table View) ---");
+        log::info!("Index | Pre-Send-Outer | Pre-Send-Inner | Fin-Recv-Inner | Fin-Recv-Outer |");
+        log::info!("------+----------------+----------------+----------------+----------------");
+
+        // 0からMAX_LOGS-1まで全インデックスを走査
+        for i in 0..MAX_LOGS {
+            // 各配列から対応するインデックスのタイムスタンプを取得する
+            // まだ配列が初期化されていない(None)場合は、デフォルト値の0として扱う
+            let pre_send_outer = pre_send_outer_opt.as_ref().map_or(0, |arr| arr[i]);
+            let pre_send_inner = pre_send_inner_opt.as_ref().map_or(0, |arr| arr[i]);
+            let fin_recv_inner = fin_recv_inner_opt.as_ref().map_or(0, |arr| arr[i]);
+            let fin_recv_outer = fin_recv_outer_opt.as_ref().map_or(0, |arr| arr[i]);
+
+            // そのインデックスに一つでも記録があれば（どれか一つでも0でなければ）行を出力する
+            if pre_send_outer != 0
+                || pre_send_inner != 0
+                || fin_recv_inner != 0
+                || fin_recv_outer != 0
+            {
+                // 0の場合はハイフン'-'で表示すると見やすい
+                let format_ts = |ts: u64| -> String {
+                    if ts == 0 {
+                        "-".to_string()
+                    } else {
+                        ts.to_string()
+                    }
+                };
+
+                log::info!(
+                    "{: >5} | {: >14} | {: >14} | {: >14} | {: >14}",
+                    i,
+                    format_ts(pre_send_outer),
+                    format_ts(pre_send_inner),
+                    format_ts(fin_recv_inner),
+                    format_ts(fin_recv_outer)
+                );
+            }
+        }
+        log::info!("----------------------------------------------------------");
+    }
 
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();

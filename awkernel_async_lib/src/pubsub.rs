@@ -32,6 +32,7 @@ use super::{
     r#yield,
 };
 
+use crate::task::perf::update_pre_send_inner_timestamp_at;
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -44,6 +45,7 @@ use awkernel_lib::sync::{
     mutex::{MCSNode, Mutex},
     rwlock::RwLock,
 };
+use awkernel_lib::time::Time;
 use core::{
     pin::Pin,
     task::{Poll, Waker},
@@ -717,13 +719,18 @@ impl Default for Attribute {
 pub trait MultipleReceiver {
     type Item;
 
-    fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+    fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>>;
 }
 
 pub trait MultipleSender {
     type Item;
 
-    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    fn send_all(
+        &self,
+        item: Self::Item,
+        counter: usize,
+        flag: bool,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
     type Publishers: MultipleSender;
@@ -787,21 +794,32 @@ impl_tuple_to_pub_sub!();
 impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15);
+impl_tuple_to_pub_sub!(
+    T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20,
+    T21, T22, T23, T24, T25, T26, T27, T28, T29, T30, T31
+);
 
 macro_rules! impl_async_receiver_for_tuple {
     () => {
         impl MultipleReceiver for () {
             type Item = ();
 
-            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
-                Box::pin(async move{})
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>> {
+                Box::pin(async move {
+                    let received_data = ();
+                    let receiving_time = Time::now().uptime().as_nanos() as u64;
+                    (received_data, receiving_time)
+                })
             }
         }
 
         impl MultipleSender for () {
             type Item = ();
 
-            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all(&self, _item: Self::Item, _counter: usize, _flag: bool) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -810,26 +828,32 @@ macro_rules! impl_async_receiver_for_tuple {
         impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
             type Item = ($($T,)+);
 
-            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
-                let ($($idx,)+) = self;
-                Box::pin(async move {
-                    ($($idx.recv().await.data,)+)
-                })
-            }
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>> {
+            let ($($idx,)+) = self;
+            Box::pin(async move {
+                let received_data = ($($idx.recv().await.data,)+);
+                let receiving_time = Time::now().uptime().as_nanos() as u64;
+                (received_data, receiving_time)
+            })
+        }
         }
 
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
             type Item = ($($T,)+);
 
-            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all(&self, item: Self::Item, counter: usize, flag: bool) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
+                let sending_time = Time::now().uptime().as_nanos() as u64;
                 Box::pin(async move {
                     $(
                         $idx.send($idx2).await;
                     )+
+                    if flag {
+                        update_pre_send_inner_timestamp_at(counter, sending_time);
+                    }
                 })
-            }
+    }
         }
     };
 }
@@ -838,6 +862,71 @@ impl_async_receiver_for_tuple!();
 impl_async_receiver_for_tuple!((A, a, p));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
+impl_async_receiver_for_tuple!((T0, v0, p0), (T1, v1, p1), (T2, v2, p2), (T3, v3, p3));
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6),
+    (T7, v7, p7)
+);
+
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6),
+    (T7, v7, p7),
+    (T8, v8, p8),
+    (T9, v9, p9),
+    (T10, v10, p10),
+    (T11, v11, p11),
+    (T12, v12, p12),
+    (T13, v13, p13),
+    (T14, v14, p14),
+    (T15, v15, p15)
+);
+
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6),
+    (T7, v7, p7),
+    (T8, v8, p8),
+    (T9, v9, p9),
+    (T10, v10, p10),
+    (T11, v11, p11),
+    (T12, v12, p12),
+    (T13, v13, p13),
+    (T14, v14, p14),
+    (T15, v15, p15),
+    (T16, v16, p16),
+    (T17, v17, p17),
+    (T18, v18, p18),
+    (T19, v19, p19),
+    (T20, v20, p20),
+    (T21, v21, p21),
+    (T22, v22, p22),
+    (T23, v23, p23),
+    (T24, v24, p24),
+    (T25, v25, p25),
+    (T26, v26, p26),
+    (T27, v27, p27),
+    (T28, v28, p28),
+    (T29, v29, p29),
+    (T30, v30, p30),
+    (T31, v31, p31)
+);
 
 #[cfg(test)]
 mod tests {
