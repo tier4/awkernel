@@ -573,7 +573,7 @@ pub mod perf {
         let fin_recv_outer_opt = FIN_RECV_OUTER_TIMESTAMP.lock(&mut node4);
 
         // --- ヘッダーの出力 ---
-        log::info!("--- Timestamp Summary (Table View) ---");
+        log::info!("--- Timestamp Summary (in nanoseconds) ---");
         log::info!("Index | Pre-Send-Outer | Pre-Send-Inner | Fin-Recv-Inner | Fin-Recv-Outer |");
         log::info!("------+----------------+----------------+----------------+----------------");
 
