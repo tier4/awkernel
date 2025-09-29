@@ -513,8 +513,7 @@ pub mod perf {
     static WAKE_TIMESTAMP_RECORDER: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
     static RUN_TIME_RECORDER: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
 
-    pub fn wake_record_timestamp() {
-        let now = awkernel_lib::time::Time::now();
+    pub fn record_wake_timestamp() {
         let mut node = MCSNode::new();
         let mut recorder_opt = WAKE_TIMESTAMP_RECORDER.lock(&mut node);
 
@@ -522,7 +521,7 @@ pub mod perf {
 
         for timestamp_slot in recorder.iter_mut() {
             if *timestamp_slot == 0 {
-                *timestamp_slot = now.uptime().as_nanos() as u64;
+                *timestamp_slot = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 return;
             }
         }
@@ -542,7 +541,7 @@ pub mod perf {
         }
     }
 
-    pub fn print_timestamps() {
+    pub fn print_wake_timestamps() {
         let mut node = MCSNode::new();
         let mut recorder_opt = WAKE_TIMESTAMP_RECORDER.lock(&mut node);
 

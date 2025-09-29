@@ -130,8 +130,9 @@ pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<DagData>, ParseError>
     dag_files
         .iter()
         .map(|&dag_file| {
-            let raw_data_vec: Vec<RawData> =
-                from_str(dag_file).map_err(|e| ParseError::UnmatchedYaml(e.to_string()))?;
+            let cleaned_dag_file = dag_file.replace('\u{00A0}', " ");
+            let raw_data_vec: Vec<RawData> = from_str(&cleaned_dag_file)
+                .map_err(|e| ParseError::UnmatchedYaml(e.to_string()))?;
             match raw_data_vec.len() {
                 0 => Err(ParseError::EmptyYaml),
                 1 => Ok(convert_to_dag(raw_data_vec.into_iter().next().unwrap())),

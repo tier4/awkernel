@@ -4,7 +4,7 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::scheduler::{peek_preemption_pending, push_preemption_pending};
-use crate::task::perf::wake_record_timestamp;
+use crate::task::perf::record_wake_timestamp;
 use crate::task::{get_task, get_tasks_running, set_current_task, set_need_preemption};
 use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
@@ -58,7 +58,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 if let Some(dag_info) = &info.dag_info {
                     if dag_info.node_id == 0 {
                         #[cfg(feature = "perf")]
-                        wake_record_timestamp();
+                        record_wake_timestamp();
                     }
                 }
             }
