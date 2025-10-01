@@ -163,7 +163,6 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
             Poll::Ready(data)
         } else {
             let mut node = MCSNode::new();
-            // TODO: KOBAYAASHI
             let mut inner = self.subscriber.inner.lock(&mut node);
             inner.waker_subscriber = Some(cx.waker().clone());
 
@@ -304,7 +303,6 @@ where
 
                         inner.garbage_collect(&this.publisher.subscribers.attribute.lifespan);
 
-                        // TODO: KOBAYAASHI
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
