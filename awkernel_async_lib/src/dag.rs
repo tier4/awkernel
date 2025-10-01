@@ -74,10 +74,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_lib::{
-    sync::mutex::{MCSNode, Mutex},
-    time::Time,
-};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
