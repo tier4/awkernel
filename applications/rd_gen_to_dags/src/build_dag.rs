@@ -296,9 +296,9 @@ pub(super) async fn build_dag(
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
-            register_source_node(&dag, node, sched_type).await?;
+            register_source_node(&dag, node, SchedulerType::PrioritizedFIFO(2)).await?;
         } else if node.is_sink() {
-            register_sink_node(&dag, node, sched_type).await?;
+            register_sink_node(&dag, node, SchedulerType::PrioritizedFIFO(1)).await?;
         } else {
             register_intermediate_node(&dag, node, sched_type).await?;
         }

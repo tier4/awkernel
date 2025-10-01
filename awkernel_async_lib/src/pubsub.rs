@@ -32,7 +32,10 @@ use super::{
     r#yield,
 };
 
-use crate::task::perf::update_pre_send_inner_timestamp_at;
+use crate::task::perf::{
+    update_pre_send_inner_timestamp_at, update_recv_locked_timestamp_at,
+    update_send_data_push_timestamp_at, update_send_wake_timestamp_at,
+};
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -163,7 +166,11 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
             Poll::Ready(data)
         } else {
             let mut node = MCSNode::new();
+            // TODO: KOBAYAASHI
             let mut inner = self.subscriber.inner.lock(&mut node);
+            update_recv_locked_timestamp_at(
+                awkernel_lib::time::Time::now().uptime().as_nanos() as u64
+            );
             inner.waker_subscriber = Some(cx.waker().clone());
 
             Poll::Pending
@@ -303,13 +310,20 @@ where
 
                         inner.garbage_collect(&this.publisher.subscribers.attribute.lifespan);
 
+                        // TODO: KOBAYAASHI
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
                         }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
+                                update_send_data_push_timestamp_at(
+                                    awkernel_lib::time::Time::now().uptime().as_nanos() as u64,
+                                );
                                 if let Some(waker) = inner.waker_subscriber.take() {
+                                    update_send_wake_timestamp_at(
+                                        awkernel_lib::time::Time::now().uptime().as_nanos() as u64,
+                                    );
                                     waker.wake();
                                 }
                             }

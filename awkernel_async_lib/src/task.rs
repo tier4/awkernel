@@ -516,6 +516,91 @@ pub mod perf {
     static FIN_RECV_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
     static FIN_RECV_INNER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
 
+    static RECV_LOCKED_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static SEND_DATA_PUSH_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static SEND_WAKE_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+
+    pub fn update_recv_locked_timestamp_at(new_timestamp: u64) {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RECV_LOCKED_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for i in 0..MAX_LOGS {
+            if recorder[i] == 0 {
+                recorder[i] = new_timestamp;
+                break;
+            }
+        }
+    }
+
+    pub fn update_send_data_push_timestamp_at(new_timestamp: u64) {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SEND_DATA_PUSH_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for i in 0..MAX_LOGS {
+            if recorder[i] == 0 {
+                recorder[i] = new_timestamp;
+                break;
+            }
+        }
+    }
+
+    pub fn update_send_wake_timestamp_at(new_timestamp: u64) {
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SEND_WAKE_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        for i in 0..MAX_LOGS {
+            if recorder[i] == 0 {
+                recorder[i] = new_timestamp;
+                break;
+            }
+        }
+    }
+
+    pub fn print_send_recv_timestamp() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+
+        let recv_locked_opt = RECV_LOCKED_TIMESTAMP.lock(&mut node1);
+        let send_data_push_opt = SEND_DATA_PUSH_TIMESTAMP.lock(&mut node2);
+        let send_wake_opt = SEND_WAKE_TIMESTAMP.lock(&mut node3);
+
+        log::info!("--- Send/Recv Timestamp Summary (in nanoseconds) ---");
+        log::info!("Index | Recv-Locked | Send-Data-Push | Send-Wake |");
+        log::info!("------+-------------+----------------+-----------");
+
+        for i in 0..MAX_LOGS {
+            let recv_locked = recv_locked_opt.as_ref().map_or(0, |arr| arr[i]);
+            let send_data_push = send_data_push_opt.as_ref().map_or(0, |arr| arr[i]);
+            let send_wake = send_wake_opt.as_ref().map_or(0, |arr| arr[i]);
+
+            if recv_locked != 0 || send_data_push != 0 || send_wake != 0 {
+                let format_ts = |ts: u64| -> String {
+                    if ts == 0 {
+                        "-".to_string()
+                    } else {
+                        ts.to_string()
+                    }
+                };
+
+                log::info!(
+                    "{: >5} | {: >11} | {: >14} | {: >9}",
+                    i,
+                    format_ts(recv_locked),
+                    format_ts(send_data_push),
+                    format_ts(send_wake)
+                );
+            }
+        }
+        log::info!("-----------------------------------------------");
+    }
+
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 

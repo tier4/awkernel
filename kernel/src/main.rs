@@ -80,6 +80,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             if last_print.elapsed().as_secs() >= 10 {
                 #[cfg(feature = "perf")]
                 awkernel_async_lib::task::perf::print_timestamp_table();
+                awkernel_async_lib::task::perf::print_send_recv_timestamp();
                 last_print = awkernel_lib::time::Time::now();
             }
             // handle IRQs
