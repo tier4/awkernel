@@ -544,8 +544,15 @@ pub mod perf {
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
 
         log::info!("--- Timestamp Summary (in nanoseconds) ---");
-        log::info!("Index | Send-Outer | Recv-Outer | Latency");
-        log::info!("------+----------------+----------------+----------------+");
+        log::info!(
+            "{: ^5} | {: ^14} | {: ^14} | {: ^14}",
+            "Index",
+            "Send-Outer",
+            "Recv-Outer",
+            "Latency"
+        );
+
+        log::info!("-----|----------------|----------------|----------------");
 
         for i in 0..MAX_LOGS {
             let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i]);

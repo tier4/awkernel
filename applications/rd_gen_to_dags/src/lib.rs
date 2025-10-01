@@ -12,7 +12,7 @@ use build_dag::build_dag;
 
 // A newline is required at the end due to yaml_peg specification.
 // If you have multiple files, define a `const` for each.
-const DAG_FILE_0: &str = concat!(include_str!("../../../DAGs/dag_32_precon.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("../../../DAGs/dag_8_precon.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("path/to/dag_1.yaml"), "\n");
 
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.

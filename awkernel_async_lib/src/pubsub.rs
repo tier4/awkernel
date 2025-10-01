@@ -788,12 +788,10 @@ impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
 impl_tuple_to_pub_sub!(T0, T1, T2, T3);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6);
 impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15);
-impl_tuple_to_pub_sub!(
-    T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20,
-    T21, T22, T23, T24, T25, T26, T27, T28, T29, T30, T31
-);
 
 macro_rules! impl_async_receiver_for_tuple {
     () => {
@@ -851,64 +849,34 @@ impl_async_receiver_for_tuple!(
     (T1, v1, p1),
     (T2, v2, p2),
     (T3, v3, p3),
+    (T4, v4, p4)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
     (T4, v4, p4),
     (T5, v5, p5),
     (T6, v6, p6),
     (T7, v7, p7)
-);
-
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4),
-    (T5, v5, p5),
-    (T6, v6, p6),
-    (T7, v7, p7),
-    (T8, v8, p8),
-    (T9, v9, p9),
-    (T10, v10, p10),
-    (T11, v11, p11),
-    (T12, v12, p12),
-    (T13, v13, p13),
-    (T14, v14, p14),
-    (T15, v15, p15)
-);
-
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4),
-    (T5, v5, p5),
-    (T6, v6, p6),
-    (T7, v7, p7),
-    (T8, v8, p8),
-    (T9, v9, p9),
-    (T10, v10, p10),
-    (T11, v11, p11),
-    (T12, v12, p12),
-    (T13, v13, p13),
-    (T14, v14, p14),
-    (T15, v15, p15),
-    (T16, v16, p16),
-    (T17, v17, p17),
-    (T18, v18, p18),
-    (T19, v19, p19),
-    (T20, v20, p20),
-    (T21, v21, p21),
-    (T22, v22, p22),
-    (T23, v23, p23),
-    (T24, v24, p24),
-    (T25, v25, p25),
-    (T26, v26, p26),
-    (T27, v27, p27),
-    (T28, v28, p28),
-    (T29, v29, p29),
-    (T30, v30, p30),
-    (T31, v31, p31)
 );
 
 #[cfg(test)]
