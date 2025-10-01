@@ -32,7 +32,6 @@ use super::{
     r#yield,
 };
 
-use crate::task::perf::update_pre_send_inner_timestamp_at;
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -45,7 +44,6 @@ use awkernel_lib::sync::{
     mutex::{MCSNode, Mutex},
     rwlock::RwLock,
 };
-use awkernel_lib::time::Time;
 use core::{
     pin::Pin,
     task::{Poll, Waker},
@@ -163,7 +161,6 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
             Poll::Ready(data)
         } else {
             let mut node = MCSNode::new();
-            // TODO: KOBAYAASHI
             let mut inner = self.subscriber.inner.lock(&mut node);
             inner.waker_subscriber = Some(cx.waker().clone());
 
@@ -304,7 +301,6 @@ where
 
                         inner.garbage_collect(&this.publisher.subscribers.attribute.lifespan);
 
-                        // TODO: KOBAYAASHI
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
@@ -721,18 +717,13 @@ impl Default for Attribute {
 pub trait MultipleReceiver {
     type Item;
 
-    fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>>;
+    fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 }
 
 pub trait MultipleSender {
     type Item;
 
-    fn send_all(
-        &self,
-        item: Self::Item,
-        counter: usize,
-        flag: bool,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
     type Publishers: MultipleSender;
@@ -809,19 +800,15 @@ macro_rules! impl_async_receiver_for_tuple {
         impl MultipleReceiver for () {
             type Item = ();
 
-            fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>> {
-                Box::pin(async move {
-                    let received_data = ();
-                    let receiving_time = Time::now().uptime().as_nanos() as u64;
-                    (received_data, receiving_time)
-                })
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                Box::pin(async move{})
             }
         }
 
         impl MultipleSender for () {
             type Item = ();
 
-            fn send_all(&self, _item: Self::Item, _counter: usize, _flag: bool) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -830,32 +817,26 @@ macro_rules! impl_async_receiver_for_tuple {
         impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
             type Item = ($($T,)+);
 
-            fn recv_all(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u64)> + Send + '_>> {
-            let ($($idx,)+) = self;
-            Box::pin(async move {
-                let received_data = ($($idx.recv().await.data,)+);
-                let receiving_time = Time::now().uptime().as_nanos() as u64;
-                (received_data, receiving_time)
-            })
-        }
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                let ($($idx,)+) = self;
+                Box::pin(async move {
+                    ($($idx.recv().await.data,)+)
+                })
+            }
         }
 
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
             type Item = ($($T,)+);
 
-            fn send_all(&self, item: Self::Item, counter: usize, flag: bool) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
-                let sending_time = Time::now().uptime().as_nanos() as u64;
                 Box::pin(async move {
                     $(
                         $idx.send($idx2).await;
                     )+
-                    if flag {
-                        update_pre_send_inner_timestamp_at(counter, sending_time);
-                    }
                 })
-    }
+            }
         }
     };
 }

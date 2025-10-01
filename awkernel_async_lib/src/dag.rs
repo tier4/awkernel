@@ -64,10 +64,7 @@ use crate::{
     },
     scheduler::SchedulerType,
     task::{
-        perf::{
-            update_fin_recv_inner_timestamp_at, update_fin_recv_outer_timestamp_at,
-            update_pre_send_outer_timestamp_at,
-        },
+        perf::{update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at},
         DagInfo,
     },
     time_interval::interval,
@@ -944,13 +941,13 @@ where
         let mut counter = 0;
 
         loop {
-            let (args, _) = subscribers.recv_all().await;
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
 
             let results = f(args);
 
             let outer_sending_time = Time::now().uptime().as_nanos() as u64;
-            publishers.send_all(results, counter, true).await;
-
+            publishers.send_all(results).await;
             update_pre_send_outer_timestamp_at(counter, outer_sending_time);
 
             counter += 1;
@@ -996,7 +993,7 @@ where
 
         loop {
             let results = f();
-            publishers.send_all(results, 0, false).await;
+            publishers.send_all(results).await;
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1032,9 +1029,8 @@ where
         let mut counter = 0;
 
         loop {
-            let (args, inner_receiving_time) = subscribers.recv_all().await;
+            let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             let outer_receiving_time = Time::now().uptime().as_nanos() as u64;
-            update_fin_recv_inner_timestamp_at(counter, inner_receiving_time);
             update_fin_recv_outer_timestamp_at(counter, outer_receiving_time);
             counter += 1;
 
