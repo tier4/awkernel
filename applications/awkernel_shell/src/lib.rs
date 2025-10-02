@@ -23,7 +23,7 @@ pub fn init() {
     let task_id = task::spawn(
         SERVICE_NAME.into(),
         console_handler(),
-        SchedulerType::PrioritizedFIFO(3),
+        SchedulerType::PrioritizedFIFO(0),
     );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {

@@ -15,21 +15,21 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         BUFFERED_LOGGER_NAME.into(),
         buffered_logger::run(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(3),
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
     awkernel_async_lib::spawn(
         NETWORK_SERVICE_NAME.into(),
         network_service::run(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(3),
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 
     awkernel_async_lib::spawn(
         DISPLAY_SERVICE_NAME.into(),
         awkernel_display::run(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(3),
+        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
 

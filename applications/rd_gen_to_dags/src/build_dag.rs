@@ -284,17 +284,17 @@ async fn register_intermediate_node(
 
 pub(super) async fn build_dag(
     dag_data: DagData,
-    sched_type: SchedulerType,
+    _sched_type: SchedulerType,
 ) -> Result<Arc<Dag>, LinkNumError> {
     let dag = create_dag();
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
-            register_source_node(&dag, node, SchedulerType::PrioritizedFIFO(2)).await?;
+            register_source_node(&dag, node, SchedulerType::PrioritizedFIFO(29)).await?;
         } else if node.is_sink() {
-            register_sink_node(&dag, node, SchedulerType::PrioritizedFIFO(1)).await?;
+            register_sink_node(&dag, node, SchedulerType::PrioritizedFIFO(31)).await?;
         } else {
-            register_intermediate_node(&dag, node, sched_type).await?;
+            register_intermediate_node(&dag, node, SchedulerType::PrioritizedFIFO(30)).await?;
         }
     }
 
