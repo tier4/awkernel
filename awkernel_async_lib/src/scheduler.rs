@@ -116,6 +116,11 @@ static PRIORITY_LIST: [SchedulerType; 4] = [
     SchedulerType::Panicked,
 ];
 
+/// For exclusion execution of `wake_task` and `get_next` across all schedulers.
+/// In order to resolve priority inversion in multiple priority-based schedulers,
+/// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
+static GLOBAL_WAKE_GET_MUTEX: Mutex<()> = Mutex::new(());
+
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
@@ -134,6 +139,9 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+
     let task = PRIORITY_LIST
         .iter()
         .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));

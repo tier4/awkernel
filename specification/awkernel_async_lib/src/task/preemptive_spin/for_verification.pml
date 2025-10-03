@@ -34,7 +34,7 @@ inline update_running_lowest_priority() {
 	}
 }
 
-#define MAX_CONSECUTIVE_RUN_MAIN_LOOP 5
+#define MAX_CONSECUTIVE_RUN_MAIN_LOOP 2
 byte consecutive_run_main_loop[WORKER_NUM] = 0
 bool wait_for_weak_fairness[WORKER_NUM] = false
 chan resume_requests = [WORKER_NUM] of { byte }// tid that requested to resume execution.
