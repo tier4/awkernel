@@ -222,6 +222,21 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
+
+    #[inline(always)]
+    pub fn get_dag_info(&self) -> Option<DagInfo> {
+        self.dag_info.clone()
+    }
+
+    #[inline(always)]
+    pub fn update_release_time(&mut self, time: awkernel_lib::time::Time) {
+        self.release_time = Some(time);
+    }
+
+    #[inline(always)]
+    pub fn get_release_time(&self) -> Option<awkernel_lib::time::Time> {
+        self.release_time
+    }
 }
 
 /// State of task.
@@ -241,6 +256,12 @@ pub enum State {
 struct Tasks {
     candidate_id: u32, // Next candidate of task ID.
     id_to_task: BTreeMap<u32, Arc<Task>>,
+}
+
+#[derive(Copy, Clone)]
+pub struct DagInfo {
+    pub dag_id: u32,
+    pub node_id: u32,
 }
 
 impl Tasks {
