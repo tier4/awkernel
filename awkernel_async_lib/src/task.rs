@@ -153,7 +153,7 @@ pub struct TaskInfo {
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
     last_executed_time: awkernel_lib::time::Time,
-    absolute_deadline: Option<u64>,
+    pub(crate) absolute_deadline: Option<u64>,
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
@@ -161,6 +161,8 @@ pub struct TaskInfo {
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
+
+    pub(crate) release_time: Option<awkernel_lib::time::Time>,
 }
 
 impl TaskInfo {
@@ -225,6 +227,16 @@ impl TaskInfo {
     pub fn get_dag_info(&self) -> Option<DagInfo> {
         self.dag_info.clone()
     }
+
+    #[inline(always)]
+    pub fn update_release_time(&mut self, time: awkernel_lib::time::Time) {
+        self.release_time = Some(time);
+    }
+
+    #[inline(always)]
+    pub fn get_release_time(&self) -> Option<awkernel_lib::time::Time> {
+        self.release_time
+    }
 }
 
 /// State of task.
@@ -246,7 +258,7 @@ struct Tasks {
     id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct DagInfo {
     pub dag_id: u32,
     pub node_id: u32,
@@ -289,6 +301,8 @@ impl Tasks {
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
+
+                    release_time: None,
                 });
 
                 // Set the task priority.
@@ -456,6 +470,8 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub mod perf {
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
+    use crate::task;
+    
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -506,8 +522,86 @@ pub mod perf {
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    // static mut DAG_DEADLINE_MISS_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU]; // DAGタスクのデッドラインミス数
+    // static mut DAG_TOTAL_TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];    // DAGタスクの総数
 
     fn update_time_and_state(next_state: PerfState) {
+        let end = awkernel_lib::delay::cpu_counter();
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        if state == next_state {
+            return;
+        }
+
+        let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
+
+        if start > 0 && start <= end {
+            let diff = end - start;
+
+            match state {
+                PerfState::Kernel => unsafe {
+                    let t = read_volatile(&KERNEL_TIME[cpu_id]);
+                    write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&KERNEL_COUNT[cpu_id]);
+                    write_volatile(&mut KERNEL_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&KERNEL_WCET[cpu_id]);
+                    write_volatile(&mut KERNEL_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Task => unsafe {
+                    let t = read_volatile(&TASK_TIME[cpu_id]);
+                    write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&TASK_COUNT[cpu_id]);
+                    write_volatile(&mut TASK_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&TASK_WCET[cpu_id]);
+                    write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Interrupt => unsafe {
+                    let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
+                    write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
+                    write_volatile(&mut INTERRUPT_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&INTERRUPT_WCET[cpu_id]);
+                    write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitch => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Idle => unsafe {
+                    let t = read_volatile(&IDLE_TIME[cpu_id]);
+                    write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&IDLE_COUNT[cpu_id]);
+                    write_volatile(&mut IDLE_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&IDLE_WCET[cpu_id]);
+                    write_volatile(&mut IDLE_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Boot => (),
+            }
+        }
+
+        let cnt = awkernel_lib::delay::cpu_counter();
+
+        unsafe {
+            // Overhead of this.
+            let t = read_volatile(&PERF_TIME[cpu_id]);
+            write_volatile(&mut PERF_TIME[cpu_id], t + (cnt - end));
+            let c = read_volatile(&PERF_COUNT[cpu_id]);
+            write_volatile(&mut PERF_COUNT[cpu_id], c + 1);
+            let wcet = read_volatile(&PERF_WCET[cpu_id]);
+            write_volatile(&mut PERF_WCET[cpu_id], wcet.max(cnt - end));
+
+            // State transition.
+            write_volatile(&mut START_TIME[cpu_id], cnt);
+            write_volatile(&mut PERF_STATES[cpu_id], next_state as u8);
+        }
+    }
+
+    fn update_time_and_state_for_dag(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
@@ -598,7 +692,24 @@ pub mod perf {
     pub fn start_interrupt() -> PerfState {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let previous: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
-        update_time_and_state(PerfState::Interrupt);
+
+        // Check the current task
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::Interrupt);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::Interrupt);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::Interrupt);
+        }
+
         previous
     }
 
@@ -618,8 +729,61 @@ pub mod perf {
 
     #[inline(always)]
     pub(crate) fn start_context_switch() {
-        update_time_and_state(PerfState::ContextSwitch);
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitch);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitch);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitch);
+        }
     }
+
+    /// Record a DAG deadline miss.
+    // fn record_dag_deadline_miss() {
+    //     unsafe {
+    //         DAG_DEADLINE_MISS_COUNT.fetch_add(1, Ordering::Relaxed);
+    //     }
+    // }
+
+    /// Record a DAG task execution.
+    // fn record_dag_task() {
+    //     unsafe {
+    //         DAG_TOTAL_TASK_COUNT.fetch_add(1, Ordering::Relaxed);
+    //     }
+    // }
+
+    /// Get the DAG deadline miss rate as a percentage.
+    // fn get_dag_deadline_miss_rate() -> f64 {
+    //     let misses;
+    //     let total;
+
+    //     unsafe {
+    //         misses = DAG_DEADLINE_MISS_COUNT.load(Ordering::Relaxed);
+    //         total = DAG_TOTAL_TASK_COUNT.load(Ordering::Relaxed);
+    //     }
+
+    //     if total == 0 {
+    //         0.0
+    //     } else {
+    //         (misses as f64 / total as f64) * 100.0
+    //     }
+    // }
+
+    /// Log the DAG deadline miss rate.
+    // pub fn log_dag_deadline_miss_rate() {
+    //     let miss_rate = get_dag_deadline_miss_rate();
+    //     log::info!("DAG Deadline Miss Rate: {:.2}%", miss_rate);
+    // }
 
     #[inline(always)]
     pub fn start_idle() {
@@ -721,6 +885,19 @@ pub mod perf {
     #[inline(always)]
     pub fn get_perf_wcet(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_WCET[cpu_id]) }
+    }
+
+    /// Compare release_time and timenow with absolute_deadline.
+    pub fn compare_release_and_timenow_with_deadline(release_time: awkernel_lib::time::Time, timenow: awkernel_lib::time::Time, absolute_deadline: u64) {
+        let release_time_millis = release_time.as_millis() as i64;
+        let timenow_millis = timenow.as_millis() as i64;
+        let absolute_difference = (release_time_millis - timenow_millis).abs();
+
+        if absolute_difference > absolute_deadline as i64 {
+            log::warn!("Deadline missed! Difference: {} ms", absolute_difference-absolute_deadline as i64);
+        } else {
+            log::info!("Within deadline. Difference: {} ms", absolute_difference);
+        }
     }
 }
 

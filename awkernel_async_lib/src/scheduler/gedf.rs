@@ -87,6 +87,7 @@ impl Scheduler for GEDFScheduler {
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
+                    // info.update_release_time(awkernel_lib::time::Time::now()); // Record release time
 
                     (wake_time, absolute_deadline)
                 }
@@ -95,6 +96,9 @@ impl Scheduler for GEDFScheduler {
         };
 
         if !self.invoke_preemption(task.clone()) {
+            // ソースノードがここに入るのが始まり：リリースタイム
+            task.info.lock(&mut MCSNode::new()).update_release_time(awkernel_lib::time::Time::now());
+
             internal_data.queue.push(GEDFTask {
                 task: task.clone(),
                 absolute_deadline,
@@ -205,6 +209,7 @@ fn calculate_and_set_dag_deadline(dag_id: u32, wake_time: u64) -> u64 {
     let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
     let dag_absolute_deadline = wake_time + relative_deadline_ms;
     set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
+    log::debug!("Set DAG {} absolute deadline to {}", dag_id, dag_absolute_deadline);
     dag_absolute_deadline
 }
 
@@ -220,8 +225,10 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> 
             return absolute_deadline;
         }
 
+        // log::info!("DAG {} source node {} wakes up again, recalculate deadline", dag_id, node_id);
         return calculate_and_set_dag_deadline(dag_id, wake_time);
     }
 
+    // log::info!("first time to calculate DAG deadline");
     calculate_and_set_dag_deadline(dag_id, wake_time)
 }

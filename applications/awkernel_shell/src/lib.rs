@@ -250,7 +250,7 @@ fn perf_ffi() {
         let kernel_time = perf::get_kernel_time(cpu_id);
         let task_time = perf::get_task_time(cpu_id);
         let idle_time = perf::get_idle_time(cpu_id);
-        let interrupt_time = perf::get_interrupt_time(cpu_id);
+        let interrupt_time = perf::get_interrupt_time(cpu_id);//プリエンプション関連処理の時間
         let contxt_switch_time = perf::get_context_switch_time(cpu_id);
         let perf_time = perf::get_perf_time(cpu_id);
 

@@ -487,6 +487,70 @@ impl Dag {
         let absolute_deadline = self.absolute_deadline.lock(&mut node);
         *absolute_deadline
     }
+
+    pub fn get_single_source_node(&self) -> Result<NodeIndex, &'static str> {
+        let source_nodes = self.get_source_nodes();
+
+        if source_nodes.len() == 1 {
+            Ok(source_nodes[0])
+        } else if source_nodes.is_empty() {
+            Err("No source node found in the DAG.")
+        } else {
+            Err("Multiple source nodes found in the DAG, which violates the assumption.")
+        }
+    }
+
+    // pub fn get_source_node_release_time(&self) -> Result<Option<u64>, &'static str> {
+    //     let source_node = self.get_single_source_node()?;
+
+    //     let mut node = MCSNode::new();
+    //     let graph = self.graph.lock(&mut node);
+
+    //     if let Some(node_weight) = graph.node_weight(source_node) {
+    //         Ok(node_weight.release_time)
+    //     } else {
+    //         Err("Failed to retrieve the source node's weight.")
+    //     }
+    // }
+
+    // pub fn get_source_node_absolute_deadline(&self) -> Result<Option<u64>, &'static str> {
+    //     let source_node = self.get_single_source_node()?;
+
+    //     let mut node = MCSNode::new();
+    //     let graph = self.graph.lock(&mut node);
+
+    //     if let Some(node_weight) = graph.node_weight(source_node) {
+    //         Ok(node_weight.absolute_deadline)
+    //     } else {
+    //         Err("Failed to retrieve the source node's weight.")
+    //     }
+    // }
+
+    pub fn get_source_node_timing(&self) -> Result<(Option<awkernel_lib::time::Time>, Option<u64>), &'static str> {
+        let source_node = self.get_single_source_node()?;
+
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+
+        if let Some(node_weight) = graph.node_weight(source_node) {
+            let task_id = node_weight.task_id;
+            let mut mcs_node = MCSNode::new(); // ループの外で作成
+
+            if let Some(task) = crate::task::get_task(task_id) {
+                let task_info = task.info.lock(&mut mcs_node);
+                let release_time = task_info.get_release_time();
+
+                // Retrieve the DAG's absolute deadline instead of the task's absolute deadline
+                let dag_absolute_deadline = self.get_absolute_deadline();
+
+                return Ok((release_time, dag_absolute_deadline));
+            } else {
+                return Err("Failed to retrieve the task associated with the source node.");
+            }
+        } else {
+            Err("Failed to retrieve the source node's weight.")
+        }
+    }
 }
 
 struct PendingTask {
@@ -989,6 +1053,18 @@ where
     task_id
 }
 
+/// Retrieves the task ID from the given DagInfo.
+pub fn get_task_id_from_dag_info(dag_info: &DagInfo) -> Option<u32> {
+    if let Some(dag) = get_dag(dag_info.dag_id) {
+        let mut node = MCSNode::new();
+        let graph = dag.graph.lock(&mut node);
+        if let Some(node_info) = graph.node_weight(to_node_index(dag_info.node_id)) {
+            return Some(node_info.task_id);
+        }
+    }
+    None
+}
+
 async fn spawn_sink_reactor<F, Args>(
     reactor_name: Cow<'static, str>,
     f: F,
@@ -1005,9 +1081,29 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
+        // let mut mcs_node = MCSNode::new(); // ループの外で作成
+
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             f(args);
+            let timenow = awkernel_lib::time::Time::now();
+            log::info!("get timenow");
+
+            if let Some(dag) = get_dag(dag_info.dag_id) {
+                match dag.get_source_node_timing() {
+                    Ok((release_time, absolute_deadline)) => {
+                        log::info!("Source Node - Release Time: {:?}, Absolute Deadline: {:?}", release_time, absolute_deadline);
+
+                        #[cfg(feature = "perf")]
+                        if let (Some(release_time), Some(absolute_deadline)) = (release_time, absolute_deadline) {
+                            crate::task::perf::compare_release_and_timenow_with_deadline(release_time, timenow, absolute_deadline);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to retrieve source node timing: {}", e);
+                    }
+                }
+            }
         }
     };
 

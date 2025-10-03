@@ -89,6 +89,11 @@ impl Time {
         }
     }
 
+    /// Converts uptime (in nanoseconds) to milliseconds.
+    pub fn as_millis(&self) -> u128 {
+        self.uptime / 1_000_000
+    }
+
     pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
         if self.uptime > earlier.uptime {
             Duration::from_nanos(
