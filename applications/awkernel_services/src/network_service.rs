@@ -8,7 +8,7 @@ use awkernel_async_lib::{
 const NETWORK_SERVICE_RENDEZVOUS: &str = "/awkernel/network_service";
 
 const GARBAGE_COLLECTOR_NAME: &str = "[Awkernel] TCP garbage collector";
-const NETWORK_IF_POLLER_NAME: &str = "[Awkernel] Network interface poller";
+// const NETWORK_IF_POLLER_NAME: &str = "[Awkernel] Network interface poller";
 
 type ProtoInterruptHandler = Recv<(), Send<(), Eps>>;
 type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>::Dual>;
@@ -23,12 +23,12 @@ pub async fn run() {
     )
     .await;
 
-    awkernel_async_lib::spawn(
-        NETWORK_IF_POLLER_NAME.into(),
-        network_interface_poller(),
-        SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     NETWORK_IF_POLLER_NAME.into(),
+    //     network_interface_poller(),
+    //     SchedulerType::PrioritizedFIFO(0),
+    // )
+    // .await;
 
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
@@ -109,23 +109,23 @@ pub async fn run() {
     }
 }
 
-async fn network_interface_poller() {
-    loop {
-        let n = awkernel_lib::net::poll(); // Poll network devices.
+// async fn network_interface_poller() {
+//     loop {
+//         let n = awkernel_lib::net::poll(); // Poll network devices.
 
-        if n == 0 {
-            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-        } else {
-            awkernel_async_lib::r#yield().await;
-        }
-    }
-}
+//         if n == 0 {
+//             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+//         } else {
+//             awkernel_async_lib::r#yield().await;
+//         }
+//     }
+// }
 
 async fn spawn_handlers(
     if_status: awkernel_lib::net::IfStatus,
     ch_irq_handlers: &mut BTreeMap<u16, ChanProtoInterruptHandlerDual>,
-    ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
-    ch_tick_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
+    _ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
+    _ch_tick_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
 ) {
     for irq in if_status.irqs {
         let (server, client) = session_channel::<ProtoInterruptHandler>();
@@ -145,41 +145,41 @@ async fn spawn_handlers(
         .await;
     }
 
-    if if_status.poll_mode {
-        let (server, client) = session_channel::<ProtoInterruptHandler>();
-        ch_poll_handlers.insert(if_status.interface_id, client);
+    // if if_status.poll_mode {
+    //     let (server, client) = session_channel::<ProtoInterruptHandler>();
+    //     ch_poll_handlers.insert(if_status.interface_id, client);
 
-        let name = format!(
-            "{}:{}: poll mode",
-            crate::NETWORK_SERVICE_NAME,
-            if_status.device_name,
-        );
+    //     let name = format!(
+    //         "{}:{}: poll mode",
+    //         crate::NETWORK_SERVICE_NAME,
+    //         if_status.device_name,
+    //     );
 
-        awkernel_async_lib::spawn(
-            name.into(),
-            poll_handler(if_status.interface_id, server),
-            SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
-    }
+    //     awkernel_async_lib::spawn(
+    //         name.into(),
+    //         poll_handler(if_status.interface_id, server),
+    //         SchedulerType::PrioritizedFIFO(0),
+    //     )
+    //     .await;
+    // }
 
-    if let Some(tick_msec) = if_status.tick_msec {
-        let (server, client) = session_channel::<ProtoInterruptHandler>();
-        ch_tick_handlers.insert(if_status.interface_id, client);
+    // if let Some(tick_msec) = if_status.tick_msec {
+    //     let (server, client) = session_channel::<ProtoInterruptHandler>();
+    //     ch_tick_handlers.insert(if_status.interface_id, client);
 
-        let name = format!(
-            "{}:{}: tick = {tick_msec} [msec]",
-            crate::NETWORK_SERVICE_NAME,
-            if_status.device_name,
-        );
+    //     let name = format!(
+    //         "{}:{}: tick = {tick_msec} [msec]",
+    //         crate::NETWORK_SERVICE_NAME,
+    //         if_status.device_name,
+    //     );
 
-        awkernel_async_lib::spawn(
-            name.into(),
-            tick_handler(if_status.interface_id, tick_msec, server),
-            SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
-    }
+    //     awkernel_async_lib::spawn(
+    //         name.into(),
+    //         tick_handler(if_status.interface_id, tick_msec, server),
+    //         SchedulerType::PrioritizedFIFO(0),
+    //     )
+    //     .await;
+    // }
 }
 
 async fn tcp_garbage_collector() {
@@ -287,65 +287,65 @@ impl Future for NetworkPoll {
     }
 }
 
-async fn poll_handler(interface_id: u64, ch: Chan<(), ProtoInterruptHandler>) {
-    let mut ch = ch.recv().boxed().fuse();
+// async fn poll_handler(interface_id: u64, ch: Chan<(), ProtoInterruptHandler>) {
+//     let mut ch = ch.recv().boxed().fuse();
 
-    loop {
-        let mut empty = async {}.boxed().fuse();
+//     loop {
+//         let mut empty = async {}.boxed().fuse();
 
-        select_biased! {
-            (ch, _) = ch => {
-                let ch = ch.send(()).await;
-                ch.close();
-                return;
-            },
-            _ = empty => {},
-        }
+//         select_biased! {
+//             (ch, _) = ch => {
+//                 let ch = ch.send(()).await;
+//                 ch.close();
+//                 return;
+//             },
+//             _ = empty => {},
+//         }
 
-        if awkernel_lib::net::poll_interface(interface_id) {
-            awkernel_async_lib::r#yield().await;
-            continue;
-        }
+//         if awkernel_lib::net::poll_interface(interface_id) {
+//             awkernel_async_lib::r#yield().await;
+//             continue;
+//         }
 
-        // Wait some events.
-        let mut poll_wait = NetworkPoll {
-            interface_id,
-            wait: true,
-        }
-        .fuse();
+//         // Wait some events.
+//         let mut poll_wait = NetworkPoll {
+//             interface_id,
+//             wait: true,
+//         }
+//         .fuse();
 
-        select_biased! {
-            (ch, _) = ch => {
-                let ch = ch.send(()).await;
-                ch.close();
-                return;
-            },
-            _ = poll_wait => {},
-        }
+//         select_biased! {
+//             (ch, _) = ch => {
+//                 let ch = ch.send(()).await;
+//                 ch.close();
+//                 return;
+//             },
+//             _ = poll_wait => {},
+//         }
 
-        awkernel_lib::net::poll_interface(interface_id);
-        awkernel_async_lib::r#yield().await;
-    }
-}
+//         awkernel_lib::net::poll_interface(interface_id);
+//         awkernel_async_lib::r#yield().await;
+//     }
+// }
 
-// Tick
-async fn tick_handler(interface_id: u64, tick: u64, ch: Chan<(), ProtoInterruptHandler>) {
-    let mut ch = ch.recv().boxed().fuse();
+// // Tick
+// async fn tick_handler(interface_id: u64, tick: u64, ch: Chan<(), ProtoInterruptHandler>) {
+//     let mut ch = ch.recv().boxed().fuse();
 
-    loop {
-        awkernel_lib::net::tick_interface(interface_id);
+//     loop {
+//         awkernel_lib::net::tick_interface(interface_id);
 
-        let mut sleeper = awkernel_async_lib::sleep(Duration::from_millis(tick))
-            .boxed()
-            .fuse();
+//         let mut sleeper = awkernel_async_lib::sleep(Duration::from_millis(tick))
+//             .boxed()
+//             .fuse();
 
-        select_biased! {
-            (ch, _) = ch => {
-                let ch = ch.send(()).await;
-                ch.close();
-                return;
-            },
-            _ = sleeper => {},
-        }
-    }
-}
+//         select_biased! {
+//             (ch, _) = ch => {
+//                 let ch = ch.send(()).await;
+//                 ch.close();
+//                 return;
+//             },
+//             _ = sleeper => {},
+//         }
+//     }
+// }

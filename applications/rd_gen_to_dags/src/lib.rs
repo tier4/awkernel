@@ -18,7 +18,7 @@ const DAG_FILE_0: &str = concat!(include_str!("../../../DAGs/dag_8_precon.yaml")
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    SchedulerType::PrioritizedFIFO(0)
+    SchedulerType::PrioritizedFIFO(31)
 }
 
 pub async fn run() {
