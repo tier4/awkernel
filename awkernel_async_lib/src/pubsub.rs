@@ -798,11 +798,6 @@ impl_tuple_to_pub_sub!();
 impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6);
-impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7);
 
 macro_rules! impl_async_receiver_for_tuple {
     () => {
@@ -854,41 +849,6 @@ impl_async_receiver_for_tuple!();
 impl_async_receiver_for_tuple!((A, a, p));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
-impl_async_receiver_for_tuple!((T0, v0, p0), (T1, v1, p1), (T2, v2, p2), (T3, v3, p3));
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4)
-);
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4),
-    (T5, v5, p5)
-);
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4),
-    (T5, v5, p5),
-    (T6, v6, p6)
-);
-impl_async_receiver_for_tuple!(
-    (T0, v0, p0),
-    (T1, v1, p1),
-    (T2, v2, p2),
-    (T3, v3, p3),
-    (T4, v4, p4),
-    (T5, v5, p5),
-    (T6, v6, p6),
-    (T7, v7, p7)
-);
 
 #[cfg(test)]
 mod tests {
