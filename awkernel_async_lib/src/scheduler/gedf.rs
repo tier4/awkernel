@@ -1,6 +1,7 @@
 //! A GEDF scheduler.
 
 use core::cmp::max;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
@@ -8,12 +9,14 @@ use crate::{
     scheduler::GLOBAL_WAKE_GET_MUTEX,
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
+        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at},
         get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
         MAX_TASK_PRIORITY,
     },
 };
 use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use futures::sink;
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // Run queue.
@@ -61,6 +64,9 @@ impl GEDFData {
     }
 }
 
+// Add a global counter for timestamp updates
+pub static TIMESTAMP_UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
+
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let (wake_time, absolute_deadline) = {
@@ -69,7 +75,9 @@ impl Scheduler for GEDFScheduler {
             let dag_info = info.get_dag_info();
             match info.scheduler_type {
                 SchedulerType::GEDF(relative_deadline) => {
-                    let wake_time = awkernel_lib::delay::uptime();
+                    let wake_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    
+
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
                         calculate_and_update_dag_deadline(dag_info, wake_time)
                     } else {
@@ -77,6 +85,8 @@ impl Scheduler for GEDFScheduler {
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.
                         wake_time + relative_deadline
                     };
+                    let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
+                    update_absolute_deadline_timestamp_at(index, absolute_deadline);
 
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
@@ -91,8 +101,32 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
+           
+            
+            // task.info.lock(&mut MCSNode::new()).update_release_time(awkernel_lib::time::Time::now());
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+                let dag_info = info.get_dag_info();
+                let dag_id = dag_info.unwrap().dag_id;
+                let node_id = dag_info.unwrap().node_id;
+                let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
+                let current_node_index = to_node_index(node_id);
+                if dag.is_source_node(current_node_index) {
+                    // Update timestamp here
+                    let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
+                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    update_pre_send_outer_timestamp_at(index, release_time);
+                }
+                let sink_relative_deadline = dag.get_sink_relative_deadline()
+                    .map(|deadline| deadline.as_nanos() as u64)
+                    .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"));
+                let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
+                update_relative_deadline_timestamp_at(index, sink_relative_deadline);
+            }
+            
             let internal_data = data.get_or_insert_with(GEDFData::new);
             internal_data.queue.push(GEDFTask {
                 task: task.clone(),
@@ -196,7 +230,7 @@ impl GEDFScheduler {
 fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
     dag.get_sink_relative_deadline()
-        .map(|deadline| deadline.as_millis() as u64)
+        .map(|deadline| deadline.as_nanos() as u64)
         .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"))
 }
 
@@ -204,7 +238,7 @@ fn calculate_and_set_dag_deadline(dag_id: u32, wake_time: u64) -> u64 {
     let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
     let dag_absolute_deadline = wake_time + relative_deadline_ms;
     set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
-    log::debug!("Set DAG {} absolute deadline to {}", dag_id, dag_absolute_deadline);
+    // log::info!("Set DAG {} absolute deadline to {}", dag_id, dag_absolute_deadline);
     dag_absolute_deadline
 }
 
@@ -220,10 +254,8 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> 
             return absolute_deadline;
         }
 
-        // log::info!("DAG {} source node {} wakes up again, recalculate deadline", dag_id, node_id);
         return calculate_and_set_dag_deadline(dag_id, wake_time);
     }
 
-    // log::info!("first time to calculate DAG deadline");
     calculate_and_set_dag_deadline(dag_id, wake_time)
 }

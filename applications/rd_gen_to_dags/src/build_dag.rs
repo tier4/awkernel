@@ -97,7 +97,7 @@ macro_rules! register_source {
                     simulated_execution_time(execution_time);
 
                     let outputs = ($(execution_time as $T_out,)*);
-                    log::debug!("name: {reactor_name}, outputs: {outputs:?}");
+                    // log::debug!("name: {reactor_name}, outputs: {outputs:?}");
                     outputs
                 },
                 pub_topics,
@@ -148,7 +148,7 @@ macro_rules! register_sink {
                 reactor_name.clone(),
                 move |inputs: ($($T_in,)*)| {
                     simulated_execution_time(execution_time);
-                    log::debug!("name: {reactor_name}, inputs: {inputs:?}");
+                    // log::debug!("name: {reactor_name}, inputs: {inputs:?}");
                 },
                 sub_topics,
                 $sched_type,
@@ -209,7 +209,7 @@ macro_rules! register_intermediate {
                 move |inputs: ($($T_in,)*)| -> ($($T_out,)*) {
                     simulated_execution_time(execution_time);
                     let outputs = ($(execution_time as $T_out,)*);
-                    log::debug!("name: {reactor_name}, inputs: {inputs:?}, outputs: {outputs:?}");
+                    // log::debug!("name: {reactor_name}, inputs: {inputs:?}, outputs: {outputs:?}");
                     outputs
                 },
                 sub_topics,

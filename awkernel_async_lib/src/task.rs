@@ -230,6 +230,7 @@ impl TaskInfo {
 
     #[inline(always)]
     pub fn update_release_time(&mut self, time: awkernel_lib::time::Time) {
+        // 将来的にデッドラインミスの原因になるかも？
         self.release_time = Some(time);
     }
 
@@ -468,6 +469,7 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
+    use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
     use crate::task;
@@ -524,6 +526,123 @@ pub mod perf {
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     // static mut DAG_DEADLINE_MISS_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU]; // DAGタスクのデッドラインミス数
     // static mut DAG_TOTAL_TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];    // DAGタスクの総数
+
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    const MAX_LOGS: usize = 2048;
+
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+
+    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        if recorder[index] == 0 {
+            recorder[index] = new_timestamp;
+        }
+    }
+
+    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        recorder[index] = new_timestamp;
+    }
+
+    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64){
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        if recorder[index] == 0 {
+            recorder[index] = deadline;
+        }
+    }
+
+    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64){
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+
+        if recorder[index] == 0 {
+            recorder[index] = deadline;
+        }
+    }
+
+    pub fn print_timestamp_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
+
+        let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
+        let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
+        let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
+        let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
+
+        log::info!("--- Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "Index",
+            "Send-Outer",
+            "Recv-Outer",
+            "Latency",
+            "Absolute Deadline",
+            "Relative Deadline"
+        );
+
+        log::info!("-----|----------------|----------------|----------------|--------------------|--------------------|--------------------");
+
+        for i in 0..MAX_LOGS {
+            let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i]);
+            let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i]);
+            let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i]);
+            let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i]);
+
+            if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 {
+                let format_ts = |ts: u64| -> String {
+                    if ts == 0 {
+                        "-".to_string()
+                    } else {
+                        ts.to_string()
+                    }
+                };
+
+                let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
+                    fin_recv_outer.saturating_sub(pre_send_outer).to_string()
+                } else {
+                    "-".to_string()
+                };
+
+                log::info!(
+                    "{: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                    i,
+                    format_ts(pre_send_outer),
+                    format_ts(fin_recv_outer),
+                    latency_str,
+                    format_ts(absolute_deadline),
+                    format_ts(relative_deadline),
+                );
+            }
+        }
+        log::info!("----------------------------------------------------------");
+    }
 
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
@@ -888,15 +1007,17 @@ pub mod perf {
     }
 
     /// Compare release_time and timenow with absolute_deadline.
-    pub fn compare_release_and_timenow_with_deadline(release_time: awkernel_lib::time::Time, timenow: awkernel_lib::time::Time, absolute_deadline: u64) {
-        let release_time_millis = release_time.as_millis() as i64;
-        let timenow_millis = timenow.as_millis() as i64;
-        let absolute_difference = (release_time_millis - timenow_millis).abs();
+    pub fn compare_release_and_timenow_with_deadline(release_time: awkernel_lib::time::Time, timenow: u64, absolute_deadline: u64) {
+        let release_time_millis = release_time.as_millis() as u64;
+        let timenow_millis = timenow/1000000 as u64;
+        let absolute_deadline_ms = absolute_deadline/1000;
+        // let absolute_difference = (release_time_millis - timenow_millis).abs();
+        log::info!("Release time: {} ms, Current time: {} ms, Absolute deadline: {} ms", release_time_millis, timenow_millis, absolute_deadline_ms);
 
-        if absolute_difference > absolute_deadline as i64 {
-            log::warn!("Deadline missed! Difference: {} ms", absolute_difference-absolute_deadline as i64);
+        if timenow_millis > absolute_deadline_ms  {
+            log::warn!("Deadline missed! Difference: {} ms", timenow_millis-absolute_deadline_ms);
         } else {
-            log::info!("Within deadline. Difference: {} ms", absolute_difference);
+            log::info!("Within deadline. Difference: {} ms", absolute_deadline_ms-timenow_millis);
         }
     }
 }

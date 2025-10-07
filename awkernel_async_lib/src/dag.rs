@@ -62,8 +62,14 @@ use crate::{
         },
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
-    scheduler::SchedulerType,
-    task::DagInfo,
+    scheduler::{
+        gedf::TIMESTAMP_UPDATE_COUNT,
+        SchedulerType,
+    },
+    task::{
+        perf::{update_fin_recv_outer_timestamp_at},
+        DagInfo,
+    },
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -76,6 +82,7 @@ use alloc::{
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
+use core::sync::atomic::Ordering;
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -1055,29 +1062,34 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
-        // let mut mcs_node = MCSNode::new(); // ループの外で作成
+        let mut counter = 0;
 
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             f(args);
-            let timenow = awkernel_lib::time::Time::now();
-            log::info!("get timenow");
+            let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            // log::info!("get timenow: {:?}", timenow);
+            update_fin_recv_outer_timestamp_at(counter, timenow);
+            counter += 1;
+            // Increment the global counter for source nodes
+            TIMESTAMP_UPDATE_COUNT.fetch_add(1, Ordering::Relaxed);
 
-            if let Some(dag) = get_dag(dag_info.dag_id) {
-                match dag.get_source_node_timing() {
-                    Ok((release_time, absolute_deadline)) => {
-                        log::info!("Source Node - Release Time: {:?}, Absolute Deadline: {:?}", release_time, absolute_deadline);
 
-                        #[cfg(feature = "perf")]
-                        if let (Some(release_time), Some(absolute_deadline)) = (release_time, absolute_deadline) {
-                            crate::task::perf::compare_release_and_timenow_with_deadline(release_time, timenow, absolute_deadline);
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to retrieve source node timing: {}", e);
-                    }
-                }
-            }
+            // if let Some(dag) = get_dag(dag_info.dag_id) {
+            //     match dag.get_source_node_timing() {
+            //         Ok((release_time, absolute_deadline)) => {
+            //             log::info!("Source Node - Release Time: {:?}, Absolute Deadline: {:?}", release_time, absolute_deadline);
+
+            //             #[cfg(feature = "perf")]
+            //             if let (Some(release_time), Some(absolute_deadline)) = (release_time, absolute_deadline) {
+            //                 crate::task::perf::compare_release_and_timenow_with_deadline(release_time, timenow, absolute_deadline);
+            //             }
+            //         }
+            //         Err(e) => {
+            //             log::error!("Failed to retrieve source node timing: {}", e);
+            //         }
+            //     }
+            // }
         }
     };
 

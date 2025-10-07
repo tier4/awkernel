@@ -21,15 +21,15 @@ fn get_configured_scheduler_type() -> SchedulerType {
     SchedulerType::GEDF(1000)
 }
 
-const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
-// const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_1.yaml"), "\n");
-// const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_2.yaml"), "\n");
+// const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
+// const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_1.yaml"), "\n");
 
 
 pub async fn run() {
     wait_millisec(1000);
 
-    let dag_files = [DAG_FILE_0];
+    let dag_files = [DAG_FILE_1];
 
     let dags_data = match parse_yaml::parse_dags(&dag_files) {
         Ok(data) => data,
