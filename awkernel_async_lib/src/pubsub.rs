@@ -155,7 +155,7 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        self.subscriber.poll_recv(cx)
+        self.subscriber.recv_or_register_waker(cx)
     }
 }
 
@@ -166,7 +166,10 @@ impl<T: Clone + Send> Subscriber<T> {
         receiver.await
     }
 
-    pub(super) fn poll_recv(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<Data<T>> {
+    pub(super) fn recv_or_register_waker(
+        &self,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Data<T>> {
         let mut node = MCSNode::new();
         let mut inner = self.inner.lock(&mut node);
 
