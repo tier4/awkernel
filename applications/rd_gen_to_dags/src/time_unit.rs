@@ -38,6 +38,11 @@ pub(super) fn simulated_execution_time(duration: u64) {
 }
 
 #[cfg(feature = "milliseconds")]
+pub(super) fn simulated_execution_time_normal(duration: u64) {
+    wait_millisec(duration);
+}
+
+#[cfg(feature = "milliseconds")]
 pub(super) fn simulated_execution_time(duration: u64) {
     let rand_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
     let random_offset = rand_time % 50;

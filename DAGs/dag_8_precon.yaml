@@ -37,7 +37,7 @@ multigraph: false
 nodes:
 - execution_time: 1
   id: 0
-  period: 100
+  period: 25
 - execution_time: 1
   id: 1
 - execution_time: 1
