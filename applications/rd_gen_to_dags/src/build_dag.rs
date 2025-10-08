@@ -1,6 +1,6 @@
 use crate::parse_yaml::{DagData, NodeData};
 use crate::time_unit::{
-    convert_duration, simulated_execution_time, simulated_execution_time_normal,
+    convert_duration, simulated_execution_time, simulated_execution_time_with_jitter,
 };
 
 use alloc::{borrow::Cow, format, sync::Arc, vec::Vec};
@@ -96,7 +96,7 @@ macro_rules! register_source {
             $dag.register_periodic_reactor::<_, ($($T_out,)*)>(
                 reactor_name.clone(),
                 move || -> ($($T_out,)*) {
-                    simulated_execution_time_normal(execution_time);
+                    simulated_execution_time(execution_time);
 
                     let outputs = ($(execution_time as $T_out,)*);
                     outputs
@@ -157,7 +157,7 @@ macro_rules! register_sink {
             $dag.register_sink_reactor::<_, ($($T_in,)*)>(
                 reactor_name.clone(),
                 move |_inputs: ($($T_in,)*)| {
-                    simulated_execution_time_normal(execution_time);
+                    simulated_execution_time(execution_time);
                 },
                 sub_topics,
                 $sched_type,
@@ -225,7 +225,7 @@ macro_rules! register_intermediate {
             $dag.register_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
                 reactor_name.clone(),
                 move |_inputs: ($($T_in,)*)| -> ($($T_out,)*) {
-                    simulated_execution_time(execution_time);
+                    simulated_execution_time_with_jitter(execution_time);
                     let outputs = ($(execution_time as $T_out,)*);
                     outputs
                 },
