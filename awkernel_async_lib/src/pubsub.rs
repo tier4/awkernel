@@ -166,6 +166,30 @@ impl<T: Clone + Send> Subscriber<T> {
         receiver.await
     }
 
+    /// This function is designed to prevent a race condition known as the "lost wakeup".
+    ///
+    /// # The Lost Wakeup Problem
+    ///
+    /// A implementation that first checks for data with `try_recv()` and then acquires
+    /// a lock to register the waker is vulnerable to the following race condition:
+    ///
+    /// 1. **Receiver:** Calls `try_recv()` and finds that the queue is empty.
+    /// 2. **Sender:** Pushes data to the queue. It then checks for a waker, but finds
+    ///    `None` because the receiver has not registered one yet. The sender proceeds
+    ///    without waking anything up.
+    /// 3. **Receiver:** Acquires the lock, registers its waker, and then returns
+    ///    `Poll::Pending` to go to sleep.
+    ///
+    /// As a result, the receiver is asleep while there is data in the queue. The wakeup
+    /// from the sender has been "lost," and the receiver will not be notified until
+    /// new data is sent.
+    ///
+    /// # Solution
+    ///
+    /// To prevent this, this function performs both the data check and the waker
+    /// registration within the same critical section.
+    /// This ensures that a sender cannot push data between the check and the
+    /// registration, guaranteeing that no wakeup is lost.
     pub(super) fn recv_or_register_waker(
         &self,
         cx: &mut core::task::Context<'_>,
