@@ -473,6 +473,7 @@ pub mod perf {
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
     use crate::task;
+    use core::sync::atomic::{AtomicU64, Ordering};
     
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,6 +525,7 @@ pub mod perf {
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    pub static TIMESTAMP_UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
     // static mut DAG_DEADLINE_MISS_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU]; // DAGタスクのデッドラインミス数
     // static mut DAG_TOTAL_TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];    // DAGタスクの総数
 

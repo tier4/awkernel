@@ -63,11 +63,10 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::{
-        gedf::TIMESTAMP_UPDATE_COUNT,
         SchedulerType,
     },
     task::{
-        perf::{update_fin_recv_outer_timestamp_at},
+        perf::{update_fin_recv_outer_timestamp_at, TIMESTAMP_UPDATE_COUNT},
         DagInfo,
     },
     time_interval::interval,

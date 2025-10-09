@@ -9,7 +9,7 @@ use crate::{
     scheduler::GLOBAL_WAKE_GET_MUTEX,
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
-        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at},
+        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at, TIMESTAMP_UPDATE_COUNT},
         get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
         MAX_TASK_PRIORITY,
     },
@@ -64,8 +64,6 @@ impl GEDFData {
     }
 }
 
-// Add a global counter for timestamp updates
-pub static TIMESTAMP_UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
@@ -85,6 +83,7 @@ impl Scheduler for GEDFScheduler {
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.
                         wake_time + relative_deadline
                     };
+                    // let absolute_deadline=wake_time+relative_deadline;
                     let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
                     update_absolute_deadline_timestamp_at(index, absolute_deadline);
 
