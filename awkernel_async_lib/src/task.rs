@@ -470,7 +470,7 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 #[cfg(feature = "perf")]
 pub mod perf {
     use alloc::string::{String, ToString};
-    use awkernel_lib::cpu::NUM_MAX_CPU;
+    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
     use core::ptr::{read_volatile, write_volatile};
     use crate::task;
     use core::sync::atomic::{AtomicU64, Ordering};
@@ -532,58 +532,69 @@ pub mod perf {
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     const MAX_LOGS: usize = 2048;
 
-    static SEND_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
-    static RECV_OUTER_TIMESTAMP: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
-    static ABSOLUTE_DEADLINE: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
-    static RELATIVE_DEADLINE: Mutex<Option<[u64; MAX_LOGS]>> = Mutex::new(None);
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; 3]; MAX_LOGS]>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; 3]; MAX_LOGS]>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; 3]; MAX_LOGS]>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<[[u64; 3]; MAX_LOGS]>> = Mutex::new(None);
+    // static DAG_ID: Mutex<Option<[u32; MAX_LOGS]>> = Mutex::new(None);
 
-    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64) {
+    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+        // Initialize recorder as a 2D array if not already initialized
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; 3]; MAX_LOGS]);
 
-        if recorder[index] == 0 {
-            recorder[index] = new_timestamp;
+        // Record the timestamp in recorder[dag_id][index]
+        if (dag_id as usize) < 3 && recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = new_timestamp;
         }
     }
 
-    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64) {
+    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; 3]; MAX_LOGS]);
 
-        recorder[index] = new_timestamp;
+        // recorder[index] = new_timestamp;
+        // Record the timestamp in recorder[dag_id][index]
+        if (dag_id as usize) < 3  {
+            recorder[index][dag_id as usize] = new_timestamp;
+        }
     }
 
-    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64){
+    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; 3]; MAX_LOGS]);
 
-        if recorder[index] == 0 {
-            recorder[index] = deadline;
+        // recorder[index] = new_timestamp;
+        // Record the timestamp in recorder[dag_id][index]
+        if (dag_id as usize) < 3 && recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = deadline;
         }
     }
 
-    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64){
+    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [0; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; 3]; MAX_LOGS]);
 
-        if recorder[index] == 0 {
-            recorder[index] = deadline;
+        // recorder[index] = new_timestamp;
+        // Record the timestamp in recorder[dag_id][index]
+        if (dag_id as usize) < 3 && recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = deadline;
         }
     }
 
@@ -593,6 +604,7 @@ pub mod perf {
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
 
+        //let dag_id_opt = DAG_ID.lock(&mut node1);
         let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
         let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
@@ -600,8 +612,9 @@ pub mod perf {
 
         log::info!("--- Timestamp Summary (in nanoseconds) ---");
         log::info!(
-            "{: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
             "Index",
+            "DAG-ID",
             "Send-Outer",
             "Recv-Outer",
             "Latency",
@@ -609,38 +622,41 @@ pub mod perf {
             "Relative Deadline"
         );
 
-        log::info!("-----|----------------|----------------|----------------|--------------------|--------------------|--------------------");
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------");
 
         for i in 0..MAX_LOGS {
-            let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i]);
-            let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i]);
-            let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i]);
-            let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i]);
+            for j in 1..3 {
+                let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
-            if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 {
-                let format_ts = |ts: u64| -> String {
-                    if ts == 0 {
-                        "-".to_string()
+                if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 {
+                    let format_ts = |ts: u64| -> String {
+                        if ts == 0 {
+                            "-".to_string()
+                        } else {
+                            ts.to_string()
+                        }
+                    };
+
+                    let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
+                        fin_recv_outer.saturating_sub(pre_send_outer).to_string()
                     } else {
-                        ts.to_string()
-                    }
-                };
+                        "-".to_string()
+                    };
 
-                let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
-                    fin_recv_outer.saturating_sub(pre_send_outer).to_string()
-                } else {
-                    "-".to_string()
-                };
-
-                log::info!(
-                    "{: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
-                    i,
-                    format_ts(pre_send_outer),
-                    format_ts(fin_recv_outer),
-                    latency_str,
-                    format_ts(absolute_deadline),
-                    format_ts(relative_deadline),
-                );
+                    log::info!(
+                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                        i,
+                        format_ts(j as u64),
+                        format_ts(pre_send_outer),
+                        format_ts(fin_recv_outer),
+                        latency_str,
+                        format_ts(absolute_deadline),
+                        format_ts(relative_deadline),
+                    );
+                }
             }
         }
         log::info!("----------------------------------------------------------");

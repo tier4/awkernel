@@ -85,7 +85,7 @@ impl Scheduler for GEDFScheduler {
                     };
                     // let absolute_deadline=wake_time+relative_deadline;
                     let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
-                    update_absolute_deadline_timestamp_at(index, absolute_deadline);
+                    update_absolute_deadline_timestamp_at(index, absolute_deadline, dag_info.map_or(0, |d| d.dag_id).clone());
 
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
@@ -117,13 +117,13 @@ impl Scheduler for GEDFScheduler {
                     // Update timestamp here
                     let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                    update_pre_send_outer_timestamp_at(index, release_time);
+                    update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
                 }
                 let sink_relative_deadline = dag.get_sink_relative_deadline()
                     .map(|deadline| deadline.as_nanos() as u64)
                     .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"));
                 let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
-                update_relative_deadline_timestamp_at(index, sink_relative_deadline);
+                update_relative_deadline_timestamp_at(index, sink_relative_deadline, dag_id.clone());
             }
             
             let internal_data = data.get_or_insert_with(GEDFData::new);

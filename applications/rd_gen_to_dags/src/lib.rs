@@ -18,18 +18,18 @@ use build_dag::build_dag;
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    SchedulerType::GEDF(1000)
+    SchedulerType::GEDF(100)
 }
 
 // const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
 // const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_0.yaml"), "\n");
-const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_1.yaml"), "\n");
-
+const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag1_eva.yaml"), "\n");
+const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag2_eva.yaml"), "\n");
 
 pub async fn run() {
     wait_millisec(1000);
 
-    let dag_files = [DAG_FILE_1];
+    let dag_files = [DAG_FILE_1, DAG_FILE_2];
 
     let dags_data = match parse_yaml::parse_dags(&dag_files) {
         Ok(data) => data,
