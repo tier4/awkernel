@@ -1,4 +1,4 @@
-//! A GEDF scheduler.
+//! A prioritized FIFO scheduler.
 
 use core::cmp::max;
 use core::sync::atomic::{Ordering};
@@ -6,73 +6,49 @@ use core::sync::atomic::{Ordering};
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
     dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
-    scheduler::GLOBAL_WAKE_GET_MUTEX,
-    scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
+    scheduler::{
+        get_priority, peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX
+    },
     task::{
         perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at, TIMESTAMP_UPDATE_COUNT},
         get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
-        MAX_TASK_PRIORITY,
     },
 };
-use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-// use futures::sink;
 
-pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>, // Run queue.
+pub struct PrioritizedFIFOFORDAGScheduler {
+    data: Mutex<Option<PrioritizedFIFOFORDAGData>>, // Run queue.
     priority: u8,
 }
 
-struct GEDFTask {
+struct PrioritizedFIFOFORDAGTask {
     task: Arc<Task>,
-    absolute_deadline: u64,
-    wake_time: u64,
+    _priority: u8,
 }
 
-impl PartialOrd for GEDFTask {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
+struct PrioritizedFIFOFORDAGData {
+    queue: PriorityQueue<PrioritizedFIFOFORDAGTask>,
 }
 
-impl PartialEq for GEDFTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.absolute_deadline == other.absolute_deadline && self.wake_time == other.wake_time
-    }
-}
-
-impl Ord for GEDFTask {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match other.absolute_deadline.cmp(&self.absolute_deadline) {
-            core::cmp::Ordering::Equal => other.wake_time.cmp(&self.wake_time),
-            other => other,
-        }
-    }
-}
-
-impl Eq for GEDFTask {}
-
-struct GEDFData {
-    queue: BinaryHeap<GEDFTask>,
-}
-
-impl GEDFData {
+impl PrioritizedFIFOFORDAGData {
     fn new() -> Self {
         Self {
-            queue: BinaryHeap::new(),
+            queue: PriorityQueue::new(),
         }
     }
 }
 
-
-impl Scheduler for GEDFScheduler {
+impl Scheduler for PrioritizedFIFOFORDAGScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let (wake_time, absolute_deadline) = {
+        let priority = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             let dag_info = info.get_dag_info();
             match info.scheduler_type {
-                SchedulerType::GEDF(relative_deadline) => {
+                SchedulerType::PrioritizedFIFOFORDAG(p) => {
                     let wake_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     
 
@@ -81,18 +57,15 @@ impl Scheduler for GEDFScheduler {
                     } else {
                         // If dag_info is not present, the task is treated as a regular task, and
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.
-                        wake_time + relative_deadline
+                        wake_time + 1000
                     };
                     // let absolute_deadline=wake_time+relative_deadline;
                     let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
                     update_absolute_deadline_timestamp_at(index, absolute_deadline, dag_info.map_or(0, |d| d.dag_id).clone());
 
-                    task.priority
-                        .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
-
-                    (wake_time, absolute_deadline)
-                }
+                    p
+                },
                 _ => unreachable!(),
             }
         };
@@ -100,9 +73,6 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
-           
-            
-            // task.info.lock(&mut MCSNode::new()).update_release_time(awkernel_lib::time::Time::now());
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
             {
@@ -125,13 +95,14 @@ impl Scheduler for GEDFScheduler {
                 let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
                 update_relative_deadline_timestamp_at(index, sink_relative_deadline, dag_id.clone());
             }
-            
-            let internal_data = data.get_or_insert_with(GEDFData::new);
-            internal_data.queue.push(GEDFTask {
-                task: task.clone(),
-                absolute_deadline,
-                wake_time,
-            });
+            let internal_data = data.get_or_insert_with(PrioritizedFIFOFORDAGData::new);
+            internal_data.queue.push(
+                priority,
+                PrioritizedFIFOFORDAGTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
         }
     }
 
@@ -172,7 +143,7 @@ impl Scheduler for GEDFScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::GEDF(0)
+        SchedulerType::PrioritizedFIFOFORDAG(0)
     }
 
     fn priority(&self) -> u8 {
@@ -180,12 +151,7 @@ impl Scheduler for GEDFScheduler {
     }
 }
 
-pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
-    data: Mutex::new(None),
-    priority: get_priority(SchedulerType::GEDF(0)),
-};
-
-impl GEDFScheduler {
+impl PrioritizedFIFOFORDAGScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         let tasks_running = get_tasks_running()
             .into_iter()
@@ -225,6 +191,11 @@ impl GEDFScheduler {
         false
     }
 }
+
+pub static SCHEDULER: PrioritizedFIFOFORDAGScheduler = PrioritizedFIFOFORDAGScheduler {
+    data: Mutex::new(None),
+    priority: get_priority(SchedulerType::PrioritizedFIFOFORDAG(0)),
+};
 
 fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));

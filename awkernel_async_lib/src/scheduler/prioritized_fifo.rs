@@ -1,16 +1,12 @@
 //! A prioritized FIFO scheduler.
 
 use core::cmp::max;
-use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX},
     task::{
-        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at, TIMESTAMP_UPDATE_COUNT},
-        get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
-        MAX_TASK_PRIORITY,
+        get_task, get_tasks_running, set_current_task, set_need_preemption, State,
     },
 };
 use alloc::sync::Arc;
@@ -56,35 +52,6 @@ impl Scheduler for PrioritizedFIFOScheduler {
         if !self.invoke_preemption(task.clone()) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
-            // {
-            //     let mut node = MCSNode::new();
-            //     let mut info = task.info.lock(&mut node);
-            //     match info.get_dag_info() {
-            //         Some(dag_info) => {
-            //             // Proceed with processing using dag_info
-            //             // ... Add your logic here ...
-            //             let dag_id = dag_info.dag_id;
-            //             let node_id = dag_info.node_id;
-            //             let dag = get_dag(dag_id).unwrap_or_else(|| panic!("PrioritizedFIFO scheduler: DAG {dag_id} not found"));
-            //             let current_node_index = to_node_index(node_id);
-            //             if dag.is_source_node(current_node_index) {
-            //                 // Update timestamp here
-            //                 let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
-            //                 let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            //                 update_pre_send_outer_timestamp_at(index, release_time);
-            //             }
-            //             let sink_relative_deadline = dag.get_sink_relative_deadline()
-            //                 .map(|deadline| deadline.as_nanos() as u64)
-            //                 .unwrap_or_else(|| panic!("PrioritizedFIFO scheduler: DAG {dag_id} has no sink relative deadline set"));
-            //             let index = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
-            //             update_relative_deadline_timestamp_at(index, sink_relative_deadline);
-            //         }
-            //         None => {
-            //             // Exit the scope if dag_info is None
-            //             return;
-            //         }
-            //     }
-            // }
             let internal_data = data.get_or_insert_with(PrioritizedFIFOData::new);
             internal_data.queue.push(
                 priority,
