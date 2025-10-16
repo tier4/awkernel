@@ -1022,6 +1022,8 @@ where
             periodic_measure();
 
             interval.tick().await;
+            // Increment the global counter for source nodes
+            TIMESTAMP_UPDATE_COUNT[dag_info.dag_id as usize].fetch_add(1, Ordering::Relaxed);
         }
     };
 
@@ -1070,8 +1072,6 @@ where
             // log::info!("get timenow: {:?}", timenow);
             update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id);
             counter += 1;
-            // Increment the global counter for source nodes
-            TIMESTAMP_UPDATE_COUNT.fetch_add(1, Ordering::Relaxed);
 
 
             // if let Some(dag) = get_dag(dag_info.dag_id) {
