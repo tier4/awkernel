@@ -259,7 +259,7 @@ struct Tasks {
     id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct DagInfo {
     pub dag_id: u32,
     pub node_id: u32,
@@ -471,9 +471,9 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub mod perf {
     use alloc::string::{String, ToString};
     use awkernel_lib::{cpu::NUM_MAX_CPU};
-    use core::{char::MAX, ptr::{read_volatile, write_volatile}};
+    use core::{ptr::{read_volatile, write_volatile}};
     use crate::task;
-    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::{AtomicU32, Ordering};
     use array_macro::array;
     
 
@@ -526,8 +526,9 @@ pub mod perf {
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
-    const MAX_DAGS: usize = 3;
-    pub static TIMESTAMP_UPDATE_COUNT: [AtomicU64; MAX_DAGS] = array![_ => AtomicU64::new(0); MAX_DAGS];
+    //DAG+1
+    const MAX_DAGS: usize = 4;
+    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
     // static mut DAG_DEADLINE_MISS_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU]; // DAGタスクのデッドラインミス数
     // static mut DAG_TOTAL_TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];    // DAGタスクの総数
 
@@ -539,6 +540,18 @@ pub mod perf {
     static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     // static DAG_ID: Mutex<Option<[u32; MAX_LOGS]>> = Mutex::new(None);
+
+    // 更新関数
+    pub fn increment_period_count(dag_id: usize) {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    // 取得関数
+    pub fn get_period_count(dag_id: usize) -> u32 {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+    }
 
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");

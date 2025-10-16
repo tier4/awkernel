@@ -62,11 +62,9 @@ use crate::{
         },
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
-    scheduler::{
-        SchedulerType,
-    },
+    scheduler::SchedulerType,
     task::{
-        perf::{update_fin_recv_outer_timestamp_at, TIMESTAMP_UPDATE_COUNT},
+        perf::{update_fin_recv_outer_timestamp_at, increment_period_count, get_period_count},
         DagInfo,
     },
     time_interval::interval,
@@ -1015,15 +1013,27 @@ where
         interval.tick().await;
 
         loop {
+            // 処理開始時のタイムスタンプを記録
+            // let start_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             let results = f();
             publishers.send_all(results).await;
+            // 処理終了時のタイムスタンプを記録
+            // let end_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
 
+            // 処理時間をログに記録
+            // log::info!(
+            //     "Source Node Processing Time: {} ns",
+            //     end_time - start_time
+            // );
             #[cfg(feature = "perf")]
             periodic_measure();
 
             interval.tick().await;
             // Increment the global counter for source nodes
-            TIMESTAMP_UPDATE_COUNT[dag_info.dag_id as usize].fetch_add(1, Ordering::Relaxed);
+            // let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            // log::info!("DAG:{} get release_time: {:?}", dag_info.dag_id.clone(), release_time);
+            // log::debug!("Incrementing period count for DAG#{},count:{}", dag_info.dag_id.clone(), get_period_count(dag_info.dag_id.clone() as usize));
+            increment_period_count(dag_info.dag_id.clone() as usize);
         }
     };
 
