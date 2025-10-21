@@ -84,8 +84,10 @@ impl Scheduler for GEDFScheduler {
                         wake_time + relative_deadline
                     };
                     // let absolute_deadline=wake_time+relative_deadline;
-                    let dag_id = dag_info.unwrap().dag_id;
+                    let dag_id = dag_info.clone().unwrap().dag_id;
+                    // let node_id = dag_info.unwrap().node_id;
                     let index = get_period_count(dag_id.clone() as usize) as usize;
+                    // log::info!("GEDF Scheduler: Updating absolute deadline timestamp at index {}, node_id {}", index.clone(), node_id);
                     update_absolute_deadline_timestamp_at(index, absolute_deadline, dag_id);
 
                     task.priority
@@ -112,7 +114,6 @@ impl Scheduler for GEDFScheduler {
                 // Update timestamp here
                 let index = get_period_count(dag_id.clone() as usize) as usize;
                 let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                // log::debug!("DAG#{} Node#{} Send-Outer {}", dag_id.clone(), node_id.clone(), release_time);
                 update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
             }
             let sink_relative_deadline = dag.get_sink_relative_deadline()
