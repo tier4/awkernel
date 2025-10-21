@@ -529,25 +529,21 @@ pub mod perf {
     //DAG+1
     const MAX_DAGS: usize = 4;
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
-    // static mut DAG_DEADLINE_MISS_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU]; // DAGタスクのデッドラインミス数
-    // static mut DAG_TOTAL_TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];    // DAGタスクの総数
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 2048;
+    const MAX_LOGS: usize = 8192;
 
     static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
-    // static DAG_ID: Mutex<Option<[u32; MAX_LOGS]>> = Mutex::new(None);
 
-    // 更新関数
+
     pub fn increment_period_count(dag_id: usize) {
         assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
         PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
     }
 
-    // 取得関数
     pub fn get_period_count(dag_id: usize) -> u32 {
         assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
         PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
@@ -559,10 +555,8 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
 
-        // Initialize recorder as a 2D array if not already initialized
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
 
-        // Record the timestamp in recorder[dag_id][index]
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = new_timestamp;
         }
@@ -576,8 +570,6 @@ pub mod perf {
 
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
 
-        // recorder[index] = new_timestamp;
-        // Record the timestamp in recorder[index][dag_id]
         if (dag_id as usize) < recorder[0].len() {
             recorder[index][dag_id as usize] = new_timestamp;
         }
@@ -591,9 +583,6 @@ pub mod perf {
 
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
 
-        // recorder[index] = new_timestamp;
-        // Record the timestamp in recorder[dag_id][index]
-            // let fix = TIMESTAMP_UPDATE_COUNT.load(Ordering::Relaxed) as usize;
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
         }
@@ -608,8 +597,6 @@ pub mod perf {
 
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
 
-        // recorder[index] = new_timestamp;
-        // Record the timestamp in recorder[dag_id][index]
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
         }
@@ -622,7 +609,6 @@ pub mod perf {
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
 
-        //let dag_id_opt = DAG_ID.lock(&mut node1);
         let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
         let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);

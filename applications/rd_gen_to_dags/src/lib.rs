@@ -22,21 +22,23 @@ use build_dag::build_dag;
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    SchedulerType::GEDF(0)
+    SchedulerType::PrioritizedFIFOFORDAG(0)
 }
 
 // const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
-// const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_1.yaml"), "\n");
+const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_2.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag1_eva.yaml"), "\n");
 // const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag2_eva.yaml"), "\n");
 // const DAG_FILE_3: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag3_eva.yaml"), "\n");
 // const DAG_FILE_4: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag4_eva.yaml"), "\n");
-const DAG_FILE_5: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag5_eva.yaml"), "\n");
+// const DAG_FILE_5: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag5_eva.yaml"), "\n");
 
 pub async fn run() {
     wait_millisec(1000);
 
-    let dag_files = [/*DAG_FILE_1, DAG_FILE_2, DAG_FILE_3, DAG_FILE_4, */DAG_FILE_5];
+    let dag_files = [DAG_FILE_0, DAG_FILE_1, DAG_FILE_2, /*DAG_FILE_3, DAG_FILE_4, DAG_FILE_5*/];
 
     let dags_data = match parse_yaml::parse_dags(&dag_files) {
         Ok(data) => data,
@@ -67,10 +69,6 @@ pub async fn run() {
 
     match finish_create_dags(&success_build_dags).await {
         Ok(_) => {
-            // for dag in &success_build_dags{
-            //     let dag_id = dag.get_id();
-            //     increment_period_count(dag_id as usize);
-            // }
             log::info!("DAGs created successfully.");
         }
         Err(errors) => {

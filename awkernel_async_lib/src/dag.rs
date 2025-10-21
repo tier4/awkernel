@@ -1013,27 +1013,15 @@ where
         interval.tick().await;
 
         loop {
-            // 処理開始時のタイムスタンプを記録
-            // let start_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             let results = f();
             publishers.send_all(results).await;
-            // 処理終了時のタイムスタンプを記録
-            // let end_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
 
-            // 処理時間をログに記録
-            // log::info!(
-            //     "Source Node Processing Time: {} ns",
-            //     end_time - start_time
-            // );
+            increment_period_count(dag_info.dag_id.clone() as usize);
+
             #[cfg(feature = "perf")]
             periodic_measure();
 
             interval.tick().await;
-            // Increment the global counter for source nodes
-            // let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // log::info!("DAG:{} get release_time: {:?}", dag_info.dag_id.clone(), release_time);
-            // log::debug!("Incrementing period count for DAG#{},count:{}", dag_info.dag_id.clone(), get_period_count(dag_info.dag_id.clone() as usize));
-            increment_period_count(dag_info.dag_id.clone() as usize);
         }
     };
 
@@ -1079,26 +1067,8 @@ where
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             f(args);
             let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // log::info!("get timenow: {:?}", timenow);
             update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id);
             counter += 1;
-
-
-            // if let Some(dag) = get_dag(dag_info.dag_id) {
-            //     match dag.get_source_node_timing() {
-            //         Ok((release_time, absolute_deadline)) => {
-            //             log::info!("Source Node - Release Time: {:?}, Absolute Deadline: {:?}", release_time, absolute_deadline);
-
-            //             #[cfg(feature = "perf")]
-            //             if let (Some(release_time), Some(absolute_deadline)) = (release_time, absolute_deadline) {
-            //                 crate::task::perf::compare_release_and_timenow_with_deadline(release_time, timenow, absolute_deadline);
-            //             }
-            //         }
-            //         Err(e) => {
-            //             log::error!("Failed to retrieve source node timing: {}", e);
-            //         }
-            //     }
-            // }
         }
     };
 
