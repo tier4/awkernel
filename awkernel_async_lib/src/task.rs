@@ -527,11 +527,11 @@ pub mod perf {
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     //DAG+1
-    const MAX_DAGS: usize = 4;
+    const MAX_DAGS: usize = 3;
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 8192;
+    const MAX_LOGS: usize = 2048;
 
     static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
