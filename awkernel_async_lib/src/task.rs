@@ -527,11 +527,12 @@ pub mod perf {
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     //DAG+1
-    const MAX_DAGS: usize = 3;
+    const MAX_DAGS: usize = 4;
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+    pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 2048;
+    const MAX_LOGS: usize = 6144;
 
     static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
@@ -547,6 +548,16 @@ pub mod perf {
     pub fn get_period_count(dag_id: usize) -> u32 {
         assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
         PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+    }
+
+    pub fn increment_sink_count(dag_id: usize) {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        SINK_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_sink_count(dag_id: usize) -> u32 {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        SINK_COUNT[dag_id].load(Ordering::Relaxed)
     }
 
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {

@@ -21,13 +21,14 @@ use build_dag::build_dag;
 /// If no specific scheduler feature is enabled, it defaults to `SchedulerType::PrioritizedFIFO(0)`.
 /// Only schedulers for DAGs can be defined here.
 fn get_configured_scheduler_type() -> SchedulerType {
-    SchedulerType::PrioritizedFIFOFORDAG(0)
+    // SchedulerType::PrioritizedFIFOFORDAG(0)
+    SchedulerType::GEDF(0)
 }
 
 // const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
-const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=2.7/DAGs/dag_0.yaml"), "\n");
-// const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=2/DAGs/dag_1.yaml"), "\n");
-// const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_2.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_1.yaml"), "\n");
+const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_2.yaml"), "\n");
 // const DAG_FILE_3: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_3.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag1_eva.yaml"), "\n");
 // const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/dag2_eva.yaml"), "\n");
@@ -38,7 +39,7 @@ const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/te
 pub async fn run() {
     wait_millisec(1000);
 
-    let dag_files = [DAG_FILE_0, /*DAG_FILE_1, DAG_FILE_2, DAG_FILE_3, DAG_FILE_4, DAG_FILE_5*/];
+    let dag_files = [DAG_FILE_0, DAG_FILE_1, DAG_FILE_2, /*DAG_FILE_3, DAG_FILE_4, DAG_FILE_5*/];
 
     let dags_data = match parse_yaml::parse_dags(&dag_files) {
         Ok(data) => data,

@@ -56,19 +56,16 @@ mod performance;
 use crate::{
     dag::{
         graph::{
-            algo::{connected_components, is_cyclic_directed},
-            direction::Direction,
-            NodeIndex,
+            NodeIndex, algo::{connected_components, is_cyclic_directed}, direction::Direction
         },
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
-    },
-    scheduler::SchedulerType,
+    }, 
+    scheduler::SchedulerType, 
     task::{
-        perf::{update_fin_recv_outer_timestamp_at, increment_period_count, get_period_count},
-        DagInfo,
-    },
+        DagInfo, perf::{get_period_count, get_sink_count, increment_period_count, increment_sink_count, update_fin_recv_outer_timestamp_at}
+    }, 
     time_interval::interval,
-    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers
 };
 use alloc::{
     borrow::Cow,
@@ -1061,14 +1058,15 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
-        let mut counter = 0;
+        // let mut counter = 0;
 
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             f(args);
             let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            let counter = get_sink_count(dag_info.dag_id.clone() as usize) as usize;
             update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id);
-            counter += 1;
+            increment_sink_count(dag_info.dag_id.clone() as usize);
         }
     };
 
