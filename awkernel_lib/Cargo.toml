@@ -13,6 +13,7 @@ array-macro = "2.1"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+fdt = { version = "0.1", optional = true }
 
 [dependencies.awkernel_sync]
 git = "https://github.com/tier4/awkernel_sync.git"
@@ -82,7 +83,7 @@ x86 = [
 ]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_sync/aarch64"]
 rv32 = ["dep:riscv", "awkernel_sync/rv32"]
-rv64 = ["awkernel_sync/rv64"]
+rv64 = ["awkernel_sync/rv64", "dep:fdt"]
 std = ["dep:libc", "dep:socket2", "awkernel_sync/std"]
 spinlock = ["awkernel_sync/spinlock"]
 # LFN (Long File Name) support

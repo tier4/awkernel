@@ -3,10 +3,11 @@ ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x80200000;
+    /* Boot code at DRAM start for -bios none */
+    . = 0x80000000;
     PROVIDE (__executable_start = .);
     __ram_start = .;
-    
+
     PROVIDE (stext = .);
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }
