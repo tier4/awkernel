@@ -79,7 +79,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             if last_print.elapsed().as_secs() >= 130 {
                 #[cfg(feature = "perf")]
-                awkernel_async_lib::task::perf::print_timestamp_table();
+                // awkernel_async_lib::task::perf::print_timestamp_table();
+                awkernel_async_lib::task::perf::print_node_table();
                 last_print = awkernel_lib::time::Time::now();
             }
             // handle IRQs

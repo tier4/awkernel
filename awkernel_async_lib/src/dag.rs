@@ -54,18 +54,14 @@ mod visit;
 mod performance;
 
 use crate::{
-    dag::{
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers, dag::{
         graph::{
             NodeIndex, algo::{connected_components, is_cyclic_directed}, direction::Direction
         },
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
-    }, 
-    scheduler::SchedulerType, 
-    task::{
-        DagInfo, perf::{get_period_count, get_sink_count, increment_period_count, increment_sink_count, update_fin_recv_outer_timestamp_at}
-    }, 
-    time_interval::interval,
-    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers
+    }, scheduler::SchedulerType, task::{
+        DagInfo, perf::{NodeRecord, get_period_count, get_sink_count, increment_period_count, increment_sink_count, node_finish, node_start, update_fin_recv_outer_timestamp_at}
+    }, time_interval::interval
 };
 use alloc::{
     borrow::Cow,
@@ -112,6 +108,38 @@ impl_tuple_size!();
 impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
+
+// Trait to extract the period (u32) carried in the last element of
+// subscriber tuples. Each subscriber tuple element is expected to be
+// a `(value, u32)` pair; implementations below return the u32 from
+// the last tuple element. The trait is public so `get_period` bounds
+// in other functions can reference it.
+pub trait GetPeriod {
+    fn get_period(&self) -> u32;
+}
+
+impl<V> GetPeriod for ((V, u32),) {
+    fn get_period(&self) -> u32 {
+        self.0 .1
+    }
+}
+
+impl<V1, V2> GetPeriod for ((V1, u32), (V2, u32)) {
+    fn get_period(&self) -> u32 {
+        self.1 .1
+    }
+}
+
+impl<V1, V2, V3> GetPeriod for ((V1, u32), (V2, u32), (V3, u32)) {
+    fn get_period(&self) -> u32 {
+        self.2 .1
+    }
+}
+
+/// Convenience helper to extract period from a subscriber tuple by reference.
+pub fn get_period<T: GetPeriod>(args: &T) -> u32 {
+    args.get_period()
+}
 
 #[derive(Clone)]
 pub enum DagError {
@@ -299,8 +327,8 @@ impl Dag {
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
         Args::Subscribers: Send,
-        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
-        <Ret::Publishers as MultipleSender>::Item: TupleSize,
+            <Args::Subscribers as MultipleReceiver>::Item: TupleSize + GetPeriod + Send,
+            <Ret::Publishers as MultipleSender>::Item: TupleSize + Send,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &publish_topic_names);
         self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
@@ -309,6 +337,7 @@ impl Dag {
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_id = node_idx.index() as u32;
+        // let period_count = get_period_count(dag_id.clone() as usize);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -323,7 +352,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
-                        DagInfo { dag_id, node_id },
+                        DagInfo { dag_id, node_id},
                     )
                     .await
                 })
@@ -360,6 +389,7 @@ impl Dag {
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_id = node_idx.index() as u32;
+        // let period_count = get_period_count(dag_id.clone() as usize);
 
         let mut node = MCSNode::new();
         let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
@@ -374,7 +404,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        DagInfo { dag_id, node_id },
+                        DagInfo { dag_id, node_id},
                     )
                     .await
                 })
@@ -392,8 +422,8 @@ impl Dag {
     ) where
         F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
         Args: VectorToSubscribers,
-        Args::Subscribers: Send,
-        <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
+            Args::Subscribers: Send,
+            <Args::Subscribers as MultipleReceiver>::Item: TupleSize + GetPeriod + Send,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
         self.set_relative_deadline(node_idx, relative_deadline);
@@ -419,6 +449,7 @@ impl Dag {
         // To prevent errors caused by ownership moves
         let dag_id = self.id;
         let node_id = node_idx.index() as u32;
+        // let period_count = get_period_count(dag_id.clone() as usize);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
@@ -954,6 +985,8 @@ where
     Ret: VectorToPublishers,
     Ret::Publishers: Send,
     Args::Subscribers: Send,
+    <Args::Subscribers as MultipleReceiver>::Item: TupleSize + GetPeriod + Send,
+            <Ret::Publishers as MultipleSender>::Item: TupleSize + Send,
 {
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -967,7 +1000,18 @@ where
         loop {
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
+            // log::info!("inter period: {:?}", get_period(&args));
+            let count_st = get_period(&args);
+            let noderecord = NodeRecord {
+                period_count: count_st,
+                dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
+            };
+            // node_period_count(noderecord.clone());
+            let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_start(noderecord.clone(), start);
             let results = f(args);
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_finish(noderecord.clone(), end);
             publishers.send_all(results).await;
         }
     };
@@ -1010,7 +1054,17 @@ where
         interval.tick().await;
 
         loop {
+            let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
+            let noderecord = NodeRecord {
+                period_count: index as u32,
+                dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
+            };
+            // node_period_count(noderecord.clone());
+            let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_start(noderecord.clone(), start);
             let results = f();
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_finish(noderecord.clone(), end);
             publishers.send_all(results).await;
 
             increment_period_count(dag_info.dag_id.clone() as usize);
@@ -1053,6 +1107,7 @@ where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
+    <Args::Subscribers as MultipleReceiver>::Item: TupleSize + GetPeriod + Send,
 {
     let future = async move {
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
@@ -1062,7 +1117,18 @@ where
 
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
+            // log::info!("sink period: {:?}", get_period(&args));
+            let count_st = get_period(&args);
+            let noderecord = NodeRecord {
+                period_count: count_st,
+                dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
+            };
+            // node_period_count(noderecord.clone());
+            let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_start(noderecord.clone(), start);
             f(args);
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            node_finish(noderecord.clone(), end);
             let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             let counter = get_sink_count(dag_info.dag_id.clone() as usize) as usize;
             update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id);

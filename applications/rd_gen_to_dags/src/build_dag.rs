@@ -7,6 +7,8 @@ use awkernel_async_lib::{
     scheduler::SchedulerType,
 };
 
+use awkernel_async_lib::task::perf::get_period_count;
+
 /// Represents errors related to the number of links for a node.
 /// `(DAG ID, Node ID)` tuple to identify the specific DAG and node where the error occurred.
 pub(crate) enum LinkNumError {
@@ -91,12 +93,14 @@ macro_rules! register_source {
 
             let reactor_name = registration_info.reactor_name;
             let execution_time = registration_info.execution_time;
-            $dag.register_periodic_reactor::<_, ($($T_out,)*)>(
+            // Each output is now a pair: (value, period_id)
+            $dag.register_periodic_reactor::<_, ($(($T_out, u32),)*)>(
                 reactor_name.clone(),
-                move || -> ($($T_out,)*) {
+                move || -> ($(($T_out, u32),)*) {
                     simulated_execution_time(execution_time);
 
-                    let outputs = ($(execution_time as $T_out,)*);
+                    let period_id = get_period_count(dag_id as usize) as u32;
+                    let outputs = ($( (execution_time as $T_out, period_id), )*);
                     // log::debug!("name: {reactor_name}, outputs: {outputs:?}");
                     outputs
                 },
@@ -144,11 +148,14 @@ macro_rules! register_sink {
 
             let reactor_name = registration_info.reactor_name;
             let execution_time = registration_info.execution_time;
-            $dag.register_sink_reactor::<_, ($($T_in,)*)>(
+            // inputs carry (value, period) pairs for each subscribed topic
+            $dag.register_sink_reactor::<_, ($(($T_in, u32),)*)>(
                 reactor_name.clone(),
-                move |inputs: ($($T_in,)*)| {
+                move |inputs: ($(($T_in, u32),)*)| {
                     simulated_execution_time(execution_time);
-                    // log::debug!("name: {reactor_name}, inputs: {inputs:?}");
+                    // take period from first input pair
+                    let period_id = inputs.0.1;
+                    // log::debug!("name: {reactor_name}, inputs: {inputs:?}, period: {period_id}");
                 },
                 sub_topics,
                 $sched_type,
@@ -204,11 +211,14 @@ macro_rules! register_intermediate {
 
             let execution_time = registration_info.execution_time;
             let reactor_name = registration_info.reactor_name;
-            $dag.register_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
+            // inputs are tuples of (value, period) for each subscribed topic
+            $dag.register_reactor::<_, ($(($T_in, u32),)*), ($(($T_out, u32),)*)>(
                 reactor_name.clone(),
-                move |inputs: ($($T_in,)*)| -> ($($T_out,)*) {
+                move |inputs: ($(($T_in, u32),)*)| -> ($(($T_out, u32),)*) {
                     simulated_execution_time(execution_time);
-                    let outputs = ($(execution_time as $T_out,)*);
+                    // take period from first input pair
+                    let period_id = inputs.0.1;
+                    let outputs = ($( (execution_time as $T_out, period_id), )*);
                     // log::debug!("name: {reactor_name}, inputs: {inputs:?}, outputs: {outputs:?}");
                     outputs
                 },

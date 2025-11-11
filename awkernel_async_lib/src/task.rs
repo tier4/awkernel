@@ -259,7 +259,7 @@ struct Tasks {
     id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DagInfo {
     pub dag_id: u32,
     pub node_id: u32,
@@ -501,6 +501,15 @@ pub mod perf {
             }
         }
     }
+    #[derive(Debug, Clone)]
+    pub struct NodeRecord{
+        pub period_count: u32,
+        pub dag_info: task::DagInfo,
+        // start: u64,
+        // end: u64,
+        // preempt_count: u32,
+        // core_id: u8,
+    }
 
     static mut PERF_STATES: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -526,10 +535,6 @@ pub mod perf {
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
-    //DAG+1
-    const MAX_DAGS: usize = 4;
-    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
-    pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     const MAX_LOGS: usize = 6144;
@@ -538,6 +543,16 @@ pub mod perf {
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+
+    //DAG+1
+    const MAX_DAGS: usize = 4;
+    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+    pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+
+    const MAX_NODES: usize = 15;
+    static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    // static NODE_PERIOD_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
 
 
     pub fn increment_period_count(dag_id: usize) {
@@ -614,6 +629,44 @@ pub mod perf {
         
     }
 
+    pub fn node_start(node:NodeRecord, start: u64){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_START.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
+            recorder[node.period_count as usize][node.dag_info.node_id as usize] = start;
+        }
+    }
+
+    pub fn node_finish(node:NodeRecord, finish: u64){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_FINISH.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
+    }
+
+    // pub fn node_period_count(node:NodeRecord){
+    //     // assert!(index < MAX_LOGS, "Node log index out of bounds");
+    //     assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+    //     let mut mcs_node = MCSNode::new();
+    //     let mut recorder_opt = NODE_PERIOD_COUNT.lock(&mut mcs_node);
+
+    //     let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+    //     recorder[node.period_count as usize][node.dag_info.node_id as usize] = node.period_count;
+    // }
+
     pub fn print_timestamp_table() {
         let mut node1 = MCSNode::new();
         let mut node2 = MCSNode::new();
@@ -670,6 +723,62 @@ pub mod perf {
                         latency_str,
                         format_ts(absolute_deadline),
                         format_ts(relative_deadline),
+                    );
+                }
+            }
+        }
+        log::info!("----------------------------------------------------------");
+    }
+
+    /// Print per-node timing table.
+    /// Columns: DAG ID | node id | period | start(ns) | end(ns) | duration(ns) | preemptions | core
+    pub fn print_node_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        // let mut node3 = MCSNode::new();
+
+        let node_start_opt = NODE_START.lock(&mut node1);
+        let node_finish_opt = NODE_FINISH.lock(&mut node2);
+        // let node_period_count_opt = NODE_PERIOD_COUNT.lock(&mut node3);
+
+        log::info!("--- Per-node Timing Summary (in nanoseconds) ---");
+        log::info!(
+            "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} |",
+            "Index",
+            "DAG-ID",
+            "NODE-ID",
+            "start(ns)",
+            "end(ns)",
+            "duration(ns)",
+        );
+        log::info!("------|--------|---------|----------------------|----------------------|----------------------|");
+
+        for i in 0..MAX_LOGS {
+            for j in 0..MAX_NODES {
+                let start = node_start_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let finish = node_finish_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                // let period_count = node_period_count_opt.as_ref().map_or(0, |arr| arr[i][j]);
+
+                if start != 0 || finish != 0 {
+
+                    let format_ts = |ts: u64| -> String {
+                            ts.to_string()
+                    };
+
+                    let duration = if start != 0 && finish != 0 {
+                        finish.saturating_sub(start).to_string()
+                    } else {
+                        "-".to_string()
+                    };
+
+                    log::info!(
+                        "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} |",
+                        i,
+                        1, // DAG ID (assumed 1 for simplicity)
+                        format_ts(j as u64),
+                        format_ts(start),
+                        format_ts(finish),
+                        duration,
                     );
                 }
             }
