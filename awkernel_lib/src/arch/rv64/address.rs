@@ -8,7 +8,11 @@ use core::{
 pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
 pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 
-pub const MEMORY_END: u64 = 0x8080_0000;
+// Memory end for QEMU virt with 1GB RAM (-m 1G)
+// QEMU provides 1GB at 0x80000000 - 0xC0000000
+// Using 0xC0000000 directly may be too aggressive,
+// so we use 0xB0000000 (768MB from start) for safety
+pub const MEMORY_END: u64 = 0xB0000000;
 
 /// Design abstraction struct:
 /// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum
