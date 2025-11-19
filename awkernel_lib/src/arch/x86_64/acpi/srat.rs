@@ -143,7 +143,7 @@ unsafe impl AcpiTable for Srat {
 }
 
 impl Srat {
-    pub fn entries(&self) -> SratEntryIter {
+    pub fn entries(&self) -> SratEntryIter<'_> {
         SratEntryIter {
             pointer: unsafe { (self as *const Srat as *const u8).add(mem::size_of::<Srat>()) },
             remaining_length: self

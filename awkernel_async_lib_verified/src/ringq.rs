@@ -87,7 +87,7 @@ impl<T> RingQ<T> {
 
     /// Get a iterator.
     #[inline(always)]
-    pub fn iter(&self) -> IterRingQ<T> {
+    pub fn iter(&self) -> IterRingQ<'_, T> {
         IterRingQ {
             ringq: self,
             pos: self.head,

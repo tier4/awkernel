@@ -9,8 +9,8 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
-$ rustup toolchain install nightly-2025-05-22
-$ rustup default nightly-2025-05-22
+$ rustup toolchain install nightly-2025-11-16
+$ rustup default nightly-2025-11-16
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf riscv32imac-unknown-none-elf
 ```

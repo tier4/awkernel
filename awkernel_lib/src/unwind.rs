@@ -14,7 +14,7 @@ where
 use alloc::boxed::Box;
 
 #[cfg(not(feature = "std"))]
-pub fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub fn catch_unwind<F, R>(f: F) -> Result<R, Box<dyn Any + Send + 'static>>
 where
     F: FnOnce() -> R,
 {
