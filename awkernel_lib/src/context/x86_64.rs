@@ -48,7 +48,7 @@ impl crate::context::Context for Context {
         self.r12 = arg as u64;
         self.r13 = entry as usize as u64;
 
-        let entry_point_addr = entry_point as usize as u64;
+        let entry_point_addr = entry_point as *const () as u64;
 
         unsafe {
             core::arch::asm!("mov {}, rsp", lateout(reg) self.r15);

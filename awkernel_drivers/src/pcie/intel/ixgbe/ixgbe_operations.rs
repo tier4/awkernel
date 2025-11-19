@@ -2251,7 +2251,7 @@ pub fn hic_unlocked(
     }
 
     // Calculate length in DWORDs. We must be DWORD aligned
-    if length % (core::mem::size_of::<u32>() as u32) != 0 {
+    if !length.is_multiple_of(core::mem::size_of::<u32>() as u32) {
         log::debug!("Buffer length failure, not aligned to dword");
         return Err(InvalidArgument);
     }

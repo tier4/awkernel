@@ -1,7 +1,7 @@
 use core::fmt;
 
 pub fn ceiling_div(size: usize, units: usize) -> usize {
-    (size / units) + (size % units != 0) as usize
+    (size / units) + (!size.is_multiple_of(units) as usize)
 }
 
 pub fn align_up(length: usize, alignment: usize) -> usize {

@@ -24,8 +24,8 @@
     "max-atomic-width": 128,
     "os": "none",
     "relocation-model": "static",
-    "target-c-int-width": "32",
+    "target-c-int-width": 32,
     "target-endian": "little",
-    "target-pointer-width": "64",
+    "target-pointer-width": 64,
     "vendor": "TIER IV, inc."
 }

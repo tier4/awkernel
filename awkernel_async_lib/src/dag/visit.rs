@@ -133,7 +133,7 @@ IntoEdgeReferences! {delegate_impl [] }
 
 trait_template! {
     /// The graph’s `NodeId`s map to indices
-    #[allow(clippy::needless_arbitrary_self_type)]
+    #[allow(clippy::needless_arbitrary_self_type, dead_code)]
     pub trait NodeIndexable : GraphBase {
         @section self
         /// Return an upper bound of the node indices in the graph
@@ -150,7 +150,7 @@ NodeIndexable! {delegate_impl []}
 
 trait_template! {
 /// A graph with a known node count.
-#[allow(clippy::needless_arbitrary_self_type)]
+#[allow(clippy::needless_arbitrary_self_type, dead_code)]
 pub trait NodeCount : GraphBase {
     @section self
     fn node_count(self: &Self) -> usize;
@@ -244,7 +244,7 @@ where
 
 trait_template! {
 /// A graph that can create a map that tracks the visited status of its nodes.
-#[allow(clippy::needless_arbitrary_self_type)]
+#[allow(clippy::needless_arbitrary_self_type, dead_code)]
 pub trait Visitable : GraphBase {
     @section type
     /// The associated map type
