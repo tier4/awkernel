@@ -1,7 +1,7 @@
 use core::any::Any;
 
 #[cfg(feature = "std")]
-pub fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub fn catch_unwind<F, R>(f: F) -> Result<R, Box<dyn Any + Send + 'static>>
 where
     F: FnOnce() -> R,
 {

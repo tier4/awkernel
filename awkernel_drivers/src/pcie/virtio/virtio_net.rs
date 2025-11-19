@@ -1069,7 +1069,7 @@ impl VirtioNetInner {
         let should_kick = {
             let queue_idx = (vq_idx / 2) as usize;
             let mut node = MCSNode::new();
-            let vq = if vq_idx % 2 == 0 {
+            let vq = if vq_idx.is_multiple_of(2) {
                 &mut self.virtqueues[queue_idx].rx.lock(&mut node)
             } else {
                 &mut self.virtqueues[queue_idx].tx.lock(&mut node)

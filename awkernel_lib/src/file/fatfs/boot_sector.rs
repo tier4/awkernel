@@ -228,7 +228,9 @@ impl BiosParameterBlock {
             );
             return Err(Error::CorruptedFileSystem);
         }
-        if (u32::from(self.root_entries) * DIR_ENTRY_SIZE) % u32::from(self.bytes_per_sector) != 0 {
+        if (u32::from(self.root_entries) * DIR_ENTRY_SIZE)
+            .is_multiple_of(u32::from(self.bytes_per_sector))
+        {
             log::warn!("Root entries should fill sectors fully");
         }
         Ok(())
