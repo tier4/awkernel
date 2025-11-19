@@ -15,7 +15,7 @@ pub struct DmarSatc {
 }
 
 impl DmarSatc {
-    pub fn device_scopes(&self) -> DeviceScopeIter {
+    pub fn device_scopes(&self) -> DeviceScopeIter<'_> {
         DeviceScopeIter {
             pointer: unsafe {
                 (self as *const DmarSatc as *const u8).add(mem::size_of::<DmarSatc>())

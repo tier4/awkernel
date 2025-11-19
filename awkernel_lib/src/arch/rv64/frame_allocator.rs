@@ -44,7 +44,7 @@ pub fn init_page_allocator() {
     }
     if let Some(allocator_ref) = allocator.as_mut() {
         allocator_ref.init(
-            PhyAddr::from_usize(ekernel as usize).ceil(),
+            PhyAddr::from_usize(ekernel as *const () as usize).ceil(),
             PhyAddr::from_usize(MEMORY_END as usize).floor(),
         );
     } else {

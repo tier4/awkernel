@@ -525,7 +525,7 @@ where
     /// not borrow from the graph.
     ///
     /// [1]: struct.Neighbors.html#method.detach
-    pub fn neighbors(&self, a: NodeIndex<Ix>) -> Neighbors<E, Ix> {
+    pub fn neighbors(&self, a: NodeIndex<Ix>) -> Neighbors<'_, E, Ix> {
         self.neighbors_directed(a, Outgoing)
     }
 
@@ -546,7 +546,7 @@ where
     /// not borrow from the graph.
     ///
     /// [1]: struct.Neighbors.html#method.detach
-    pub fn neighbors_directed(&self, a: NodeIndex<Ix>, dir: Direction) -> Neighbors<E, Ix> {
+    pub fn neighbors_directed(&self, a: NodeIndex<Ix>, dir: Direction) -> Neighbors<'_, E, Ix> {
         let mut iter = self.neighbors_undirected(a);
         let k = dir.index();
         iter.next[1 - k] = EdgeIndex::end();
@@ -567,7 +567,7 @@ where
     /// not borrow from the graph.
     ///
     /// [1]: struct.Neighbors.html#method.detach
-    pub fn neighbors_undirected(&self, a: NodeIndex<Ix>) -> Neighbors<E, Ix> {
+    pub fn neighbors_undirected(&self, a: NodeIndex<Ix>) -> Neighbors<'_, E, Ix> {
         Neighbors {
             skip_start: a,
             edges: &self.edges,
@@ -589,7 +589,7 @@ where
     /// just the nodes without edges.
     ///
     /// The whole iteration computes in **O(|V|)** time where V is the set of nodes.
-    pub fn externals(&self, dir: Direction) -> Externals<N, Ix> {
+    pub fn externals(&self, dir: Direction) -> Externals<'_, N, Ix> {
         Externals {
             iter: self.nodes.iter().enumerate(),
             dir,
@@ -607,7 +607,7 @@ where
     /// Create an iterator over all edges, in indexed order.
     ///
     /// Iterator element type is `EdgeReference<E, Ix>`.
-    pub fn edge_references(&self) -> EdgeReferences<E, Ix> {
+    pub fn edge_references(&self) -> EdgeReferences<'_, E, Ix> {
         EdgeReferences {
             iter: self.edges.iter().enumerate(),
         }
@@ -689,29 +689,6 @@ where
     Ix: IndexType,
 {
     clone_fields!(Neighbors, skip_start, edges, next,);
-}
-
-/// A “walker” object that can be used to step through the edge list of a node.
-///
-/// Created with [`.detach()`](struct.Neighbors.html#method.detach).
-///
-/// The walker does not borrow from the graph, so it lets you step through
-/// neighbors or incident edges while also mutating graph weights.
-pub struct WalkNeighbors<Ix> {
-    skip_start: NodeIndex<Ix>,
-    next: [EdgeIndex<Ix>; 2],
-}
-
-impl<Ix> Clone for WalkNeighbors<Ix>
-where
-    Ix: IndexType,
-{
-    fn clone(&self) -> Self {
-        WalkNeighbors {
-            skip_start: self.skip_start,
-            next: self.next,
-        }
-    }
 }
 
 /// Iterator over the node indices of a graph.

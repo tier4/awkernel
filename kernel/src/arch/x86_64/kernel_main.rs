@@ -438,9 +438,12 @@ fn write_boot_images(offset: u64, mpboot_start: u64) {
         // Write non_primary_kernel_main.
         log::info!(
             "write the kernel entry of 0x{:08x} to 0x{main_addr:08x}",
-            non_primary_kernel_main as usize
+            non_primary_kernel_main as *const () as usize
         );
-        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
+        write_volatile(
+            main_addr.as_mut_ptr(),
+            non_primary_kernel_main as *const () as usize,
+        );
 
         // Write CR3.
         log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");

@@ -201,8 +201,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr::from_usize(stext as usize),
-                VirtAddr::from_usize(etext as usize),
+                VirtAddr::from_usize(stext as *const () as usize),
+                VirtAddr::from_usize(etext as *const () as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::X,
             ),
@@ -214,8 +214,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr::from_usize(srodata as usize),
-                VirtAddr::from_usize(erodata as usize),
+                VirtAddr::from_usize(srodata as *const () as usize),
+                VirtAddr::from_usize(erodata as *const () as usize),
                 MapType::Identical,
                 MapPermission::R,
             ),
@@ -227,8 +227,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr::from_usize(sdata as usize),
-                VirtAddr::from_usize(edata as usize),
+                VirtAddr::from_usize(sdata as *const () as usize),
+                VirtAddr::from_usize(edata as *const () as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
@@ -240,8 +240,8 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr::from_usize(sbss_with_stack as usize),
-                VirtAddr::from_usize(ebss as usize),
+                VirtAddr::from_usize(sbss_with_stack as *const () as usize),
+                VirtAddr::from_usize(ebss as *const () as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
@@ -253,7 +253,7 @@ impl MemorySet {
         }
         memory_set.push(
             MapArea::new(
-                VirtAddr::from_usize(ekernel as usize),
+                VirtAddr::from_usize(ekernel as *const () as usize),
                 VirtAddr::from_usize(super::address::MEMORY_END as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
