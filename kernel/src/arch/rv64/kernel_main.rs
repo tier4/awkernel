@@ -156,7 +156,7 @@ unsafe fn init_heap_allocation() {
         fn ekernel();
     }
 
-    let heap_start = (ekernel as usize + 0xfff) & !0xfff; // Align to 4K
+    let heap_start = (ekernel as *const () as usize + 0xfff) & !0xfff; // Align to 4K
     let backup_size = BACKUP_HEAP_SIZE;
     let total_heap_size = awkernel_lib::arch::rv64::get_heap_size();
 

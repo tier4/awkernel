@@ -260,6 +260,19 @@ impl MemorySet {
             None,
         );
 
+        unsafe {
+            unsafe_puts("Mapping physical memory...\r\n");
+        }
+        memory_set.push(
+            MapArea::new(
+                VirtAddr::from_usize(ekernel as *const () as usize),
+                VirtAddr::from_usize(super::address::MEMORY_END as usize),
+                MapType::Identical,
+                MapPermission::R | MapPermission::W,
+            ),
+            None,
+        );
+
         // Note: Heap mapping is created separately in calculate_dynamic_heap_size()
         memory_set
     }
