@@ -12,12 +12,6 @@ const RISCV_DRAM_BASE: u64 = 0x8000_0000;
 const RISCV_DRAM_MAX_BASE: u64 = 0x9000_0000;
 const MAX_REASONABLE_REGION_SIZE: u64 = 0x1_0000_0000; // 4GB
 
-/// Convert big-endian u32 to native endian
-#[inline]
-fn be32_to_cpu(val: u32) -> u32 {
-    u32::from_be(val)
-}
-
 /// Memory region information
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryRegion {
@@ -79,7 +73,7 @@ pub unsafe fn probe_dtb_locations() -> Option<usize> {
         // Check if this looks like a valid DTB
         let magic_ptr = addr as *const u32;
         if let Some(magic) = unsafe { magic_ptr.as_ref() } {
-            if be32_to_cpu(*magic) == FDT_MAGIC {
+            if u32::from_be(*magic) == FDT_MAGIC {
                 return Some(addr);
             }
         }

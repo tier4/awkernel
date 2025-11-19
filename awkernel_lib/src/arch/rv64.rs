@@ -117,20 +117,16 @@ pub fn detect_memory_size() -> Option<u64> {
 
 use crate::console::unsafe_puts;
 
-/// Get the memory end address based on detected or default memory size
+/// Get the memory end address based on detected memory size
 ///
 /// This function attempts to detect the actual available RAM and returns
-/// an appropriate MEMORY_END value. Falls back to a safe default if detection fails.
+/// an appropriate MEMORY_END value. Panics if detection fails.
 pub fn get_memory_end() -> u64 {
-    const DEFAULT_MEMORY_END: u64 = 0xB0000000; // 768MB default
     const DRAM_BASE: u64 = 0x80000000;
 
     if let Some(detected_size) = detect_memory_size() {
-        // Use detected size, but cap it at reasonable limits
-        let max_memory_end = DRAM_BASE + detected_size;
-
-        // Don't exceed 2GB to be safe
-        let memory_end = max_memory_end.min(DRAM_BASE + 0x80000000);
+        // Use detected size directly
+        let memory_end = DRAM_BASE + detected_size;
 
         // Log the detection
         unsafe {
@@ -143,21 +139,15 @@ pub fn get_memory_end() -> u64 {
 
         memory_end
     } else {
-        // Fall back to default
-        unsafe {
-            use crate::console::unsafe_puts;
-            unsafe_puts("Using default MEMORY_END (DTB not found)\r\n");
-        }
-        DEFAULT_MEMORY_END
+        // Failed to detect memory - cannot continue boot safely
+        panic!("Failed to detect memory size from DTB or probing - cannot boot");
     }
 }
 
-/// Detect CPU count from device tree or return default
+/// Detect CPU count from device tree
 ///
-/// Returns the detected number of CPUs, or a safe default if detection fails
+/// Returns the detected number of CPUs. Panics if detection fails.
 pub fn detect_cpu_count() -> usize {
-    const DEFAULT_CPU_COUNT: usize = 4;
-
     unsafe {
         if let Some(dtb_addr) = boot_dtb_ptr() {
             if let Some(count) = fdt::detect_cpu_count_from_dtb(dtb_addr) {
@@ -178,8 +168,7 @@ pub fn detect_cpu_count() -> usize {
             }
         }
 
-        // Fall back to default
-        unsafe_puts("Using default CPU count\r\n");
-        DEFAULT_CPU_COUNT
+        // Failed to detect CPU count - cannot continue boot safely
+        panic!("Failed to detect CPU count from DTB - cannot boot");
     }
 }
