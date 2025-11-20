@@ -22,7 +22,7 @@ variables
     need_sched = [x \in 1..TOTAL_TASK_NUM |-> FALSE];
 
     \* awkernel_async_lib::task::State
-    state = [x \in 1..TOTAL_TASK_NUM |-> "Ready"];
+    state = [x \in 1..TOTAL_TASK_NUM |-> "Initialized"];
 
     is_terminated = [x \in 1..TOTAL_TASK_NUM |-> FALSE];
 
@@ -64,7 +64,7 @@ begin
             wake_but_terminated:
                 lock_info[task] := FALSE;
                 return;
-        elsif state[task] \in {"Waiting", "Ready"} then
+        elsif state[task] \in {"Waiting", "Initialized"} then
             state[task] := "Runnable";
         end if;
 
@@ -274,7 +274,7 @@ Init == (* Global variables *)
         /\ lock_future = [x \in 1..TOTAL_TASK_NUM |-> FALSE]
         /\ lock_scheduler = FALSE
         /\ need_sched = [x \in 1..TOTAL_TASK_NUM |-> FALSE]
-        /\ state = [x \in 1..TOTAL_TASK_NUM |-> "Ready"]
+        /\ state = [x \in 1..TOTAL_TASK_NUM |-> "Initialized"]
         /\ is_terminated = [x \in 1..TOTAL_TASK_NUM |-> FALSE]
         /\ result_next = [x \in WORKERS |-> -1]
         /\ result_future = [x \in WORKERS |-> ""]
@@ -329,7 +329,7 @@ start_wake(self) == /\ pc[self] = "start_wake"
                           ELSE /\ IF state[task_wa[self]] = "Terminated"
                                      THEN /\ pc' = [pc EXCEPT ![self] = "wake_but_terminated"]
                                           /\ state' = state
-                                     ELSE /\ IF state[task_wa[self]] \in {"Waiting", "Ready"}
+                                     ELSE /\ IF state[task_wa[self]] \in {"Waiting", "Initialized"}
                                                 THEN /\ state' = [state EXCEPT ![task_wa[self]] = "Runnable"]
                                                 ELSE /\ TRUE
                                                      /\ state' = state
