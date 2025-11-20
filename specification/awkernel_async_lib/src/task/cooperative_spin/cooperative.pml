@@ -240,7 +240,7 @@ init {
 
     for (i: 0 .. TASK_NUM - 1) {
         tasks[i].id = i;
-        tasks[i].state = Ready;
+        tasks[i].state = Initialized;
 
         printf("tasks[%d].state = %d\n", i, tasks[i].state);
 
