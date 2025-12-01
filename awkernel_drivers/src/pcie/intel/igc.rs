@@ -205,7 +205,7 @@ impl Igc {
         }
 
         // Set the max frame size.
-        hw.mac.max_frame_size = MAX_FRAME_SIZE;
+        hw.mac.max_frame_size = ETHER_MAX_LEN as u32;
 
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
