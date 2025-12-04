@@ -63,7 +63,7 @@ lock_future = [x \in 1..TASK_NUM |-> FALSE];
 lock_scheduler = FALSE;
 
 \* awkernel_async_lib::task::State
-state = [x \in 1..TASK_NUM |-> "Ready"];
+state = [x \in 1..TASK_NUM |-> "Initialized"];
 
 is_terminated = [x \in 1..TASK_NUM |-> FALSE];
 
@@ -77,7 +77,7 @@ wake_other = [x \in ((TASK_NUM \div 2) + 1)..TASK_NUM |-> FALSE];
 `result_next` and `result_future` are variable to be stored of results of
 `get_next` and `future` procedures, respectively.
 
-Each entry of `state` must be `Ready`, `Waiting`, `Runnable`, `Running`, `Panicked`,
+Each entry of `state` must be `Initialized`, `Waiting`, `Runnable`, `Running`, `Panicked`,
 or `Terminated`, as `task::State` defined in `task.rs`, as follows.
 `Panicked` state is omitted in this verification
 because it is almost equivalent to `Terminated`,
@@ -85,7 +85,7 @@ and `Preempted` state is also omitted because this verification is for cooperati
 
 ```rust
 pub enum State {
-    Ready,
+    Initialized,
     Running,
     Runnable,
     Waiting,
@@ -97,7 +97,7 @@ pub enum State {
 
 ```mermaid
 graph TD;
-    Ready-->Runnable;
+    Initialized-->Runnable;
     Running-->Preempted-->Running;
     Running-->Terminated;
     Running-->Panicked;
