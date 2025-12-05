@@ -158,6 +158,8 @@ pub struct TaskInfo {
     pub(crate) need_preemption: bool,
     panicked: bool,
     pub(crate) dag_info: Option<DagInfo>,
+    // latest period observed for this task (from received message payload), if any
+    pub(crate) current_period: Option<u32>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -226,6 +228,16 @@ impl TaskInfo {
     #[inline(always)]
     pub fn get_dag_info(&self) -> Option<DagInfo> {
         self.dag_info.clone()
+    }
+
+    #[inline(always)]
+    pub fn set_current_period(&mut self, p: Option<u32>) {
+        self.current_period = p;
+    }
+
+    #[inline(always)]
+    pub fn get_current_period(&self) -> Option<u32> {
+        self.current_period
     }
 
     #[inline(always)]
@@ -299,6 +311,7 @@ impl Tasks {
                     need_preemption: false,
                     panicked: false,
                     dag_info,
+                    current_period: None,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -470,9 +483,9 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 #[cfg(feature = "perf")]
 pub mod perf {
     use alloc::string::{String, ToString};
-    use awkernel_lib::{cpu::NUM_MAX_CPU};
+    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
     use core::{ptr::{read_volatile, write_volatile}};
-    use crate::task;
+    use crate::task::{self, get_task_period};
     use core::sync::atomic::{AtomicU32, Ordering};
     use array_macro::array;
     
@@ -543,6 +556,7 @@ pub mod perf {
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static DAG_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
 
     //DAG+1
     const MAX_DAGS: usize = 4;
@@ -553,6 +567,8 @@ pub mod perf {
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     // static NODE_PERIOD_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_CORE: Mutex<Option<[[u8; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
 
 
     pub fn increment_period_count(dag_id: usize) {
@@ -655,6 +671,44 @@ pub mod perf {
         recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
     }
 
+    pub fn node_preempt(node:NodeRecord){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_PREEMPT_COUNT.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        recorder[node.period_count as usize][node.dag_info.node_id as usize] += 1;
+    }
+
+    pub fn dag_preempt(node:NodeRecord){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.dag_id as usize) < MAX_DAGS, "DAG ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = DAG_PREEMPT_COUNT.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        recorder[node.period_count as usize][node.dag_info.dag_id as usize] += 1;
+    }
+
+    // pub fn node_core(node:NodeRecord, core_id:u8){
+    //     // This function is reserved for future use if core-specific logging is needed.
+    //     assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+    //     let mut mcs_node = MCSNode::new();
+    //     let mut recorder_opt = NODE_CORE.lock(&mut mcs_node);
+
+    //     let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+    //     if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
+    //         recorder[node.period_count as usize][node.dag_info.node_id as usize] = core_id;
+    //     }
+    // }
+
     // pub fn node_period_count(node:NodeRecord){
     //     // assert!(index < MAX_LOGS, "Node log index out of bounds");
     //     assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
@@ -672,25 +726,28 @@ pub mod perf {
         let mut node2 = MCSNode::new();
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
+        let mut node5 = MCSNode::new();
 
         let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
         let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
         let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
+        let dag_preempt_opt = DAG_PREEMPT_COUNT.lock(&mut node5);
 
         log::info!("--- Timestamp Summary (in nanoseconds) ---");
         log::info!(
-            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
             "Index",
             "DAG-ID",
             "Send-Outer",
             "Recv-Outer",
             "Latency",
             "Absolute Deadline",
-            "Relative Deadline"
+            "Relative Deadline",
+            "DAG Preemptions"
         );
 
-        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------");
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
 
         for i in 0..MAX_LOGS {
             for j in 1..MAX_DAGS {
@@ -698,8 +755,9 @@ pub mod perf {
                 let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let dag_preempt = dag_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
-                if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 {
+                if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 || dag_preempt != 0 {
                     let format_ts = |ts: u64| -> String {
                         if ts == 0 {
                             "-".to_string()
@@ -715,7 +773,7 @@ pub mod perf {
                     };
 
                     log::info!(
-                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20} | {: >20}",
                         i,
                         format_ts(j as u64),
                         format_ts(pre_send_outer),
@@ -723,6 +781,7 @@ pub mod perf {
                         latency_str,
                         format_ts(absolute_deadline),
                         format_ts(relative_deadline),
+                        format_ts(dag_preempt as u64),
                     );
                 }
             }
@@ -735,31 +794,39 @@ pub mod perf {
     pub fn print_node_table() {
         let mut node1 = MCSNode::new();
         let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
         // let mut node3 = MCSNode::new();
 
         let node_start_opt = NODE_START.lock(&mut node1);
         let node_finish_opt = NODE_FINISH.lock(&mut node2);
+        let node_preempt_opt = NODE_PREEMPT_COUNT.lock(&mut node3);
+        let node_core_opt = NODE_CORE.lock(&mut node4);
         // let node_period_count_opt = NODE_PERIOD_COUNT.lock(&mut node3);
 
         log::info!("--- Per-node Timing Summary (in nanoseconds) ---");
         log::info!(
-            "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} |",
+            "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
             "Index",
             "DAG-ID",
             "NODE-ID",
             "start(ns)",
             "end(ns)",
             "duration(ns)",
+            "preemptions",
+            "core"
         );
-        log::info!("------|--------|---------|----------------------|----------------------|----------------------|");
+        log::info!("------|--------|---------|----------------------|----------------------|----------------------|-----");
 
         for i in 0..MAX_LOGS {
             for j in 0..MAX_NODES {
                 let start = node_start_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let finish = node_finish_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let preempt_count = node_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let core_id = node_core_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 // let period_count = node_period_count_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
-                if start != 0 || finish != 0 {
+                if start != 0 || finish != 0 || preempt_count != 0 {
 
                     let format_ts = |ts: u64| -> String {
                             ts.to_string()
@@ -772,18 +839,20 @@ pub mod perf {
                     };
 
                     log::info!(
-                        "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} |",
+                        "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
                         i,
                         1, // DAG ID (assumed 1 for simplicity)
                         format_ts(j as u64),
                         format_ts(start),
                         format_ts(finish),
                         duration,
+                        format_ts(preempt_count as u64),
+                        format_ts(core_id as u64),
                     );
                 }
             }
         }
-        log::info!("----------------------------------------------------------");
+        log::info!("--------------------------------------------------------------");
     }
 
     fn update_time_and_state(next_state: PerfState) {
@@ -961,6 +1030,15 @@ pub mod perf {
                 if dag_info.is_some() {
                     // DAG task-specific handling
                     update_time_and_state_for_dag(PerfState::Interrupt);
+                    // Create a NodeRecord with the current period count and call node_preempt
+                    // let period = get_task_period(task_id).unwrap();
+                    // if let Some(di) = dag_info {
+                    //     let nr = NodeRecord {
+                    //         period_count: period,
+                    //         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    //     };
+                    //     dag_preempt(nr);
+                    // }
                 } else {
                     // Normal task-specific handling
                     update_time_and_state(PerfState::Interrupt);
@@ -998,6 +1076,14 @@ pub mod perf {
                 if dag_info.is_some() {
                     // DAG task-specific handling
                     update_time_and_state_for_dag(PerfState::ContextSwitch);
+                    // let period = get_task_period(task_id).unwrap();
+                    // if let Some(di) = dag_info {
+                    //     let nr = NodeRecord {
+                    //         period_count: period,
+                    //         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    //     };
+                    //     node_preempt(nr);
+                    // }
                 } else {
                     // Normal task-specific handling
                     update_time_and_state(PerfState::ContextSwitch);
@@ -1009,41 +1095,46 @@ pub mod perf {
         }
     }
 
-    /// Record a DAG deadline miss.
-    // fn record_dag_deadline_miss() {
-    //     unsafe {
-    //         DAG_DEADLINE_MISS_COUNT.fetch_add(1, Ordering::Relaxed);
+    pub fn count_preempt() {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    let period = get_task_period(task_id).unwrap();
+                    if let Some(di) = dag_info {
+                        let nr = NodeRecord {
+                            period_count: period,
+                            dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                        };
+                        dag_preempt(nr);
+                    }
+                }
+            }
+        }
+    }
+
+    // pub fn memo_core(){
+    //     let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    //     if let Some(task_id) = task::get_current_task(cpu_id) {
+    //         if let Some(task) = task::get_task(task_id) {
+    //             let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+    //             if dag_info.is_some() {
+    //                 // DAG task-specific handling
+    //                 let period = get_task_period(task_id).unwrap();
+    //                 if let Some(di) = dag_info {
+    //                     let nr = NodeRecord {
+    //                         period_count: period,
+    //                         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+    //                     };
+    //                     node_core(nr, cpu_id as u8);
+    //                 }
+    //             }
+    //         }
     //     }
-    // }
-
-    /// Record a DAG task execution.
-    // fn record_dag_task() {
-    //     unsafe {
-    //         DAG_TOTAL_TASK_COUNT.fetch_add(1, Ordering::Relaxed);
-    //     }
-    // }
-
-    /// Get the DAG deadline miss rate as a percentage.
-    // fn get_dag_deadline_miss_rate() -> f64 {
-    //     let misses;
-    //     let total;
-
-    //     unsafe {
-    //         misses = DAG_DEADLINE_MISS_COUNT.load(Ordering::Relaxed);
-    //         total = DAG_TOTAL_TASK_COUNT.load(Ordering::Relaxed);
-    //     }
-
-    //     if total == 0 {
-    //         0.0
-    //     } else {
-    //         (misses as f64 / total as f64) * 100.0
-    //     }
-    // }
-
-    /// Log the DAG deadline miss rate.
-    // pub fn log_dag_deadline_miss_rate() {
-    //     let miss_rate = get_dag_deadline_miss_rate();
-    //     log::info!("DAG Deadline Miss Rate: {:.2}%", miss_rate);
     // }
 
     #[inline(always)]
@@ -1434,6 +1525,26 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
         let info = task.info.lock(&mut node);
         info.get_scheduler_type()
     })
+}
+
+/// Set the current period observed for a task (stores into TaskInfo.current_period).
+pub fn set_task_period(task_id: u32, period: Option<u32>) {
+    if let Some(task) = get_task(task_id) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.set_current_period(period);
+    }
+}
+
+/// Get the current period recorded for a task, if any.
+pub fn get_task_period(task_id: u32) -> Option<u32> {
+    if let Some(task) = get_task(task_id) {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_current_period()
+    } else {
+        None
+    }
 }
 
 #[inline(always)]

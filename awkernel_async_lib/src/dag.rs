@@ -54,14 +54,18 @@ mod visit;
 mod performance;
 
 use crate::{
-    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers, dag::{
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers, 
+    dag::{
         graph::{
             NodeIndex, algo::{connected_components, is_cyclic_directed}, direction::Direction
         },
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
-    }, scheduler::SchedulerType, task::{
+    }, 
+    scheduler::SchedulerType, 
+    task::{
         DagInfo, perf::{NodeRecord, get_period_count, get_sink_count, increment_period_count, increment_sink_count, node_finish, node_start, update_fin_recv_outer_timestamp_at}
-    }, time_interval::interval
+    }, 
+    time_interval::interval
 };
 use alloc::{
     borrow::Cow,
@@ -1002,6 +1006,10 @@ where
                 subscribers.recv_all().await;
             // log::info!("inter period: {:?}", get_period(&args));
             let count_st = get_period(&args);
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                crate::task::set_task_period(task_id, Some(count_st));
+            }
             let noderecord = NodeRecord {
                 period_count: count_st,
                 dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
@@ -1055,6 +1063,10 @@ where
 
         loop {
             let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                crate::task::set_task_period(task_id, Some(index as u32));
+            }
             let noderecord = NodeRecord {
                 period_count: index as u32,
                 dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
@@ -1119,6 +1131,10 @@ where
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             // log::info!("sink period: {:?}", get_period(&args));
             let count_st = get_period(&args);
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                crate::task::set_task_period(task_id, Some(count_st));
+            }
             let noderecord = NodeRecord {
                 period_count: count_st,
                 dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
