@@ -250,7 +250,7 @@ ltl eventually_terminate: <> ((num_terminated==4))
 ltl eventually_prerequisites: [] (<> (((((((((((waking[0]==0)) && ((waking[1]==0))) && ((waking[2]==0))) && ((waking[3]==0))) && ((len(ipi_requests[0])==0))) && ((len(ipi_requests[1])==0))) && (! (handling_interrupt[0]))) && (! (handling_interrupt[1]))) && (! (handling_interrupt[2]))) && (! (handling_interrupt[3]))))
 ltl ensure_priority: [] ((! (((((((((((((((waking[0]==0)) && ((waking[1]==0))) && ((waking[2]==0))) && ((waking[3]==0))) && ((len(ipi_requests[0])==0))) && ((RUNNING[0]!=-(1)))) && ((RUNNING[0]!=runnable_preempted_highest_priority))) && ((len(ipi_requests[1])==0))) && ((RUNNING[1]!=-(1)))) && ((RUNNING[1]!=runnable_preempted_highest_priority))) && (! (handling_interrupt[0]))) && (! (handling_interrupt[1]))) && (! (handling_interrupt[2]))) && (! (handling_interrupt[3])))) || ((running_lowest_priority<runnable_preempted_highest_priority)))
 Never claim moves to line 22    [(1)]
-              wake() call wake_task(): tid = 0,task = 3,state = Ready
+              wake() call wake_task(): tid = 0,task = 3,state = Initialized
               get_lowest_priority_task(): task = 3
               invoke_preemption() no need to preempt: hp_task = 3,lp_task = 0
               wake_task(): push to queue: tid = 0,task = 3
@@ -258,7 +258,7 @@ Never claim moves to line 22    [(1)]
                                       scheduler_get_next(): tid = 1,Chosen task = 3
                                       RUNNING[1] = 3
                                       future(): tid = 1, task = 3
-                                      wake() call wake_task(): tid = 1,task = 2,state = Ready
+                                      wake() call wake_task(): tid = 1,task = 2,state = Initialized
                                       get_lowest_priority_task(): task = 2
                                       invoke_preemption() send IPI: hp_task = 2,lp_task = 3,lp_cpu_id = 1,interrupt_enabled[lp_cpu_id] = 0
                                   proc 6 (run_main),tid = 0
@@ -273,10 +273,10 @@ Never claim moves to line 22    [(1)]
                                           wake_task(): push to queue: tid = 2,task = 3
                                           RUNNING[1] = 2
                                           future(): tid = 2, task = 2
-                                          wake() call wake_task(): tid = 2,task = 1,state = Ready
+                                          wake() call wake_task(): tid = 2,task = 1,state = Initialized
                                           get_lowest_priority_task(): task = 1
                                           invoke_preemption() send IPI: hp_task = 1,lp_task = 2,lp_cpu_id = 1,interrupt_enabled[lp_cpu_id] = 0
-                                          wake() call wake_task(): tid = 2,task = 0,state = Ready
+                                          wake() call wake_task(): tid = 2,task = 0,state = Initialized
                                           get_lowest_priority_task(): task = 0
                                           invoke_preemption() send IPI: hp_task = 0,lp_task = 1,lp_cpu_id = 1,interrupt_enabled[lp_cpu_id] = 0
                                   scheduler_get_next(): tid = 0,Chosen task = 3

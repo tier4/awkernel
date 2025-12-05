@@ -255,7 +255,7 @@ impl Talloc {
 
     /// Save the configuration and it will be restored when dropping `Guard`.
     #[inline]
-    pub fn save(&self) -> Guard {
+    pub fn save(&self) -> Guard<'_> {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
         let flag = mask & self.flags[index].load(Ordering::Relaxed);

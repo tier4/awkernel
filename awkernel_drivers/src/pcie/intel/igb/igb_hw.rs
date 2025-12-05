@@ -6005,9 +6005,8 @@ impl IgbHw {
                 // operation, while the smaller eeproms are capable of an
                 // 8-byte PAGE WRITE operation.  Break the inner loop to pass
                 // new address
-                if (((offset + widx as u32) * 2)
-                    % self.eeprom.page_size.ok_or(IgbDriverErr::EEPROM)? as u32)
-                    == 0
+                if ((offset + widx as u32) * 2)
+                    .is_multiple_of(self.eeprom.page_size.ok_or(IgbDriverErr::EEPROM)? as u32)
                 {
                     self.standby_eeprom(info)?;
                     break;
@@ -6215,7 +6214,7 @@ impl IgbHw {
             let mut i = 0;
             let mut add;
             while i < data.len() {
-                let act_offset = if (offset + i as u32) % 2 != 0 {
+                let act_offset = if !(offset + i as u32).is_multiple_of(2) {
                     add = 1;
                     bank_offset as u32 + (offset + i as u32 - 1) * 2
                 } else {

@@ -205,7 +205,7 @@ impl Igc {
         }
 
         // Set the max frame size.
-        hw.mac.max_frame_size = MAX_FRAME_SIZE;
+        hw.mac.max_frame_size = ETHER_MAX_LEN as u32;
 
         if ops.check_reset_block(&mut info).is_err() {
             log::info!("PHY reset is blocked due to SOL/IDER session");
@@ -1070,8 +1070,8 @@ fn igc_allocate_queues(
     info: &PCIeInfo,
     irqs: &[IRQ],
 ) -> Result<(Vec<Queue>, BTreeMap<u16, usize>), PCIeDeviceErr> {
-    assert!(core::mem::size_of::<RxRing>() % PAGESIZE == 0);
-    assert!(core::mem::size_of::<TxRing>() % PAGESIZE == 0);
+    assert!(core::mem::size_of::<RxRing>().is_multiple_of(PAGESIZE));
+    assert!(core::mem::size_of::<TxRing>().is_multiple_of(PAGESIZE));
 
     let mut irq_to_queue = BTreeMap::new();
     let mut que = Vec::with_capacity(irqs.len());

@@ -124,7 +124,7 @@ inline wake(tid,task) {
 			waking[task]--;
 		}
 		unlock(tid,lock_info[task])
-	:: tasks[task].state == Waiting || tasks[task].state == Ready -> 
+	:: tasks[task].state == Waiting || tasks[task].state == Initialized -> 
 		d_step{
 			printf("wake() call wake_task(): tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 			tasks[task].state = Runnable;

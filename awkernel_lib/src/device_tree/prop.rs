@@ -274,7 +274,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 }
             }
             _ => {
-                let a = raw_value.len() % BLOCK_SIZE == 0;
+                let a = raw_value.len().is_multiple_of(BLOCK_SIZE);
                 let b = *safe_index(raw_value, 0)? != b'\0'
                     && *safe_index(raw_value, raw_value.len() - 1)? == b'\0'
                     && raw_value.is_ascii();

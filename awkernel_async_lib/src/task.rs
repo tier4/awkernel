@@ -126,7 +126,7 @@ impl ArcWake for Task {
                 Terminated | Panicked => {
                     return;
                 }
-                Ready | Waiting => {
+                Initialized | Waiting => {
                     info.state = Runnable;
                 }
             }
@@ -255,7 +255,7 @@ impl TaskInfo {
 /// State of task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
-    Ready,
+    Initialized,
     Running,
     Runnable,
     Waiting,
@@ -303,7 +303,7 @@ impl Tasks {
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
-                    state: State::Ready,
+                    state: State::Initialized,
                     num_preempt: 0,
                     last_executed_time: awkernel_lib::time::Time::now(),
                     absolute_deadline: None,
