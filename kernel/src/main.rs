@@ -77,10 +77,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         let mut last_print = awkernel_lib::time::Time::now();
 
         loop {
-            if last_print.elapsed().as_secs() >= 200 {
+            if last_print.elapsed().as_secs() >= 60 {
                 #[cfg(feature = "perf")]
-                awkernel_async_lib::task::perf::print_timestamp_table();
+                // awkernel_async_lib::task::perf::print_timestamp_table();
                 // awkernel_async_lib::task::perf::print_node_table();
+                awkernel_async_lib::task::perf::print_pubsub_table();
                 last_print = awkernel_lib::time::Time::now();
             }
             // handle IRQs

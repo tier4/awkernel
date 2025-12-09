@@ -67,6 +67,28 @@ impl GEDFData {
 
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
+        {
+            let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            let mut node = MCSNode::new();
+            let info = task.info.lock(&mut node);
+            let dag_info = info.get_dag_info();
+            let dag_id = dag_info.clone().unwrap().dag_id;
+            let node_id = dag_info.clone().unwrap().node_id;
+            let dag = get_dag(dag_id.clone()).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
+            let current_node_index = to_node_index(node_id);
+            if dag.is_source_node(current_node_index) {
+                // Update timestamp here
+                let index = get_period_count(dag_id.clone() as usize) as usize;
+                if index != 0 {
+                    update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
+                }
+            }
+            let sink_relative_deadline = dag.get_sink_relative_deadline()
+                .map(|deadline| deadline.as_nanos() as u64)
+                .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"));
+            let index = get_period_count(dag_id.clone() as usize) as usize;
+            update_relative_deadline_timestamp_at(index, sink_relative_deadline, dag_id);
+        }
         let (wake_time, absolute_deadline) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
@@ -100,26 +122,6 @@ impl Scheduler for GEDFScheduler {
 
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
-        {
-            let mut node = MCSNode::new();
-            let info = task.info.lock(&mut node);
-            let dag_info = info.get_dag_info();
-            let dag_id = dag_info.clone().unwrap().dag_id;
-            let node_id = dag_info.clone().unwrap().node_id;
-            let dag = get_dag(dag_id.clone()).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
-            let current_node_index = to_node_index(node_id);
-            if dag.is_source_node(current_node_index) {
-                // Update timestamp here
-                let index = get_period_count(dag_id.clone() as usize) as usize;
-                let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
-            }
-            let sink_relative_deadline = dag.get_sink_relative_deadline()
-                .map(|deadline| deadline.as_nanos() as u64)
-                .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"));
-            let index = get_period_count(dag_id.clone() as usize) as usize;
-            update_relative_deadline_timestamp_at(index, sink_relative_deadline, dag_id);
-        }
         if !self.invoke_preemption(task.clone()) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);

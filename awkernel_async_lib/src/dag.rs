@@ -56,14 +56,13 @@ mod performance;
 use crate::{
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers, 
     dag::{
-        graph::{
+        self, graph::{
             NodeIndex, algo::{connected_components, is_cyclic_directed}, direction::Direction
-        },
-        visit::{EdgeRef, IntoNodeReferences, NodeRef},
+        }, visit::{EdgeRef, IntoNodeReferences, NodeRef}
     }, 
     scheduler::SchedulerType, 
     task::{
-        DagInfo, perf::{NodeRecord, get_period_count, get_sink_count, increment_period_count, increment_sink_count, node_finish, node_start, update_fin_recv_outer_timestamp_at}
+        DagInfo, perf::{NodeRecord, get_period_count, get_pub_count, get_sink_count, get_sub_count, increment_period_count, increment_pub_count, increment_sink_count, increment_sub_count, node_finish, node_start, publish_timestamp_at, subscribe_timestamp_at, update_fin_recv_outer_timestamp_at},
     }, 
     time_interval::interval
 };
@@ -1004,7 +1003,16 @@ where
         loop {
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
-            // log::info!("inter period: {:?}", get_period(&args));
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            if dag_info.node_id.clone() == 0 {
+                let index_subscribe = get_sub_count(0) as usize;
+                subscribe_timestamp_at(index_subscribe, end, 0, dag_info.node_id.clone());
+                increment_sub_count(0);
+            }
+            else {
+                let index_subscribe = get_sub_count(1) as usize;
+                subscribe_timestamp_at(index_subscribe, end, 1, dag_info.node_id.clone());
+            }
             let count_st = get_period(&args);
             let cpu_id = awkernel_lib::cpu::cpu_id();
             if let Some(task_id) = crate::task::get_current_task(cpu_id) {
@@ -1020,6 +1028,8 @@ where
             let results = f(args);
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             node_finish(noderecord.clone(), end);
+            let index_publish = get_pub_count(1) as usize;
+            publish_timestamp_at(index_publish, end,1, dag_info.node_id.clone());
             publishers.send_all(results).await;
         }
     };
@@ -1057,7 +1067,7 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period);
+        let mut interval = interval(period, dag_info.dag_id.clone() as u32);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
@@ -1077,9 +1087,12 @@ where
             let results = f();
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             node_finish(noderecord.clone(), end);
+            let index_publish = get_pub_count(0) as usize;
+            publish_timestamp_at(index_publish, end, 0, dag_info.node_id.clone());
             publishers.send_all(results).await;
 
             increment_period_count(dag_info.dag_id.clone() as usize);
+            increment_pub_count(0);
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1125,11 +1138,15 @@ where
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
-        // let mut counter = 0;
-
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             // log::info!("sink period: {:?}", get_period(&args));
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            let index_subscribe = get_sub_count(2) as usize;
+            subscribe_timestamp_at(index_subscribe, end, 2, dag_info.node_id.clone());
+            increment_pub_count(1);
+            increment_sub_count(1);
+            increment_sub_count(2);
             let count_st = get_period(&args);
             let cpu_id = awkernel_lib::cpu::cpu_id();
             if let Some(task_id) = crate::task::get_current_task(cpu_id) {

@@ -570,6 +570,32 @@ pub mod perf {
     static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_CORE: Mutex<Option<[[u8; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
 
+    //pubsub
+    const MAX_PUBSUB: usize = 3;
+    static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+    static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+    pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+    pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+
+    pub fn increment_pub_count(pub_id: usize) {
+        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
+        PUB_COUNT[pub_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn increment_sub_count(sub_id: usize) {
+        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
+        SUB_COUNT[sub_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_pub_count(pub_id: usize) -> u32 {
+        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
+        PUB_COUNT[pub_id].load(Ordering::Relaxed)
+    }
+
+    pub fn get_sub_count(sub_id: usize) -> u32 {
+        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
+        SUB_COUNT[sub_id].load(Ordering::Relaxed)
+    }
 
     pub fn increment_period_count(dag_id: usize) {
         assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
@@ -693,6 +719,34 @@ pub mod perf {
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
 
         recorder[node.period_count as usize][node.dag_info.dag_id as usize] += 1;
+    }
+
+    pub fn publish_timestamp_at(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = PUBLISH.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+
+        if recorder[index][pub_id as usize][node_id as usize] == 0 {
+            recorder[index][pub_id as usize][node_id as usize] = new_timestamp;
+        }
+    }
+
+    pub fn subscribe_timestamp_at(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SUBSCRIBE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+
+        if recorder[index][sub_id as usize][node_id as usize] == 0 {
+            recorder[index][sub_id as usize][node_id as usize] = new_timestamp;
+        }
     }
 
     // pub fn node_core(node:NodeRecord, core_id:u8){
@@ -849,6 +903,53 @@ pub mod perf {
                         format_ts(preempt_count as u64),
                         format_ts(core_id as u64),
                     );
+                }
+            }
+        }
+        log::info!("--------------------------------------------------------------");
+    }
+
+    pub fn print_pubsub_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+
+        let publish_opt = PUBLISH.lock(&mut node1);
+        let subscribe_opt = SUBSCRIBE.lock(&mut node2);
+
+        log::info!("--- Pub/Sub Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
+            "Index",
+            "Pub/Sub ID",
+            "Node ID",
+            "Publish Time",
+            "Subscribe Time"
+        );
+        log::info!("-----|------------|---------|----------------|----------------");
+        for i in 0..MAX_LOGS {
+            for j in 0..MAX_PUBSUB {
+                for k in 0..MAX_NODES {
+                    let publish_time = publish_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
+                    let subscribe_time = subscribe_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
+
+                    if publish_time != 0 || subscribe_time != 0 {
+                        let format_ts = |ts: u64| -> String {
+                            if ts == 0 {
+                                "-".to_string()
+                            } else {
+                                ts.to_string()
+                            }
+                        };
+
+                        log::info!(
+                            "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
+                            i,
+                            j,
+                            k,
+                            format_ts(publish_time),
+                            format_ts(subscribe_time),
+                        );
+                    }
                 }
             }
         }
