@@ -382,8 +382,12 @@ pub fn handle_irqs(is_task: bool) {
     }
 
     if need_preemption && is_task {
+        
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
+        //ここか
+        // #[cfg(feature = "perf")]
+        // super::perf::start_context_switch();
         preemption();
     }
 

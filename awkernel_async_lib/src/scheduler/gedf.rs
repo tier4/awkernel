@@ -9,8 +9,8 @@ use crate::{
     scheduler::GLOBAL_WAKE_GET_MUTEX,
     scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
     task::{
-        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at, get_period_count},
-        get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
+        perf::{update_pre_send_outer_timestamp_at, update_absolute_deadline_timestamp_at, update_relative_deadline_timestamp_at, get_period_count, NodeRecord, node_start, node_finish},
+        get_task, get_tasks_running, get_current_task, set_current_task, set_need_preemption, get_task_period, DagInfo, State,
         MAX_TASK_PRIORITY,
     },
 };
@@ -131,6 +131,34 @@ impl Scheduler for GEDFScheduler {
                 absolute_deadline,
                 wake_time,
             });
+            //ここが終了
+            {
+                // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let mut node = MCSNode::new();
+                
+                let info = task.info.lock(&mut node);
+                let dag_info = info.get_dag_info();
+                let current_period = info.get_current_period();
+                drop(info);
+
+                if let (Some(di), Some(period)) = (dag_info.clone(), current_period) {
+                    // DAG task-specific handling
+                    let nr = NodeRecord {
+                        period_count: period,
+                        dag_info: DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    };
+                    // node_finish(nr, end);
+                    node_start(nr, start);
+                } else {
+                    log::trace!(
+                        "gedf::wake_task: skip node_finish (dag_info={:?}, period={:?})",
+                        dag_info, current_period
+                    );
+                }
+            }
+            
+            //ここが開始(キューに入ってから)
         }
     }
 
@@ -147,6 +175,30 @@ impl Scheduler for GEDFScheduler {
         loop {
             // Pop a task from the run queue.
             let task = data.queue.pop()?;
+            //取り出されるまで(終了)
+            {
+                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let mut node = MCSNode::new();
+                
+                let info = task.task.info.lock(&mut node);
+                let dag_info = info.get_dag_info();
+                let current_period = info.get_current_period();
+                drop(info);
+
+                if let (Some(di), Some(period)) = (dag_info.clone(), current_period) {
+                    // DAG task-specific handling
+                    let nr = NodeRecord {
+                        period_count: period,
+                        dag_info: DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    };
+                    node_finish(nr, end);
+                } else {
+                    log::trace!(
+                        "gedf::wake_task: skip node_finish (dag_info={:?}, period={:?})",
+                        dag_info, current_period
+                    );
+                }
+            }
 
             // Make the state of the task Running.
             {

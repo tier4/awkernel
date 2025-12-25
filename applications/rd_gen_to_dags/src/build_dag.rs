@@ -127,6 +127,15 @@ async fn register_source_node(
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
         3 => register_source!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_source!(dag, node_data, sched_type, u64, u64, u64, u64),
+        5 => register_source!(dag, node_data, sched_type, u64, u64, u64, u64, u64),
+        6 => register_source!(dag, node_data, sched_type, u64, u64, u64, u64, u64, u64),
+        7 => register_source!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64
+        ),
+        8 => register_source!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64
+        ),
         _ => Err(LinkNumError::Output(dag_id, node_id)),
     }
 }
@@ -180,6 +189,15 @@ async fn register_sink_node(
         1 => register_sink!(dag, node_data, sched_type, u64),
         2 => register_sink!(dag, node_data, sched_type, u64, u64),
         3 => register_sink!(dag, node_data, sched_type, u64, u64, u64),
+        4 => register_sink!(dag, node_data, sched_type, u64, u64, u64, u64),
+        5 => register_sink!(dag, node_data, sched_type, u64, u64, u64, u64, u64),
+        6 => register_sink!(dag, node_data, sched_type, u64, u64, u64, u64, u64, u64),
+        7 => register_sink!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64
+        ),
+        8 => register_sink!(
+            dag, node_data, sched_type, u64, u64, u64, u64, u64, u64, u64, u64
+        ),
         _ => Err(LinkNumError::Input(dag_id, node_id)),
     }
 }
@@ -246,15 +264,33 @@ async fn register_intermediate_node(
         (1, 1) => register_intermediate!(dag, node_data, sched_type, u64; u64),
         (1, 2) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64),
         (1, 3) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64),
+        (1, 4) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64, u64),
+        (1, 5) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64),
+        (1, 6) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64),
+        (1, 7) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64, u64),
+        (1, 8) => register_intermediate!(dag, node_data, sched_type, u64;
+            u64, u64, u64, u64, u64, u64, u64, u64),
         (2, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64),
         (2, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64),
         (2, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64; u64, u64, u64),
         (3, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64),
         (3, 2) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64),
         (3, 3) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64; u64, u64, u64),
-        (i, o) if i > 3 && o > 3 => Err(LinkNumError::InOut(dag_id, node_id)),
-        (i, _) if i > 3 => Err(LinkNumError::Input(dag_id, node_id)),
-        (_, o) if o > 3 => Err(LinkNumError::Output(dag_id, node_id)),
+        (4, 1) => register_intermediate!(dag, node_data, sched_type, u64, u64, u64, u64; u64),
+        (5, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64; u64),
+        (6, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64; u64),
+        (7, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64, u64; u64),
+        (8, 1) => register_intermediate!(dag, node_data, sched_type,
+            u64, u64, u64, u64, u64, u64, u64, u64; u64),
+        (i, o) if i > 8 && o > 8 => Err(LinkNumError::InOut(dag_id, node_id)),
+        (i, _) if i > 8 => Err(LinkNumError::Input(dag_id, node_id)),
+        (_, o) if o > 8 => Err(LinkNumError::Output(dag_id, node_id)),
         _ => unreachable!(),
     }
 }

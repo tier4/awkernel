@@ -128,6 +128,27 @@ impl ArcWake for Task {
                 }
                 Initialized | Waiting => {
                     info.state = Runnable;
+                    // キューに入るまでのレイテンシ：開始
+                    // use crate::task::perf::{NodeRecord, node_start};
+                    // let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    // {
+                    //     let dag_info = info.get_dag_info();
+                    //     if dag_info.is_some() {
+                    //         // DAG task-specific handling
+                    //         {
+                    //             let period = info.get_current_period().unwrap_or(0);
+                    //             if period != 0{
+                    //                 if let Some(di) = dag_info {
+                    //                     let nr = NodeRecord {
+                    //                         period_count: period,
+                    //                         dag_info: DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    //                     };
+                    //                     node_start(nr, start);
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    // }
                 }
             }
 
@@ -497,6 +518,7 @@ pub mod perf {
         Kernel,
         Task,
         ContextSwitch,
+        ContextSwitchMain,
         Interrupt,
         Idle,
     }
@@ -508,8 +530,9 @@ pub mod perf {
                 1 => Self::Kernel,
                 2 => Self::Task,
                 3 => Self::ContextSwitch,
-                4 => Self::Interrupt,
-                5 => Self::Idle,
+                4 => Self::ContextSwitchMain,
+                5 => Self::Interrupt,
+                6 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
         }
@@ -532,6 +555,7 @@ pub mod perf {
     static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -539,6 +563,7 @@ pub mod perf {
     static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -546,11 +571,12 @@ pub mod perf {
     static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 6144;
+    const MAX_LOGS: usize = 2048;
 
     static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
@@ -563,7 +589,7 @@ pub mod perf {
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
     pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
-    const MAX_NODES: usize = 15;
+    const MAX_NODES: usize = 20;
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     // static NODE_PERIOD_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
@@ -576,6 +602,11 @@ pub mod perf {
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
     pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+
+    //release(task.rs-wake)→push(gedf.rs-wake_task)
+
+
+    //push(gedf.rs-wake_task)→pop(gedf.rs-get_next)
 
     pub fn increment_pub_count(pub_id: usize) {
         assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
@@ -694,7 +725,9 @@ pub mod perf {
 
         let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
 
-        recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
+        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
+            recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
+        }
     }
 
     pub fn node_preempt(node:NodeRecord){
@@ -956,6 +989,19 @@ pub mod perf {
         log::info!("--------------------------------------------------------------");
     }
 
+    // pub fn print_context_switch_preemption_table() {
+    //     log::info!("--- Context Switch / Interrupt Timing Summary (in nanoseconds) ---");
+    //     log::info!(
+    //         "{: ^6} | {: ^18} | {: ^18} | {: ^15} | {: ^15}",
+    //         "CPU-ID",
+    //         "Context Switch(ns)",
+    //         "Interrupt(ns)",
+    //         "CS Count",
+    //         "Int Count"
+    //     );
+    //     log::info!("--------|------------------|------------------|---------|----------");
+    // }
+
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
         let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -1002,6 +1048,14 @@ pub mod perf {
                     write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
                     let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
@@ -1064,6 +1118,7 @@ pub mod perf {
                     write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Interrupt => unsafe {
+                    // log::info!("PreemptionTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
                     write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
                     let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
@@ -1072,12 +1127,22 @@ pub mod perf {
                     write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::ContextSwitch => unsafe {
+                    // log::info!("ContextSwitchTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
                     let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
                     let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
@@ -1160,6 +1225,7 @@ pub mod perf {
             PerfState::Kernel => start_kernel(),
             PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
+            PerfState::ContextSwitchMain => start_context_switch_main(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
@@ -1177,14 +1243,6 @@ pub mod perf {
                 if dag_info.is_some() {
                     // DAG task-specific handling
                     update_time_and_state_for_dag(PerfState::ContextSwitch);
-                    // let period = get_task_period(task_id).unwrap();
-                    // if let Some(di) = dag_info {
-                    //     let nr = NodeRecord {
-                    //         period_count: period,
-                    //         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
-                    //     };
-                    //     node_preempt(nr);
-                    // }
                 } else {
                     // Normal task-specific handling
                     update_time_and_state(PerfState::ContextSwitch);
@@ -1193,6 +1251,27 @@ pub mod perf {
         } else {
             // Default handling if no task is running
             update_time_and_state(PerfState::ContextSwitch);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_context_switch_main() {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitchMain);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitchMain);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitchMain);
         }
     }
 
@@ -1374,6 +1453,8 @@ pub fn run_main() {
 
             #[cfg(not(feature = "no_preempt"))]
             {
+                #[cfg(feature = "perf")]
+                perf::start_context_switch_main();
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
                 let mut node = MCSNode::new();
@@ -1383,9 +1464,7 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    #[cfg(feature = "perf")]
-                    perf::start_context_switch();
-
+                    //別のstart関数を置いて改変
                     unsafe { preempt::yield_and_pool(ctx) };
 
                     #[cfg(feature = "perf")]
@@ -1393,6 +1472,8 @@ pub fn run_main() {
 
                     continue;
                 }
+                #[cfg(feature = "perf")]
+                    perf::start_kernel();
             }
 
             let w = waker_ref(&task);
@@ -1448,6 +1529,7 @@ pub fn run_main() {
 
                     #[cfg(feature = "perf")]
                     perf::start_task();
+                    //preemption関連が若干面倒：cpuに割り付けられるまで(終了)
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);

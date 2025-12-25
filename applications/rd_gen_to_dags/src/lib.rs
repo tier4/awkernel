@@ -25,8 +25,8 @@ fn get_configured_scheduler_type() -> SchedulerType {
     SchedulerType::GEDF(0)
 }
 
-// const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/NC_1/dag_0.yaml"), "\n");
-const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=2/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/custom/pub5/DAGs/dag_9.yaml"), "\n");
+// const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=2/DAGs/dag_0.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_2.yaml"), "\n");
 // const DAG_FILE_2: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_3.yaml"), "\n");
 // const DAG_FILE_3: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/DAGs/DAGs/dag_3.yaml"), "\n");
