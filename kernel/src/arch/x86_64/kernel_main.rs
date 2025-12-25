@@ -340,7 +340,28 @@ fn kernel_main2(
         num_cpu: non_primary_cpus.len() + 1,
     };
 
-    // 19. Call `crate::main()`.
+    // 19. Initialize RTC.
+    use awkernel_drivers::rtc::Mc146818Rtc;
+    let rtc = Mc146818Rtc::new();
+    rtc.init();
+    match rtc.gettime() {
+        Ok(time) => {
+            log::info!(
+                "RTC time: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                time.year,
+                time.month,
+                time.day,
+                time.hour,
+                time.minute,
+                time.second
+            );
+        }
+        Err(e) => {
+            log::warn!("Failed to read RTC time: {e:?}");
+        }
+    }
+
+    // 20. Call `crate::main()`.
     crate::main(kernel_info);
 }
 
@@ -417,9 +438,12 @@ fn write_boot_images(offset: u64, mpboot_start: u64) {
         // Write non_primary_kernel_main.
         log::info!(
             "write the kernel entry of 0x{:08x} to 0x{main_addr:08x}",
-            non_primary_kernel_main as usize
+            non_primary_kernel_main as *const () as usize
         );
-        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
+        write_volatile(
+            main_addr.as_mut_ptr(),
+            non_primary_kernel_main as *const () as usize,
+        );
 
         // Write CR3.
         log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");

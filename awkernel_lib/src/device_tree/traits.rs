@@ -7,5 +7,5 @@ pub trait HasNamedChildNode<A: Allocator + Clone> {
     fn has_children(&self) -> bool;
 
     /// Look for a child by its name
-    fn find_child(&self, name: &str) -> Option<&DeviceTreeNode<A>>;
+    fn find_child(&self, name: &str) -> Option<&DeviceTreeNode<'_, A>>;
 }

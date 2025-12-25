@@ -40,7 +40,7 @@ use core::{
 use futures::Stream;
 use futures::StreamExt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(unused)]
 pub enum MissedTickBehavior {
     /// Ticks as fast as possible until caught up.
@@ -50,6 +50,7 @@ pub enum MissedTickBehavior {
     /// Expected ticks: |     1     |     2     |     3     |     4     |     5     |     6     |
     /// Actual ticks:   | work -----|          delay          | work | work | work -| work -----|
     /// ```
+    #[default]
     Burst,
 
     /// Ticks at the next available interval after the delay.
@@ -69,12 +70,6 @@ pub enum MissedTickBehavior {
     /// Actual ticks:   | work -----|          delay          | work ---| work -----| work -----|
     /// ```
     Skip,
-}
-
-impl Default for MissedTickBehavior {
-    fn default() -> Self {
-        Self::Burst
-    }
 }
 
 /// Creates a new interval that ticks at the specified `period`.

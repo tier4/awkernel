@@ -305,7 +305,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Read for File<IO, 
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
 
-            let current_cluster_opt = if self.offset % cluster_size == 0 {
+            let current_cluster_opt = if self.offset.is_multiple_of(cluster_size) {
                 // next cluster
                 match self.get_current_cluster_with_metadata(&metadata)? {
                     None => {
@@ -391,7 +391,7 @@ impl<IO: ReadWriteSeek + Send + Debug, TP: TimeProvider, OCC> Write for File<IO,
             let mut node = MCSNode::new();
             let mut metadata = metadata_arc.lock(&mut node);
 
-            if self.offset % cluster_size == 0 {
+            if self.offset.is_multiple_of(cluster_size) {
                 let current_cluster_opt = self.get_current_cluster_with_metadata(&metadata)?;
 
                 let next_cluster = match current_cluster_opt {

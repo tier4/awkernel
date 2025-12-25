@@ -126,7 +126,7 @@ impl ArcWake for Task {
                 Terminated | Panicked => {
                     return;
                 }
-                Ready | Waiting => {
+                Initialized | Waiting => {
                     info.state = Runnable;
                 }
             }
@@ -157,6 +157,7 @@ pub struct TaskInfo {
     need_sched: bool,
     pub(crate) need_preemption: bool,
     panicked: bool,
+    pub(crate) dag_info: Option<DagInfo>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -219,12 +220,17 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
+
+    #[inline(always)]
+    pub fn get_dag_info(&self) -> Option<DagInfo> {
+        self.dag_info.clone()
+    }
 }
 
 /// State of task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
-    Ready,
+    Initialized,
     Running,
     Runnable,
     Waiting,
@@ -238,6 +244,12 @@ pub enum State {
 struct Tasks {
     candidate_id: u32, // Next candidate of task ID.
     id_to_task: BTreeMap<u32, Arc<Task>>,
+}
+
+#[derive(Clone)]
+pub struct DagInfo {
+    pub dag_id: u32,
+    pub node_id: u32,
 }
 
 impl Tasks {
@@ -254,6 +266,7 @@ impl Tasks {
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
+        dag_info: Option<DagInfo>,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
@@ -265,13 +278,14 @@ impl Tasks {
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
-                    state: State::Ready,
+                    state: State::Initialized,
                     num_preempt: 0,
                     last_executed_time: awkernel_lib::time::Time::now(),
                     absolute_deadline: None,
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
+                    dag_info,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -338,6 +352,44 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
+    inner_spawn(name, future, sched_type, None)
+}
+
+/// Spawn a detached task with DAG information.
+/// This function is similar to `spawn` but automatically sets DAG information
+/// for the task, which is useful for DAG-based schedulers like GEDF.
+///
+/// # Example
+///
+/// ```ignore
+/// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::{create_dag, add_node_with_topic_edges_public, set_relative_deadline_public}};
+/// use core::time::Duration;
+/// let dag = create_dag();
+/// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
+/// let deadline = Duration::from_millis(100);
+/// set_relative_deadline_public(&dag, sink_node_idx, deadline);
+/// let task_id = task::spawn_with_dag_info(
+///     "dag task".into(),
+///     async { Ok(()) },
+///     SchedulerType::GEDF(0),
+///     DagInfo { dag_id: 1, node_id: 0 }
+/// );
+/// ```
+pub fn spawn_with_dag_info(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    dag_info: DagInfo,
+) -> u32 {
+    inner_spawn(name, future, sched_type, Some(dag_info))
+}
+
+pub fn inner_spawn(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    dag_info: Option<DagInfo>,
+) -> u32 {
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
         if p > HIGHEST_PRIORITY {
             log::warn!(
@@ -352,7 +404,7 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, dag_info);
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 

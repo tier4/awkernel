@@ -8,9 +8,9 @@
 
 #include "fair_lock.pml"
 
-mtype = { Ready, Runnable, Running, Waiting, Terminated, Pending };
+mtype = { Initialized, Runnable, Running, Waiting, Terminated, Pending };
 
-mtype state = Ready;
+mtype state = Initialized;
 
 // awkernel_async_lib::task::TaskInfo
 typedef TaskInfo {
@@ -53,7 +53,7 @@ inline wake(tid, task) {
             printf("wake(): task = %d, state = %d\n", task, tasks[task].state);
             unlock(tid, lock_info[task]);
         :: tasks[task].state == Terminated -> unlock(tid, lock_info[task]);
-        :: tasks[task].state == Waiting || tasks[task].state == Ready ->
+        :: tasks[task].state == Waiting || tasks[task].state == Initialized ->
             printf("wake(): task = %d, state = %d\n", task, tasks[task].state);
             tasks[task].state = Runnable;
             unlock(tid, lock_info[task]);
@@ -240,7 +240,7 @@ init {
 
     for (i: 0 .. TASK_NUM - 1) {
         tasks[i].id = i;
-        tasks[i].state = Ready;
+        tasks[i].state = Initialized;
 
         printf("tasks[%d].state = %d\n", i, tasks[i].state);
 

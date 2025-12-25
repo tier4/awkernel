@@ -949,6 +949,20 @@ impl VirtioNetInner {
             self.virtio_pci_setup_queue(idx, phy_addr)?;
         }
 
+        let mut should_notify = Vec::new();
+        for queue in self.virtqueues.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut rx = queue.rx.lock(&mut node);
+            should_notify.push(rx.vio_populate_rx_mbufs());
+        }
+
+        for (queue_idx, need_notify) in should_notify.iter().enumerate() {
+            if *need_notify {
+                let rx_vq_idx = (queue_idx as u16) * 2;
+                self.virtio_notify(rx_vq_idx)?;
+            }
+        }
+
         self.common_cfg
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
 
@@ -1069,7 +1083,7 @@ impl VirtioNetInner {
         let should_kick = {
             let queue_idx = (vq_idx / 2) as usize;
             let mut node = MCSNode::new();
-            let vq = if vq_idx % 2 == 0 {
+            let vq = if vq_idx.is_multiple_of(2) {
                 &mut self.virtqueues[queue_idx].rx.lock(&mut node)
             } else {
                 &mut self.virtqueues[queue_idx].tx.lock(&mut node)

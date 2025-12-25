@@ -113,7 +113,7 @@ impl<'a> Iterator for DmarEntryIter<'a> {
 }
 
 impl Dmar {
-    pub fn entries(&self) -> DmarEntryIter {
+    pub fn entries(&self) -> DmarEntryIter<'_> {
         DmarEntryIter {
             pointer: unsafe { (self as *const Dmar as *const u8).add(mem::size_of::<Dmar>()) },
             remaining_length: self

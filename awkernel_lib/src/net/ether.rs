@@ -59,7 +59,7 @@ pub struct EtherExtracted<'a> {
     pub transport: TransportHdr<'a>,
 }
 
-pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
+pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted<'_>, &'static str> {
     let mut remain = buf.len();
 
     if core::mem::size_of::<EtherHeader>() > remain {

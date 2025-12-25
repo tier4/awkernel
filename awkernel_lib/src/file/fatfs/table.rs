@@ -362,10 +362,7 @@ impl FatTrait for Fat12 {
                 0 => fat.read_u16_le(),
                 _ => fat.read_u8().map(u16::from),
             };
-            let packed_val = match res {
-                Err(err) => return Err(err.into()),
-                Ok(n) => n,
-            };
+            let packed_val = res?;
             let val = match cluster & 1 {
                 0 => packed_val & 0x0FFF,
                 _ => (packed_val << 8) | (prev_packed_val >> 12),

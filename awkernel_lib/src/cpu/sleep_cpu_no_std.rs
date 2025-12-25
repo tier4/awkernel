@@ -184,6 +184,31 @@ impl SleepCpu for SleepCpuNoStd {
     }
 }
 
+fn wakeup_interval() -> Duration {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_virtualized() {
+            return Duration::from_millis(1);
+        }
+    }
+
+    Duration::from_micros(100)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn is_virtualized() -> bool {
+    use core::arch::x86_64::__cpuid;
+
+    if crate::arch::x86_64::kvm::pvclock::available()
+        || crate::arch::x86_64::kvm::cpuid_features().is_some()
+    {
+        return true;
+    }
+
+    let cpuid = unsafe { __cpuid(1) };
+    (cpuid.ecx & (1 << 31)) != 0
+}
+
 /// initialize
 pub(super) unsafe fn init() {
     use alloc::boxed::Box;
@@ -194,7 +219,7 @@ pub(super) unsafe fn init() {
 
         let timer_callback = Box::new(|_irq| {
             // Re-enable timer.
-            crate::timer::reset(core::time::Duration::from_micros(100));
+            crate::timer::reset(wakeup_interval());
         });
 
         if crate::interrupt::register_handler(irq, "local timer".into(), timer_callback).is_ok() {
@@ -219,6 +244,6 @@ pub fn reset_wakeup_timer() {
     let state = CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed);
 
     if state == SleepTag::Waiting as u32 || state == SleepTag::Waking as u32 {
-        crate::timer::reset(core::time::Duration::from_micros(100));
+        crate::timer::reset(wakeup_interval());
     }
 }
