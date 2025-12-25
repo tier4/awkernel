@@ -69,6 +69,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
+    #[cfg(feature = "perf")]
+    super::perf::start_context_switch();
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_thread.get_cpu_context();
 
@@ -119,9 +121,6 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
 }
 
 unsafe fn do_preemption() {
-    #[cfg(feature = "perf")]
-    super::perf::start_context_switch();
-
     let cpu_id = awkernel_lib::cpu::cpu_id();
     let Some(mut next) = peek_preemption_pending(cpu_id) else {
         return;

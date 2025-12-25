@@ -412,6 +412,7 @@ pub mod perf {
         Kernel,
         Task,
         ContextSwitch,
+        ContextSwitchMain,
         Interrupt,
         Idle,
     }
@@ -423,8 +424,9 @@ pub mod perf {
                 1 => Self::Kernel,
                 2 => Self::Task,
                 3 => Self::ContextSwitch,
-                4 => Self::Interrupt,
-                5 => Self::Idle,
+                4 => Self::ContextSwitchMain,
+                5 => Self::Interrupt,
+                6 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
         }
@@ -438,6 +440,7 @@ pub mod perf {
     static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -445,6 +448,7 @@ pub mod perf {
     static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -452,6 +456,7 @@ pub mod perf {
     static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -501,6 +506,100 @@ pub mod perf {
                     write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
                     let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Idle => unsafe {
+                    let t = read_volatile(&IDLE_TIME[cpu_id]);
+                    write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&IDLE_COUNT[cpu_id]);
+                    write_volatile(&mut IDLE_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&IDLE_WCET[cpu_id]);
+                    write_volatile(&mut IDLE_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Boot => (),
+            }
+        }
+
+        let cnt = awkernel_lib::delay::cpu_counter();
+
+        unsafe {
+            // Overhead of this.
+            let t = read_volatile(&PERF_TIME[cpu_id]);
+            write_volatile(&mut PERF_TIME[cpu_id], t + (cnt - end));
+            let c = read_volatile(&PERF_COUNT[cpu_id]);
+            write_volatile(&mut PERF_COUNT[cpu_id], c + 1);
+            let wcet = read_volatile(&PERF_WCET[cpu_id]);
+            write_volatile(&mut PERF_WCET[cpu_id], wcet.max(cnt - end));
+
+            // State transition.
+            write_volatile(&mut START_TIME[cpu_id], cnt);
+            write_volatile(&mut PERF_STATES[cpu_id], next_state as u8);
+        }
+    }
+
+    fn update_time_and_state_for_dag(next_state: PerfState) {
+        let end = awkernel_lib::delay::cpu_counter();
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        if state == next_state {
+            return;
+        }
+
+        let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
+
+        if start > 0 && start <= end {
+            let diff = end - start;
+
+            match state {
+                PerfState::Kernel => unsafe {
+                    let t = read_volatile(&KERNEL_TIME[cpu_id]);
+                    write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&KERNEL_COUNT[cpu_id]);
+                    write_volatile(&mut KERNEL_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&KERNEL_WCET[cpu_id]);
+                    write_volatile(&mut KERNEL_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Task => unsafe {
+                    let t = read_volatile(&TASK_TIME[cpu_id]);
+                    write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&TASK_COUNT[cpu_id]);
+                    write_volatile(&mut TASK_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&TASK_WCET[cpu_id]);
+                    write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Interrupt => unsafe {
+                    let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
+                    write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
+                    write_volatile(&mut INTERRUPT_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&INTERRUPT_WCET[cpu_id]);
+                    write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitch => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
@@ -557,6 +656,7 @@ pub mod perf {
             PerfState::Kernel => start_kernel(),
             PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
+            PerfState::ContextSwitchMain => start_context_switch_main(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
@@ -566,7 +666,44 @@ pub mod perf {
 
     #[inline(always)]
     pub(crate) fn start_context_switch() {
-        update_time_and_state(PerfState::ContextSwitch);
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitch);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitch);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitch);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_context_switch_main() {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitchMain);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitchMain);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitchMain);
+        }
     }
 
     #[inline(always)]
@@ -690,6 +827,8 @@ pub fn run_main() {
 
             #[cfg(not(feature = "no_preempt"))]
             {
+                #[cfg(feature = "perf")]
+                perf::start_context_switch_main();
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
                 let mut node = MCSNode::new();
@@ -699,9 +838,6 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    #[cfg(feature = "perf")]
-                    perf::start_context_switch();
-
                     unsafe { preempt::yield_and_pool(ctx) };
 
                     #[cfg(feature = "perf")]
@@ -709,6 +845,8 @@ pub fn run_main() {
 
                     continue;
                 }
+                #[cfg(feature = "perf")]
+                perf::start_kernel();
             }
 
             let w = waker_ref(&task);
