@@ -252,6 +252,7 @@ fn perf_ffi() {
         let idle_time = perf::get_idle_time(cpu_id);
         let interrupt_time = perf::get_interrupt_time(cpu_id);// include preemption time 
         let contxt_switch_time = perf::get_context_switch_time(cpu_id);
+        // let contxt_switch_time = perf::get_context_switch_time(cpu_id); run_mainように書き換える、wcetとcountも同様
         let perf_time = perf::get_perf_time(cpu_id);
 
         let msg = format!(

@@ -1136,7 +1136,7 @@ pub mod perf {
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::ContextSwitchMain => unsafe {
-                    log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
+                    // log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
                     let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
