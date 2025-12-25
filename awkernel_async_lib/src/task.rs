@@ -128,7 +128,7 @@ impl ArcWake for Task {
                 }
                 Initialized | Waiting => {
                     info.state = Runnable;
-                    // キューに入るまでのレイテンシ：開始
+                    // Runnable --> push start
                     // use crate::task::perf::{NodeRecord, node_start};
                     // let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     // {
@@ -263,7 +263,7 @@ impl TaskInfo {
 
     #[inline(always)]
     pub fn update_release_time(&mut self, time: awkernel_lib::time::Time) {
-        // 将来的にデッドラインミスの原因になるかも？
+        // This could potentially cause deadline misses in the future.
         self.release_time = Some(time);
     }
 
@@ -592,7 +592,6 @@ pub mod perf {
     const MAX_NODES: usize = 20;
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
-    // static NODE_PERIOD_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_CORE: Mutex<Option<[[u8; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
 
@@ -602,11 +601,6 @@ pub mod perf {
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
     pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
-
-    //release(task.rs-wake)→push(gedf.rs-wake_task)
-
-
-    //push(gedf.rs-wake_task)→pop(gedf.rs-get_next)
 
     pub fn increment_pub_count(pub_id: usize) {
         assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
@@ -782,32 +776,7 @@ pub mod perf {
         }
     }
 
-    // pub fn node_core(node:NodeRecord, core_id:u8){
-    //     // This function is reserved for future use if core-specific logging is needed.
-    //     assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
-
-    //     let mut mcs_node = MCSNode::new();
-    //     let mut recorder_opt = NODE_CORE.lock(&mut mcs_node);
-
-    //     let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
-
-    //     if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
-    //         recorder[node.period_count as usize][node.dag_info.node_id as usize] = core_id;
-    //     }
-    // }
-
-    // pub fn node_period_count(node:NodeRecord){
-    //     // assert!(index < MAX_LOGS, "Node log index out of bounds");
-    //     assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
-
-    //     let mut mcs_node = MCSNode::new();
-    //     let mut recorder_opt = NODE_PERIOD_COUNT.lock(&mut mcs_node);
-
-    //     let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
-
-    //     recorder[node.period_count as usize][node.dag_info.node_id as usize] = node.period_count;
-    // }
-
+    // For precision of the cycle
     pub fn print_timestamp_table() {
         let mut node1 = MCSNode::new();
         let mut node2 = MCSNode::new();
@@ -878,18 +847,17 @@ pub mod perf {
 
     /// Print per-node timing table.
     /// Columns: DAG ID | node id | period | start(ns) | end(ns) | duration(ns) | preemptions | core
+    /// not used now
     pub fn print_node_table() {
         let mut node1 = MCSNode::new();
         let mut node2 = MCSNode::new();
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
-        // let mut node3 = MCSNode::new();
 
         let node_start_opt = NODE_START.lock(&mut node1);
         let node_finish_opt = NODE_FINISH.lock(&mut node2);
         let node_preempt_opt = NODE_PREEMPT_COUNT.lock(&mut node3);
         let node_core_opt = NODE_CORE.lock(&mut node4);
-        // let node_period_count_opt = NODE_PERIOD_COUNT.lock(&mut node3);
 
         log::info!("--- Per-node Timing Summary (in nanoseconds) ---");
         log::info!(
@@ -942,6 +910,7 @@ pub mod perf {
         log::info!("--------------------------------------------------------------");
     }
 
+    // For pubsub communication latency
     pub fn print_pubsub_table() {
         let mut node1 = MCSNode::new();
         let mut node2 = MCSNode::new();
@@ -988,19 +957,6 @@ pub mod perf {
         }
         log::info!("--------------------------------------------------------------");
     }
-
-    // pub fn print_context_switch_preemption_table() {
-    //     log::info!("--- Context Switch / Interrupt Timing Summary (in nanoseconds) ---");
-    //     log::info!(
-    //         "{: ^6} | {: ^18} | {: ^18} | {: ^15} | {: ^15}",
-    //         "CPU-ID",
-    //         "Context Switch(ns)",
-    //         "Interrupt(ns)",
-    //         "CS Count",
-    //         "Int Count"
-    //     );
-    //     log::info!("--------|------------------|------------------|---------|----------");
-    // }
 
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
@@ -1453,6 +1409,7 @@ pub fn run_main() {
 
             #[cfg(not(feature = "no_preempt"))]
             {
+                // [start] context_switch_main
                 #[cfg(feature = "perf")]
                 perf::start_context_switch_main();
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.

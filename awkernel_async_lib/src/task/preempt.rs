@@ -69,6 +69,7 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
+    // [start] context_switch
     #[cfg(feature = "perf")]
     super::perf::start_context_switch();
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();

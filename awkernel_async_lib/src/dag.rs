@@ -1038,6 +1038,7 @@ where
         loop {
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
+            // [end] pubsub communication latency
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             // let index_subscribe = get_period(&args).clone() as usize;
             let count_st = get_period(&args);
@@ -1058,6 +1059,7 @@ where
             // node_finish(noderecord.clone(), end);
             // let index_publish = get_period(&args) as usize;
             
+            // [start] pubsub communication latency
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             publish_timestamp_at(count_st as usize, end,1, dag_info.node_id.clone());
             publishers.send_all(results).await;
@@ -1119,6 +1121,7 @@ where
             // node_finish(noderecord.clone(), end);
             let index_publish = get_pub_count(0) as usize;
             
+            // [start] pubsub communication latency
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             publish_timestamp_at(index_publish, end, 0, dag_info.node_id.clone());
             publishers.send_all(results).await;
@@ -1173,7 +1176,7 @@ where
 
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
-            // log::info!("sink period: {:?}", get_period(&args));
+            // [end] pubsub communication latency
             let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             // let index_subscribe = get_period(&args) as usize;
             let count_st = get_period(&args);

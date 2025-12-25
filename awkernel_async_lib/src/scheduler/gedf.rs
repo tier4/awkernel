@@ -68,6 +68,7 @@ impl GEDFData {
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         {
+            // [start] Precision of the cycle
             let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             let mut node = MCSNode::new();
             let info = task.info.lock(&mut node);
@@ -131,7 +132,7 @@ impl Scheduler for GEDFScheduler {
                 absolute_deadline,
                 wake_time,
             });
-            //ここが終了
+            // Runnable --> push end | push --> pop latency start
             {
                 // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -157,8 +158,6 @@ impl Scheduler for GEDFScheduler {
                     );
                 }
             }
-            
-            //ここが開始(キューに入ってから)
         }
     }
 
@@ -175,7 +174,7 @@ impl Scheduler for GEDFScheduler {
         loop {
             // Pop a task from the run queue.
             let task = data.queue.pop()?;
-            //取り出されるまで(終了)
+            // push --> pop latency end
             {
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 let mut node = MCSNode::new();
