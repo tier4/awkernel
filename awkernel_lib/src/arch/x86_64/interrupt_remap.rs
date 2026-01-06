@@ -95,6 +95,7 @@ mod registers {
     mmio_rw!(offset 0x80 => pub IQH<u64>); // Invalidation Queue Head
     mmio_rw!(offset 0x88 => pub IQT<u64>); // Invalidation Queue Tail
     mmio_rw!(offset 0x90 => pub IQA<u64>); // Invalidation Queue Address
+    mmio_r!(offset 0x9c => pub ICS<u32>); // Invalidation Completion Status
     mmio_rw!(offset 0xb8 => pub IRTA<u64>);
 }
 
@@ -388,6 +389,24 @@ fn wait_toggle_then_set(
     Err(VtdError::Timeout)
 }
 
+/// Wait for register-based invalidation to complete.
+/// This must be called before enabling Queued Invalidation.
+fn wait_register_based_invalidation_complete(vt_d_base: VirtAddr) -> Result<(), VtdError> {
+    const ICS_IWC: u32 = 1; // Invalidation Wait Descriptor Complete
+
+    // Wait for any pending register-based invalidation to complete
+    // by checking the ICS register's IWC bit is 0
+    for _ in 0..1000 {
+        let ics = registers::ICS.read(vt_d_base.as_usize());
+        if (ics & ICS_IWC) == 0 {
+            return Ok(());
+        }
+    }
+
+    log::error!("Timeout waiting for register-based invalidation to complete");
+    Err(VtdError::Timeout)
+}
+
 /// Set Interrupt Remapping Table Address Register.
 fn set_irta(
     segment_number: usize,
@@ -446,6 +465,10 @@ fn set_irta(
 }
 
 fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result<(), VtdError> {
+    // Wait for any pending register-based invalidation to complete
+    // before enabling Queued Invalidation
+    wait_register_based_invalidation_complete(vt_d_base)?;
+
     // Reset Invalidation Queue Tail
     registers::IQT.write(0, vt_d_base.as_usize());
 
