@@ -30,6 +30,8 @@ pub enum VtdError {
     QieEnableFailed,
     /// Failed to allocate DMA memory.
     DmaAllocationFailed,
+    /// Timeout waiting for command completion.
+    Timeout,
 }
 
 impl core::fmt::Display for VtdError {
@@ -39,6 +41,7 @@ impl core::fmt::Display for VtdError {
             VtdError::IreEnableFailed => write!(f, "Failed to enable IRE"),
             VtdError::QieEnableFailed => write!(f, "Failed to enable QIE"),
             VtdError::DmaAllocationFailed => write!(f, "DMA allocation failed"),
+            VtdError::Timeout => write!(f, "Timeout waiting for command completion"),
         }
     }
 }
@@ -298,6 +301,93 @@ pub unsafe fn init_interrupt_remap(
     Ok(())
 }
 
+/// Update GLOBAL_COMMAND register following Intel VT-d specification.
+///
+/// Steps:
+/// 1. Read GLOBAL_STATUS register
+/// 2. Reset one-shot bits (keeping only persistent bits)
+/// 3. Set/clear the target bit
+/// 4. Write to GLOBAL_COMMAND register
+/// 5. Wait until GLOBAL_STATUS indicates command is serviced
+fn update_global_command(
+    vt_d_base: VirtAddr,
+    bit_to_set: registers::GlobalCommandStatus,
+    enable: bool,
+) -> Result<(), VtdError> {
+    // Step 1: Read GLOBAL_STATUS
+    let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+
+    // Step 2: Reset one-shot bits (preserve only bits 31, 30, 27, 26, 25, 24, 23)
+    // One-shot bits mask: 0x96FFFFFF (bits that should be preserved)
+    let persistent_mask = registers::GlobalCommandStatus::from_bits_truncate(0x96FF_FFFF);
+    let status_persistent = status & persistent_mask;
+
+    // Step 3: Set or clear the target bit
+    let command = if enable {
+        status_persistent | bit_to_set
+    } else {
+        status_persistent & !bit_to_set
+    };
+
+    // Step 4: Write to GLOBAL_COMMAND
+    registers::GLOBAL_COMMAND.write(command, vt_d_base.as_usize());
+
+    // Step 5: Wait until GLOBAL_STATUS indicates command is serviced
+    if wait_toggle_then_set(vt_d_base, bit_to_set, enable).is_err() {
+        // Timeout: bit not updated as expected
+        let current = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+        Err(
+            if bit_to_set.contains(registers::GlobalCommandStatus::IRTP)
+                && !current.contains(registers::GlobalCommandStatus::IRTP)
+            {
+                VtdError::IrtpEnableFailed
+            } else if bit_to_set.contains(registers::GlobalCommandStatus::IRE)
+                && !current.contains(registers::GlobalCommandStatus::IRE)
+            {
+                VtdError::IreEnableFailed
+            } else if bit_to_set.contains(registers::GlobalCommandStatus::QIE)
+                && !current.contains(registers::GlobalCommandStatus::QIE)
+            {
+                VtdError::QieEnableFailed
+            } else {
+                VtdError::Timeout // Default fallback
+            },
+        )
+    } else {
+        Ok(())
+    }
+}
+
+fn wait_toggle_then_set(
+    vt_d_base: VirtAddr,
+    status_bit: registers::GlobalCommandStatus,
+    enable: bool,
+) -> Result<(), VtdError> {
+    if enable {
+        // wait until 1
+        for _ in 0..1000 {
+            if registers::GLOBAL_STATUS
+                .read(vt_d_base.as_usize())
+                .contains(status_bit)
+            {
+                return Ok(());
+            }
+        }
+    } else {
+        // wait until 0
+        for _ in 0..1000 {
+            if !registers::GLOBAL_STATUS
+                .read(vt_d_base.as_usize())
+                .contains(status_bit)
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(VtdError::Timeout)
+}
+
 /// Set Interrupt Remapping Table Address Register.
 fn set_irta(
     segment_number: usize,
@@ -314,27 +404,11 @@ fn set_irta(
 
     registers::IRTA.write(val, vt_d_base.as_usize());
 
-    let stat = registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE;
-    registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
+    // Enable IRTP (Interrupt Remapping Table Pointer)
+    update_global_command(vt_d_base, registers::GlobalCommandStatus::IRTP, true)?;
 
-    // Wait until enabled
-    for _ in 0..100 {
-        let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
-        if stat.contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE)
-        {
-            break;
-        }
-    }
-
-    let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
-    if !status.contains(registers::GlobalCommandStatus::IRTP) {
-        log::error!("Failed to enable Vt-d Interrupt Remapping Table Pointer.");
-        return Err(VtdError::IrtpEnableFailed);
-    }
-    if !status.contains(registers::GlobalCommandStatus::IRE) {
-        log::error!("Failed to enable Vt-d Interrupt Remapping.");
-        return Err(VtdError::IreEnableFailed);
-    }
+    // Enable IRE (Interrupt Remapping Enable)
+    update_global_command(vt_d_base, registers::GlobalCommandStatus::IRE, true)?;
 
     // Initialize Invalidation Queue
     init_invalidation_queue(segment_number, vt_d_base)?;
@@ -381,38 +455,18 @@ fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result
 
     let phy_addr = pool.get_phy_addr().as_usize() as u64;
 
-    // Set Invalidation Queue Address Register
-    // Bits [11:0] = Queue Size (0 = 4KB, 1 page)
-    // Bits [63:12] = Base Address
-    // Queue size = 0 (4KB, 256 entries)
+    // bits[63:12] = Base (4KB aligned)
+    // bit[11]     = DW (128/256)
+    // bits[2:0]   = queue size (0 = 4KB)
+    // bits[10:3]  = Reserved
     let iqa_value = phy_addr & !((1 << 12) - 1);
     registers::IQA.write(iqa_value, vt_d_base.as_usize());
 
     // Leak the pool to keep it allocated
     pool.leak();
 
-    // Enable Queued Invalidation
-    let stat = registers::GlobalCommandStatus::QIE;
-    registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
-
-    // Wait until Queued Invalidation is enabled
-    for _ in 0..100 {
-        let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
-        if stat.contains(registers::GlobalCommandStatus::QIE) {
-            break;
-        }
-    }
-
-    if !registers::GLOBAL_STATUS
-        .read(vt_d_base.as_usize())
-        .contains(registers::GlobalCommandStatus::QIE)
-    {
-        log::error!(
-            "Failed to enable Vt-d Queued Invalidation for segment {}.",
-            segment_number
-        );
-        return Err(VtdError::QieEnableFailed);
-    }
+    // Enable Queued Invalidation (QIE)
+    update_global_command(vt_d_base, registers::GlobalCommandStatus::QIE, true)?;
 
     log::info!(
         "Vt-d Queued Invalidation enabled: Segment = {}, Queue PhyAddr = 0x{:x}, IQA = 0x{:x}, IQH = {}, IQT = {}",
