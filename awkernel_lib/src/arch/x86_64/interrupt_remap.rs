@@ -2,6 +2,7 @@
 
 use acpi::AcpiTables;
 use alloc::format;
+use alloc::string::String;
 
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -17,6 +18,30 @@ use super::acpi::AcpiMapper;
 
 const TABLE_SIZE: usize = 256 * 4096; // 1MiB
 const TABLE_ENTRY_NUM: usize = TABLE_SIZE / 16;
+
+/// Error type for Vt-d interrupt remapping initialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VtdError {
+    /// Failed to enable Interrupt Remapping Table Pointer.
+    IrtpEnableFailed,
+    /// Failed to enable Interrupt Remapping.
+    IreEnableFailed,
+    /// Failed to enable Queued Invalidation.
+    QieEnableFailed,
+    /// Failed to allocate DMA memory.
+    DmaAllocationFailed,
+}
+
+impl core::fmt::Display for VtdError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            VtdError::IrtpEnableFailed => write!(f, "Failed to enable IRTP"),
+            VtdError::IreEnableFailed => write!(f, "Failed to enable IRE"),
+            VtdError::QieEnableFailed => write!(f, "Failed to enable QIE"),
+            VtdError::DmaAllocationFailed => write!(f, "DMA allocation failed"),
+        }
+    }
+}
 
 #[allow(dead_code)]
 mod registers {
@@ -64,6 +89,9 @@ mod registers {
     mmio_r!(offset 0x10 => pub EXTENDED_CAPABILITY<u64>);
     mmio_w!(offset 0x18 => pub GLOBAL_COMMAND<GlobalCommandStatus>);
     mmio_r!(offset 0x1c => pub GLOBAL_STATUS<GlobalCommandStatus>);
+    mmio_rw!(offset 0x80 => pub IQH<u64>); // Invalidation Queue Head
+    mmio_rw!(offset 0x88 => pub IQT<u64>); // Invalidation Queue Tail
+    mmio_rw!(offset 0x90 => pub IQA<u64>); // Invalidation Queue Address
     mmio_rw!(offset 0xb8 => pub IRTA<u64>);
 }
 
@@ -218,11 +246,11 @@ pub unsafe fn init_interrupt_remap(
     phy_offset: VirtAddr,
     acpi: &AcpiTables<AcpiMapper>,
     is_x2apic: bool,
-) -> Result<(), &'static str> {
+) -> Result<(), VtdError> {
     let mut remap_table = [None; 32];
 
     if let Ok(dmar) = acpi.find_table::<Dmar>() {
-        dmar.entries().for_each(|entry| {
+        for entry in dmar.entries() {
             if let DmarEntry::Drhd(drhd) = entry {
                 drhd.device_scopes()
                     .find(|(scope, _path)| scope.entry_type == 1);
@@ -230,25 +258,25 @@ pub unsafe fn init_interrupt_remap(
                 if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
                     let segment_number = drhd.segment_number as usize;
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(segment_number, phy_offset, drhd, *phy_addr, is_x2apic);
+                    set_irta(segment_number, phy_offset, drhd, *phy_addr, is_x2apic)?;
                 } else {
                     let segment_number = drhd.segment_number as usize;
 
                     let pool =
                         DMAPool::<[u8; TABLE_SIZE]>::new(segment_number, TABLE_SIZE / PAGESIZE)
-                            .expect("DMAPool::new() failed.");
+                            .ok_or(VtdError::DmaAllocationFailed)?;
 
                     let virt_addr = pool.get_virt_addr();
                     let phy_addr = pool.get_phy_addr();
                     pool.leak();
 
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(segment_number, phy_offset, drhd, phy_addr, is_x2apic);
+                    set_irta(segment_number, phy_offset, drhd, phy_addr, is_x2apic)?;
 
                     remap_table[segment_number] = Some((phy_addr, virt_addr));
                 }
             }
-        });
+        }
     }
 
     // Set INTERRUPT_REMAPPING
@@ -277,7 +305,7 @@ fn set_irta(
     drhd: &DmarDrhd,
     phy_addr: PhyAddr,
     is_x2apic: bool,
-) {
+) -> Result<(), VtdError> {
     let vt_d_base = phy_offset + drhd.register_base_address as usize;
 
     // Extended Interrupt Mode (x2APIC) Enable
@@ -298,17 +326,23 @@ fn set_irta(
         }
     }
 
-    if !registers::GLOBAL_STATUS
-        .read(vt_d_base.as_usize())
-        .contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE)
-    {
+    let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+    if !status.contains(registers::GlobalCommandStatus::IRTP) {
+        log::error!("Failed to enable Vt-d Interrupt Remapping Table Pointer.");
+        return Err(VtdError::IrtpEnableFailed);
+    }
+    if !status.contains(registers::GlobalCommandStatus::IRE) {
         log::error!("Failed to enable Vt-d Interrupt Remapping.");
-        return;
+        return Err(VtdError::IreEnableFailed);
     }
 
-    let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+    // Initialize Invalidation Queue
+    init_invalidation_queue(segment_number, vt_d_base)?;
 
-    let mut scope_str = format!("");
+    // Re-read status after queue initialization
+    let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+
+    let mut scope_str = String::new();
 
     for scope in drhd.device_scopes() {
         let (device_scope, path) = scope;
@@ -326,13 +360,68 @@ fn set_irta(
             "Vt-d Interrupt Remapping: Segment = {segment_number}, Vt-d Base = 0x{:x}, Table PhyAddr = 0x{:x}, enabled = {}, mode = {}, extended capability = 0x{:x}, global status = 0x{:x}, IRTA = 0x{:x}, DHRD.flags = 0x{:x}{scope_str}",
             drhd.register_base_address as usize,
             phy_addr.as_usize(),
-            stat.contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE),
+            status.contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE),
             if is_x2apic { "x2APIC" } else { "xAPIC" },
             registers::EXTENDED_CAPABILITY.read(vt_d_base.as_usize()),
-            stat.bits(),
+            status.bits(),
             registers::IRTA.read(vt_d_base.as_usize()),
             drhd.flags
-        )
+        );
+
+    Ok(())
+}
+
+fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result<(), VtdError> {
+    // Reset Invalidation Queue Tail
+    registers::IQT.write(0, vt_d_base.as_usize());
+
+    // Allocate a page for the Invalidation Queue
+    let pool =
+        DMAPool::<[u8; PAGESIZE]>::new(segment_number, 1).ok_or(VtdError::DmaAllocationFailed)?;
+
+    let phy_addr = pool.get_phy_addr().as_usize() as u64;
+
+    // Set Invalidation Queue Address Register
+    // Bits [11:0] = Queue Size (0 = 4KB, 1 page)
+    // Bits [63:12] = Base Address
+    // Queue size = 0 (4KB, 256 entries)
+    let iqa_value = phy_addr & !((1 << 12) - 1);
+    registers::IQA.write(iqa_value, vt_d_base.as_usize());
+
+    // Leak the pool to keep it allocated
+    pool.leak();
+
+    // Enable Queued Invalidation
+    let stat = registers::GlobalCommandStatus::QIE;
+    registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
+
+    // Wait until Queued Invalidation is enabled
+    for _ in 0..100 {
+        let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+        if stat.contains(registers::GlobalCommandStatus::QIE) {
+            break;
+        }
+    }
+
+    if !registers::GLOBAL_STATUS
+        .read(vt_d_base.as_usize())
+        .contains(registers::GlobalCommandStatus::QIE)
+    {
+        log::error!(
+            "Failed to enable Vt-d Queued Invalidation for segment {}.",
+            segment_number
+        );
+        return Err(VtdError::QieEnableFailed);
+    }
+
+    log::info!(
+        "Vt-d Queued Invalidation enabled: Segment = {}, Queue PhyAddr = 0x{:x}, IQA = 0x{:x}",
+        segment_number,
+        phy_addr,
+        registers::IQA.read(vt_d_base.as_usize())
+    );
+
+    Ok(())
 }
 
 pub fn allocate_remapping_entry(
