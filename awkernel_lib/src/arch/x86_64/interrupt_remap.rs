@@ -415,10 +415,12 @@ fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result
     }
 
     log::info!(
-        "Vt-d Queued Invalidation enabled: Segment = {}, Queue PhyAddr = 0x{:x}, IQA = 0x{:x}",
+        "Vt-d Queued Invalidation enabled: Segment = {}, Queue PhyAddr = 0x{:x}, IQA = 0x{:x}, IQH = {}, IQT = {}",
         segment_number,
         phy_addr,
-        registers::IQA.read(vt_d_base.as_usize())
+        registers::IQA.read(vt_d_base.as_usize()),
+        registers::IQH.read(vt_d_base.as_usize()),
+        registers::IQT.read(vt_d_base.as_usize())
     );
 
     Ok(())
