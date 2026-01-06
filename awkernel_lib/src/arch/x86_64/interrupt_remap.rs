@@ -1,6 +1,7 @@
 //! Interrupt remapping of Vt-d.
 
 use acpi::AcpiTables;
+use alloc::format;
 
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -60,6 +61,7 @@ mod registers {
         }
     }
 
+    mmio_r!(offset 0x10 => pub EXTENDED_CAPABILITY<u64>);
     mmio_w!(offset 0x18 => pub GLOBAL_COMMAND<GlobalCommandStatus>);
     mmio_r!(offset 0x1c => pub GLOBAL_STATUS<GlobalCommandStatus>);
     mmio_rw!(offset 0xb8 => pub IRTA<u64>);
@@ -284,18 +286,53 @@ fn set_irta(
 
     registers::IRTA.write(val, vt_d_base.as_usize());
 
-    let mut stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
-    stat |= registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE;
+    let stat = registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE;
     registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
 
+    // Wait until enabled
+    for _ in 0..100 {
+        let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+        if stat.contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE)
+        {
+            break;
+        }
+    }
+
+    if !registers::GLOBAL_STATUS
+        .read(vt_d_base.as_usize())
+        .contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE)
+    {
+        log::error!("Failed to enable Vt-d Interrupt Remapping.");
+        return;
+    }
+
+    let stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+
+    let mut scope_str = format!("");
+
+    for scope in drhd.device_scopes() {
+        let (device_scope, path) = scope;
+        scope_str = format!(
+            "{scope_str}\r\nVt-d Device Scope: entry type = {}, length = {}, flags = 0x{:x}, enumeration ID = {}, start bus number = {}, path = {path:x?}",
+            device_scope.entry_type,
+            device_scope.length,
+            device_scope.flags,
+            device_scope.enumeration_id,
+            device_scope.start_bus_number,
+        );
+    }
+
     log::info!(
-        "Vt-d Interrupt Remapping: Segment = {}, Vt-d Base = 0x{:x}, Table PhyAddr = 0x{:x}, enabled = {}, mode = {}",
-        segment_number,
-        drhd.register_base_address as usize,
-        phy_addr.as_usize(),
-        stat.contains(registers::GlobalCommandStatus::IRE | registers::GlobalCommandStatus::IRTP),
-        if is_x2apic { "x2APIC" } else { "xAPIC" },
-    )
+            "Vt-d Interrupt Remapping: Segment = {segment_number}, Vt-d Base = 0x{:x}, Table PhyAddr = 0x{:x}, enabled = {}, mode = {}, extended capability = 0x{:x}, global status = 0x{:x}, IRTA = 0x{:x}, DHRD.flags = 0x{:x}{scope_str}",
+            drhd.register_base_address as usize,
+            phy_addr.as_usize(),
+            stat.contains(registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE),
+            if is_x2apic { "x2APIC" } else { "xAPIC" },
+            registers::EXTENDED_CAPABILITY.read(vt_d_base.as_usize()),
+            stat.bits(),
+            registers::IRTA.read(vt_d_base.as_usize()),
+            drhd.flags
+        )
 }
 
 pub fn allocate_remapping_entry(
