@@ -1,8 +1,7 @@
 //! Interrupt remapping of Vt-d.
 
 use acpi::AcpiTables;
-use alloc::format;
-use alloc::string::String;
+use alloc::{collections::linked_list::LinkedList, format, string::String};
 
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -153,8 +152,25 @@ impl IRTEntry {
     }
 }
 
-static INTERRUPT_REMAPPING: [Mutex<Option<InterruptRemapping>>; 32] =
-    array![_ => Mutex::new(None); 32];
+static IOMMU: [IommuInfo; 32] = array![x =>
+    IommuInfo {
+        segment_number: x,
+        vtd_units: Mutex::new(LinkedList::new()),
+        interrupt_remapping: Mutex::new(None),
+    }; 32];
+
+#[allow(dead_code)] // TODO: remove this
+struct IommuInfo {
+    segment_number: usize,
+    vtd_units: Mutex<LinkedList<VtdAddrs>>,
+    interrupt_remapping: Mutex<Option<InterruptRemapping>>,
+}
+
+#[allow(dead_code)] // TODO: remove this
+struct VtdAddrs {
+    vt_d_base: VirtAddr,
+    iq_base: VirtAddr, // Cache Invalidation Queue base address
+}
 
 #[derive(Debug)]
 pub struct RemapInfo {
@@ -171,7 +187,9 @@ impl RemapInfo {
 impl Drop for RemapInfo {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
-        let mut table = INTERRUPT_REMAPPING[self.segment_number].lock(&mut node);
+        let mut table = IOMMU[self.segment_number]
+            .interrupt_remapping
+            .lock(&mut node);
 
         if let Some(table) = table.as_mut() {
             table.deallocate_entry(self.entry_id);
@@ -262,7 +280,8 @@ pub unsafe fn init_interrupt_remap(
                 if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
                     let segment_number = drhd.segment_number as usize;
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(segment_number, phy_offset, drhd, *phy_addr, is_x2apic)?;
+                    let vt_d_base = phy_offset + drhd.register_base_address as usize;
+                    set_irta(segment_number, vt_d_base, drhd, *phy_addr, is_x2apic)?;
                 } else {
                     let segment_number = drhd.segment_number as usize;
 
@@ -275,7 +294,8 @@ pub unsafe fn init_interrupt_remap(
                     pool.leak();
 
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(segment_number, phy_offset, drhd, phy_addr, is_x2apic)?;
+                    let vt_d_base = phy_offset + drhd.register_base_address as usize;
+                    set_irta(segment_number, vt_d_base, drhd, phy_addr, is_x2apic)?;
 
                     remap_table[segment_number] = Some((phy_addr, virt_addr));
                 }
@@ -283,7 +303,7 @@ pub unsafe fn init_interrupt_remap(
         }
     }
 
-    // Set INTERRUPT_REMAPPING
+    // Set interrupt_remapping in IOMMU
     for (i, entry) in remap_table.iter().enumerate() {
         if let Some((_phy_addr, virt_addr)) = entry {
             let mut table = InterruptRemapping {
@@ -295,7 +315,7 @@ pub unsafe fn init_interrupt_remap(
             table.disable_all();
 
             let mut node = MCSNode::new();
-            INTERRUPT_REMAPPING[i].lock(&mut node).replace(table);
+            IOMMU[i].interrupt_remapping.lock(&mut node).replace(table);
         }
     }
 
@@ -410,13 +430,11 @@ fn wait_register_based_invalidation_complete(vt_d_base: VirtAddr) -> Result<(), 
 /// Set Interrupt Remapping Table Address Register.
 fn set_irta(
     segment_number: usize,
-    phy_offset: VirtAddr,
+    vt_d_base: VirtAddr,
     drhd: &DmarDrhd,
     phy_addr: PhyAddr,
     is_x2apic: bool,
 ) -> Result<(), VtdError> {
-    let vt_d_base = phy_offset + drhd.register_base_address as usize;
-
     // Extended Interrupt Mode (x2APIC) Enable
     let eime = if is_x2apic { 1 << 11 } else { 0 };
     let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1)) | eime | 0b1111; // Size
@@ -430,7 +448,16 @@ fn set_irta(
     update_global_command(vt_d_base, registers::GlobalCommandStatus::IRE, true)?;
 
     // Initialize Invalidation Queue
-    init_invalidation_queue(segment_number, vt_d_base)?;
+    let iq_base = init_invalidation_queue(segment_number, vt_d_base)?;
+
+    // Store VT-d unit info
+    let vtd_addrs = VtdAddrs { vt_d_base, iq_base };
+
+    let mut node = MCSNode::new();
+    IOMMU[segment_number]
+        .vtd_units
+        .lock(&mut node)
+        .push_back(vtd_addrs);
 
     // Re-read status after queue initialization
     let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
@@ -464,7 +491,10 @@ fn set_irta(
     Ok(())
 }
 
-fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result<(), VtdError> {
+fn init_invalidation_queue(
+    segment_number: usize,
+    vt_d_base: VirtAddr,
+) -> Result<VirtAddr, VtdError> {
     // Wait for any pending register-based invalidation to complete
     // before enabling Queued Invalidation
     wait_register_based_invalidation_complete(vt_d_base)?;
@@ -477,6 +507,7 @@ fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result
         DMAPool::<[u8; PAGESIZE]>::new(segment_number, 1).ok_or(VtdError::DmaAllocationFailed)?;
 
     let phy_addr = pool.get_phy_addr().as_usize() as u64;
+    let virt_addr = pool.get_virt_addr();
 
     // bits[63:12] = Base (4KB aligned)
     // bit[11]     = DW (128/256)
@@ -500,7 +531,7 @@ fn init_invalidation_queue(segment_number: usize, vt_d_base: VirtAddr) -> Result
         registers::IQT.read(vt_d_base.as_usize())
     );
 
-    Ok(())
+    Ok(virt_addr)
 }
 
 pub fn allocate_remapping_entry(
@@ -511,7 +542,7 @@ pub fn allocate_remapping_entry(
     lowest_priority: bool,
 ) -> Option<RemapInfo> {
     let mut node = MCSNode::new();
-    let mut table = INTERRUPT_REMAPPING[segment_number].lock(&mut node);
+    let mut table = IOMMU[segment_number].interrupt_remapping.lock(&mut node);
 
     if let Some(table) = table.as_mut() {
         table.allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)
