@@ -347,11 +347,11 @@ pub unsafe fn init_interrupt_remap(
         let mut node = MCSNode::new();
         let vtd_units = iommu_info.vtd_units.lock(&mut node);
 
-        if let Some(vtd_addrs) = vtd_units.front() {
+        for vtd_addrs in vtd_units.iter() {
             let vt_d_base = vtd_addrs.vt_d_base;
             let ecap = registers::EXTENDED_CAPABILITY.read(vt_d_base.as_usize());
 
-            // Check if ESIRTPS is supported (bit 2)
+            // Check if ESIRTPS is supported (bit 62)
             if (ecap & registers::ECAP_ESIRTPS) == 0 {
                 // ESIRTPS not supported, need to perform global invalidation
                 log::info!(
@@ -730,9 +730,13 @@ fn invalidate_interrupt_entry(
     wait_invalidation_complete(segment_number, vtd_addrs)?;
 
     log::debug!(
-        "Vt-d: Invalidated interrupt entry: segment = {}, index = {}",
+        "Vt-d: Invalidated interrupt entry: segment = {}, index = {}, vtd_base = 0x{:x}, iq_base = 0x{:x}, IQH = 0x{:x}, IQT = 0x{:x}",
         segment_number,
-        interrupt_index
+        interrupt_index,
+        vt_d_base.as_usize(),
+        iq_base.as_usize(),
+        registers::IQH.read(vt_d_base.as_usize()),
+        registers::IQT.read(vt_d_base.as_usize())
     );
 
     Ok(())
@@ -757,8 +761,12 @@ fn invalidate_all_interrupt_entries(
     wait_invalidation_complete(segment_number, vtd_addrs)?;
 
     log::info!(
-        "Vt-d: Invalidated all interrupt entries: segment = {}",
-        segment_number
+        "Vt-d: Invalidated all interrupt entries: segment = {}, vtd_base = 0x{:x}, iq_base = 0x{:x}, IQH = 0x{:x}, IQT = 0x{:x}",
+        segment_number,
+        vt_d_base.as_usize(),
+        iq_base.as_usize(),
+        registers::IQH.read(vt_d_base.as_usize()),
+        registers::IQT.read(vt_d_base.as_usize())
     );
 
     Ok(())
