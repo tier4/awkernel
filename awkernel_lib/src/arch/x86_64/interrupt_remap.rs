@@ -679,78 +679,65 @@ fn wait_invalidation_complete(segment_number: usize, vt_d_base: VirtAddr) -> Res
 }
 
 /// Invalidate interrupt entry cache for a specific index
-pub fn invalidate_interrupt_entry(
+fn invalidate_interrupt_entry(
     segment_number: usize,
+    vtd_addrs: &VtdAddrs,
     interrupt_index: u16,
 ) -> Result<(), VtdError> {
-    let mut node = MCSNode::new();
-    let vtd_units = IOMMU[segment_number].vtd_units.lock(&mut node);
+    let vt_d_base = vtd_addrs.vt_d_base;
+    let iq_base = vtd_addrs.iq_base;
 
-    if let Some(vtd_addrs) = vtd_units.front() {
-        let vt_d_base = vtd_addrs.vt_d_base;
-        let iq_base = vtd_addrs.iq_base;
+    // Create Interrupt Entry Cache Invalidation descriptor
+    // Granularity = 0 (global), index_mask = 0 (specific index)
+    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(interrupt_index, 0, 0);
 
-        // Create Interrupt Entry Cache Invalidation descriptor
-        // Granularity = 0 (global), index_mask = 0 (specific index)
-        let desc =
-            InvalidationDescriptor::interrupt_entry_cache_invalidation(interrupt_index, 0, 0);
+    // Push descriptor to queue
+    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
 
-        // Push descriptor to queue
-        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
+    // Create and push Invalidation Wait descriptor
+    let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
+    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
 
-        // Create and push Invalidation Wait descriptor
-        let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
-        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
+    // Wait for completion
+    wait_invalidation_complete(segment_number, vt_d_base)?;
 
-        // Wait for completion
-        wait_invalidation_complete(segment_number, vt_d_base)?;
+    log::debug!(
+        "Invalidated interrupt entry: segment={}, index={}",
+        segment_number,
+        interrupt_index
+    );
 
-        log::debug!(
-            "Invalidated interrupt entry: segment={}, index={}",
-            segment_number,
-            interrupt_index
-        );
-
-        Ok(())
-    } else {
-        log::error!("No VT-d unit found for segment {}", segment_number);
-        Err(VtdError::InvalidationFailed)
-    }
+    Ok(())
 }
 
 /// Invalidate all interrupt entries (global invalidation)
-pub fn invalidate_all_interrupt_entries(segment_number: usize) -> Result<(), VtdError> {
-    let mut node = MCSNode::new();
-    let vtd_units = IOMMU[segment_number].vtd_units.lock(&mut node);
+fn invalidate_all_interrupt_entries(
+    segment_number: usize,
+    vtd_addrs: &VtdAddrs,
+) -> Result<(), VtdError> {
+    let vt_d_base = vtd_addrs.vt_d_base;
+    let iq_base = vtd_addrs.iq_base;
 
-    if let Some(vtd_addrs) = vtd_units.front() {
-        let vt_d_base = vtd_addrs.vt_d_base;
-        let iq_base = vtd_addrs.iq_base;
+    // Create global Interrupt Entry Cache Invalidation descriptor
+    // Granularity = 1 (global)
+    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(0, 0, 1);
 
-        // Create global Interrupt Entry Cache Invalidation descriptor
-        // Granularity = 1 (global)
-        let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(0, 0, 1);
+    // Push descriptor to queue
+    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
 
-        // Push descriptor to queue
-        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
+    // Create and push Invalidation Wait descriptor
+    let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
+    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
 
-        // Create and push Invalidation Wait descriptor
-        let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
-        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
+    // Wait for completion
+    wait_invalidation_complete(segment_number, vt_d_base)?;
 
-        // Wait for completion
-        wait_invalidation_complete(segment_number, vt_d_base)?;
+    log::info!(
+        "Invalidated all interrupt entries: segment={}",
+        segment_number
+    );
 
-        log::info!(
-            "Invalidated all interrupt entries: segment={}",
-            segment_number
-        );
-
-        Ok(())
-    } else {
-        log::error!("No VT-d unit found for segment {}", segment_number);
-        Err(VtdError::InvalidationFailed)
-    }
+    Ok(())
 }
 
 pub fn allocate_remapping_entry(
