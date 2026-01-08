@@ -689,6 +689,26 @@ fn wait_invalidation_complete(segment_number: usize, vtd_addrs: &VtdAddrs) -> Re
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
 
     for _ in 0..10000 {
+        // Check for fault status before checking completion
+        let fsts = registers::FSTS.read(vt_d_base.as_usize());
+        let fault_flags = registers::FaultStatus::from_bits_truncate(fsts);
+        if fault_flags.intersects(
+            registers::FaultStatus::IQE | registers::FaultStatus::ITE | registers::FaultStatus::ICE,
+        ) {
+            log::error!(
+                "Vt-d: Invalidation fault detected: segment = {}, FSTS = 0x{:x}, fault_flags = {:?}",
+                segment_number,
+                fsts,
+                fault_flags
+            );
+
+            // Clear fault status bits (W1C)
+            registers::FSTS.write(fsts, vt_d_base.as_usize());
+
+            return Err(VtdError::FaultStatus(fsts));
+        }
+
+        // Check for completion
         core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
         if status[0] != 0 {
             return Ok(());
