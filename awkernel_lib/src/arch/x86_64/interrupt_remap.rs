@@ -716,8 +716,8 @@ fn invalidate_interrupt_entry(
     let iq_base = vtd_addrs.iq_base;
 
     // Create Interrupt Entry Cache Invalidation descriptor
-    // Granularity = 0 (global), index_mask = 0 (specific index)
-    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(interrupt_index, 0, 0);
+    // Granularity = 1 (index-selective), index_mask = 0 (specific index)
+    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(interrupt_index, 0, 1);
 
     // Push descriptor to queue
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
@@ -751,12 +751,11 @@ fn invalidate_all_interrupt_entries(
     let iq_base = vtd_addrs.iq_base;
 
     // Create global Interrupt Entry Cache Invalidation descriptor
-    // Granularity = 1 (global)
-    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(0, 0, 1);
+    // Granularity = 0 (global)
+    let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(0, 0, 0);
 
     // Push descriptor to queue
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
-
     // Wait for completion
     wait_invalidation_complete(segment_number, vtd_addrs)?;
 
