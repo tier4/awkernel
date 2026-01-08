@@ -106,6 +106,9 @@ mod registers {
         }
     }
 
+    // Extended Capability Register bits
+    pub const ECAP_ESIRTPS: u64 = 1 << 62; // Enhanced Set Interrupt Root Table Pointer Support
+
     mmio_r!(offset 0x10 => pub EXTENDED_CAPABILITY<u64>);
     mmio_w!(offset 0x18 => pub GLOBAL_COMMAND<GlobalCommandStatus>);
     mmio_r!(offset 0x1c => pub GLOBAL_STATUS<GlobalCommandStatus>);
@@ -338,6 +341,37 @@ pub unsafe fn init_interrupt_remap(
         }
     }
 
+    // Perform global invalidation for all VT-d units
+    // (unless ESIRTPS is supported, which handles this automatically)
+    for (segment_number, iommu_info) in IOMMU.iter().enumerate() {
+        let mut node = MCSNode::new();
+        let vtd_units = iommu_info.vtd_units.lock(&mut node);
+
+        if let Some(vtd_addrs) = vtd_units.front() {
+            let vt_d_base = vtd_addrs.vt_d_base;
+            let ecap = registers::EXTENDED_CAPABILITY.read(vt_d_base.as_usize());
+
+            // Check if ESIRTPS is supported (bit 2)
+            if (ecap & registers::ECAP_ESIRTPS) == 0 {
+                // ESIRTPS not supported, need to perform global invalidation
+                log::info!(
+                    "VT-d segment {}: ESIRTPS not supported (ECAP=0x{:x}), performing global invalidation",
+                    segment_number,
+                    ecap
+                );
+
+                // Perform global invalidation using the vtd_addrs reference
+                invalidate_all_interrupt_entries(segment_number, vtd_addrs)?;
+            } else {
+                log::debug!(
+                    "VT-d segment {}: ESIRTPS supported (ECAP=0x{:x}), skipping global invalidation",
+                    segment_number,
+                    ecap
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -442,7 +476,7 @@ fn wait_register_based_invalidation_complete(vt_d_base: VirtAddr) -> Result<(), 
         }
     }
 
-    log::error!("Timeout waiting for register-based invalidation to complete");
+    log::error!("Vt-d: Timeout waiting for register-based invalidation to complete");
     Err(VtdError::Timeout)
 }
 
@@ -605,7 +639,7 @@ fn push_invalidation_descriptor(
     let next_tail_idx = (tail_idx + 1) % QUEUE_ENTRIES;
     if next_tail_idx == head_idx {
         log::error!(
-            "Invalidation Queue full: segment={}, head={}, tail={}",
+            "Vt-d: Invalidation Queue full: segment = {}, head = {}, tail = {}",
             segment_number,
             head_idx,
             tail_idx
@@ -626,7 +660,7 @@ fn push_invalidation_descriptor(
     registers::IQT.write(new_tail, vt_d_base.as_usize());
 
     log::trace!(
-        "Pushed descriptor to IQ: segment={}, tail_idx={} -> {}, descriptor={:?}",
+        "Vt-d: Pushed descriptor to IQ: segment = {}, tail_idx = {} -> {}, descriptor = {:?}",
         segment_number,
         tail_idx,
         next_tail_idx,
@@ -637,48 +671,42 @@ fn push_invalidation_descriptor(
 }
 
 /// Wait for invalidation completion by checking ICS or using wait descriptor
-fn wait_invalidation_complete(segment_number: usize, vt_d_base: VirtAddr) -> Result<(), VtdError> {
-    const ICS_IWC: u32 = 1; // Invalidation Wait Descriptor Complete
+fn wait_invalidation_complete(segment_number: usize, vtd_addrs: &VtdAddrs) -> Result<(), VtdError> {
+    let vt_d_base = vtd_addrs.vt_d_base;
+    let iq_base = vtd_addrs.iq_base;
 
-    // Poll ICS register for completion
+    // Create and push Invalidation Wait descriptor
+    let mut dma_pool = DMAPool::<[u32; PAGESIZE / 4]>::new(segment_number, 1)
+        .ok_or(VtdError::DmaAllocationFailed)?;
+
+    let status_addr = dma_pool.get_phy_addr().as_usize() as u64;
+    let status = dma_pool.as_mut();
+
+    status[0] = 0;
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+
+    let wait_desc = InvalidationDescriptor::invalidation_wait(true, 1, status_addr);
+    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
+
     for _ in 0..10000 {
-        let ics = registers::ICS.read(vt_d_base.as_usize());
-        if (ics & ICS_IWC) != 0 {
-            // Clear IWC bit by writing 1 (W1C)
-            registers::ICS.write(ICS_IWC, vt_d_base.as_usize());
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+        if status[0] != 0 {
             return Ok(());
-        }
-
-        // Check for fault status
-        let fsts = registers::FSTS.read(vt_d_base.as_usize());
-        let fault_flags = registers::FaultStatus::from_bits_truncate(fsts);
-        if fault_flags.intersects(
-            registers::FaultStatus::IQE | registers::FaultStatus::ITE | registers::FaultStatus::ICE,
-        ) {
-            log::error!(
-                "Invalidation fault detected: segment={}, FSTS=0x{:x}, fault_flags={:?}",
-                segment_number,
-                fsts,
-                fault_flags
-            );
-
-            // Clear fault status bits (W1C)
-            registers::FSTS.write(fsts, vt_d_base.as_usize());
-
-            return Err(VtdError::FaultStatus(fsts));
         }
     }
 
     log::warn!(
-        "Invalidation wait timeout: segment={}, ICS=0x{:x}",
+        "Vt-d: Invalidation wait timeout: segment = {}, IQH = 0x{:x}, IQT = 0x{:x}",
         segment_number,
-        registers::ICS.read(vt_d_base.as_usize())
+        registers::IQH.read(vt_d_base.as_usize()),
+        registers::IQT.read(vt_d_base.as_usize())
     );
 
     Err(VtdError::Timeout)
 }
 
 /// Invalidate interrupt entry cache for a specific index
+#[allow(dead_code)]
 fn invalidate_interrupt_entry(
     segment_number: usize,
     vtd_addrs: &VtdAddrs,
@@ -699,10 +727,10 @@ fn invalidate_interrupt_entry(
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
 
     // Wait for completion
-    wait_invalidation_complete(segment_number, vt_d_base)?;
+    wait_invalidation_complete(segment_number, vtd_addrs)?;
 
     log::debug!(
-        "Invalidated interrupt entry: segment={}, index={}",
+        "Vt-d: Invalidated interrupt entry: segment = {}, index = {}",
         segment_number,
         interrupt_index
     );
@@ -725,15 +753,11 @@ fn invalidate_all_interrupt_entries(
     // Push descriptor to queue
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
 
-    // Create and push Invalidation Wait descriptor
-    let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
-    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
-
     // Wait for completion
-    wait_invalidation_complete(segment_number, vt_d_base)?;
+    wait_invalidation_complete(segment_number, vtd_addrs)?;
 
     log::info!(
-        "Invalidated all interrupt entries: segment={}",
+        "Vt-d: Invalidated all interrupt entries: segment = {}",
         segment_number
     );
 
