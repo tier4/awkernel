@@ -31,6 +31,12 @@ pub enum VtdError {
     DmaAllocationFailed,
     /// Timeout waiting for command completion.
     Timeout,
+    /// Invalidation Queue is full.
+    QueueFull,
+    /// Invalidation operation failed.
+    InvalidationFailed,
+    /// Fault status detected (IQE/ITE/ICE).
+    FaultStatus(u32),
 }
 
 impl core::fmt::Display for VtdError {
@@ -41,6 +47,9 @@ impl core::fmt::Display for VtdError {
             VtdError::QieEnableFailed => write!(f, "Failed to enable QIE"),
             VtdError::DmaAllocationFailed => write!(f, "DMA allocation failed"),
             VtdError::Timeout => write!(f, "Timeout waiting for command completion"),
+            VtdError::QueueFull => write!(f, "Invalidation Queue is full"),
+            VtdError::InvalidationFailed => write!(f, "Invalidation operation failed"),
+            VtdError::FaultStatus(status) => write!(f, "Fault status detected: 0x{:x}", status),
         }
     }
 }
@@ -88,13 +97,23 @@ mod registers {
         }
     }
 
+    bitflags! {
+        #[derive(Debug, Clone, Copy)]
+        pub struct FaultStatus: u32 {
+            const IQE = 1 << 4;  // Invalidation Queue Error
+            const ICE = 1 << 5;  // Invalidation Completion Error
+            const ITE = 1 << 6;  // Invalidation Time-out Error
+        }
+    }
+
     mmio_r!(offset 0x10 => pub EXTENDED_CAPABILITY<u64>);
     mmio_w!(offset 0x18 => pub GLOBAL_COMMAND<GlobalCommandStatus>);
     mmio_r!(offset 0x1c => pub GLOBAL_STATUS<GlobalCommandStatus>);
+    mmio_rw!(offset 0x34 => pub FSTS<u32>); // Fault Status Register
     mmio_rw!(offset 0x80 => pub IQH<u64>); // Invalidation Queue Head
     mmio_rw!(offset 0x88 => pub IQT<u64>); // Invalidation Queue Tail
     mmio_rw!(offset 0x90 => pub IQA<u64>); // Invalidation Queue Address
-    mmio_r!(offset 0x9c => pub ICS<u32>); // Invalidation Completion Status
+    mmio_rw!(offset 0x9c => pub ICS<u32>); // Invalidation Completion Status (W1C for IWC)
     mmio_rw!(offset 0xb8 => pub IRTA<u64>);
 }
 
@@ -532,6 +551,206 @@ fn init_invalidation_queue(
     );
 
     Ok(virt_addr)
+}
+
+/// Invalidation Queue Descriptor Types
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy)]
+struct InvalidationDescriptor {
+    lo: u64,
+    hi: u64,
+}
+
+impl InvalidationDescriptor {
+    /// Create Interrupt Entry Cache Invalidation Descriptor
+    fn interrupt_entry_cache_invalidation(index: u16, index_mask: u16, granularity: u8) -> Self {
+        let lo = 0x04 // Type: Interrupt Entry Cache Invalidation
+            | ((granularity as u64) << 4) // Bits [4]: Granularity
+            | ((index_mask as u64) << 27) // Bits [31:27]: Interrupt Index Mask (IM)
+            | ((index as u64) << 32); // Bits [47:32]: Interrupt Index (IIDX)
+        Self { lo, hi: 0 }
+    }
+
+    /// Create Invalidation Wait Descriptor
+    fn invalidation_wait(status_write: bool, status_data: u32, status_addr: u64) -> Self {
+        let lo = 0x05 // Type: Invalidation Wait Descriptor
+            | if status_write { 1 << 5 } else { 0 } // SW: Status Write
+            | (1 << 6) // FN: When Set, indicates descriptors following the invalidation wait descriptor must be processed by hardware only after the invalidation wait descriptor completes.
+            | ((status_data as u64) << 32);
+        let hi = status_addr;
+        Self { lo, hi }
+    }
+}
+
+const QUEUE_SIZE_BYTES: usize = PAGESIZE; // 4KB
+const DESCRIPTOR_SIZE: usize = 16; // 128-bit descriptor
+const QUEUE_ENTRIES: usize = QUEUE_SIZE_BYTES / DESCRIPTOR_SIZE; // 256 entries
+
+/// Push a descriptor to the Invalidation Queue
+fn push_invalidation_descriptor(
+    segment_number: usize,
+    vt_d_base: VirtAddr,
+    iq_base: VirtAddr,
+    descriptor: InvalidationDescriptor,
+) -> Result<(), VtdError> {
+    // Read current head and tail
+    let head = registers::IQH.read(vt_d_base.as_usize()) as usize;
+    let tail = registers::IQT.read(vt_d_base.as_usize()) as usize;
+
+    // Convert to entry indices (tail/head are byte offsets, 16B aligned)
+    let head_idx = head / DESCRIPTOR_SIZE;
+    let tail_idx = tail / DESCRIPTOR_SIZE;
+
+    // Check if queue is full (next tail would catch up to head)
+    let next_tail_idx = (tail_idx + 1) % QUEUE_ENTRIES;
+    if next_tail_idx == head_idx {
+        log::error!(
+            "Invalidation Queue full: segment={}, head={}, tail={}",
+            segment_number,
+            head_idx,
+            tail_idx
+        );
+        return Err(VtdError::QueueFull);
+    }
+
+    // Write descriptor to IQ[tail]
+    let queue = unsafe { &mut *(iq_base.as_mut_ptr::<[InvalidationDescriptor; QUEUE_ENTRIES]>()) };
+    queue[tail_idx] = descriptor;
+
+    // Memory fence to ensure descriptor is visible before updating IQT
+    // This is critical for DMA coherency
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+
+    // Update IQT (doorbell) - this is a byte offset, must be 16B aligned
+    let new_tail = (next_tail_idx * DESCRIPTOR_SIZE) as u64;
+    registers::IQT.write(new_tail, vt_d_base.as_usize());
+
+    log::trace!(
+        "Pushed descriptor to IQ: segment={}, tail_idx={} -> {}, descriptor={:?}",
+        segment_number,
+        tail_idx,
+        next_tail_idx,
+        descriptor
+    );
+
+    Ok(())
+}
+
+/// Wait for invalidation completion by checking ICS or using wait descriptor
+fn wait_invalidation_complete(segment_number: usize, vt_d_base: VirtAddr) -> Result<(), VtdError> {
+    const ICS_IWC: u32 = 1; // Invalidation Wait Descriptor Complete
+
+    // Poll ICS register for completion
+    for _ in 0..10000 {
+        let ics = registers::ICS.read(vt_d_base.as_usize());
+        if (ics & ICS_IWC) != 0 {
+            // Clear IWC bit by writing 1 (W1C)
+            registers::ICS.write(ICS_IWC, vt_d_base.as_usize());
+            return Ok(());
+        }
+
+        // Check for fault status
+        let fsts = registers::FSTS.read(vt_d_base.as_usize());
+        let fault_flags = registers::FaultStatus::from_bits_truncate(fsts);
+        if fault_flags.intersects(
+            registers::FaultStatus::IQE | registers::FaultStatus::ITE | registers::FaultStatus::ICE,
+        ) {
+            log::error!(
+                "Invalidation fault detected: segment={}, FSTS=0x{:x}, fault_flags={:?}",
+                segment_number,
+                fsts,
+                fault_flags
+            );
+
+            // Clear fault status bits (W1C)
+            registers::FSTS.write(fsts, vt_d_base.as_usize());
+
+            return Err(VtdError::FaultStatus(fsts));
+        }
+    }
+
+    log::warn!(
+        "Invalidation wait timeout: segment={}, ICS=0x{:x}",
+        segment_number,
+        registers::ICS.read(vt_d_base.as_usize())
+    );
+
+    Err(VtdError::Timeout)
+}
+
+/// Invalidate interrupt entry cache for a specific index
+pub fn invalidate_interrupt_entry(
+    segment_number: usize,
+    interrupt_index: u16,
+) -> Result<(), VtdError> {
+    let mut node = MCSNode::new();
+    let vtd_units = IOMMU[segment_number].vtd_units.lock(&mut node);
+
+    if let Some(vtd_addrs) = vtd_units.front() {
+        let vt_d_base = vtd_addrs.vt_d_base;
+        let iq_base = vtd_addrs.iq_base;
+
+        // Create Interrupt Entry Cache Invalidation descriptor
+        // Granularity = 0 (global), index_mask = 0 (specific index)
+        let desc =
+            InvalidationDescriptor::interrupt_entry_cache_invalidation(interrupt_index, 0, 0);
+
+        // Push descriptor to queue
+        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
+
+        // Create and push Invalidation Wait descriptor
+        let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
+        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
+
+        // Wait for completion
+        wait_invalidation_complete(segment_number, vt_d_base)?;
+
+        log::debug!(
+            "Invalidated interrupt entry: segment={}, index={}",
+            segment_number,
+            interrupt_index
+        );
+
+        Ok(())
+    } else {
+        log::error!("No VT-d unit found for segment {}", segment_number);
+        Err(VtdError::InvalidationFailed)
+    }
+}
+
+/// Invalidate all interrupt entries (global invalidation)
+pub fn invalidate_all_interrupt_entries(segment_number: usize) -> Result<(), VtdError> {
+    let mut node = MCSNode::new();
+    let vtd_units = IOMMU[segment_number].vtd_units.lock(&mut node);
+
+    if let Some(vtd_addrs) = vtd_units.front() {
+        let vt_d_base = vtd_addrs.vt_d_base;
+        let iq_base = vtd_addrs.iq_base;
+
+        // Create global Interrupt Entry Cache Invalidation descriptor
+        // Granularity = 1 (global)
+        let desc = InvalidationDescriptor::interrupt_entry_cache_invalidation(0, 0, 1);
+
+        // Push descriptor to queue
+        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
+
+        // Create and push Invalidation Wait descriptor
+        let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
+        push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
+
+        // Wait for completion
+        wait_invalidation_complete(segment_number, vt_d_base)?;
+
+        log::info!(
+            "Invalidated all interrupt entries: segment={}",
+            segment_number
+        );
+
+        Ok(())
+    } else {
+        log::error!("No VT-d unit found for segment {}", segment_number);
+        Err(VtdError::InvalidationFailed)
+    }
 }
 
 pub fn allocate_remapping_entry(
