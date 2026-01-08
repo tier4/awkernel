@@ -438,6 +438,24 @@ fn wait_toggle_then_set(
     enable: bool,
 ) -> Result<(), VtdError> {
     if enable {
+        // For IRTP, wait until 0 first
+        //
+        // IRTPS:
+        //   This field is cleared by hardware when software sets the SIRTP field in the
+        //   Global Command register. This field is Set by hardware when hardware
+        //   completes the ‘Set Interrupt Remap Table Pointer’ operation using the
+        //   value provided in the Interrupt Remapping Table Address register.
+        if status_bit.contains(registers::GlobalCommandStatus::IRTP) {
+            for _ in 0..1000 {
+                if !registers::GLOBAL_STATUS
+                    .read(vt_d_base.as_usize())
+                    .contains(registers::GlobalCommandStatus::IRTP)
+                {
+                    break;
+                }
+            }
+        }
+
         // wait until 1
         for _ in 0..1000 {
             if registers::GLOBAL_STATUS
