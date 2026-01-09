@@ -1,5 +1,7 @@
 //! Interrupt remapping of Vt-d.
 
+use core::sync::atomic::AtomicUsize;
+
 use acpi::AcpiTables;
 use alloc::{collections::linked_list::LinkedList, format, string::String};
 
@@ -17,6 +19,11 @@ use super::acpi::AcpiMapper;
 
 const TABLE_SIZE: usize = 256 * 4096; // 1MiB
 const TABLE_ENTRY_NUM: usize = TABLE_SIZE / 16;
+
+static VTD_UNIT_IDX: AtomicUsize = AtomicUsize::new(0);
+
+static DMA_POOL: [Mutex<Option<DMAPool<[u32; PAGESIZE / 4]>>>; 32] =
+    array![_ => Mutex::new(None); 32];
 
 /// Error type for Vt-d interrupt remapping initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,14 +191,15 @@ static IOMMU: [IommuInfo; 32] = array![x =>
 #[allow(dead_code)] // TODO: remove this
 struct IommuInfo {
     segment_number: usize,
-    vtd_units: Mutex<LinkedList<VtdAddrs>>,
+    vtd_units: Mutex<LinkedList<VtdUnit>>,
     interrupt_remapping: Mutex<Option<InterruptRemapping>>,
 }
 
 #[allow(dead_code)] // TODO: remove this
-struct VtdAddrs {
+struct VtdUnit {
     vt_d_base: VirtAddr,
     iq_base: VirtAddr, // Cache Invalidation Queue base address
+    index: usize,
 }
 
 #[derive(Debug)]
@@ -208,6 +216,12 @@ impl RemapInfo {
 
 impl Drop for RemapInfo {
     fn drop(&mut self) {
+        log::debug!(
+            "Vt-d: Deallocating interrupt remapping entry: segment = {}, entry_id = {}",
+            self.segment_number,
+            self.entry_id
+        );
+
         let mut node = MCSNode::new();
         let mut table = IOMMU[self.segment_number]
             .interrupt_remapping
@@ -215,6 +229,21 @@ impl Drop for RemapInfo {
 
         if let Some(table) = table.as_mut() {
             table.deallocate_entry(self.entry_id);
+
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+
+            let mut node = MCSNode::new();
+            let vtd_units = IOMMU[self.segment_number].vtd_units.lock(&mut node);
+            for vtd_addrs in vtd_units.iter() {
+                if let Err(e) = invalidate_all_interrupt_entries(self.segment_number, vtd_addrs) {
+                    log::error!(
+                        "Vt-d: Failed to invalidate interrupt entry after deallocation: segment = {}, entry_id = {}, error = {:?}",
+                        self.segment_number,
+                        self.entry_id,
+                        e
+                    );
+                }
+            }
         }
     }
 }
@@ -515,14 +544,19 @@ fn set_irta(
     // Enable IRTP (Interrupt Remapping Table Pointer)
     update_global_command(vt_d_base, registers::GlobalCommandStatus::IRTP, true)?;
 
-    // Enable IRE (Interrupt Remapping Enable)
-    update_global_command(vt_d_base, registers::GlobalCommandStatus::IRE, true)?;
-
     // Initialize Invalidation Queue
     let iq_base = init_invalidation_queue(segment_number, vt_d_base)?;
 
+    // Enable IRE (Interrupt Remapping Enable)
+    update_global_command(vt_d_base, registers::GlobalCommandStatus::IRE, true)?;
+
     // Store VT-d unit info
-    let vtd_addrs = VtdAddrs { vt_d_base, iq_base };
+    let index = VTD_UNIT_IDX.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+    let vtd_addrs = VtdUnit {
+        vt_d_base,
+        iq_base,
+        index,
+    };
 
     let mut node = MCSNode::new();
     IOMMU[segment_number]
@@ -689,16 +723,29 @@ fn push_invalidation_descriptor(
 }
 
 /// Wait for invalidation completion by checking ICS or using wait descriptor
-fn wait_invalidation_complete(segment_number: usize, vtd_addrs: &VtdAddrs) -> Result<(), VtdError> {
+fn wait_invalidation_complete(segment_number: usize, vtd_addrs: &VtdUnit) -> Result<(), VtdError> {
     let vt_d_base = vtd_addrs.vt_d_base;
     let iq_base = vtd_addrs.iq_base;
 
     // Create and push Invalidation Wait descriptor
-    let mut dma_pool = DMAPool::<[u32; PAGESIZE / 4]>::new(segment_number, 1)
-        .ok_or(VtdError::DmaAllocationFailed)?;
+    let mut node = MCSNode::new();
+    let mut dma_pool = DMA_POOL[segment_number].lock(&mut node);
 
-    let status_addr = dma_pool.get_phy_addr().as_usize() as u64;
-    let status = dma_pool.as_mut();
+    if dma_pool.is_none() {
+        let pool = DMAPool::<[u32; PAGESIZE / 4]>::new(segment_number, 1)
+            .ok_or(VtdError::DmaAllocationFailed)?;
+        *dma_pool = Some(pool);
+    }
+
+    let status_addr;
+    let status;
+
+    if let Some(dma_pool) = dma_pool.as_mut() {
+        status_addr = dma_pool.get_phy_addr().as_usize() as u64;
+        status = dma_pool.as_mut();
+    } else {
+        return Err(VtdError::DmaAllocationFailed);
+    }
 
     status[0] = 0;
     core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
@@ -744,10 +791,9 @@ fn wait_invalidation_complete(segment_number: usize, vtd_addrs: &VtdAddrs) -> Re
 }
 
 /// Invalidate interrupt entry cache for a specific index
-#[allow(dead_code)]
 fn invalidate_interrupt_entry(
     segment_number: usize,
-    vtd_addrs: &VtdAddrs,
+    vtd_addrs: &VtdUnit,
     interrupt_index: u16,
 ) -> Result<(), VtdError> {
     let vt_d_base = vtd_addrs.vt_d_base;
@@ -760,14 +806,10 @@ fn invalidate_interrupt_entry(
     // Push descriptor to queue
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
 
-    // Create and push Invalidation Wait descriptor
-    let wait_desc = InvalidationDescriptor::invalidation_wait(false, 0, 0);
-    push_invalidation_descriptor(segment_number, vt_d_base, iq_base, wait_desc)?;
-
     // Wait for completion
     wait_invalidation_complete(segment_number, vtd_addrs)?;
 
-    log::debug!(
+    log::trace!(
         "Vt-d: Invalidated interrupt entry: segment = {}, index = {}, vtd_base = 0x{:x}, iq_base = 0x{:x}, IQH = 0x{:x}, IQT = 0x{:x}",
         segment_number,
         interrupt_index,
@@ -783,7 +825,7 @@ fn invalidate_interrupt_entry(
 /// Invalidate all interrupt entries (global invalidation)
 fn invalidate_all_interrupt_entries(
     segment_number: usize,
-    vtd_addrs: &VtdAddrs,
+    vtd_addrs: &VtdUnit,
 ) -> Result<(), VtdError> {
     let vt_d_base = vtd_addrs.vt_d_base;
     let iq_base = vtd_addrs.iq_base;
@@ -794,6 +836,7 @@ fn invalidate_all_interrupt_entries(
 
     // Push descriptor to queue
     push_invalidation_descriptor(segment_number, vt_d_base, iq_base, desc)?;
+
     // Wait for completion
     wait_invalidation_complete(segment_number, vtd_addrs)?;
 
@@ -820,7 +863,26 @@ pub fn allocate_remapping_entry(
     let mut table = IOMMU[segment_number].interrupt_remapping.lock(&mut node);
 
     if let Some(table) = table.as_mut() {
-        table.allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)
+        let remap_info = table.allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)?;
+
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+
+        let mut node = MCSNode::new();
+        let vtd_units = IOMMU[segment_number].vtd_units.lock(&mut node);
+        for vtd_addrs in vtd_units.iter() {
+            if let Err(e) =
+                invalidate_interrupt_entry(segment_number, vtd_addrs, remap_info.entry_id as u16)
+            {
+                log::error!(
+                    "Vt-d: Failed to invalidate interrupt entry after allocation: segment = {}, entry_id = {}, error = {:?}",
+                    segment_number,
+                    remap_info.entry_id,
+                    e
+                );
+            }
+        }
+
+        Some(remap_info)
     } else {
         None
     }
