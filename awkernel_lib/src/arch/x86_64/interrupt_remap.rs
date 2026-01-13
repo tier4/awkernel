@@ -30,10 +30,16 @@ static DMA_POOL: [Mutex<Option<DMAPool<[u32; PAGESIZE / 4]>>>; 32] =
 pub enum VtdError {
     /// Failed to enable Interrupt Remapping Table Pointer.
     IrtpEnableFailed,
+    /// Failed to disable Interrupt Remapping Table Pointer.
+    IrtpDisableFailed,
     /// Failed to enable Interrupt Remapping.
     IreEnableFailed,
+    /// Failed to disable Interrupt Remapping.
+    IreDisableFailed,
     /// Failed to enable Queued Invalidation.
     QieEnableFailed,
+    /// Failed to disable Queued Invalidation.
+    QieDisableFailed,
     /// Failed to allocate DMA memory.
     DmaAllocationFailed,
     /// Timeout waiting for command completion.
@@ -50,8 +56,11 @@ impl core::fmt::Display for VtdError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             VtdError::IrtpEnableFailed => write!(f, "Failed to enable IRTP"),
+            VtdError::IrtpDisableFailed => write!(f, "Failed to disable IRTP"),
             VtdError::IreEnableFailed => write!(f, "Failed to enable IRE"),
+            VtdError::IreDisableFailed => write!(f, "Failed to disable IRE"),
             VtdError::QieEnableFailed => write!(f, "Failed to enable QIE"),
+            VtdError::QieDisableFailed => write!(f, "Failed to disable QIE"),
             VtdError::DmaAllocationFailed => write!(f, "DMA allocation failed"),
             VtdError::Timeout => write!(f, "Timeout waiting for command completion"),
             VtdError::QueueFull => write!(f, "Invalidation Queue is full"),
@@ -112,6 +121,8 @@ mod registers {
             const ITE = 1 << 6;  // Invalidation Time-out Error
         }
     }
+
+    pub const ICS_IWC: u32 = 1 << 0; // Invalidation Write Complete
 
     // Extended Capability Register bits
     pub const ECAP_ESIRTPS: u64 = 1 << 62; // Enhanced Set Interrupt Root Table Pointer Support
@@ -330,9 +341,15 @@ pub unsafe fn init_interrupt_remap(
 
                 if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
                     let segment_number = drhd.segment_number as usize;
-                    // Set Interrupt Remapping Table Address Register
+                    // Enable Interrupt Remapping
                     let vt_d_base = phy_offset + drhd.register_base_address as usize;
-                    set_irta(segment_number, vt_d_base, drhd, *phy_addr, is_x2apic)?;
+                    enable_interrupt_remapping(
+                        segment_number,
+                        vt_d_base,
+                        drhd,
+                        *phy_addr,
+                        is_x2apic,
+                    )?;
                 } else {
                     let segment_number = drhd.segment_number as usize;
 
@@ -344,9 +361,15 @@ pub unsafe fn init_interrupt_remap(
                     let phy_addr = pool.get_phy_addr();
                     pool.leak();
 
-                    // Set Interrupt Remapping Table Address Register
+                    // Enable Interrupt Remapping
                     let vt_d_base = phy_offset + drhd.register_base_address as usize;
-                    set_irta(segment_number, vt_d_base, drhd, phy_addr, is_x2apic)?;
+                    enable_interrupt_remapping(
+                        segment_number,
+                        vt_d_base,
+                        drhd,
+                        phy_addr,
+                        is_x2apic,
+                    )?;
 
                     remap_table[segment_number] = Some((phy_addr, virt_addr));
                 }
@@ -420,7 +443,7 @@ fn update_global_command(
     // Step 1: Read GLOBAL_STATUS
     let status = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
 
-    // Step 2: Reset one-shot bits (preserve only bits 31, 30, 27, 26, 25, 24, 23)
+    // Step 2: Reset one-shot bits
     // One-shot bits mask: 0x96FFFFFF (bits that should be preserved)
     let persistent_mask = registers::GlobalCommandStatus::from_bits_truncate(0x96FF_FFFF);
     let status_persistent = status & persistent_mask;
@@ -441,17 +464,29 @@ fn update_global_command(
         let current = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
         Err(
             if bit_to_set.contains(registers::GlobalCommandStatus::IRTP)
-                && !current.contains(registers::GlobalCommandStatus::IRTP)
+                && (enable && !current.contains(registers::GlobalCommandStatus::IRTP))
             {
                 VtdError::IrtpEnableFailed
+            } else if bit_to_set.contains(registers::GlobalCommandStatus::IRTP)
+                && (!enable && current.contains(registers::GlobalCommandStatus::IRTP))
+            {
+                VtdError::IrtpDisableFailed
             } else if bit_to_set.contains(registers::GlobalCommandStatus::IRE)
-                && !current.contains(registers::GlobalCommandStatus::IRE)
+                && (enable && !current.contains(registers::GlobalCommandStatus::IRE))
             {
                 VtdError::IreEnableFailed
+            } else if bit_to_set.contains(registers::GlobalCommandStatus::IRE)
+                && (!enable && current.contains(registers::GlobalCommandStatus::IRE))
+            {
+                VtdError::IreDisableFailed
             } else if bit_to_set.contains(registers::GlobalCommandStatus::QIE)
-                && !current.contains(registers::GlobalCommandStatus::QIE)
+                && (enable && !current.contains(registers::GlobalCommandStatus::QIE))
             {
                 VtdError::QieEnableFailed
+            } else if bit_to_set.contains(registers::GlobalCommandStatus::QIE)
+                && (!enable && current.contains(registers::GlobalCommandStatus::QIE))
+            {
+                VtdError::QieDisableFailed
             } else {
                 VtdError::Timeout // Default fallback
             },
@@ -512,13 +547,11 @@ fn wait_toggle_then_set(
 /// Wait for register-based invalidation to complete.
 /// This must be called before enabling Queued Invalidation.
 fn wait_register_based_invalidation_complete(vt_d_base: VirtAddr) -> Result<(), VtdError> {
-    const ICS_IWC: u32 = 1; // Invalidation Wait Descriptor Complete
-
     // Wait for any pending register-based invalidation to complete
     // by checking the ICS register's IWC bit is 0
     for _ in 0..1000 {
         let ics = registers::ICS.read(vt_d_base.as_usize());
-        if (ics & ICS_IWC) == 0 {
+        if (ics & registers::ICS_IWC) == 0 {
             return Ok(());
         }
     }
@@ -528,7 +561,12 @@ fn wait_register_based_invalidation_complete(vt_d_base: VirtAddr) -> Result<(), 
 }
 
 /// Set Interrupt Remapping Table Address Register.
-fn set_irta(
+///
+/// 1. Set IRTA register
+/// 2. Enable IRTP (Interrupt Remapping Table Pointer)
+/// 3. Enable IRE (Interrupt Remapping Enable)
+/// 4. Initialize Invalidation Queue
+fn enable_interrupt_remapping(
     segment_number: usize,
     vt_d_base: VirtAddr,
     drhd: &DmarDrhd,
