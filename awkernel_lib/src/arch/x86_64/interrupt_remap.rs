@@ -113,7 +113,7 @@ mod registers {
         }
     }
 
-    pub const ICS_IWC: u32 = 1 << 0; // Invalidation Write Complete
+    pub const ICS_IWC: u32 = 1 << 0; // Invalidation Wait Descriptor Complete
 
     bitflags! {
         #[derive(Debug, Clone, Copy)]
