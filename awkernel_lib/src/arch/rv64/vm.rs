@@ -5,7 +5,9 @@ use crate::addr::{virt_addr::VirtAddr, Addr};
 use crate::{console::unsafe_puts, paging::PAGESIZE};
 use alloc::vec::Vec;
 use core::arch::asm;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[allow(dead_code)]
 extern "C" {
     fn stext();
     fn etext();
@@ -153,6 +155,16 @@ impl MemorySet {
         }
     }
 
+    pub fn get_heap_size(&self) -> Option<usize> {
+        // Return heap size if calculated during init_kernel_heap
+        let size = HEAP_SIZE.load(core::sync::atomic::Ordering::Relaxed);
+        if size == 0 {
+            None
+        } else {
+            Some(size)
+        }
+    }
+
     #[allow(dead_code)]
     pub fn token(&self) -> usize {
         self.page_table.token()
@@ -261,6 +273,7 @@ impl MemorySet {
             None,
         );
 
+        // Note: Heap mapping is created separately in calculate_dynamic_heap_size()
         memory_set
     }
 
@@ -271,7 +284,7 @@ impl MemorySet {
             asm!("sfence.vma");
         }
     }
-    #[allow(dead_code)]
+
     pub fn translate(&mut self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
@@ -300,16 +313,84 @@ impl MapArea {
     }
 }
 
-// Static kernel memory set
+// Static kernel memory set and heap size tracking
 use crate::sync::mcs::MCSNode;
 use crate::sync::mutex::Mutex;
 
 pub static KERNEL_SPACE: Mutex<Option<MemorySet>> = Mutex::new(None);
+static HEAP_SIZE: AtomicUsize = AtomicUsize::new(0);
 
 pub fn init_kernel_space() {
     let mut node = MCSNode::new();
     let mut kernel_space = KERNEL_SPACE.lock(&mut node);
-    *kernel_space = Some(MemorySet::new_kernel());
+    let mut memory_set = MemorySet::new_kernel();
+
+    // Calculate dynamic heap size after kernel mapping
+    let heap_size = calculate_dynamic_heap_size(&mut memory_set);
+    HEAP_SIZE.store(heap_size, Ordering::Relaxed);
+
+    *kernel_space = Some(memory_set);
+}
+
+fn calculate_dynamic_heap_size(memory_set: &mut MemorySet) -> usize {
+    extern "C" {
+        fn ekernel();
+    }
+    use crate::addr::{phy_addr::PhyAddr, Addr};
+
+    // Get dynamically detected memory end
+    let memory_end_addr = super::get_memory_end();
+
+    // Calculate available memory after kernel
+    let kernel_end = PhyAddr::from_usize(ekernel as *const () as usize);
+    let memory_end = PhyAddr::from_usize(memory_end_addr as usize);
+
+    // Start heap mapping after kernel, aligned to page boundary
+    let heap_start_phy =
+        PhyAddr::from_usize((kernel_end.as_usize() + PAGESIZE - 1) & !(PAGESIZE - 1));
+
+    if memory_end <= heap_start_phy {
+        unsafe {
+            unsafe_puts("Warning: No memory available for heap\r\n");
+        }
+        return 0;
+    }
+
+    // Calculate heap region
+    let heap_start = heap_start_phy.as_usize();
+    let heap_end = memory_end.as_usize();
+    let heap_size = heap_end - heap_start;
+
+    unsafe {
+        unsafe_puts("Dynamic heap calculation:\r\n");
+        unsafe_puts("  Kernel end: 0x");
+        crate::console::unsafe_print_hex_u64(kernel_end.as_usize() as u64);
+        unsafe_puts("\r\n  Heap start: 0x");
+        crate::console::unsafe_print_hex_u64(heap_start as u64);
+        unsafe_puts("\r\n  Heap end: 0x");
+        crate::console::unsafe_print_hex_u64(heap_end as u64);
+        unsafe_puts("\r\n  Heap size: 0x");
+        crate::console::unsafe_print_hex_u64(heap_size as u64);
+        unsafe_puts("\r\n");
+        unsafe_puts("Creating dedicated heap mapping...\r\n");
+    }
+
+    // Create dedicated heap mapping using memory_set
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(heap_start),
+            VirtAddr::from_usize(heap_end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
+
+    unsafe {
+        unsafe_puts("Heap mapping created successfully\r\n");
+    }
+
+    heap_size
 }
 
 pub fn activate_kernel_space() {
@@ -319,7 +400,7 @@ pub fn activate_kernel_space() {
         kernel_space.activate();
     }
 }
-#[allow(dead_code)]
+
 pub fn kernel_token() -> usize {
     let mut node = MCSNode::new();
     let kernel_space = KERNEL_SPACE.lock(&mut node);
@@ -327,5 +408,39 @@ pub fn kernel_token() -> usize {
         space.page_table.token()
     } else {
         panic!("Kernel space not initialized")
+    }
+}
+
+pub fn get_heap_size() -> usize {
+    // Try to get heap size from kernel space MemorySet first
+    let mut node = MCSNode::new();
+    let kernel_space = KERNEL_SPACE.lock(&mut node);
+    if let Some(ref space) = *kernel_space {
+        if let Some(size) = space.get_heap_size() {
+            return size;
+        }
+    }
+
+    // Fallback: read from HEAP_SIZE atomic if not in MemorySet
+    let heap_size = HEAP_SIZE.load(Ordering::Relaxed);
+    if heap_size == 0 {
+        // Last resort: calculate from memory end
+        extern "C" {
+            fn ekernel();
+        }
+        use crate::addr::{phy_addr::PhyAddr, Addr};
+
+        let memory_end_addr = super::get_memory_end();
+
+        let kernel_end = PhyAddr::from_usize(ekernel as *const () as usize);
+        let memory_end = PhyAddr::from_usize(memory_end_addr as usize);
+
+        if memory_end > kernel_end {
+            memory_end.as_usize() - kernel_end.as_usize()
+        } else {
+            0
+        }
+    } else {
+        heap_size
     }
 }
