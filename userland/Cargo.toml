@@ -66,6 +66,10 @@ optional = true
 path = "../applications/tests/test_dag"
 optional = true
 
+[dependencies.test_autoware]
+path = "../applications/tests/test_autoware"
+optional = true
+
 [dependencies.test_dvfs]
 path = "../applications/tests/test_dvfs"
 optional = true
@@ -75,7 +79,7 @@ path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
 [features]
-default = []
+default = ["test_autoware"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
@@ -93,4 +97,5 @@ test_gedf = ["dep:test_gedf"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_dag = ["dep:test_dag"]
+test_autoware = ["dep:test_autoware"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]

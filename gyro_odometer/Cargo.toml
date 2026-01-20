@@ -1,0 +1,12 @@
+[package]
+name = "gyro_odometer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+awkernel_async_lib = { path = "../awkernel_async_lib", default-features = false }
+awkernel_lib = { path = "../awkernel_lib", default-features = false } 
+imu_driver = { path = "../imu_driver", default-features = false }
+imu_corrector = { path = "../imu_corrector", default-features = false }
+vehicle_velocity_converter = { path = "../vehicle_velocity_converter", default-features = false}

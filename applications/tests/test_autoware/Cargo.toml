@@ -1,0 +1,19 @@
+[package]
+name = "test_autoware"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+log = "0.4"
+libm = "0.2"
+awkernel_async_lib = { path = "../../../awkernel_async_lib", default-features = false }
+awkernel_lib = { path = "../../../awkernel_lib", default-features = false }
+imu_driver = { path = "../../../imu_driver", default-features = false }
+imu_corrector = { path = "../../../imu_corrector", default-features = false }
+vehicle_velocity_converter = { path = "../../../vehicle_velocity_converter", default-features = false } 
+gyro_odometer = { path = "../../../gyro_odometer", default-features = false}
+ekf_localizer = { path = "../../../ekf_localizer", default-features = false}
