@@ -215,10 +215,10 @@ impl TamagawaImuParser {
     /// 
     /// # Returns
     /// * `Vec<u8>` - 58-byte binary data with static values
-    //ここがcurrent positionの変更を担う
+    // Autoware側と統一：加速度は重力加速度のみ
     pub fn generate_static_dummy_data(&mut self, timestamp: u64) -> Vec<u8> {
         let angular_velocity = Vector3::new(0.1, 0.2, 0.01);
-        let linear_acceleration = Vector3::new(9.8, 0.0, 0.0);
+        let linear_acceleration = Vector3::new(0.0, 0.0, 9.80665);  // z方向のみ重力加速度
         
         self.generate_dummy_binary_data(timestamp, angular_velocity, linear_acceleration)
     }

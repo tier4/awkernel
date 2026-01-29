@@ -334,6 +334,34 @@ impl EKFModule {
         cov
     }
 
+    /// Update velocity measurement (measurement update for Vx and Wz)
+    pub fn update_velocity(&mut self, vx_measurement: f64, wz_measurement: f64) {
+        // Simple measurement update using Kalman gain
+        // This assumes direct observation of velocity states
+        
+        // Measurement variance (assumed)
+        let vx_obs_var = 1.0;
+        let wz_obs_var = 0.1;
+        
+        // Update Vx
+        let vx_var = self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)];
+        let vx_gain = vx_var / (vx_var + vx_obs_var);
+        self.state[StateIndex::Vx as usize] = 
+            self.state[StateIndex::Vx as usize] + 
+            vx_gain * (vx_measurement - self.state[StateIndex::Vx as usize]);
+        self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)] = 
+            (1.0 - vx_gain) * vx_var;
+        
+        // Update Wz
+        let wz_var = self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)];
+        let wz_gain = wz_var / (wz_var + wz_obs_var);
+        self.state[StateIndex::Wz as usize] = 
+            self.state[StateIndex::Wz as usize] + 
+            wz_gain * (wz_measurement - self.state[StateIndex::Wz as usize]);
+        self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 
+            (1.0 - wz_gain) * wz_var;
+    }
+
     /// Accumulate delay time
     pub fn accumulate_delay_time(&mut self, dt: f64) {
         let len = self.accumulated_delay_times.len();
