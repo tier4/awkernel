@@ -10,6 +10,7 @@ crate-type = ["rlib"]
 [dependencies]
 log = "0.4"
 libm = "0.2"
+csv-core = "0.1"
 awkernel_async_lib = { path = "../../../awkernel_async_lib", default-features = false }
 awkernel_lib = { path = "../../../awkernel_lib", default-features = false }
 imu_driver = { path = "../../../imu_driver", default-features = false }

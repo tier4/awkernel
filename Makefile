@@ -197,7 +197,7 @@ qemu-x86_64-net:
 qemu-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 # 	qemu-system-x86_64 $(QEMU_X86_ARGS) 2>&1 | tee log/qemu_full.log | grep -v "test_dag" > /home/nokosan/awkernel_20260118/log/qemu_log_1.txt
-	qemu-system-x86_64 $(QEMU_X86_ARGS) 2>&1 | tee log/test_autoware_6.log
+	qemu-system-x86_64 $(QEMU_X86_ARGS) 2>&1 | tee log/test_autoware_8.log
 debug-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S

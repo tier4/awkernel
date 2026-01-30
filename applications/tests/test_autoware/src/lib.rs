@@ -1,14 +1,16 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, vec, vec::Vec, collections::VecDeque, string::String, format};
+use alloc::{borrow::Cow, vec, vec::Vec, collections::VecDeque, string::String, format, sync::Arc};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::net::{add_ipv4_addr, poll_interface, get_all_interface};
 use awkernel_async_lib::net::{tcp::TcpStream, tcp::TcpConfig, udp::{UdpConfig, UdpSocketError},IpAddr};
 use awkernel_lib::delay::wait_microsec;
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::time::Duration;
 use core::net::Ipv4Addr;
+use csv_core::{Reader, ReadRecordResult};
 // Thread-safe state management using atomic operations
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize,Ordering};
 // Global gyro odometer core instance with proper synchronization
@@ -117,6 +119,32 @@ static mut LATEST_JSON_DATA: Option<String> = None;
 static JSON_DATA_READY: AtomicBool = AtomicBool::new(false);
 static JSON_DATA_LENGTH: AtomicUsize = AtomicUsize::new(0);
 
+// CSVデータ埋め込み
+const IMU_CSV_DATA_STR: &str = include_str!("../imu_raw.csv");
+const VELOCITY_CSV_DATA_STR: &str = include_str!("../velocity_status.csv");
+
+// CSVパース結果の保存
+#[derive(Clone, Debug)]
+struct ImuCsvRow {
+    timestamp: u64,
+    orientation: imu_driver::Quaternion,
+    angular_velocity: imu_driver::Vector3,
+    linear_acceleration: imu_driver::Vector3,
+}
+
+#[derive(Clone, Debug)]
+struct VelocityCsvRow {
+    timestamp: u64,
+    longitudinal_velocity: f64,
+    lateral_velocity: f64,
+    heading_rate: f64,
+}
+
+static mut IMU_CSV_DATA: Option<Vec<ImuCsvRow>> = None;
+static mut VELOCITY_CSV_DATA: Option<Vec<VelocityCsvRow>> = None;
+static IMU_CSV_COUNT: Mutex<usize> = Mutex::new(0);
+static VELOCITY_CSV_COUNT: Mutex<usize> = Mutex::new(0);
+
 
 static GYRO_ODOMETER_CORE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
 
@@ -139,6 +167,10 @@ fn check_timeout(current_timestamp: u64, last_timestamp: u64, timeout_sec: f64) 
 pub async fn run() {
     wait_microsec(1000000);
 
+    if let Err(e) = initialize_csv_data() {
+        log::warn!("CSVデータの初期化に失敗しました: {}", e);
+    }
+
     //log::info!("Starting Autoware test application with simplified TCP networking");
     
     // 初期ネットワークインターフェース情報を表示
@@ -156,7 +188,7 @@ pub async fn run() {
         },
         vec![Cow::from("start_imu"),Cow::from("start_vel"),Cow::from("start_pose")],
         SchedulerType::GEDF(5),
-        Duration::from_secs(1),
+        Duration::from_millis(10)
     )
     .await;
 
@@ -164,25 +196,56 @@ pub async fn run() {
     dag.register_reactor::<_, (i32,),(ImuMsg,)>(
         "imu_driver".into(),
         move |(a,):(i32,)| -> (ImuMsg,) {
-            // Create parser instance
-            let c = a+1;
-            let mut parser = TamagawaImuParser::new("imu_link");
+            let mut node = MCSNode::new();
+            let mut count_guard = IMU_CSV_COUNT.lock(&mut node);
+            let count = *count_guard;
+            let data = unsafe { IMU_CSV_DATA.as_ref() };
             
-            // Generate commands
-            //let version_cmd = TamagawaImuParser::generate_version_request();
-            //let binary_cmd = TamagawaImuParser::generate_binary_request(30);
-            //let offset_cmd = TamagawaImuParser::generate_offset_cancel_request(123);
-            //let heading_cmd = TamagawaImuParser::generate_heading_reset_request();
+            let imu_msg = if let Some(csv_data) = data {
+                if csv_data.is_empty() {
+                    let mut parser = TamagawaImuParser::new("imu_link");
+                    let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
+                    let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
+                    parser
+                        .parse_binary_data(&static_dummy_data, awkernel_timestamp)
+                        .unwrap_or_default()
+                } else {
+                    let idx = count % csv_data.len();
+                    let row = &csv_data[idx];
+                    ImuMsg {
+                        header: Header {
+                            frame_id: "imu_link",
+                            timestamp: row.timestamp,
+                        },
+                        orientation: row.orientation.clone(),
+                        angular_velocity: row.angular_velocity.clone(),
+                        linear_acceleration: row.linear_acceleration.clone(),
+                    }
+                }
+            } else {
+                let mut parser = TamagawaImuParser::new("imu_link");
+                let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
+                let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
+                parser
+                    .parse_binary_data(&static_dummy_data, awkernel_timestamp)
+                    .unwrap_or_default()
+            };
             
-            // Example 1: Generate static dummy data with awkernel uptime timestamp
-            let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
-            let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
-            let imu_msg = parser.parse_binary_data(&static_dummy_data, awkernel_timestamp);
-            if LOG_ENABLE {
-                log::debug!("Generated dummy IMU data in imu_driver_node,num={c}, awkernel_timestamp={}", awkernel_timestamp);
+            *count_guard += 1;
+            if *count_guard >= 5700 {
+                *count_guard = 0;
+                log::info!("rust_e2e_app: finish csv for IMU");
+                loop {}
             }
 
-            (imu_msg.unwrap(),)
+            if LOG_ENABLE {
+                log::debug!(
+                    "IMU data in imu_driver_node,num={}, timestamp={}",
+                    count, imu_msg.header.timestamp
+                );
+            }
+
+            (imu_msg,)
         },
         vec![Cow::from("start_imu")],
         vec![Cow::from("imu_data")],
@@ -194,13 +257,40 @@ pub async fn run() {
     dag.register_reactor::<_, (i32,), (TwistWithCovarianceStamped,)>(
         "vehicle_velocity_converter".into(),
         move |(b,): (i32,)| -> (TwistWithCovarianceStamped,) {
-            // Create converter instance with default parameters
             let converter = VehicleVelocityConverter::default();
-                            
-            // Generate dummy velocity report data using helper function
-            let velocity_report = reactor_helpers::create_dummy_velocity_report(b);
             
-            // Convert velocity report to twist with covariance using helper function
+            let mut node = MCSNode::new();
+            let mut count_guard = VELOCITY_CSV_COUNT.lock(&mut node);
+            let count = *count_guard;
+            let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
+            
+            let velocity_report = if let Some(csv_data) = data {
+                if csv_data.is_empty() {
+                    reactor_helpers::create_dummy_velocity_report(b)
+                } else {
+                    let idx = count % csv_data.len();
+                    let row = &csv_data[idx];
+                    VelocityReport {
+                        header: Header {
+                            frame_id: "base_link",
+                            timestamp: row.timestamp,
+                        },
+                        longitudinal_velocity: row.longitudinal_velocity,
+                        lateral_velocity: row.lateral_velocity,
+                        heading_rate: row.heading_rate,
+                    }
+                }
+            } else {
+                reactor_helpers::create_dummy_velocity_report(b)
+            };
+            
+            *count_guard += 1;
+            if *count_guard >= 5700 {
+                *count_guard = 0;
+                log::info!("rust_e2e_app: finish csv for Velocity");
+                loop {}
+            }
+            
             let twist_msg = reactor_helpers::convert_velocity_report_reactor(&velocity_report, &converter);
             
             if LOG_ENABLE {
@@ -227,9 +317,9 @@ pub async fn run() {
             let corrector = ImuCorrector::new();
             // Use the enhanced corrector that outputs ImuWithCovariance
             let corrected = corrector.correct_imu_with_covariance(&imu_msg, None);
-            if LOG_ENABLE {
-                log::debug!("IMU corrected in imu_corrector node with covariance");
-            }
+            // if LOG_ENABLE {
+            //     log::debug!("IMU corrected in imu_corrector node with covariance");
+            // }
             (corrected,)
         },
         vec![Cow::from("imu_data")],
@@ -245,9 +335,9 @@ pub async fn run() {
             // Initialize gyro odometer core and queues if not already done
             if get_gyro_odometer_core().is_none() {
                 if let Err(e) = initialize_gyro_odometer_core() {
-                    if LOG_ENABLE {
-                        log::error!("Failed to initialize gyro odometer core: {}", e);
-                    }
+                    // if LOG_ENABLE {
+                    //     log::error!("Failed to initialize gyro odometer core: {}", e);
+                    // }
                     return (reactor_helpers::create_empty_twist(imu_with_cov.header.timestamp),);
                 }
             }
@@ -314,9 +404,9 @@ pub async fn run() {
 
             // Check queue sizes (matching C++ implementation)
             let (vehicle_queue_size, imu_queue_size) = get_queue_sizes();
-            if LOG_ENABLE {
-                log::debug!("Queue sizes - vehicle_twist: {}, imu: {}", vehicle_queue_size, imu_queue_size);
-            }
+            // if LOG_ENABLE {
+                // log::debug!("Queue sizes - vehicle_twist: {}, imu: {}", vehicle_queue_size, imu_queue_size);
+            // }
             
             if vehicle_queue_size == 0 || imu_queue_size == 0 {
                 return (reactor_helpers::create_empty_twist(current_timestamp),);
@@ -325,9 +415,9 @@ pub async fn run() {
             // Get transform with error handling (matching C++ implementation)
             let transform_result = get_transform_safely("imu_link", "base_link");
             if let Err(transform_error) = transform_result {
-                if LOG_ENABLE {
-                    log::error!("Transform error: {}", transform_error);
-                }
+                // if LOG_ENABLE {
+                    // log::error!("Transform error: {}", transform_error);
+                // }
                 clear_both_queues();
                 return (reactor_helpers::create_empty_twist(current_timestamp),);
             }
@@ -345,13 +435,13 @@ pub async fn run() {
                 reactor_helpers::create_empty_twist(current_timestamp)
             };
 
-            if LOG_ENABLE {
-                log::debug!("gyro odometer processed: linear.x={:.3}, angular.z={:.3}, timestamp={}",
-                    final_result.twist.twist.linear.x,
-                    final_result.twist.twist.angular.z,
-                    final_result.header.timestamp
-                );
-            }
+            // if LOG_ENABLE {
+                // log::debug!("gyro odometer processed: linear.x={:.3}, angular.z={:.3}, timestamp={}",
+                    // final_result.twist.twist.linear.x,
+                    // final_result.twist.twist.angular.z,
+                    // final_result.header.timestamp
+                // );
+            // }
 
             (final_result,)
         },
@@ -371,13 +461,18 @@ pub async fn run() {
             // let angular_velocity = 0.5; // rad/s
             
             // aip_x1_description/config/sensors_calibration.yaml
-            let x = 0.86419;
-            let y = 0.0;
-            let z = 2.18096;
+            // if needed, comment out and use fixed values below
+            // let x = 0.86419;
+            // let y = 0.0;
+            // let z = 2.18096;
             // let yaw = angular_velocity * time;
+            // for initial pose 
+            let x = 0.0;
+            let y = 0.0;
+            let z = 0.0;
             
             let pose = Pose {
-                position: Point3D { x, y, z },
+                position: Point3D { x,y,z},
                 orientation: Quaternion {
                     x: 0.0,
                     y: 0.0,
@@ -406,9 +501,9 @@ pub async fn run() {
             // Initialize EKF Localizer if not already done
             if get_ekf_localizer().is_none() {
                 if let Err(e) = initialize_ekf_localizer() {
-                    if LOG_ENABLE {
-                        log::error!("Failed to initialize EKF Localizer: {}", e);
-                    }
+                    // if LOG_ENABLE {
+                        // log::error!("Failed to initialize EKF Localizer: {}", e);
+                    // }
                     return (pose, EKFOdometry {
                         header: imu_driver::Header {
                             frame_id: "map",
@@ -440,9 +535,9 @@ pub async fn run() {
                     DR_POSE = Some(pose.clone());
                     LAST_DR_TIMESTAMP.store(twist.header.timestamp, Ordering::Relaxed);
                     INITIALIZED = true;
-                    if LOG_ENABLE {
-                        log::info!("EKF Localizer initialized with initial pose");
-                    }
+                    // if LOG_ENABLE {
+                        // log::info!("EKF Localizer initialized with initial pose");
+                    // }
                 }
             }
             
@@ -503,13 +598,13 @@ pub async fn run() {
                 },
             };
             
-            if LOG_ENABLE {
-                log::debug!("EKF Localizer: dead_reckoned_pose=({:.3}, {:.3}, {:.3}), dt={:.3}, awkernel_timestamp={}",
-                    integrated_pose.position.x, integrated_pose.position.y, integrated_pose.position.z, dt, odometry.header.timestamp);
-                log::debug!("EKF Localizer: input_twist=({:.3}, {:.3}, {:.3}), angular=({:.3}, {:.3}, {:.3})",
-                    twist.twist.twist.linear.x, twist.twist.twist.linear.y, twist.twist.twist.linear.z,
-                    twist.twist.twist.angular.x, twist.twist.twist.angular.y, twist.twist.twist.angular.z);
-            }
+            // if LOG_ENABLE {
+                // log::debug!("EKF Localizer: dead_reckoned_pose=({:.3}, {:.3}, {:.3}), dt={:.3}, awkernel_timestamp={}",
+                    // integrated_pose.position.x, integrated_pose.position.y, integrated_pose.position.z, dt, odometry.header.timestamp);
+                // log::debug!("EKF Localizer: input_twist=({:.3}, {:.3}, {:.3}), angular=({:.3}, {:.3}, {:.3})",
+                    // twist.twist.twist.linear.x, twist.twist.twist.linear.y, twist.twist.twist.linear.z,
+                    // twist.twist.twist.angular.x, twist.twist.twist.angular.y, twist.twist.twist.angular.z);
+            // }
             
             (integrated_pose, odometry)
         },
@@ -571,14 +666,14 @@ pub async fn run() {
             );
             
             let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
-            log::info!("JSONデータ作成完了: {} bytes, awkernel_timestamp={}", json_data.len(), awkernel_timestamp);
+            // log::info!("JSONデータ作成完了: {} bytes, awkernel_timestamp={}", json_data.len(), awkernel_timestamp);
             
             // グローバル変数にJSONデータを保存
             save_json_data_to_global(json_data);
         },
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
         SchedulerType::GEDF(5),
-        Duration::from_secs(1),
+        Duration::from_millis(10),
     )
     .await;
 
@@ -601,40 +696,40 @@ pub async fn run() {
     // assert_eq!(dag.node_count(), 9); // 1つの periodic reactor + 8つの reactor（network_info_display追加）
     // assert_eq!(dag.edge_count(), 10); // トピックエッジの数
 
-    log::info!("Autoware test application DAG completed");
-
-    log::info!("=== ネットワークテスト開始 ===");
-    log::info!("インターフェースID: {}", INTERFACE_ID);
-    log::info!("インターフェースIP: {}", INTERFACE_ADDR);
-    log::info!("宛先IP: {}", UDP_TCP_DST_ADDR);
+    // log::info!("Autoware test application DAG completed");
+// 
+    // log::info!("=== ネットワークテスト開始 ===");
+    // log::info!("インターフェースID: {}", INTERFACE_ID);
+    // log::info!("インターフェースIP: {}", INTERFACE_ADDR);
+    // log::info!("宛先IP: {}", UDP_TCP_DST_ADDR);
     
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
-    log::info!("IPv4アドレス設定完了: {} をインターフェース {} に追加", INTERFACE_ADDR, INTERFACE_ID);
+    // log::info!("IPv4アドレス設定完了: {} をインターフェース {} に追加", INTERFACE_ADDR, INTERFACE_ID);
 
     // ネットワークスタックの初期化を待つ
-    log::info!("ネットワークスタック初期化のため待機中...");
+    // log::info!("ネットワークスタック初期化のため待機中...");
     awkernel_async_lib::sleep(Duration::from_secs(2)).await;
     
     // リアクターAPIに干渉しない周期UDP送信タスクを開始
-    log::info!("周期UDP送信タスクを開始します");
+    // log::info!("周期UDP送信タスクを開始します");
     start_periodic_udp_sender().await;
     
     // または、設定可能な周期で開始する場合
     // start_configurable_udp_sender(2).await; // 2秒間隔
     
     // JSONデータが準備されるまで待機（最大3秒）
-    log::info!("JSONデータの準備を待機中...");
+    // log::info!("JSONデータの準備を待機中...");
     let mut wait_count = 0;
     const MAX_WAIT_COUNT: u32 = 3;
     
     while !JSON_DATA_READY.load(Ordering::Relaxed) && wait_count < MAX_WAIT_COUNT {
-        log::info!("JSONデータ待機中... ({}/{})", wait_count + 1, MAX_WAIT_COUNT);
+        // log::info!("JSONデータ待機中... ({}/{})", wait_count + 1, MAX_WAIT_COUNT);
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
         wait_count += 1;
     }
     
     if JSON_DATA_READY.load(Ordering::Relaxed) {
-        log::info!("JSONデータが準備されました。周期UDP送信タスクが動作中です");
+        // log::info!("JSONデータが準備されました。周期UDP送信タスクが動作中です");
         // 周期UDP送信タスクは既に動作中なので、ここでは何もしない
     } else {
         log::warn!("JSONデータが準備されませんでした。周期UDP送信タスクは待機中です");
@@ -642,6 +737,210 @@ pub async fn run() {
 
     log::info!("Autoware test application completed");
 }
+
+fn initialize_csv_data() -> Result<(), &'static str> {
+    unsafe {
+        if IMU_CSV_DATA.is_none() {
+            let imu_data = parse_imu_csv(IMU_CSV_DATA_STR)?;
+            if imu_data.is_empty() {
+                return Err("IMU CSVが空です");
+            }
+            log::info!("IMU CSVデータをロード: {} rows", imu_data.len());
+            IMU_CSV_DATA = Some(imu_data);
+        }
+
+        if VELOCITY_CSV_DATA.is_none() {
+            let velocity_data = parse_velocity_csv(VELOCITY_CSV_DATA_STR)?;
+            if velocity_data.is_empty() {
+                return Err("Velocity CSVが空です");
+            }
+            log::info!("Velocity CSVデータをロード: {} rows", velocity_data.len());
+            VELOCITY_CSV_DATA = Some(velocity_data);
+        }
+    }
+
+    // let imu_start = find_first_active_imu_index();
+    // IMU_CSV_INDEX.store(imu_start, Ordering::Relaxed);
+    // let velocity_start = find_first_moving_velocity_index();
+    // VELOCITY_CSV_INDEX.store(velocity_start, Ordering::Relaxed);
+    // log::info!(
+    //     "CSV開始インデックス: IMU={}, Velocity={}",
+    //     imu_start,
+    //     velocity_start
+    // );
+
+    Ok(())
+}
+
+fn parse_imu_csv(csv: &str) -> Result<Vec<ImuCsvRow>, &'static str> {
+    let mut rows = Vec::new();
+
+    parse_csv_records(csv, |fields| {
+        if fields.len() < 12 {
+            return Err("IMU CSVの列数が不足しています");
+        }
+
+        let timestamp = parse_timestamp(fields[0], fields[1])?;
+        let orientation = imu_driver::Quaternion {
+            x: parse_f64(fields[2])?,
+            y: parse_f64(fields[3])?,
+            z: parse_f64(fields[4])?,
+            w: parse_f64(fields[5])?,
+        };
+        let angular_velocity = imu_driver::Vector3::new(
+            parse_f64(fields[6])?,
+            parse_f64(fields[7])?,
+            parse_f64(fields[8])?,
+        );
+        let linear_acceleration = imu_driver::Vector3::new(
+            parse_f64(fields[9])?,
+            parse_f64(fields[10])?,
+            parse_f64(fields[11])?,
+        );
+
+        rows.push(ImuCsvRow {
+            timestamp,
+            orientation,
+            angular_velocity,
+            linear_acceleration,
+        });
+        Ok(())
+    })?;
+
+    Ok(rows)
+}
+
+fn parse_velocity_csv(csv: &str) -> Result<Vec<VelocityCsvRow>, &'static str> {
+    let mut rows = Vec::new();
+
+    parse_csv_records(csv, |fields| {
+        if fields.len() < 5 {
+            return Err("Velocity CSVの列数が不足しています");
+        }
+
+        let timestamp = parse_timestamp(fields[0], fields[1])?;
+        let longitudinal_velocity = parse_f64(fields[2])?;
+        let lateral_velocity = parse_f64(fields[3])?;
+        let heading_rate = parse_f64(fields[4])?;
+
+        rows.push(VelocityCsvRow {
+            timestamp,
+            longitudinal_velocity,
+            lateral_velocity,
+            heading_rate,
+        });
+        Ok(())
+    })?;
+
+    Ok(rows)
+}
+
+fn parse_csv_records<F>(csv: &str, mut on_record: F) -> Result<(), &'static str>
+where
+    F: FnMut(&[&str]) -> Result<(), &'static str>,
+{
+    let mut reader = Reader::new();
+    let mut input = csv.as_bytes();
+    let mut output = vec![0u8; 4096];
+    let mut ends = vec![0usize; 32];
+    let mut header_skipped = false;
+
+    loop {
+        let (result, in_read, _out_written, num_fields) = reader.read_record(input, &mut output, &mut ends);
+        input = &input[in_read..];
+
+        if matches!(result, ReadRecordResult::OutputFull) {
+            return Err("CSV出力バッファが不足しています");
+        }
+
+        if num_fields == 0 {
+            if matches!(result, ReadRecordResult::InputEmpty | ReadRecordResult::End) {
+                break;
+            }
+            continue;
+        }
+
+        let mut fields: Vec<&str> = Vec::with_capacity(num_fields);
+        let mut start = 0usize;
+        for i in 0..num_fields {
+            let end = ends[i];
+            let slice = &output[start..end];
+            let field = core::str::from_utf8(slice).map_err(|_| "CSV UTF-8変換に失敗しました")?;
+            fields.push(field);
+            start = end;
+        }
+
+        if !header_skipped {
+            header_skipped = true;
+        } else {
+            on_record(&fields)?;
+        }
+
+        if matches!(result, ReadRecordResult::End) {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_timestamp(sec: &str, nsec: &str) -> Result<u64, &'static str> {
+    let sec_val = parse_u64(sec)?;
+    let nsec_val = parse_u64(nsec)?;
+    let ts = sec_val
+        .checked_mul(1_000_000_000)
+        .and_then(|v| v.checked_add(nsec_val))
+        .ok_or("timestamp計算でオーバーフローしました")?;
+    Ok(ts)
+}
+
+fn parse_u64(field: &str) -> Result<u64, &'static str> {
+    let trimmed = field.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+    trimmed.parse::<u64>().map_err(|_| "u64パースに失敗しました")
+}
+
+fn parse_f64(field: &str) -> Result<f64, &'static str> {
+    let trimmed = field.trim();
+    if trimmed.is_empty() {
+        return Ok(0.0);
+    }
+    trimmed.parse::<f64>().map_err(|_| "f64パースに失敗しました")
+}
+
+// fn find_first_moving_velocity_index() -> usize {
+    // const EPS: f64 = 1.0e-6;
+    // let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
+    // if let Some(rows) = data {
+        // for (idx, row) in rows.iter().enumerate() {
+            // if row.longitudinal_velocity.abs() > EPS || row.lateral_velocity.abs() > EPS {
+                // return idx;
+            // }
+        // }
+    // }
+    // 0
+// }
+// 
+// fn find_first_active_imu_index() -> usize {
+    // const EPS: f64 = 1.0e-6;
+    // let data = unsafe { IMU_CSV_DATA.as_ref() };
+    // if let Some(rows) = data {
+        // for (idx, row) in rows.iter().enumerate() {
+            // if row.angular_velocity.x.abs() > EPS
+                // || row.angular_velocity.y.abs() > EPS
+                // || row.angular_velocity.z.abs() > EPS
+                // || row.linear_acceleration.x.abs() > EPS
+                // || row.linear_acceleration.y.abs() > EPS
+                // || row.linear_acceleration.z.abs() > EPS
+            // {
+                // return idx;
+            // }
+        // }
+    // }
+    // 0
+// }
 
 // Awkernel起動時間からのタイムスタンプを取得する関数
 fn get_awkernel_uptime_timestamp() -> u64 {
@@ -668,12 +967,12 @@ pub async fn start_periodic_udp_sender() {
     )
     .await;
     
-    log::info!("周期UDP送信タスクを開始しました");
+    // log::info!("周期UDP送信タスクを開始しました");
 }
 
 // 周期UDP送信タスクの実装
 async fn periodic_udp_sender_task() {
-    log::info!("周期UDP送信タスク: 開始");
+    // log::info!("周期UDP送信タスク: 開始");
     
     // UDPソケットを作成（一度だけ）
     let socket_result = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
@@ -683,7 +982,7 @@ async fn periodic_udp_sender_task() {
     
     let mut socket = match socket_result {
         Ok(socket) => {
-            log::info!("周期UDP送信タスク: UDPソケット作成成功");
+            // log::info!("周期UDP送信タスク: UDPソケット作成成功");
             socket
         }
         Err(e) => {
@@ -745,7 +1044,7 @@ async fn periodic_udp_sender_task() {
         }
         
         // 一定周期で待機（例: 2秒間隔 - DAGの実行周期と衝突を避けるため）
-        awkernel_async_lib::sleep(Duration::from_secs(2)).await;
+        awkernel_async_lib::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -836,7 +1135,7 @@ fn save_json_data_to_global(json_data: String) {
     }
     JSON_DATA_READY.store(true, Ordering::Relaxed);
     JSON_DATA_LENGTH.store(json_data.len(), Ordering::Relaxed);
-    log::info!("JSONデータをグローバル変数に保存: {} bytes", json_data.len());
+    // log::info!("JSONデータをグローバル変数に保存: {} bytes", json_data.len());
 }
 
 // Transform error handling function
@@ -1001,30 +1300,30 @@ fn get_queue_sizes() -> (usize, usize) {
 }
 
 // TCP送信キュー操作
-fn push_to_tcp_send_queue(json_data: String) {
-    unsafe {
-        if let Some(queue) = &mut TCP_SEND_QUEUE {
-            if queue.len() >= MAX_QUEUE_SIZE {
-                log::warn!("TCP送信キューが満杯です。古いデータを削除します。");
-                queue.pop_front();
-            }
-            queue.push_back(json_data);
-            log::debug!("TCP送信キューにデータを追加: キューサイズ = {}", queue.len());
-        }
-    }
-}
+// fn push_to_tcp_send_queue(json_data: String) {
+//     unsafe {
+//         if let Some(queue) = &mut TCP_SEND_QUEUE {
+//             if queue.len() >= MAX_QUEUE_SIZE {
+//                 log::warn!("TCP送信キューが満杯です。古いデータを削除します。");
+//                 queue.pop_front();
+//             }
+//             queue.push_back(json_data);
+//             log::debug!("TCP送信キューにデータを追加: キューサイズ = {}", queue.len());
+//         }
+//     }
+// }
 
-fn get_tcp_send_queue_size() -> usize {
-    unsafe {
-        TCP_SEND_QUEUE.as_ref().map_or(0, |q| q.len())
-    }
-}
+// fn get_tcp_send_queue_size() -> usize {
+//     unsafe {
+//         TCP_SEND_QUEUE.as_ref().map_or(0, |q| q.len())
+//     }
+// }
 
-fn pop_from_tcp_send_queue() -> Option<String> {
-    unsafe {
-        TCP_SEND_QUEUE.as_mut().and_then(|q| q.pop_front())
-    }
-}
+// fn pop_from_tcp_send_queue() -> Option<String> {
+//     unsafe {
+//         TCP_SEND_QUEUE.as_mut().and_then(|q| q.pop_front())
+//     }
+// }
 
 // Process queues and return result (matching C++ concat_gyro_and_odometer logic)
 fn process_queues_and_get_result() -> Option<TwistWithCovarianceStamped> {
