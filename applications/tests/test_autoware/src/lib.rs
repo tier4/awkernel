@@ -33,7 +33,8 @@ use gyro_odometer::{
 
 // EKF Localizer ライブラリをインポート
 use ekf_localizer::{EKFModule, EKFParameters, Pose, Point3D, Quaternion, PoseWithCovariance};
-use libm::{atan2, cos, sin};
+// COMMENTED OUT: 手動積分用の関数をコメントアウトしたためlibmは不要
+// use libm::{atan2, cos, sin};
 
 /// EKF Odometry structure for publishing (equivalent to C++ nav_msgs::msg::Odometry)
 #[derive(Debug, Clone)]
@@ -154,7 +155,8 @@ static EKF_LOCALIZER: AtomicPtr<EKFModule> = AtomicPtr::new(null_mut());
 // Queue management for storing multiple messages (matching C++ implementation)
 static mut VEHICLE_TWIST_QUEUE: Option<VecDeque<TwistWithCovarianceStamped>> = None;
 static mut IMU_QUEUE: Option<VecDeque<ImuWithCovariance>> = None;
-static mut DR_POSE: Option<Pose> = None;
+// COMMENTED OUT: 手動積分用のDR_POSEはEKF内部状態からポーズを取得するようになったため不要
+// static mut DR_POSE: Option<Pose> = None;
 
 // Timeout checking function (matching C++ implementation)
 fn check_timeout(current_timestamp: u64, last_timestamp: u64, timeout_sec: f64) -> bool {
@@ -179,6 +181,8 @@ pub async fn run() {
     let dag = create_dag();
 
     // ダミーデータ送信用リアクター
+    // MODIFIED: 周期を10msから50msに変更（Autowareのekf_data_publisher.pyと同じ周期）
+    // これにより、CSVデータの消費速度が両システムで一致する
     dag.register_periodic_reactor::<_, (i32,i32,i32)>(
         "start_dummy_data".into(),
         || -> (i32,i32,i32) {
@@ -188,7 +192,7 @@ pub async fn run() {
         },
         vec![Cow::from("start_imu"),Cow::from("start_vel"),Cow::from("start_pose")],
         SchedulerType::GEDF(5),
-        Duration::from_millis(10)
+        Duration::from_millis(50)  // CHANGED: 10ms -> 50ms (Autowareと同じ)
     )
     .await;
 
@@ -495,6 +499,7 @@ pub async fn run() {
     .await;
 
     // EKF Localizer reactor - combines pose and twist data
+    // MODIFIED: 手動積分（integrated_pose）を廃止し、EKFの内部状態から直接ポーズを取得するように変更
     dag.register_reactor::<_, (Pose, TwistWithCovarianceStamped), (Pose, EKFOdometry)>(
         "ekf_localizer".into(),
         |(pose, twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
@@ -532,7 +537,8 @@ pub async fn run() {
             unsafe {
                 if !INITIALIZED {
                     ekf.initialize(pose.clone());
-                    DR_POSE = Some(pose.clone());
+                    // COMMENTED OUT: 手動積分用の変数は使用しない
+                    // DR_POSE = Some(pose.clone());
                     LAST_DR_TIMESTAMP.store(twist.header.timestamp, Ordering::Relaxed);
                     INITIALIZED = true;
                     // if LOG_ENABLE {
@@ -542,46 +548,74 @@ pub async fn run() {
             }
             
             // Predict step using measured time gap
-            let current_ts = twist.header.timestamp;
-            let last_ts = LAST_DR_TIMESTAMP.swap(current_ts, Ordering::Relaxed);
-            let dt = if last_ts == 0 {
-                0.0
-            } else {
-                (current_ts.saturating_sub(last_ts)) as f64 / 1_000_000_000.0
-            };
+            // MODIFIED: CSVタイムスタンプ差ではなく、固定dtを使用
+            // Autowareのekf_data_publisher.pyは50ms固定周期でデータをpublishする
+            // EKFは実際の経過時間（システムクロック）を使用するため、
+            // Awkernelも同様に固定dtを使用することで挙動を一致させる
+            //
+            // OLD CODE (CSVタイムスタンプ差を使用):
+            // let current_ts = twist.header.timestamp;
+            // let last_ts = LAST_DR_TIMESTAMP.swap(current_ts, Ordering::Relaxed);
+            // let dt = if last_ts == 0 {
+            //     0.0
+            // } else {
+            //     (current_ts.saturating_sub(last_ts)) as f64 / 1_000_000_000.0
+            // };
+            //
+            // NEW CODE: 固定dt = 50ms (0.05秒) - Autowareと同じ周期
+            const FIXED_DT: f64 = 0.05;  // 50ms in seconds
+            let dt = FIXED_DT;
 
             if dt > 0.0 {
                 ekf.predict(dt);
             }
 
-            // Dead reckoning when poses are not refreshed
-            let mut integrated_pose = unsafe { DR_POSE.clone().unwrap_or_else(|| pose.clone()) };
-            let yaw = quaternion_to_yaw(&integrated_pose.orientation);
+            // ADDED: EKFに速度観測値を更新（カルマンフィルタの観測更新ステップ）
             let vx = twist.twist.twist.linear.x;
-            let vy = twist.twist.twist.linear.y;
-            let vz = twist.twist.twist.linear.z;
             let wz = twist.twist.twist.angular.z;
+            ekf.update_velocity(vx, wz);
 
-            if dt > 0.0 {
-                let cos_yaw = cos(yaw);
-                let sin_yaw = sin(yaw);
-                let new_yaw = yaw + wz * dt;
-
-                integrated_pose.position.x += (vx * cos_yaw - vy * sin_yaw) * dt;
-                integrated_pose.position.y += (vx * sin_yaw + vy * cos_yaw) * dt;
-                integrated_pose.position.z += vz * dt;
-                integrated_pose.orientation = yaw_to_quaternion(new_yaw);
-            }
-
-            unsafe {
-                DR_POSE = Some(integrated_pose.clone());
-            }
+            // COMMENTED OUT: 手動積分（Dead Reckoning）処理
+            // Autowareとの精度向上のため、EKF内部状態から直接ポーズを取得するように変更
+            // let mut integrated_pose = unsafe { DR_POSE.clone().unwrap_or_else(|| pose.clone()) };
+            // let yaw = quaternion_to_yaw(&integrated_pose.orientation);
+            // let vx = twist.twist.twist.linear.x;
+            // let vy = twist.twist.twist.linear.y;
+            // let vz = twist.twist.twist.linear.z;
+            // let wz = twist.twist.twist.angular.z;
+            //
+            // if dt > 0.0 {
+            //     let cos_yaw = cos(yaw);
+            //     let sin_yaw = sin(yaw);
+            //     let new_yaw = yaw + wz * dt;
+            //
+            //     integrated_pose.position.x += (vx * cos_yaw - vy * sin_yaw) * dt;
+            //     integrated_pose.position.y += (vx * sin_yaw + vy * cos_yaw) * dt;
+            //     integrated_pose.position.z += vz * dt;
+            //     integrated_pose.orientation = yaw_to_quaternion(new_yaw);
+            // }
+            //
+            // unsafe {
+            //     DR_POSE = Some(integrated_pose.clone());
+            // }
             
-            // Use predefined pose and twist covariance matrices instead of EKF's internal covariance
-            let pose_covariance = EKF_POSE_COVARIANCE;
-            let twist_covariance = EKF_TWIST_COVARIANCE;
+            // MODIFIED: EKFの内部状態から直接ポーズを取得
+            // get_biased_yaw=false でyaw_biasを考慮したポーズを取得
+            let ekf_pose = ekf.get_current_pose(false);
             
-            // Create odometry message using estimated pose and input twist
+            // MODIFIED: EKFから動的な共分散を取得（固定値ではなく）
+            // これにより、走行距離や時間の経過に伴う不確かさの変化を反映
+            let pose_covariance = ekf.get_current_pose_covariance();
+            let twist_covariance = ekf.get_current_twist_covariance();
+            
+            // COMMENTED OUT: 固定共分散の使用
+            // let pose_covariance = EKF_POSE_COVARIANCE;
+            // let twist_covariance = EKF_TWIST_COVARIANCE;
+            
+            // Get EKF's estimated twist
+            let ekf_twist = ekf.get_current_twist();
+            
+            // Create odometry message using EKF's estimated pose and twist
             let odometry = EKFOdometry {
                 header: imu_driver::Header {
                     frame_id: "map",
@@ -589,24 +623,31 @@ pub async fn run() {
                 },
                 child_frame_id: "base_link",
                 pose: PoseWithCovariance {
-                    pose: integrated_pose.clone(),
+                    pose: ekf_pose.clone(),
                     covariance: pose_covariance,
                 },
                 twist: TwistWithCovariance {
-                    twist: twist.twist.twist.clone(),
+                    // Use EKF's estimated twist instead of input twist
+                    twist: Twist {
+                        linear: imu_driver::Vector3::new(ekf_twist.linear.x, ekf_twist.linear.y, ekf_twist.linear.z),
+                        angular: imu_driver::Vector3::new(ekf_twist.angular.x, ekf_twist.angular.y, ekf_twist.angular.z),
+                    },
                     covariance: twist_covariance,
                 },
             };
             
             // if LOG_ENABLE {
-                // log::debug!("EKF Localizer: dead_reckoned_pose=({:.3}, {:.3}, {:.3}), dt={:.3}, awkernel_timestamp={}",
-                    // integrated_pose.position.x, integrated_pose.position.y, integrated_pose.position.z, dt, odometry.header.timestamp);
-                // log::debug!("EKF Localizer: input_twist=({:.3}, {:.3}, {:.3}), angular=({:.3}, {:.3}, {:.3})",
-                    // twist.twist.twist.linear.x, twist.twist.twist.linear.y, twist.twist.twist.linear.z,
-                    // twist.twist.twist.angular.x, twist.twist.twist.angular.y, twist.twist.twist.angular.z);
+                // log::debug!("EKF Localizer: ekf_pose=({:.3}, {:.3}, {:.3}), dt={:.3}, awkernel_timestamp={}",
+                    // ekf_pose.position.x, ekf_pose.position.y, ekf_pose.position.z, dt, odometry.header.timestamp);
+                // log::debug!("EKF Localizer: ekf_twist=({:.3}, {:.3}, {:.3}), angular=({:.3}, {:.3}, {:.3})",
+                    // ekf_twist.linear.x, ekf_twist.linear.y, ekf_twist.linear.z,
+                    // ekf_twist.angular.x, ekf_twist.angular.y, ekf_twist.angular.z);
             // }
             
-            (integrated_pose, odometry)
+            // COMMENTED OUT: 手動積分のポーズを返していた
+            // (integrated_pose, odometry)
+            // MODIFIED: EKFの推定ポーズを返す
+            (ekf_pose, odometry)
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
@@ -673,7 +714,7 @@ pub async fn run() {
         },
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
         SchedulerType::GEDF(5),
-        Duration::from_millis(10),
+        Duration::from_millis(50),  // CHANGED: 10ms -> 50ms (Autowareと同じ)
     )
     .await;
 
@@ -1218,22 +1259,24 @@ fn initialize_ekf_localizer() -> Result<(), &'static str> {
     }
 }
 
-fn quaternion_to_yaw(q: &Quaternion) -> f64 {
-    // Yaw extraction for dead reckoning heading propagation
-    let siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
-    let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
-    atan2(siny_cosp, cosy_cosp)
-}
-
-fn yaw_to_quaternion(yaw: f64) -> Quaternion {
-    let half = yaw * 0.5;
-    Quaternion {
-        x: 0.0,
-        y: 0.0,
-        z: sin(half),
-        w: cos(half),
-    }
-}
+// COMMENTED OUT: 手動積分用の関数はEKF内部状態からポーズを取得するようになったため不要
+// EKFModule内にquaternion_to_yawとrpy_to_quaternionがあるため、そちらを使用
+// fn quaternion_to_yaw(q: &Quaternion) -> f64 {
+//     // Yaw extraction for dead reckoning heading propagation
+//     let siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+//     let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+//     atan2(siny_cosp, cosy_cosp)
+// }
+// 
+// fn yaw_to_quaternion(yaw: f64) -> Quaternion {
+//     let half = yaw * 0.5;
+//     Quaternion {
+//         x: 0.0,
+//         y: 0.0,
+//         z: sin(half),
+//         w: cos(half),
+//     }
+// }
 
 // Get EKF Localizer safely
 fn get_ekf_localizer() -> Option<&'static mut EKFModule> {
