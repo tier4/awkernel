@@ -181,6 +181,7 @@ pub struct TaskInfo {
     pub(crate) dag_info: Option<DagInfo>,
     // latest period observed for this task (from received message payload), if any
     pub(crate) current_period: Option<u32>,
+    pub(crate) need_terminate: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -333,6 +334,7 @@ impl Tasks {
                     panicked: false,
                     dag_info,
                     current_period: None,
+                    need_terminate: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -576,7 +578,7 @@ pub mod perf {
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 2048;
+    const MAX_LOGS: usize = 8192;
 
     static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
@@ -601,6 +603,23 @@ pub mod perf {
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
     pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+
+    pub fn reset_perf_logs() {
+        for i in 0..MAX_PUBSUB {
+            PUB_COUNT[i].store(0, Ordering::Relaxed);
+            SUB_COUNT[i].store(0, Ordering::Relaxed);
+        }
+        for i in 0..MAX_DAGS {
+            PERIOD_COUNT[i].store(0, Ordering::Relaxed);
+            SINK_COUNT[i].store(0, Ordering::Relaxed);
+        }
+        *SEND_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
+        *RECV_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
+        *ABSOLUTE_DEADLINE.lock(&mut MCSNode::new()) = None;
+        *RELATIVE_DEADLINE.lock(&mut MCSNode::new()) = None;
+        *NODE_START.lock(&mut MCSNode::new()) = None;
+        *NODE_FINISH.lock(&mut MCSNode::new()) = None;
+    }
 
     pub fn increment_pub_count(pub_id: usize) {
         assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
@@ -1484,6 +1503,29 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    {
+                        let mut node = MCSNode::new();
+                        let mut info = task.info.lock(&mut node);
+
+                        if info.need_terminate {
+                            info.state = State::Terminated;
+                            info.need_terminate = false;
+
+                            #[cfg(feature = "perf")]
+                            perf::start_kernel();
+
+                            #[cfg(all(
+                                any(target_arch = "aarch64", target_arch = "x86_64"),
+                                not(feature = "std")
+                            ))]
+                            {
+                                awkernel_lib::interrupt::disable();
+                            }
+
+                            return Poll::Ready(Ok(()));
+                        }
+                    }
+
                     #[cfg(feature = "perf")]
                     perf::start_task();
                     //preemption関連が若干面倒：cpuに割り付けられるまで(終了)
@@ -1699,6 +1741,54 @@ pub fn set_need_preemption(task_id: u32, cpu_id: usize) {
     }
 
     PREEMPTION_REQUEST[cpu_id].store(true, Ordering::Release);
+}
+
+#[inline(always)]
+pub fn set_need_terminate(task_id: u32) {
+    let task = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+
+        if let Some(task) = tasks.id_to_task.get(&task_id) {
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+            info.need_terminate = true;
+            Some(task.clone())
+        } else {
+            None
+        }
+    };
+
+    if let Some(task) = task {
+        task.wake();
+    }
+}
+
+
+#[inline(always)]
+pub fn terminate_task(task_id: u32) {
+    let task = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+        tasks.id_to_task.get(&task_id).cloned()
+    };
+
+    if let Some(task) = task {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.state = State::Terminated;
+    }
+
+    let mut node = MCSNode::new();
+    let mut tasks = TASKS.lock(&mut node);
+    tasks.remove(task_id);
+}
+
+#[inline(always)]
+pub fn whether_dag(task: &Arc<Task>) -> bool {
+    let mut node = MCSNode::new();
+    let info = task.info.lock(&mut node);
+    info.get_dag_info().is_some()
 }
 
 pub fn panicking() {

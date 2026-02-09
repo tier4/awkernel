@@ -442,6 +442,16 @@ impl<T: Clone + Send> Clone for Subscriber<T> {
 
 static PUBLISH_SUBSCRIBE: Mutex<PubSub> = Mutex::new(PubSub::new());
 
+/// Reset all pubsub state.
+///
+/// This is intended for test or application-level resets where all publishers
+/// and subscribers are already terminated.
+pub fn reset_pubsub() {
+    let mut node = MCSNode::new();
+    let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
+    *guard = PubSub::new();
+}
+
 /// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {

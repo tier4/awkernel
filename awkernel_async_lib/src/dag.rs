@@ -720,6 +720,51 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> 
     }
 }
 
+pub fn reset_all_dags() {
+    {
+        let mut dags_node = MCSNode::new();
+        let mut dags = DAGS.lock(&mut dags_node);
+        dags.id_to_dag.clear();
+        dags.candidate_id = 1;
+    }
+
+    {
+        let mut pending_node = MCSNode::new();
+        let mut pending_tasks = PENDING_TASKS.lock(&mut pending_node);
+        pending_tasks.clear();
+    }
+
+    {
+        let mut source_pending_node = MCSNode::new();
+        let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut source_pending_node);
+        source_pending_tasks.clear();
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut mismatch_subscribe = MISMATCH_SUBSCRIBE_NODES.lock(&mut node);
+        mismatch_subscribe.clear();
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut mismatch_publish = MISMATCH_PUBLISH_NODES.lock(&mut node);
+        mismatch_publish.clear();
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut duplicate_subscribe = DUPLICATE_SUBSCRIBE_NODES.lock(&mut node);
+        duplicate_subscribe.clear();
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut duplicate_publish = DUPLICATE_PUBLISH_NODES.lock(&mut node);
+        duplicate_publish.clear();
+    }
+}
+
 fn remove_dag(id: u32) {
     let mut dags_node = MCSNode::new();
     let mut dags = DAGS.lock(&mut dags_node);

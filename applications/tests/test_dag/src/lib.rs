@@ -1,13 +1,15 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, vec};
+use alloc::{borrow::Cow, vec, sync::Arc};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
 use core::time::Duration;
+use awkernel_async_lib::task::perf::get_period_count;
 
-const LOG_ENABLE: bool = true;
+const LOG_ENABLE: bool = false;
+const DATA_SIZE: usize = 65536;
 
 pub async fn run() {
     wait_microsec(1000000);
@@ -18,16 +20,18 @@ pub async fn run() {
     log::debug!("period is {} [ns]", period.as_nanos());
 
     let dag = create_dag();
+    let dag_id = dag.get_id();
 
-    dag.register_periodic_reactor::<_, (i32,)>(
+    dag.register_periodic_reactor::<_, ((Arc<[u8; DATA_SIZE]>, u32),)>(
         "reactor_source_node".into(),
-        move || -> (i32,) {
+        move || -> ((Arc<[u8; DATA_SIZE]>, u32),) {
             wait_microsec(exe_time);
-            let number: i32 = 1;
+            let data: Arc<[u8; DATA_SIZE]> = Arc::new([0; DATA_SIZE]);
+            let period_id = get_period_count(dag_id as usize) as u32;
             if LOG_ENABLE {
-                log::debug!("value={number} in reactor_source_node");
+                log::debug!("Sending data[0]={}, period_id={}, size={} in reactor_source_node", data[0], period_id, DATA_SIZE);
             }
-            (number,)
+            ((data, period_id),)
         },
         vec![Cow::from("topic0")],
         SchedulerType::GEDF(5),
@@ -35,15 +39,14 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (i32,), (i32, i32)>(
+    dag.register_reactor::<_, ((Arc<[u8; DATA_SIZE]>, u32),), ((Arc<[u8; DATA_SIZE]>, u32), (Arc<[u8; DATA_SIZE]>, u32))>(
         "reactor_node1".into(),
-        |(a,): (i32,)| -> (i32, i32) {
-            let value = a + 1;
+        move |((data, period),): ((Arc<[u8; DATA_SIZE]>, u32),)| -> ((Arc<[u8; DATA_SIZE]>, u32), (Arc<[u8; DATA_SIZE]>, u32)) {
             if LOG_ENABLE {
-                log::debug!("value={value} in reactor_node1");
+                log::debug!("Processing data[0]={}, period={}, size={} in reactor_node1", data[0], period, DATA_SIZE);
             }
 
-            (value, value + 1)
+            ((data.clone(), period), (data, period))
         },
         vec![Cow::from("topic0")],
         vec![Cow::from("topic1"), Cow::from("topic2")],
@@ -51,14 +54,13 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (i32,), (i32,)>(
+    dag.register_reactor::<_, ((Arc<[u8; DATA_SIZE]>, u32),), ((Arc<[u8; DATA_SIZE]>, u32),)>(
         "reactor_node2".into(),
-        |(a,): (i32,)| -> (i32,) {
-            let value = a * 2;
+        |((data, period),): ((Arc<[u8; DATA_SIZE]>, u32),)| -> ((Arc<[u8; DATA_SIZE]>, u32),) {
             if LOG_ENABLE {
-                log::debug!("value={value} in reactor_node2");
+                log::debug!("Processing data[0]={}, period={}, size={} in reactor_node2", data[0], period, DATA_SIZE);
             }
-            (value,)
+            ((data, period),)
         },
         vec![Cow::from("topic1")],
         vec![Cow::from("topic3")],
@@ -66,14 +68,13 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (i32,), (i32,)>(
+    dag.register_reactor::<_, ((Arc<[u8; DATA_SIZE]>, u32),), ((Arc<[u8; DATA_SIZE]>, u32),)>(
         "reactor_node3".into(),
-        |(a,): (i32,)| -> (i32,) {
-            let value = a * 3;
+        |((data, period),): ((Arc<[u8; DATA_SIZE]>, u32),)| -> ((Arc<[u8; DATA_SIZE]>, u32),) {
             if LOG_ENABLE {
-                log::debug!("value={value} in reactor_node3");
+                log::debug!("Processing data[0]={}, period={}, size={} in reactor_node3", data[0], period, DATA_SIZE);
             }
-            (value,)
+            ((data, period),)
         },
         vec![Cow::from("topic2")],
         vec![Cow::from("topic4")],
@@ -81,12 +82,11 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_sink_reactor::<_, (i32, i32)>(
+    dag.register_sink_reactor::<_, ((Arc<[u8; DATA_SIZE]>, u32), (Arc<[u8; DATA_SIZE]>, u32))>(
         "reactor_node4".into(),
-        |(a, b): (i32, i32)| {
-            let value = a + b;
+        |((data1, period1), (data2, period2)): ((Arc<[u8; DATA_SIZE]>, u32), (Arc<[u8; DATA_SIZE]>, u32))| {
             if LOG_ENABLE {
-                log::debug!("value={value} in reactor_node4");
+                log::debug!("Received data1[0]={}, data2[0]={}, period1={}, period2={}, size={} in reactor_node4", data1[0], data2[0], period1, period2, DATA_SIZE);
             }
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],

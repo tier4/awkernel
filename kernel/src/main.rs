@@ -79,9 +79,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             if last_print.elapsed().as_secs() >= 60 {
                 #[cfg(feature = "perf")]
-                // awkernel_async_lib::task::perf::print_timestamp_table();
+                awkernel_async_lib::task::perf::print_timestamp_table();
                 // awkernel_async_lib::task::perf::print_node_table();
-                awkernel_async_lib::task::perf::print_pubsub_table();
+                // awkernel_async_lib::task::perf::print_pubsub_table();
+                // print_perf_to_console();
+                // print_task_to_console();
+
                 last_print = awkernel_lib::time::Time::now();
             }
             // handle IRQs
@@ -165,4 +168,165 @@ fn init_interrupt() {
     // IRQ for wakeup CPUs.
     awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
     awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
+}
+
+fn print_task_to_console() {
+    use awkernel_lib::console;
+    use awkernel_lib::sync::mutex::MCSNode;
+
+    console::print("\r\n=== Task Report ===\r\n");
+
+    let msg = alloc::format!("Uptime: {}\r\n", awkernel_async_lib::uptime());
+    console::print(&msg);
+
+    print_tasks();
+
+    console::print("\r\n");
+
+    let msg = alloc::format!(
+        "Total preemption: {}\r\n",
+        awkernel_async_lib::task::get_num_preemption(),
+    );
+    console::print(&msg);
+
+    console::print("Running Tasks:\r\n");
+    for task in awkernel_async_lib::task::get_tasks_running().iter() {
+        let msg = if task.task_id != 0 {
+            alloc::format!("  cpu: {:>3}, task: {:>5}\r\n", task.cpu_id, task.task_id)
+        } else {
+            alloc::format!("  cpu: {:>3}, task:\r\n", task.cpu_id)
+        };
+        console::print(&msg);
+    }
+
+    console::print("=== End of Task Report ===\r\n\r\n");
+}
+
+fn print_tasks() {
+    use awkernel_lib::console;
+    use awkernel_lib::sync::mutex::MCSNode;
+
+    let tasks = task::get_tasks();
+
+    console::print("Tasks:\r\n");
+
+    let msg = alloc::format!(
+        "{:>5}  {:<10} {:>14} {:>14} name\r\n",
+        "ID", "State", "#Preemption", "Last Executed"
+    );
+    console::print(&msg);
+
+    for t in tasks {
+        let mut node = MCSNode::new();
+        let info = t.info.lock(&mut node);
+
+        let state = alloc::format!("{:?}", info.get_state());
+
+        let msg = alloc::format!(
+            "{:>5}{} {:<10} {:>14} {:>14} {}\r\n",
+            t.id,
+            if info.panicked() { "*" } else { " " },
+            state,
+            info.get_num_preemption(),
+            info.get_last_executed().uptime().as_micros(),
+            t.name,
+        );
+
+        console::print(&msg);
+    }
+}
+
+#[cfg(feature = "perf")]
+fn print_perf_to_console() {
+    use awkernel_lib::console;
+    use awkernel_async_lib::task::perf;
+
+    console::print("\r\n=== Performance Report ===\r\n");
+    console::print("Perform non-primary CPU [tsc]:\r\n");
+    console::print(" cpu | Type           |   kernel_time  |    task_time   |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
+    console::print("=====|================|================|================|================|================|================|================\r\n");
+
+    let mut total_kernel = 0u64;
+    let mut total_task = 0u64;
+    let mut total_idle = 0u64;
+    let mut total_interrupt = 0u64;
+    let mut total_context_switch = 0u64;
+    let mut total_perf = 0u64;
+
+    for cpu_id in 0..awkernel_lib::cpu::num_cpu() {
+        let kernel_time = perf::get_kernel_time(cpu_id);
+        let task_time = perf::get_task_time(cpu_id);
+        let idle_time = perf::get_idle_time(cpu_id);
+        let interrupt_time = perf::get_interrupt_time(cpu_id);
+        let contxt_switch_time = perf::get_context_switch_time(cpu_id);
+        let perf_time = perf::get_perf_time(cpu_id);
+
+        // Exclude cpu_id=0 from overall statistics
+        if cpu_id != 0 {
+            total_kernel += kernel_time;
+            total_task += task_time;
+            total_idle += idle_time;
+            total_interrupt += interrupt_time;
+            total_context_switch += contxt_switch_time;
+            total_perf += perf_time;
+        }
+
+        let msg = alloc::format!(
+            "{cpu_id:>4} | Total          |{kernel_time:>15} |{task_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
+        );
+        console::print(&msg);
+
+        let ave_kernel_time = perf::get_ave_kernel_time(cpu_id).unwrap_or(0.0);
+        let ave_task_time = perf::get_ave_task_time(cpu_id).unwrap_or(0.0);
+        let ave_idle_time = perf::get_ave_idle_time(cpu_id).unwrap_or(0.0);
+        let ave_interrupt_time = perf::get_ave_interrupt_time(cpu_id).unwrap_or(0.0);
+        let ave_contxt_switch_time = perf::get_ave_context_switch_time(cpu_id).unwrap_or(0.0);
+        let ave_perf_time = perf::get_ave_perf_time(cpu_id).unwrap_or(0.0);
+
+        let msg_ave = alloc::format!(
+            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_contxt_switch_time:>15.2} |{ave_perf_time:>15.2}\r\n",
+        );
+        console::print(&msg_ave);
+
+        let worst_kernel_time = perf::get_kernel_wcet(cpu_id);
+        let worst_task_time = perf::get_task_wcet(cpu_id);
+        let worst_idle_time = perf::get_idle_wcet(cpu_id);
+        let worst_interrupt_time = perf::get_interrupt_wcet(cpu_id);
+        let worst_contxt_switch_time = perf::get_context_switch_wcet(cpu_id);
+        let worst_perf_time = perf::get_perf_wcet(cpu_id);
+
+        let msg_worst = alloc::format!(
+            "     | Worst          | {worst_kernel_time:>14} | {worst_task_time:>14} |{worst_idle_time:>15} |{worst_interrupt_time:>15} |{worst_contxt_switch_time:>15} |{worst_perf_time:>15}\r\n",
+        );
+        console::print(&msg_worst);
+
+        // Calculate and display per-core CPU usage
+        let cpu_total = kernel_time + task_time + idle_time + interrupt_time + contxt_switch_time + perf_time;
+        if cpu_total > 0 {
+            let cpu_usage = (cpu_total - idle_time) as f64 / cpu_total as f64 * 100.0;
+            let msg_usage = alloc::format!(
+                "     | CPU Usage      | {cpu_usage:>13.2}%\r\n"
+            );
+            console::print(&msg_usage);
+        }
+
+        if cpu_id < awkernel_lib::cpu::num_cpu() - 1 {
+            console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+        }
+    }
+
+    // Calculate and display overall CPU usage (excluding cpu_id=0)
+    console::print("=====|================|================|================|================|================|================|================\r\n");
+    let grand_total = total_kernel + total_task + total_idle + total_interrupt + total_context_switch + total_perf;
+    if grand_total > 0 {
+        let overall_cpu_usage = (grand_total - total_idle) as f64 / grand_total as f64 * 100.0;
+        let num_worker_cores = awkernel_lib::cpu::num_cpu() - 1;
+        let msg_overall = alloc::format!(
+            "Overall CPU Usage: {overall_cpu_usage:>6.2}% (across {} worker cores, excluding CPU0)\r\n",
+            num_worker_cores
+        );
+        console::print(&msg_overall);
+    }
+
+    console::print("=== End of Performance Report ===\r\n\r\n");
 }

@@ -162,7 +162,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         log::info!("Use SP_ELx.");
     }
 
-    log::info!("{device_tree}");
+    // log::info!("{device_tree}");
 
     let num_cpu = initializer.get_num_cpus();
     NUM_CPUS.store(num_cpu as u16, Ordering::SeqCst);
