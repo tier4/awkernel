@@ -208,7 +208,7 @@ pub async fn run() {
             let imu_msg = if let Some(csv_data) = data {
                 if csv_data.is_empty() {
                     let mut parser = TamagawaImuParser::new("imu_link");
-                    let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
+                    let awkernel_timestamp = get_awkernel_uptime_timestamp();
                     let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
                     parser
                         .parse_binary_data(&static_dummy_data, awkernel_timestamp)
@@ -228,7 +228,7 @@ pub async fn run() {
                 }
             } else {
                 let mut parser = TamagawaImuParser::new("imu_link");
-                let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
+                let awkernel_timestamp = get_awkernel_uptime_timestamp();
                 let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
                 parser
                     .parse_binary_data(&static_dummy_data, awkernel_timestamp)
@@ -268,24 +268,17 @@ pub async fn run() {
             let count = *count_guard;
             let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
             
-            let velocity_report = if let Some(csv_data) = data {
-                if csv_data.is_empty() {
-                    reactor_helpers::create_dummy_velocity_report(b)
-                } else {
-                    let idx = count % csv_data.len();
-                    let row = &csv_data[idx];
-                    VelocityReport {
-                        header: Header {
-                            frame_id: "base_link",
-                            timestamp: row.timestamp,
-                        },
-                        longitudinal_velocity: row.longitudinal_velocity,
-                        lateral_velocity: row.lateral_velocity,
-                        heading_rate: row.heading_rate,
-                    }
-                }
-            } else {
-                reactor_helpers::create_dummy_velocity_report(b)
+            let csv_data = data.expect("VELOCITY_CSV_DATA must be initialized");
+            let idx = count % csv_data.len();
+            let row = &csv_data[idx];
+            let velocity_report = VelocityReport {
+                header: Header {
+                    frame_id: "base_link",
+                    timestamp: row.timestamp,
+                },
+                longitudinal_velocity: row.longitudinal_velocity,
+                lateral_velocity: row.lateral_velocity,
+                heading_rate: row.heading_rate,
             };
             
             *count_guard += 1;
@@ -295,7 +288,7 @@ pub async fn run() {
                 loop {}
             }
             
-            let twist_msg = reactor_helpers::convert_velocity_report_reactor(&velocity_report, &converter);
+            let twist_msg = converter.convert_velocity_report(&velocity_report);
             
             if LOG_ENABLE {
                 log::debug!("Vehicle velocity converter: Converted velocity report to twist - linear.x={:.3}, angular.z={:.3}, awkernel_timestamp={}",
@@ -706,7 +699,7 @@ pub async fn run() {
                 ekf_odom.twist.covariance.iter().map(|&x| format!("{:.6}", x)).collect::<Vec<_>>().join(",")
             );
             
-            let awkernel_timestamp = reactor_helpers::get_awkernel_uptime_timestamp();
+            let awkernel_timestamp = get_awkernel_uptime_timestamp();
             // log::info!("JSONデータ作成完了: {} bytes, awkernel_timestamp={}", json_data.len(), awkernel_timestamp);
             
             // グローバル変数にJSONデータを保存

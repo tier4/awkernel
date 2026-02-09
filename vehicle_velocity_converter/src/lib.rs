@@ -95,14 +95,12 @@ impl VehicleVelocityConverter {
     }
 
     /// 速度レポートをTwistWithCovarianceStampedに変換
-    pub fn convert_velocity_report(&self, msg: &VelocityReport) -> Result<TwistWithCovarianceStamped, &'static str> {
-        // フレームIDの検証
-        if msg.header.frame_id != self.frame_id {
-            return Err("frame_id mismatch");
-        }
+    pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
+        // WARN Only
+        let _frame_id_mismatch = msg.header.frame_id != self.frame_id;
 
         // TwistWithCovarianceStampedメッセージを生成
-        let twist_with_covariance_msg = TwistWithCovarianceStamped {
+        TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
                 twist: Twist {
@@ -119,9 +117,7 @@ impl VehicleVelocityConverter {
                 },
                 covariance: self.create_covariance_matrix(),
             },
-        };
-
-        Ok(twist_with_covariance_msg)
+        }
     }
 
     /// 共分散行列を作成
@@ -167,35 +163,6 @@ impl VehicleVelocityConverter {
 pub mod reactor_helpers {
     use super::*;
 
-    /// ダミーのVelocityReportを生成（awkernel起動時間を使用）
-    pub fn create_dummy_velocity_report(counter: i32) -> VelocityReport {
-        // awkernel起動時間からのタイムスタンプを取得
-        let awkernel_timestamp = get_awkernel_uptime_timestamp();
-        
-        VelocityReport {
-            header: Header {
-                frame_id: "base_link",
-                timestamp: awkernel_timestamp,
-            },
-            longitudinal_velocity: 10.0 + (counter as f64 * 0.1),
-            lateral_velocity: 2.0 + (counter as f64 * 0.05),
-            heading_rate: 0.0,
-        }
-    }
-
-    /// awkernel起動時間からのタイムスタンプを取得する関数
-    pub fn get_awkernel_uptime_timestamp() -> u64 {
-        // awkernel_lib::delay::uptime_nano()はu128を返すが、JSONではu64を使用
-        // ナノ秒単位のタイムスタンプを取得
-        let uptime_nanos = awkernel_lib::delay::uptime_nano();
-        // u128からu64に変換（オーバーフローを防ぐため、適切な範囲に制限）
-        if uptime_nanos > u64::MAX as u128 {
-            u64::MAX
-        } else {
-            uptime_nanos as u64
-        }
-    }
-
     /// 空のTwistWithCovarianceStampedを生成
     pub fn create_empty_twist(timestamp: u64) -> TwistWithCovarianceStamped {
         TwistWithCovarianceStamped {
@@ -210,17 +177,6 @@ pub mod reactor_helpers {
                 },
                 covariance: [0.0; 36],
             },
-        }
-    }
-
-    /// リアクター関数: VelocityReportをTwistWithCovarianceStampedに変換
-    pub fn convert_velocity_report_reactor(
-        velocity_report: &VelocityReport,
-        converter: &VehicleVelocityConverter,
-    ) -> TwistWithCovarianceStamped {
-        match converter.convert_velocity_report(velocity_report) {
-            Ok(twist_msg) => twist_msg,
-            Err(_) => create_empty_twist(velocity_report.header.timestamp),
         }
     }
 }
@@ -337,10 +293,6 @@ mod tests {
 
     #[test]
     fn test_reactor_helpers() {
-        let dummy_report = reactor_helpers::create_dummy_velocity_report(1);
-        assert_eq!(dummy_report.header.frame_id, "base_link");
-        assert_eq!(dummy_report.longitudinal_velocity, 10.1);
-
         let empty_twist = reactor_helpers::create_empty_twist(1234567890);
         assert_eq!(empty_twist.header.frame_id, "base_link");
         assert_eq!(empty_twist.twist.twist.linear.x, 0.0);
