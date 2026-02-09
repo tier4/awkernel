@@ -82,10 +82,6 @@ const EKF_TWIST_COVARIANCE: [f64; 36] = [
     0.0,    0.0,    0.0,    0.0,     0.0,     0.0001,
 ];
 
-static VEHICLE_TWIST_ARRIVED: AtomicBool = AtomicBool::new(false);
-static IMU_ARRIVED: AtomicBool = AtomicBool::new(false);
-static LAST_VEHICLE_TWIST_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
-static LAST_IMU_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 static LAST_DR_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 
 // ネットワーク状態管理
@@ -104,17 +100,7 @@ const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
 const TCP_LISTEN_PORT: u16 = 26100;
-static NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
-static ARP_RESOLUTION_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-static TCP_CONNECTION_READY: AtomicBool = AtomicBool::new(false);
-static TCP_STREAM_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
-// TCP送信キュー
-static mut TCP_SEND_QUEUE: Option<VecDeque<String>> = None;
-const MAX_QUEUE_SIZE: usize = 5;
-
-// ARP 解決トリガーとして送信する TCP パケットの送信先ポート
-const ARP_TRIGGER_DST_PORT: u16 = 26099;
 // JSONデータ保存用のグローバル変数
 static mut LATEST_JSON_DATA: Option<String> = None;
 static JSON_DATA_READY: AtomicBool = AtomicBool::new(false);
@@ -147,23 +133,11 @@ static IMU_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 static VELOCITY_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 
 
-static GYRO_ODOMETER_CORE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
-
 // Global EKF Localizer instance with proper synchronization
 static EKF_LOCALIZER: AtomicPtr<EKFModule> = AtomicPtr::new(null_mut());
 
-// Queue management for storing multiple messages (matching C++ implementation)
-static mut VEHICLE_TWIST_QUEUE: Option<VecDeque<TwistWithCovarianceStamped>> = None;
-static mut IMU_QUEUE: Option<VecDeque<ImuWithCovariance>> = None;
 // COMMENTED OUT: 手動積分用のDR_POSEはEKF内部状態からポーズを取得するようになったため不要
 // static mut DR_POSE: Option<Pose> = None;
-
-// Timeout checking function (matching C++ implementation)
-fn check_timeout(current_timestamp: u64, last_timestamp: u64, timeout_sec: f64) -> bool {
-    let dt = (current_timestamp as f64 - last_timestamp as f64) / 1_000_000_000.0; // Convert to seconds
-    dt.abs() > timeout_sec
-}
-
 
 
 pub async fn run() {
@@ -216,10 +190,11 @@ pub async fn run() {
                 } else {
                     let idx = count % csv_data.len();
                     let row = &csv_data[idx];
+                    let awkernel_timestamp = get_awkernel_uptime_timestamp();
                     ImuMsg {
                         header: Header {
                             frame_id: "imu_link",
-                            timestamp: row.timestamp,
+                            timestamp: awkernel_timestamp,
                         },
                         orientation: row.orientation.clone(),
                         angular_velocity: row.angular_velocity.clone(),
@@ -271,10 +246,11 @@ pub async fn run() {
             let csv_data = data.expect("VELOCITY_CSV_DATA must be initialized");
             let idx = count % csv_data.len();
             let row = &csv_data[idx];
+            let awkernel_timestamp = get_awkernel_uptime_timestamp();
             let velocity_report = VelocityReport {
                 header: Header {
                     frame_id: "base_link",
-                    timestamp: row.timestamp,
+                    timestamp: awkernel_timestamp,
                 },
                 longitudinal_velocity: row.longitudinal_velocity,
                 lateral_velocity: row.lateral_velocity,
@@ -325,122 +301,30 @@ pub async fn run() {
     )
     .await;
 
-    // Gyro Odometer node - Optimized timeout handling with queue-based processing
+    // Gyro Odometer node - Simplified single processing step
     dag.register_reactor::<_, (ImuWithCovariance, TwistWithCovarianceStamped,), (TwistWithCovarianceStamped,)>(
         "gyro_odometer".into(),
         |(imu_with_cov, vehicle_twist): (ImuWithCovariance, TwistWithCovarianceStamped)| -> (TwistWithCovarianceStamped,) {
-            // Initialize gyro odometer core and queues if not already done
-            if get_gyro_odometer_core().is_none() {
-                if let Err(e) = initialize_gyro_odometer_core() {
-                    // if LOG_ENABLE {
-                    //     log::error!("Failed to initialize gyro odometer core: {}", e);
-                    // }
-                    return (reactor_helpers::create_empty_twist(imu_with_cov.header.timestamp),);
-                }
-            }
-            initialize_queues();
-
             let current_timestamp = imu_with_cov.header.timestamp;
-            let timeout_sec = 1.0; // 1 second timeout
+            let current_time = get_awkernel_uptime_timestamp();
             
-            // Update IMU state and add to queue (matching C++ callback_imu)
-            IMU_ARRIVED.store(true, Ordering::Relaxed);
-            LAST_IMU_TIMESTAMP.store(current_timestamp, Ordering::Relaxed);
-            add_to_imu_queue(imu_with_cov);
-            
-            // Use the vehicle twist directly from vehicle_velocity_converter
-            let vehicle_twist = vehicle_twist;
-            VEHICLE_TWIST_ARRIVED.store(true, Ordering::Relaxed);
-            LAST_VEHICLE_TWIST_TIMESTAMP.store(current_timestamp, Ordering::Relaxed);
-            add_to_vehicle_twist_queue(vehicle_twist);
-
-            // Check if both messages have arrived (matching C++ implementation)
-            let vehicle_twist_arrived = VEHICLE_TWIST_ARRIVED.load(Ordering::Relaxed);
-            let imu_arrived = IMU_ARRIVED.load(Ordering::Relaxed);
-            
-            if !vehicle_twist_arrived {
-                if LOG_ENABLE {
-                    log::warn!("Vehicle twist message not yet arrived");
+            // Get or initialize gyro odometer core
+            let gyro_odometer = match gyro_odometer::get_or_initialize() {
+                Ok(core) => core,
+                Err(_) => {
+                    return (reactor_helpers::create_empty_twist(current_timestamp),);
                 }
-                clear_both_queues();
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-            if !imu_arrived {
-                if LOG_ENABLE {
-                    log::warn!("IMU message not yet arrived");
-                }
-                clear_both_queues();
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-
-            // Check timeout for both sensors (matching C++ implementation exactly)
-            let last_vehicle_ts = LAST_VEHICLE_TWIST_TIMESTAMP.load(Ordering::Relaxed);
-            let last_imu_ts = LAST_IMU_TIMESTAMP.load(Ordering::Relaxed);
-            
-            let vehicle_twist_dt = check_timeout(current_timestamp, last_vehicle_ts, timeout_sec);
-            let imu_dt = check_timeout(current_timestamp, last_imu_ts, timeout_sec);
-            
-            // If either sensor times out, clear both queues (matching C++ implementation)
-            if vehicle_twist_dt {
-                if LOG_ENABLE {
-                    log::warn!("Vehicle twist message timeout detected. vehicle_twist_dt: {:.3}[sec], tolerance {:.3}[sec]",
-                        (current_timestamp as f64 - last_vehicle_ts as f64) / 1_000_000_000.0, timeout_sec);
-                }
-                clear_both_queues();
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-            
-            if imu_dt {
-                if LOG_ENABLE {
-                    log::warn!("IMU message timeout detected. imu_dt: {:.3}[sec], tolerance {:.3}[sec]",
-                        (current_timestamp as f64 - last_imu_ts as f64) / 1_000_000_000.0, timeout_sec);
-                }
-                clear_both_queues();
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-
-            // Check queue sizes (matching C++ implementation)
-            let (vehicle_queue_size, imu_queue_size) = get_queue_sizes();
-            // if LOG_ENABLE {
-                // log::debug!("Queue sizes - vehicle_twist: {}, imu: {}", vehicle_queue_size, imu_queue_size);
-            // }
-            
-            if vehicle_queue_size == 0 || imu_queue_size == 0 {
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-
-            // Get transform with error handling (matching C++ implementation)
-            let transform_result = get_transform_safely("imu_link", "base_link");
-            if let Err(transform_error) = transform_result {
-                // if LOG_ENABLE {
-                    // log::error!("Transform error: {}", transform_error);
-                // }
-                clear_both_queues();
-                return (reactor_helpers::create_empty_twist(current_timestamp),);
-            }
-
-            // Process queues and get result (matching C++ concat_gyro_and_odometer)
-            let result = process_queues_and_get_result();
-            
-            // Clear queues after processing (matching C++ implementation)
-            clear_both_queues();
-
-            // Return result or empty twist if no result
-            let final_result = if let Some(twist) = result {
-                twist
-            } else {
-                reactor_helpers::create_empty_twist(current_timestamp)
             };
 
-            // if LOG_ENABLE {
-                // log::debug!("gyro odometer processed: linear.x={:.3}, angular.z={:.3}, timestamp={}",
-                    // final_result.twist.twist.linear.x,
-                    // final_result.twist.twist.angular.z,
-                    // final_result.header.timestamp
-                // );
-            // }
-
-            (final_result,)
+            // Add both messages to queues (both arrive together in test_autoware)
+            gyro_odometer.add_vehicle_twist(vehicle_twist);
+            gyro_odometer.add_imu(imu_with_cov);
+            
+            // Process once with current time and return result
+            match gyro_odometer.process_and_get_result(current_time) {
+                Some(result) => (gyro_odometer.process_result(result),),
+                None => (reactor_helpers::create_empty_twist(current_timestamp),)
+            }
         },
         vec![Cow::from("corrected_imu_data"),Cow::from("velocity_twist")],
         vec![Cow::from("twist_with_covariance")],
@@ -1030,13 +914,6 @@ async fn periodic_udp_sender_task() {
     
     // 無限ループで一定周期実行
     loop {
-        // ネットワーク初期化チェック
-        // if !NETWORK_INITIALIZED.load(Ordering::Relaxed) {
-        //     log::debug!("周期UDP送信タスク: ネットワーク未初期化、待機中...");
-        //     awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-        //     continue;
-        // }
-        
         // JSONデータの準備チェック
         if !JSON_DATA_READY.load(Ordering::Relaxed) {
             log::debug!("周期UDP送信タスク: JSONデータ未準備、待機中...");
@@ -1184,45 +1061,6 @@ fn get_transform_safely(from_frame: &str, to_frame: &str) -> Result<Transform, &
     }
 }
 
-// Initialize gyro odometer core safely
-fn initialize_gyro_odometer_core() -> Result<(), &'static str> {
-    let config = GyroOdometerConfig::default();
-    let core = GyroOdometerCore::new(config).map_err(|_| "Failed to create GyroOdometerCore")?;
-    
-    // Allocate on heap and store pointer
-    let boxed_core = alloc::boxed::Box::new(core);
-    let ptr = alloc::boxed::Box::into_raw(boxed_core);
-    
-    // Try to store the pointer atomically
-    let old_ptr = GYRO_ODOMETER_CORE.compare_exchange(
-        null_mut(),
-        ptr,
-        AtomicOrdering::Acquire,
-        AtomicOrdering::Relaxed,
-    );
-    
-    match old_ptr {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            // Another thread already initialized it, clean up our allocation
-            unsafe {
-                let _ = alloc::boxed::Box::from_raw(ptr);
-            }
-            Ok(())
-        }
-    }
-}
-
-// Get gyro odometer core safely
-fn get_gyro_odometer_core() -> Option<&'static mut GyroOdometerCore> {
-    let ptr = GYRO_ODOMETER_CORE.load(AtomicOrdering::Acquire);
-    if ptr.is_null() {
-        None
-    } else {
-        unsafe { Some(&mut *ptr) }
-    }
-}
-
 // Initialize EKF Localizer safely
 fn initialize_ekf_localizer() -> Result<(), &'static str> {
     let params = EKFParameters::default();
@@ -1278,143 +1116,5 @@ fn get_ekf_localizer() -> Option<&'static mut EKFModule> {
         None
     } else {
         unsafe { Some(&mut *ptr) }
-    }
-}
-
-// Initialize queues safely
-fn initialize_queues() {
-    unsafe {
-        if VEHICLE_TWIST_QUEUE.is_none() {
-            VEHICLE_TWIST_QUEUE = Some(VecDeque::with_capacity(100));
-        }
-        if IMU_QUEUE.is_none() {
-            IMU_QUEUE = Some(VecDeque::with_capacity(100));
-        }
-        if TCP_SEND_QUEUE.is_none() {
-            TCP_SEND_QUEUE = Some(VecDeque::with_capacity(MAX_QUEUE_SIZE));
-        }
-    }
-}
-
-// Clear both queues (matching C++ implementation)
-fn clear_both_queues() {
-    unsafe {
-        if let Some(queue) = &mut VEHICLE_TWIST_QUEUE {
-            queue.clear();
-        }
-        if let Some(queue) = &mut IMU_QUEUE {
-            queue.clear();
-        }
-    }
-}
-
-// Add message to vehicle twist queue
-fn add_to_vehicle_twist_queue(twist: TwistWithCovarianceStamped) {
-    unsafe {
-        if let Some(queue) = &mut VEHICLE_TWIST_QUEUE {
-            queue.push_back(twist);
-        }
-    }
-}
-
-// Add message to IMU queue
-fn add_to_imu_queue(imu: ImuWithCovariance) {
-    unsafe {
-        if let Some(queue) = &mut IMU_QUEUE {
-            queue.push_back(imu);
-        }
-    }
-}
-
-// Get queue sizes
-fn get_queue_sizes() -> (usize, usize) {
-    unsafe {
-        let vehicle_size = VEHICLE_TWIST_QUEUE.as_ref().map_or(0, |q| q.len());
-        let imu_size = IMU_QUEUE.as_ref().map_or(0, |q| q.len());
-        (vehicle_size, imu_size)
-    }
-}
-
-// TCP送信キュー操作
-// fn push_to_tcp_send_queue(json_data: String) {
-//     unsafe {
-//         if let Some(queue) = &mut TCP_SEND_QUEUE {
-//             if queue.len() >= MAX_QUEUE_SIZE {
-//                 log::warn!("TCP送信キューが満杯です。古いデータを削除します。");
-//                 queue.pop_front();
-//             }
-//             queue.push_back(json_data);
-//             log::debug!("TCP送信キューにデータを追加: キューサイズ = {}", queue.len());
-//         }
-//     }
-// }
-
-// fn get_tcp_send_queue_size() -> usize {
-//     unsafe {
-//         TCP_SEND_QUEUE.as_ref().map_or(0, |q| q.len())
-//     }
-// }
-
-// fn pop_from_tcp_send_queue() -> Option<String> {
-//     unsafe {
-//         TCP_SEND_QUEUE.as_mut().and_then(|q| q.pop_front())
-//     }
-// }
-
-// Process queues and return result (matching C++ concat_gyro_and_odometer logic)
-fn process_queues_and_get_result() -> Option<TwistWithCovarianceStamped> {
-    unsafe {
-        let vehicle_queue = VEHICLE_TWIST_QUEUE.as_ref()?;
-        let imu_queue = IMU_QUEUE.as_ref()?;
-        
-        if vehicle_queue.is_empty() || imu_queue.is_empty() {
-            return None;
-        }
-        
-        // Calculate mean values (simplified version of C++ implementation)
-        let mut vx_mean = 0.0;
-        let mut gyro_mean = imu_driver::Vector3::new(0.0, 0.0, 0.0);
-        
-        // Calculate vehicle twist mean
-        for twist in vehicle_queue {
-            vx_mean += twist.twist.twist.linear.x;
-        }
-        vx_mean /= vehicle_queue.len() as f64;
-        
-        // Calculate gyro mean
-        for imu in imu_queue {
-            gyro_mean.x += imu.angular_velocity.x;
-            gyro_mean.y += imu.angular_velocity.y;
-            gyro_mean.z += imu.angular_velocity.z;
-        }
-        gyro_mean.x /= imu_queue.len() as f64;
-        gyro_mean.y /= imu_queue.len() as f64;
-        gyro_mean.z /= imu_queue.len() as f64;
-        
-        // Get latest timestamp
-        let latest_vehicle_timestamp = vehicle_queue.back()?.header.timestamp;
-        let latest_imu_timestamp = imu_queue.back()?.header.timestamp;
-        let result_timestamp = if latest_vehicle_timestamp < latest_imu_timestamp {
-            latest_imu_timestamp
-        } else {
-            latest_vehicle_timestamp
-        };
-        
-        // Create result
-        let result = TwistWithCovarianceStamped {
-            header: imu_driver::Header {
-                frame_id: "base_link",
-                timestamp: result_timestamp,
-            },
-            twist: TwistWithCovariance {
-                twist: Twist {
-                    linear: imu_driver::Vector3::new(vx_mean, 0.0, 0.0),
-                    angular: gyro_mean,
-                },
-                covariance: [0.0; 36],
-            },
-        };
-        
-        Some(result)
     }
 }
