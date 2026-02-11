@@ -196,7 +196,7 @@ qemu-x86_64-net:
 
 qemu-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
-	qemu-system-x86_64 $(QEMU_X86_ARGS)
+	qemu-system-x86_64 $(QEMU_X86_ARGS) 2>&1 | tee log/test_autoware_1.log
 
 debug-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd

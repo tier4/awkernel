@@ -46,6 +46,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_dag")]
     test_dag::run().await; // test for DAG
 
+    #[cfg(feature = "test_autoware")]
+    test_autoware::run().await; // test for Autoware
+
     #[cfg(feature = "test_dvfs")]
     test_dvfs::run().await; // test for DVFS
 
