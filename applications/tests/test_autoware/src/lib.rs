@@ -45,7 +45,7 @@ pub struct EKFOdometry {
     pub twist: TwistWithCovariance,
 }
 
-const LOG_ENABLE: bool = true;
+const LOG_ENABLE: bool = false;
 
 
 // EKF pose covariance (6x6 matrix flattened to array)
@@ -424,6 +424,19 @@ pub async fn run() {
                 }
             }
             
+            // MRM (Minimal Risk Maneuver) mode is normally disabled
+            // When MRM is false (normal mode):
+            // - 1. predict_next_state: Execute nonlinear state transition
+            // - 2. create_state_transition_matrix: Calculate Jacobian matrix (F)
+            // - 3. process_noise_covariance: Calculate process noise (Q)
+            // - 4. predict_covariance: P = F * P * F^T + Q
+            // - 5. update_velocity: Measurement update for velocity observations
+            //
+            // When MRM is true (emergency mode):
+            // - Execute only steps 1-4 (prediction only, no measurement updates)
+            // - Dead reckoning based on motion model alone
+            ekf.set_mrm_mode(false);  // Normal mode: all processing enabled
+            
             // Predict step using measured time gap
             // MODIFIED: CSVタイムスタンプ差ではなく、固定dtを使用
             // Autowareのekf_data_publisher.pyは50ms固定周期でデータをpublishする
@@ -444,13 +457,20 @@ pub async fn run() {
             let dt = FIXED_DT;
 
             if dt > 0.0 {
+                // Step 1-4: Prediction (always executed)
+                // 1. predict_next_state: x_{k+1} = x_k + vx * cos(yaw + bias) * dt
+                // 2. create_state_transition_matrix: Jacobian matrix F calculation
+                // 3. process_noise_covariance: Q = sigma^2 * dt^2
+                // 4. predict_covariance: P = F * P * F^T + Q
                 ekf.predict(dt);
             }
 
-            // ADDED: EKFに速度観測値を更新（カルマンフィルタの観測更新ステップ）
+            // Step 5: Measurement update (skipped during MRM mode)
+            // When MRM mode is false (normal operation), velocity measurements are applied
+            // This improves the estimate by incorporating sensor observations
             let vx = twist.twist.twist.linear.x;
             let wz = twist.twist.twist.angular.z;
-            ekf.update_velocity(vx, wz);
+            ekf.update_velocity(vx, wz);  // Skipped if is_mrm_mode == true
 
             // COMMENTED OUT: 手動積分（Dead Reckoning）処理
             // Autowareとの精度向上のため、EKF内部状態から直接ポーズを取得するように変更
@@ -875,7 +895,7 @@ fn get_awkernel_uptime_timestamp() -> u64 {
 
 // リアクターAPIに干渉しないUDP送信タスク（一定周期実行）
 pub async fn start_periodic_udp_sender() {
-    log::info!("=== 周期UDP送信タスク開始 ===");
+    // log::info!("=== 周期UDP送信タスク開始 ===");
     
     // 独立したタスクとして実行
     awkernel_async_lib::spawn(
@@ -916,7 +936,7 @@ async fn periodic_udp_sender_task() {
     loop {
         // JSONデータの準備チェック
         if !JSON_DATA_READY.load(Ordering::Relaxed) {
-            log::debug!("周期UDP送信タスク: JSONデータ未準備、待機中...");
+            // log::debug!("周期UDP送信タスク: JSONデータ未準備、待機中...");
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -931,7 +951,7 @@ async fn periodic_udp_sender_task() {
             match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
                 Ok(_) => {
                     counter += 1;
-                    log::info!("周期UDP送信タスク: 送信成功 #{} ({} bytes)", counter, data.len());
+                    // log::info!("周期UDP送信タスク: 送信成功 #{} ({} bytes)", counter, data.len());
                     
                     // レスポンス受信（オプション、タイムアウト付き）
                     let mut buf = [0u8; 1024];
@@ -941,8 +961,8 @@ async fn periodic_udp_sender_task() {
                             socket.recv(&mut buf)
                         ).await {
                         if let Ok(response) = core::str::from_utf8(&buf[..n]) {
-                            log::debug!("周期UDP送信タスク: レスポンス受信: {}:{} - {}", 
-                                src_addr.get_addr(), src_port, response);
+                            // log::debug!("周期UDP送信タスク: レスポンス受信: {}:{} - {}", 
+                                // src_addr.get_addr(), src_port, response);
                         }
                     }
                 }

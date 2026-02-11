@@ -19,6 +19,7 @@ use alloc::boxed::Box;
 
 pub mod gedf;
 pub(super) mod panicked;
+mod prioritized_fifo_fordag;
 mod prioritized_fifo;
 mod prioritized_rr;
 
@@ -73,6 +74,7 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
+    PrioritizedFIFOFORDAG(u8),
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -83,6 +85,10 @@ impl SchedulerType {
         matches!(
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
+                | (
+                    SchedulerType::PrioritizedFIFOFORDAG(_),
+                    SchedulerType::PrioritizedFIFOFORDAG(_)
+                )
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
@@ -109,8 +115,9 @@ impl SchedulerType {
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 4] = [
+static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::GEDF(0),
+    SchedulerType::PrioritizedFIFOFORDAG(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
@@ -157,6 +164,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
+        SchedulerType::PrioritizedFIFOFORDAG(_) => &prioritized_fifo_fordag::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,

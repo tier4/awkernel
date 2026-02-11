@@ -158,6 +158,9 @@ pub struct EKFModule {
     pitch_filter: Simple1DFilter,
     accumulated_delay_times: Vec<f64>,
     last_angular_velocity: Vector3<f64>,
+    /// MRM (Minimal Risk Maneuver) mode flag
+    /// When true, only prediction is performed (no measurement updates)
+    is_mrm_mode: bool,
 }
 
 impl EKFModule {
@@ -194,6 +197,7 @@ impl EKFModule {
             pitch_filter,
             accumulated_delay_times,
             last_angular_velocity: Vector3::zeros(),
+            is_mrm_mode: false,
         }
     }
 
@@ -219,35 +223,101 @@ impl EKFModule {
         self.pitch_filter.init(0.0, 0.01);
     }
 
-    /// Predict step of EKF
-    pub fn predict(&mut self, dt: f64) {
-        // State transition matrix F
+    /// Predict next state using nonlinear state transition (core prediction logic)
+    /// x_{k+1} = x_k + vx * cos(yaw + bias) * dt, y_{k+1} = y_k + vx * sin(yaw + bias) * dt, etc.
+    fn predict_next_state(&self, dt: f64) -> StateVector {
+        let mut x_next = self.state.clone();
+        let x = self.state[StateIndex::X as usize];
+        let y = self.state[StateIndex::Y as usize];
+        let yaw = self.state[StateIndex::Yaw as usize];
+        let yaw_bias = self.state[StateIndex::YawBias as usize];
+        let vx = self.state[StateIndex::Vx as usize];
+        let wz = self.state[StateIndex::Wz as usize];
+
+        // Nonlinear state transition
+        x_next[StateIndex::X as usize] = x + vx * cos(yaw + yaw_bias) * dt;
+        x_next[StateIndex::Y as usize] = y + vx * sin(yaw + yaw_bias) * dt;
+        // Normalize yaw to [-π, π] range (Autoware compatible)
+        let yaw_next = yaw + wz * dt;
+        x_next[StateIndex::Yaw as usize] = atan2(sin(yaw_next), cos(yaw_next));
+        x_next[StateIndex::YawBias as usize] = yaw_bias;  // yaw bias doesn't change
+        x_next[StateIndex::Vx as usize] = vx;  // velocity doesn't change in predict
+        x_next[StateIndex::Wz as usize] = wz;  // angular velocity doesn't change in predict
+
+        x_next
+    }
+
+    /// Create state transition (Jacobian) matrix F
+    /// F = d(f)/d(x) where f is the nonlinear state transition function
+    fn create_state_transition_matrix(&self, dt: f64) -> Matrix6<f64> {
         let mut F = Matrix6::identity();
         let yaw = self.state[StateIndex::Yaw as usize];
+        let yaw_bias = self.state[StateIndex::YawBias as usize];
         let vx = self.state[StateIndex::Vx as usize];
+
+        // Jacobian of position with respect to yaw and velocity
+        F[(StateIndex::X as usize, StateIndex::Yaw as usize)] = -vx * sin(yaw + yaw_bias) * dt;
+        F[(StateIndex::X as usize, StateIndex::YawBias as usize)] = -vx * sin(yaw + yaw_bias) * dt;
+        F[(StateIndex::X as usize, StateIndex::Vx as usize)] = cos(yaw + yaw_bias) * dt;
         
-        // Update position based on velocity and yaw
-        F[(StateIndex::X as usize, StateIndex::Vx as usize)] = cos(yaw) * dt;
-        F[(StateIndex::Y as usize, StateIndex::Vx as usize)] = sin(yaw) * dt;
+        F[(StateIndex::Y as usize, StateIndex::Yaw as usize)] = vx * cos(yaw + yaw_bias) * dt;
+        F[(StateIndex::Y as usize, StateIndex::YawBias as usize)] = vx * cos(yaw + yaw_bias) * dt;
+        F[(StateIndex::Y as usize, StateIndex::Vx as usize)] = sin(yaw + yaw_bias) * dt;
+        
         F[(StateIndex::Yaw as usize, StateIndex::Wz as usize)] = dt;
 
-        // Predict state
-        self.state = F * self.state;
+        F
+    }
 
-        // Process noise covariance Q
+    /// Calculate process noise covariance Q
+    /// Q represents the uncertainty in the motion model
+    fn process_noise_covariance(&self, dt: f64) -> Matrix6<f64> {
         let mut Q = Matrix6::zeros();
+        
+        // Process noise for each state variable
         Q[(StateIndex::Vx as usize, StateIndex::Vx as usize)] = 
             self.params.proc_stddev_vx_c * self.params.proc_stddev_vx_c * dt * dt;
         Q[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 
             self.params.proc_stddev_wz_c * self.params.proc_stddev_wz_c * dt * dt;
         Q[(StateIndex::Yaw as usize, StateIndex::Yaw as usize)] = 
             self.params.proc_stddev_yaw_c * self.params.proc_stddev_yaw_c * dt * dt;
+        
+        // No process noise for position and yaw bias
+        Q[(StateIndex::X as usize, StateIndex::X as usize)] = 0.0;
+        Q[(StateIndex::Y as usize, StateIndex::Y as usize)] = 0.0;
+        Q[(StateIndex::YawBias as usize, StateIndex::YawBias as usize)] = 0.0;
+        
+        Q
+    }
 
-        // Predict covariance
+    /// Predict step of EKF (uses predict_next_state, create_state_transition_matrix, and process_noise_covariance)
+    pub fn predict(&mut self, dt: f64) {
+        // 1. Predict next state using nonlinear motion model
+        self.state = self.predict_next_state(dt);
+
+        // 2. Create state transition (Jacobian) matrix
+        let F = self.create_state_transition_matrix(dt);
+
+        // 3. Calculate process noise covariance
+        let Q = self.process_noise_covariance(dt);
+
+        // 4. Predict covariance: P = F * P * F^T + Q
         self.covariance = F * self.covariance * F.transpose() + Q;
 
-        // Update accumulated delay times
+        // 5. Update accumulated delay times
         self.accumulate_delay_time(dt);
+    }
+
+    /// Predict with delay support (Autoware compatible)
+    /// This version maintains the delay history for measurement updates
+    pub fn predict_with_delay(&mut self, dt: f64) {
+        self.predict(dt);
+    }
+
+    /// Predict-only step (for MRM mode when measurement updates are not available)
+    /// Only performs prediction without any measurement updates
+    pub fn predict_only(&mut self, dt: f64) {
+        self.predict(dt);
     }
 
     /// Get current pose for tf publishing
@@ -335,7 +405,13 @@ impl EKFModule {
     }
 
     /// Update velocity measurement (measurement update for Vx and Wz)
+    /// This is NOT executed during MRM mode (dead reckoning only)
     pub fn update_velocity(&mut self, vx_measurement: f64, wz_measurement: f64) {
+        // Skip measurement update during MRM mode
+        if self.is_mrm_mode {
+            return;
+        }
+
         // Simple measurement update using Kalman gain
         // This assumes direct observation of velocity states
         
@@ -360,6 +436,17 @@ impl EKFModule {
             wz_gain * (wz_measurement - self.state[StateIndex::Wz as usize]);
         self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 
             (1.0 - wz_gain) * wz_var;
+    }
+
+    /// Set MRM (Minimal Risk Maneuver) mode
+    /// When MRM mode is active, only prediction is performed (no measurement updates)
+    pub fn set_mrm_mode(&mut self, is_mrm: bool) {
+        self.is_mrm_mode = is_mrm;
+    }
+
+    /// Get current MRM mode status
+    pub fn is_mrm(&self) -> bool {
+        self.is_mrm_mode
     }
 
     /// Accumulate delay time
