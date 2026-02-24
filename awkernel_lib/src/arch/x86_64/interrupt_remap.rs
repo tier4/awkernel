@@ -199,6 +199,19 @@ static IOMMU: [IommuInfo; 32] = array![x =>
         interrupt_remapping: Mutex::new(None),
     }; 32];
 
+/// IOMMU information for a single PCI segment, managing VT-d units and interrupt remapping.
+///
+/// Each PCI segment can have multiple VT-d (Intel Virtualization Technology for Directed I/O) units,
+/// which share a common interrupt remapping table for handling MSI/MSI-X interrupts.
+///
+/// # Lock Ordering
+///
+/// **CRITICAL:** To prevent deadlock, locks must be acquired in this strict order:
+/// 1. `interrupt_remapping` (acquired first)
+/// 2. `vtd_units` (acquired second, if needed)
+///
+/// Never acquire `vtd_units` lock first and then try to acquire `interrupt_remapping`.
+/// This ordering is enforced throughout the codebase to ensure safe concurrent access.
 struct IommuInfo {
     segment_number: usize,
     vtd_units: Mutex<LinkedList<VtdUnit>>,
@@ -858,7 +871,7 @@ fn wait_invalidation_complete(segment_number: usize, vtd_unit: &VtdUnit) -> Resu
 
         // Check for completion
         core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
-        if status[0] != 0 {
+        if status[vtd_unit.index] != 0 {
             return Ok(());
         }
     }
