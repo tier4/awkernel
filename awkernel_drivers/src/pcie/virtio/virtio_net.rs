@@ -38,7 +38,7 @@ use awkernel_lib::{
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
 
-const RECV_QUEUE_SIZE: usize = 32; // To Be Determined
+const RECV_QUEUE_SIZE: usize = 128; // To Be Determined
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -480,9 +480,13 @@ impl Virtq {
 
             let data = data[header_len..len as usize].to_vec();
 
-            self.rx_buffer
+            if self
+                .rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
-                .unwrap();
+                .is_err()
+            {
+                log::debug!("virtio-net: rx software queue full; dropping frame");
+            }
 
             freed += self.virtio_dequeue_commit(slot);
         }
