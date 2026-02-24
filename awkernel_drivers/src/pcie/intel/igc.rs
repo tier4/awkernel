@@ -281,6 +281,11 @@ impl PCIeDevice for Igc {
     fn device_name(&self) -> Cow<'static, str> {
         "Intel I225/I226 2.5 GbE".into()
     }
+
+    fn config_space(&self) -> Option<crate::pcie::config_space::ConfigSpace> {
+        let inner = self.inner.read();
+        Some(inner.info.config_space.clone())
+    }
 }
 
 impl NetDevice for Igc {
