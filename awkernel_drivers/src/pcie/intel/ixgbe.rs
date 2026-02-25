@@ -1918,7 +1918,7 @@ fn allocate_msix(
     que: &[Queue],
 ) -> Result<PCIeInt, IxgbeDriverErr> {
     let segment_number = info.segment_group as usize;
-    let bfd = info.get_bfd();
+    let bdf = info.get_bdf();
 
     let msix = info
         .get_msix_mut()
@@ -1927,7 +1927,7 @@ fn allocate_msix(
     let mut irqs = Vec::new();
 
     for q in que.iter() {
-        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q.me);
+        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bdf, q.me);
         let mut irq_rxtx = msix
             .register_handler(
                 irq_name_rxtx.into(),
@@ -1943,7 +1943,7 @@ fn allocate_msix(
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
 
-    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
+    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bdf}-Other");
     let mut irq_other = msix
         .register_handler(
             irq_name_tx.into(),
@@ -1976,7 +1976,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
     }
 
     let segment_number = info.get_segment_group() as usize;
-    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bfd());
+    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bdf());
 
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
@@ -2046,12 +2046,12 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
 //===========================================================================
 impl PCIeDevice for Ixgbe {
     fn device_name(&self) -> Cow<'static, str> {
-        let (mac_type, bfd) = {
+        let (mac_type, bdf) = {
             let inner = self.inner.read();
-            (inner.hw.get_mac_type(), inner.info.get_bfd())
+            (inner.hw.get_mac_type(), inner.info.get_bdf())
         };
 
-        let name = format!("{bfd}: {DEVICE_NAME} ({mac_type:?})");
+        let name = format!("{bdf}: {DEVICE_NAME} ({mac_type:?})");
         name.into()
     }
 
@@ -2072,8 +2072,8 @@ impl NetDevice for Ixgbe {
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
-        let bfd = self.inner.read().info.get_bfd();
-        let name = format!("{DEVICE_SHORT_NAME}-{bfd}");
+        let bdf = self.inner.read().info.get_bdf();
+        let name = format!("{DEVICE_SHORT_NAME}-{bdf}");
         name.into()
     }
 

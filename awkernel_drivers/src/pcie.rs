@@ -318,13 +318,13 @@ struct UnknownDevice {
 
 impl PCIeDevice for UnknownDevice {
     fn device_name(&self) -> Cow<'static, str> {
-        let bfd = format!(
+        let bdf = format!(
             "{:04x}:{:02x}:{:02x}.{:01x}",
             self.segment_group, self.bus_number, self.device_number, self.function_number
         );
 
         let name = format!(
-            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            "{bdf}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
@@ -503,8 +503,8 @@ impl PCIeBus {
 impl PCIeDevice for PCIeBus {
     fn device_name(&self) -> Cow<'static, str> {
         if let Some(info) = self.info.as_ref() {
-            let bfd = info.get_bfd();
-            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            let bdf = info.get_bdf();
+            let name = format!("{bdf}: Bridge, Bus #{:02x}", self.bus_number);
             name.into()
         } else {
             let name = format!("Bus #{:02x}", self.bus_number);
@@ -549,7 +549,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
                 ChildDevice::Unattached(info) => {
                     let name = format!(
                         "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
-                        info.get_bfd(),
+                        info.get_bdf(),
                         info.vendor,
                         info.id,
                         info.pcie_class,
@@ -925,8 +925,8 @@ impl PCIeInfo {
         }
     }
 
-    /// Get the information for PCIe device as BFD format.
-    pub fn get_bfd(&self) -> String {
+    /// Get the information for PCIe device as BDF format.
+    pub fn get_bdf(&self) -> String {
         format!(
             "{:04x}:{:02x}:{:02x}.{:01x}",
             self.segment_group, self.bus_number, self.device_number, self.function_number
