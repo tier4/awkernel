@@ -63,6 +63,7 @@ const IGC_RX_WTHRESH: u32 = 4;
 
 const IGC_MAX_VECTORS: u16 = 8;
 
+const DEVICE_NAME: &str = "Intel I225/I226 2.5 GbE";
 const DEVICE_SHORT_NAME: &str = "igc";
 
 const IGC_DEFAULT_RXD: usize = 1024;
@@ -279,7 +280,13 @@ impl Igc {
 
 impl PCIeDevice for Igc {
     fn device_name(&self) -> Cow<'static, str> {
-        "Intel I225/I226 2.5 GbE".into()
+        let bfd = {
+            let inner = self.inner.read();
+            inner.info.get_bfd()
+        };
+
+        let name = format!("{bfd}: {DEVICE_NAME}");
+        name.into()
     }
 }
 
