@@ -22,8 +22,12 @@ use awkernel_lib::{
     barrier::{membar_consumer, membar_producer, membar_sync},
     dma_pool::DMAPool,
     interrupt::IRQ,
-    net::net_device::{
-        EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+    net::{
+        multicast::MulticastAddrs,
+        net_device::{
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags,
+        },
     },
     paging::PAGESIZE,
     sync::{
@@ -34,7 +38,7 @@ use awkernel_lib::{
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
 
-const RECV_QUEUE_SIZE: usize = 32; // To Be Determined
+const RECV_QUEUE_SIZE: usize = 128; // To Be Determined
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -476,9 +480,13 @@ impl Virtq {
 
             let data = data[header_len..len as usize].to_vec();
 
-            self.rx_buffer
+            if self
+                .rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
-                .unwrap();
+                .is_err()
+            {
+                log::debug!("virtio-net: rx software queue full; dropping frame");
+            }
 
             freed += self.virtio_dequeue_commit(slot);
         }
@@ -637,6 +645,7 @@ struct VirtioNetInner {
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    multicast_addrs: MulticastAddrs,
     virtqueues: Vec<Queue>,
     ctrl_vq: Option<Mutex<Virtq>>,
     irq_to_type: BTreeMap<u16, IRQType>,
@@ -656,6 +665,7 @@ impl VirtioNetInner {
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            multicast_addrs: MulticastAddrs::new(),
             virtqueues: Vec::new(),
             ctrl_vq: None,
             irq_to_type: BTreeMap::new(),
@@ -1425,12 +1435,18 @@ impl NetDevice for VirtioNet {
         None
     }
 
-    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
+        inner.vio_iff();
+        Ok(())
     }
 
-    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
+        inner.vio_iff();
+        Ok(())
     }
 
     fn poll_in_service(&self) -> Result<(), NetDevError> {
