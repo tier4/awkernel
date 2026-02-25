@@ -103,6 +103,9 @@ impl fmt::Display for PCIeDeviceErr {
 }
 
 pub(crate) mod registers {
+    use alloc::vec::Vec;
+    use core::fmt;
+
     use bitflags::bitflags;
 
     bitflags! {
@@ -136,6 +139,92 @@ pub(crate) mod registers {
             const BUS_MASTER = 1 << 2; // Enable DMA
             const MEMORY_SPACE = 1 << 1;
             const IO_SPACE = 1 << 0;
+        }
+    }
+
+    impl fmt::Display for StatusCommand {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let mut status_flags = Vec::new();
+
+            if self.contains(Self::DETECTED_PARITY_ERROR) {
+                status_flags.push("Detected Parity Error");
+            }
+            if self.contains(Self::SIGNALED_SYSTEM_ERROR) {
+                status_flags.push("Signaled System Error");
+            }
+            if self.contains(Self::RECEIVED_MASTER_ABORT) {
+                status_flags.push("Received Master Abort");
+            }
+            if self.contains(Self::RECEIVED_TARGET_ABORT) {
+                status_flags.push("Received Target Abort");
+            }
+            if self.contains(Self::SIGNALED_TARGET_ABORT) {
+                status_flags.push("Signaled Target Abort");
+            }
+            if self.contains(Self::MASTER_DATA_PARITY_ERROR) {
+                status_flags.push("Master Data Parity Error");
+            }
+            if self.contains(Self::FAST_BACK_TO_BACK_CAPABLE) {
+                status_flags.push("Fast Back-to-Back Capable");
+            }
+            if self.contains(Self::CAPABLE_66MHZ) {
+                status_flags.push("66MHz Capable");
+            }
+            if self.contains(Self::CAPABILITIES_LIST) {
+                status_flags.push("Capabilities List");
+            }
+            if self.contains(Self::INTERRUPT_STATUS) {
+                status_flags.push("Interrupt Status");
+            }
+
+            let mut command_flags = Vec::new();
+
+            if self.contains(Self::INTERRUPT_DISABLE) {
+                command_flags.push("Interrupt Disable");
+            }
+
+            if self.contains(Self::FAST_BACK_TO_BACK_ENABLE) {
+                command_flags.push("Fast Back-to-Back Enable");
+            }
+
+            if self.contains(Self::SERR_ENABLE) {
+                command_flags.push("SERR Enable");
+            }
+
+            if self.contains(Self::PARITY_ERROR_RESPONSE) {
+                command_flags.push("Parity Error Response");
+            }
+
+            if self.contains(Self::VGA_PALETTE_SNOOP) {
+                command_flags.push("VGA Palette Snoop");
+            }
+
+            if self.contains(Self::MEMORY_WRITE_AND_INVALIDATE_ENABLE) {
+                command_flags.push("Memory Write and Invalidate Enable");
+            }
+
+            if self.contains(Self::SPECIAL_CYCLES) {
+                command_flags.push("Special Cycles");
+            }
+
+            if self.contains(Self::BUS_MASTER) {
+                command_flags.push("Bus Master");
+            }
+
+            if self.contains(Self::MEMORY_SPACE) {
+                command_flags.push("Memory Space");
+            }
+
+            if self.contains(Self::IO_SPACE) {
+                command_flags.push("IO Space");
+            }
+
+            write!(
+                f,
+                "status = [{}], command = [{}]",
+                status_flags.join(", "),
+                command_flags.join(", ")
+            )
         }
     }
 
@@ -239,6 +328,10 @@ impl PCIeDevice for UnknownDevice {
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
+    }
+
+    fn config_space(&self) -> Option<ConfigSpace> {
+        None
     }
 
     fn children(&self) -> Option<&Vec<ChildDevice>> {
@@ -419,6 +512,10 @@ impl PCIeDevice for PCIeBus {
         }
     }
 
+    fn config_space(&self) -> Option<ConfigSpace> {
+        self.info.as_ref().map(|info| info.config_space.clone())
+    }
+
     fn children(&self) -> Option<&Vec<ChildDevice>> {
         Some(&self.devices)
     }
@@ -432,7 +529,16 @@ impl fmt::Display for PCIeBus {
 
 fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u8) -> fmt::Result {
     let indent_str = " ".repeat(indent as usize * 4);
-    write!(f, "{}{}\r\n", indent_str, device.device_name())?;
+    write!(f, "{}{}", indent_str, device.device_name())?;
+
+    if let Some(config_space) = device.config_space() {
+        let status_command = config_space.read_u32(registers::STATUS_COMMAND);
+        let status_command = registers::StatusCommand::from_bits_truncate(status_command);
+
+        write!(f, ", {}\r\n", status_command)?;
+    } else {
+        write!(f, "\r\n")?;
+    }
 
     if let Some(children) = device.children() {
         for child in children.iter() {
@@ -1054,6 +1160,10 @@ impl PCIeInfo {
 
 pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
+
+    fn config_space(&self) -> Option<ConfigSpace> {
+        None
+    }
 
     fn children(&self) -> Option<&Vec<ChildDevice>> {
         None

@@ -2054,6 +2054,11 @@ impl PCIeDevice for Ixgbe {
         let name = format!("{bfd}: {DEVICE_NAME} ({mac_type:?})");
         name.into()
     }
+
+    fn config_space(&self) -> Option<crate::pcie::config_space::ConfigSpace> {
+        let inner = self.inner.read();
+        Some(inner.info.config_space.clone())
+    }
 }
 
 impl NetDevice for Ixgbe {
