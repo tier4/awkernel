@@ -883,12 +883,12 @@ impl VirtioNetInner {
         irq_type: IRQType,
     ) -> Result<IRQ, VirtioDriverErr> {
         let segment_number = self.info.segment_group as usize;
-        let bfd = self.info.get_bfd();
+        let bdf = self.info.get_bdf();
         let msix = self
             .info
             .get_msix_mut()
             .ok_or(VirtioDriverErr::InitFailure)?;
-        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-{idx}");
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bdf}-{idx}");
         let mut irq_new = msix
             .register_handler(
                 irq_name.into(),

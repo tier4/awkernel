@@ -280,12 +280,12 @@ impl Igc {
 
 impl PCIeDevice for Igc {
     fn device_name(&self) -> Cow<'static, str> {
-        let bfd = {
+        let bdf = {
             let inner = self.inner.read();
-            inner.info.get_bfd()
+            inner.info.get_bdf()
         };
 
-        let name = format!("{bfd}: {DEVICE_NAME}");
+        let name = format!("{bdf}: {DEVICE_NAME}");
         name.into()
     }
 
@@ -1012,7 +1012,7 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
 /// This function initialize IRQs for the IGC device,
 /// and returns IRQs for the Rx/Tx queues and an IRQ for events.
 fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PCIeDeviceErr> {
-    let bfd = info.get_bfd();
+    let bdf = info.get_bdf();
     let segment_number = info.segment_group as usize;
 
     let msix = info.get_msix_mut().ok_or(PCIeDeviceErr::InitFailure)?;
@@ -1036,7 +1036,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     let mut irqs_queues = Vec::with_capacity(nqueues as usize);
 
     for q in 0..nqueues {
-        let irq_name_rxtx = format!("{DEVICE_SHORT_NAME}-{bfd}-RxTx{q}");
+        let irq_name_rxtx = format!("{DEVICE_SHORT_NAME}-{bdf}-RxTx{q}");
         let mut irq_rxtx = msix
             .register_handler(
                 irq_name_rxtx.into(),
@@ -1053,7 +1053,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     }
 
     // Initialize the IRQs for the events.
-    let irq_name_other = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
+    let irq_name_other = format!("{DEVICE_SHORT_NAME}-{bdf}-Other");
     let mut irq_other = msix
         .register_handler(
             irq_name_other.into(),
