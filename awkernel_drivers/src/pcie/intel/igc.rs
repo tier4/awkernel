@@ -692,24 +692,51 @@ impl IgcInner {
     fn dump(&self) {
         let mut msg = alloc::string::String::new();
 
+        msg = format!("BDF: {}\r\n", self.info.get_bdf());
+
+        let pci_status_command = self
+            .info
+            .config_space
+            .read_u32(crate::pcie::registers::STATUS_COMMAND);
+
+        if let Some(reg) = crate::pcie::registers::StatusCommand::from_bits(pci_status_command) {
+            msg = format!("{msg}PCI Status Command: {reg}\r\n");
+        }
+
+        msg = format!(
+            "{msg}MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n",
+            self.hw.mac.addr[0],
+            self.hw.mac.addr[1],
+            self.hw.mac.addr[2],
+            self.hw.mac.addr[3],
+            self.hw.mac.addr[4],
+            self.hw.mac.addr[5]
+        );
+
+        let gpie = read_reg(&self.info, igc_regs::IGC_GPIE).unwrap_or(0);
+        msg = format!("{msg}GPIE: {gpie:#08x}\r\n");
+
+        let eimc = read_reg(&self.info, igc_regs::IGC_EIMC).unwrap_or(0);
+        msg = format!("{msg}EIMC: {eimc:#08x}\r\n");
+
         let eims = read_reg(&self.info, igc_regs::IGC_EIMS).unwrap_or(0);
-        msg = format!("{msg}EIMS: 0x{eims:#08x}\r\n");
+        msg = format!("{msg}EIMS: {eims:#08x}\r\n");
 
         let ims = read_reg(&self.info, igc_regs::IGC_IMS).unwrap_or(0);
-        msg = format!("{msg}IMS: 0x{ims:#08x}\r\n");
+        msg = format!("{msg}IMS: {ims:#08x}\r\n");
 
         let eiac = read_reg(&self.info, igc_regs::IGC_EIAC).unwrap_or(0);
-        msg = format!("{msg}EIAC: 0x{eiac:#08x}\r\n");
+        msg = format!("{msg}EIAC: {eiac:#08x}\r\n");
 
         let eiam = read_reg(&self.info, igc_regs::IGC_EIAM).unwrap_or(0);
-        msg = format!("{msg}EIAM: 0x{eiam:#08x}\r\n");
+        msg = format!("{msg}EIAM: {eiam:#08x}\r\n");
 
         let ivar0 = read_reg(&self.info, igc_regs::IGC_IVAR0).unwrap_or(0);
-        msg = format!("{msg}IVAR0: 0x{ivar0:#08x}\r\n");
+        msg = format!("{msg}IVAR0: {ivar0:#08x}\r\n");
         let ivar1 = read_reg(&self.info, igc_regs::IGC_IVAR0 + 4).unwrap_or(0);
-        msg = format!("{msg}IVAR1: 0x{ivar1:#08x}\r\n");
+        msg = format!("{msg}IVAR1: {ivar1:#08x}\r\n");
         let ivar_misc = read_reg(&self.info, igc_regs::IGC_IVAR_MISC).unwrap_or(0);
-        msg = format!("{msg}IVAR_MISC: 0x{ivar_misc:#08x}\r\n");
+        msg = format!("{msg}IVAR_MISC: {ivar_misc:#08x}\r\n");
 
         if let Some(msix) = self.info.get_msix() {
             let msix_msg = msix.dump(&self.info);
@@ -717,49 +744,49 @@ impl IgcInner {
         }
 
         let rctl = read_reg(&self.info, igc_regs::IGC_RCTL).unwrap_or(0);
-        msg = format!("{msg}RCTL: 0x{rctl:#08x}\r\n");
+        msg = format!("{msg}RCTL: {rctl:#08x}\r\n");
 
         for i in 0..self.queue_info.que.len() {
             let qctl = read_reg(&self.info, igc_regs::IGC_RXDCTL(i)).unwrap_or(0);
-            msg = format!("{msg}RXDCTL{i}: 0x{qctl:#08x}\r\n");
+            msg = format!("{msg}RXDCTL{i}: {qctl:#08x}\r\n");
 
             let rdh = read_reg(&self.info, igc_regs::IGC_RDH(i)).unwrap_or(0);
-            msg = format!("{msg}RDH{i}: 0x{rdh:#08x}\r\n");
+            msg = format!("{msg}RDH{i}: {rdh:#08x}\r\n");
 
             let rdt = read_reg(&self.info, igc_regs::IGC_RDT(i)).unwrap_or(0);
-            msg = format!("{msg}RDT{i}: 0x{rdt:#08x}\r\n");
+            msg = format!("{msg}RDT{i}: {rdt:#08x}\r\n");
 
             let rdlen = read_reg(&self.info, igc_regs::IGC_RDLEN(i)).unwrap_or(0);
-            msg = format!("{msg}RDLEN{i}: 0x{rdlen:#08x}\r\n");
+            msg = format!("{msg}RDLEN{i}: {rdlen:#08x}\r\n");
 
             let rdbah = read_reg(&self.info, igc_regs::IGC_RDBAH(i)).unwrap_or(0);
-            msg = format!("{msg}RDBAH{i}: 0x{rdbah:#08x}\r\n");
+            msg = format!("{msg}RDBAH{i}: {rdbah:#08x}\r\n");
 
             let rdbal = read_reg(&self.info, igc_regs::IGC_RDBAL(i)).unwrap_or(0);
-            msg = format!("{msg}RDBAL{i}: 0x{rdbal:#08x}\r\n");
+            msg = format!("{msg}RDBAL{i}: {rdbal:#08x}\r\n");
         }
 
         let tctl = read_reg(&self.info, igc_regs::IGC_TCTL).unwrap_or(0);
-        msg = format!("{msg}TCTL: 0x{tctl:#08x}\r\n");
+        msg = format!("{msg}TCTL: {tctl:#08x}\r\n");
 
         for i in 0..self.queue_info.que.len() {
             let qctl = read_reg(&self.info, igc_regs::IGC_TXDCTL(i)).unwrap_or(0);
-            msg = format!("{msg}TXDCTL{i}: 0x{qctl:#08x}\r\n");
+            msg = format!("{msg}TXDCTL{i}: {qctl:#08x}\r\n");
 
             let txd = read_reg(&self.info, igc_regs::IGC_TDH(i)).unwrap_or(0);
-            msg = format!("{msg}TDH{i}: 0x{txd:#08x}\r\n");
+            msg = format!("{msg}TDH{i}: {txd:#08x}\r\n");
 
             let tdt = read_reg(&self.info, igc_regs::IGC_TDT(i)).unwrap_or(0);
-            msg = format!("{msg}TDT{i}: 0x{tdt:#08x}\r\n");
+            msg = format!("{msg}TDT{i}: {tdt:#08x}\r\n");
 
             let tdlen = read_reg(&self.info, igc_regs::IGC_TDLEN(i)).unwrap_or(0);
-            msg = format!("{msg}TDLEN{i}: 0x{tdlen:#08x}\r\n");
+            msg = format!("{msg}TDLEN{i}: {tdlen:#08x}\r\n");
 
             let tdbah = read_reg(&self.info, igc_regs::IGC_TDBAH(i)).unwrap_or(0);
-            msg = format!("{msg}TDBAH{i}: 0x{tdbah:#08x}\r\n");
+            msg = format!("{msg}TDBAH{i}: {tdbah:#08x}\r\n");
 
             let tdbal = read_reg(&self.info, igc_regs::IGC_TDBAL(i)).unwrap_or(0);
-            msg = format!("{msg}TDBAL{i}: 0x{tdbal:#08x}\r\n");
+            msg = format!("{msg}TDBAL{i}: {tdbal:#08x}\r\n");
         }
 
         log::debug!("igc: dump:\r\n{msg}");
