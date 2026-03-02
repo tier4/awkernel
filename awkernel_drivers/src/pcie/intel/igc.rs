@@ -262,6 +262,7 @@ impl Igc {
             drop(inner);
             {
                 let mut inner = self.inner.write();
+                inner.hw.mac.get_link_status = true;
                 inner.igc_intr_link()?;
             }
             inner = self.inner.read();
@@ -297,12 +298,17 @@ impl PCIeDevice for Igc {
 
 impl NetDevice for Igc {
     fn tick_msec(&self) -> Option<u64> {
-        Some(200)
+        Some(60000)
     }
 
     fn tick(&self) -> Result<(), net_device::NetDevError> {
-        self.intr(None)
-            .or(Err(net_device::NetDevError::DeviceError))
+        // self.intr(None)
+        //     .or(Err(net_device::NetDevError::DeviceError))
+
+        let inner = self.inner.read();
+        inner.dump();
+
+        Ok(())
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {

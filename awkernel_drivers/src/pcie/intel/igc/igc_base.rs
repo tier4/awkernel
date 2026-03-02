@@ -157,7 +157,7 @@ pub(super) fn igc_power_down_phy_copper_base(
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
     // If the management interface is not enabled, then power down
-    if ops.check_reset_block(info).is_ok() {
+    if ops.check_reset_block(info).is_err() {
         igc_power_down_phy_copper(ops, info, hw)?;
     }
 
