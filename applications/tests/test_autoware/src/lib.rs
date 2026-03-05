@@ -159,22 +159,26 @@ pub async fn run() {
     // ダミーデータ送信用リアクター
     // MODIFIED: 周期を10msから50msに変更（Autowareのekf_data_publisher.pyと同じ周期）
     // これにより、CSVデータの消費速度が両システムで一致する
-    dag.register_periodic_reactor::<_, ((i32, u32), (i32, u32), (i32, u32))>(
+    dag.register_periodic_reactor::<_, ((Arc<i32>, u32), (Arc<i32>, u32), (Arc<i32>, u32))>(
         "start_dummy_data".into(),
-        move || -> ((i32, u32), (i32, u32), (i32, u32)) {
+        move || -> ((Arc<i32>, u32), (Arc<i32>, u32), (Arc<i32>, u32)) {
             let period_id = get_period_count(dag_id as usize) as u32;
-            return ((1, period_id), (2, period_id), (3, period_id)); // 通常のデータ処理用の値
+            return (
+                (Arc::new(1), period_id),
+                (Arc::new(2), period_id),
+                (Arc::new(3), period_id),
+            ); // 通常のデータ処理用の値
         },
         vec![Cow::from("start_imu"),Cow::from("start_vel"),Cow::from("start_pose")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
         Duration::from_millis(50)  // CHANGED: 10ms -> 50ms (Autowareと同じ)
     )
     .await;
 
     // IMU driver node (periodic_reactor) - Dummy data generator
-    dag.register_reactor::<_, ((i32, u32),), ((ImuMsg, u32),)>(
+    dag.register_reactor::<_, ((Arc<i32>, u32),), ((Arc<ImuMsg>, u32),)>(
         "imu_driver".into(),
-        move |((_a, period_id),): ((i32, u32),)| -> ((ImuMsg, u32),) {
+        move |((_a, period_id),): ((Arc<i32>, u32),)| -> ((Arc<ImuMsg>, u32),) {
             let mut node = MCSNode::new();
             let mut count_guard = IMU_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
@@ -225,18 +229,18 @@ pub async fn run() {
                 );
             }
 
-            ((imu_msg, period_id),)
+            ((Arc::new(imu_msg), period_id),)
         },
         vec![Cow::from("start_imu")],
         vec![Cow::from("imu_data")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     // Vehicle Velocity Converter node - VelocityReport to TwistWithCovarianceStamped converter
-    dag.register_reactor::<_, ((i32, u32),), ((TwistWithCovarianceStamped, u32),)>(
+    dag.register_reactor::<_, ((Arc<i32>, u32),), ((Arc<TwistWithCovarianceStamped>, u32),)>(
         "vehicle_velocity_converter".into(),
-        move |((_b, period_id),): ((i32, u32),)| -> ((TwistWithCovarianceStamped, u32),) {
+        move |((_b, period_id),): ((Arc<i32>, u32),)| -> ((Arc<TwistWithCovarianceStamped>, u32),) {
             let converter = VehicleVelocityConverter::default();
             
             let mut node = MCSNode::new();
@@ -275,37 +279,37 @@ pub async fn run() {
                 );
             }
             
-            ((twist_msg, period_id),)
+            ((Arc::new(twist_msg), period_id),)
         },
         vec![Cow::from("start_vel")], // Subscribe to start_vel topic
         vec![Cow::from("velocity_twist")], // Publish to twist_with_covariance topic
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     //Imu Corrector
-    dag.register_reactor::<_, ((ImuMsg, u32),), ((ImuWithCovariance, u32),)>(
+    dag.register_reactor::<_, ((Arc<ImuMsg>, u32),), ((Arc<ImuWithCovariance>, u32),)>(
         "imu_corrector".into(),
-        |((imu_msg, period_id),): ((ImuMsg, u32),)| -> ((ImuWithCovariance, u32),) {
+        |((imu_msg, period_id),): ((Arc<ImuMsg>, u32),)| -> ((Arc<ImuWithCovariance>, u32),) {
             
             let corrector = ImuCorrector::new();
             // Use the enhanced corrector that outputs ImuWithCovariance
-            let corrected = corrector.correct_imu_with_covariance(&imu_msg, None);
+            let corrected = corrector.correct_imu_with_covariance(imu_msg.as_ref(), None);
             // if LOG_ENABLE {
             //     log::debug!("IMU corrected in imu_corrector node with covariance");
             // }
-            ((corrected, period_id),)
+            ((Arc::new(corrected), period_id),)
         },
         vec![Cow::from("imu_data")],
         vec![Cow::from("corrected_imu_data")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     // Gyro Odometer node - Simplified single processing step
-    dag.register_reactor::<_, ((ImuWithCovariance, u32), (TwistWithCovarianceStamped, u32)), ((TwistWithCovarianceStamped, u32),)>(
+    dag.register_reactor::<_, ((Arc<ImuWithCovariance>, u32), (Arc<TwistWithCovarianceStamped>, u32)), ((Arc<TwistWithCovarianceStamped>, u32),)>(
         "gyro_odometer".into(),
-        |((imu_with_cov, period_imu), (vehicle_twist, _period_twist)): ((ImuWithCovariance, u32), (TwistWithCovarianceStamped, u32))| -> ((TwistWithCovarianceStamped, u32),) {
+        |((imu_with_cov, period_imu), (vehicle_twist, _period_twist)): ((Arc<ImuWithCovariance>, u32), (Arc<TwistWithCovarianceStamped>, u32))| -> ((Arc<TwistWithCovarianceStamped>, u32),) {
             let current_timestamp = imu_with_cov.header.timestamp;
             let current_time = get_awkernel_uptime_timestamp();
             
@@ -313,30 +317,30 @@ pub async fn run() {
             let gyro_odometer = match gyro_odometer::get_or_initialize() {
                 Ok(core) => core,
                 Err(_) => {
-                    return ((reactor_helpers::create_empty_twist(current_timestamp), period_imu),);
+                    return ((Arc::new(reactor_helpers::create_empty_twist(current_timestamp)), period_imu),);
                 }
             };
 
             // Add both messages to queues (both arrive together in test_autoware)
-            gyro_odometer.add_vehicle_twist(vehicle_twist);
-            gyro_odometer.add_imu(imu_with_cov);
+            gyro_odometer.add_vehicle_twist(vehicle_twist.as_ref().clone());
+            gyro_odometer.add_imu(imu_with_cov.as_ref().clone());
             
             // Process once with current time and return result
             match gyro_odometer.process_and_get_result(current_time) {
-                Some(result) => ((gyro_odometer.process_result(result), period_imu),),
-                None => ((reactor_helpers::create_empty_twist(current_timestamp), period_imu),)
+                Some(result) => ((Arc::new(gyro_odometer.process_result(result)), period_imu),),
+                None => ((Arc::new(reactor_helpers::create_empty_twist(current_timestamp)), period_imu),)
             }
         },
         vec![Cow::from("corrected_imu_data"),Cow::from("velocity_twist")],
         vec![Cow::from("twist_with_covariance")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     // Pose dummy data generator reactor
-    dag.register_reactor::<_, ((i32, u32),), ((Pose, u32),)>(
+    dag.register_reactor::<_, ((Arc<i32>, u32),), ((Arc<Pose>, u32),)>(
         "pose_dummy_generator".into(),
-        move |((_counter, period_id),): ((i32, u32),)| -> ((Pose, u32),) {
+        move |((_counter, period_id),): ((Arc<i32>, u32),)| -> ((Arc<Pose>, u32),) {
             // Generate dummy pose data that moves in a circle
             // let time = counter as f64 * 0.1; // Time progression
             // let radius = 10.0; // Circle radius
@@ -368,33 +372,33 @@ pub async fn run() {
             //         pose.position.x, pose.position.y, yaw, counter);
             // }
             
-            ((pose, period_id),)
+            ((Arc::new(pose), period_id),)
         },
         vec![Cow::from("start_pose")],
         vec![Cow::from("dummy_pose")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     // EKF Localizer reactor - combines pose and twist data
     // MODIFIED: 手動積分（integrated_pose）を廃止し、EKFの内部状態から直接ポーズを取得するように変更
-    dag.register_reactor::<_, ((Pose, u32), (TwistWithCovarianceStamped, u32)), ((Pose, u32), (EKFOdometry, u32))>(
+    dag.register_reactor::<_, ((Arc<Pose>, u32), (Arc<TwistWithCovarianceStamped>, u32)), ((Arc<Pose>, u32), (Arc<EKFOdometry>, u32))>(
         "ekf_localizer".into(),
-        |((pose, period_pose), (twist, _period_twist)): ((Pose, u32), (TwistWithCovarianceStamped, u32))| -> ((Pose, u32), (EKFOdometry, u32)) {
+        |((pose, period_pose), (twist, _period_twist)): ((Arc<Pose>, u32), (Arc<TwistWithCovarianceStamped>, u32))| -> ((Arc<Pose>, u32), (Arc<EKFOdometry>, u32)) {
             // Initialize EKF Localizer if not already done
             if get_ekf_localizer().is_none() {
                 if let Err(e) = initialize_ekf_localizer() {
                     // if LOG_ENABLE {
                         // log::error!("Failed to initialize EKF Localizer: {}", e);
                     // }
-                    return ((pose, period_pose), (EKFOdometry {
+                    return ((pose.clone(), period_pose), (Arc::new(EKFOdometry {
                         header: imu_driver::Header {
                             frame_id: "map",
                             timestamp: twist.header.timestamp,
                         },
                         child_frame_id: "base_link",
                         pose: PoseWithCovariance {
-                            pose: pose,
+                            pose: pose.as_ref().clone(),
                             covariance: EKF_POSE_COVARIANCE,
                         },
                         twist: TwistWithCovariance {
@@ -404,7 +408,7 @@ pub async fn run() {
                             },
                             covariance: EKF_TWIST_COVARIANCE,
                         },
-                    }, period_pose));
+                    }), period_pose));
                 }
             }
             
@@ -414,7 +418,7 @@ pub async fn run() {
             static mut INITIALIZED: bool = false;
             unsafe {
                 if !INITIALIZED {
-                    ekf.initialize(pose.clone());
+                    ekf.initialize(pose.as_ref().clone());
                     // COMMENTED OUT: 手動積分用の変数は使用しない
                     // DR_POSE = Some(pose.clone());
                     LAST_DR_TIMESTAMP.store(twist.header.timestamp, Ordering::Relaxed);
@@ -424,6 +428,19 @@ pub async fn run() {
                     // }
                 }
             }
+            
+            // MRM (Minimal Risk Maneuver) mode is normally disabled
+            // When MRM is false (normal mode):
+            // - 1. predict_next_state: Execute nonlinear state transition
+            // - 2. create_state_transition_matrix: Calculate Jacobian matrix (F)
+            // - 3. process_noise_covariance: Calculate process noise (Q)
+            // - 4. predict_covariance: P = F * P * F^T + Q
+            // - 5. update_velocity: Measurement update for velocity observations
+            //
+            // When MRM is true (emergency mode):
+            // - Execute only steps 1-4 (prediction only, no measurement updates)
+            // - Dead reckoning based on motion model alone
+            ekf.set_mrm_mode(false);  // Normal mode: all processing enabled
             
             // Predict step using measured time gap
             // MODIFIED: CSVタイムスタンプ差ではなく、固定dtを使用
@@ -445,13 +462,20 @@ pub async fn run() {
             let dt = FIXED_DT;
 
             if dt > 0.0 {
+                // Step 1-4: Prediction (always executed)
+                // 1. predict_next_state: x_{k+1} = x_k + vx * cos(yaw + bias) * dt
+                // 2. create_state_transition_matrix: Jacobian matrix F calculation
+                // 3. process_noise_covariance: Q = sigma^2 * dt^2
+                // 4. predict_covariance: P = F * P * F^T + Q
                 ekf.predict(dt);
             }
 
-            // ADDED: EKFに速度観測値を更新（カルマンフィルタの観測更新ステップ）
+            // Step 5: Measurement update (skipped during MRM mode)
+            // When MRM mode is false (normal operation), velocity measurements are applied
+            // This improves the estimate by incorporating sensor observations
             let vx = twist.twist.twist.linear.x;
             let wz = twist.twist.twist.angular.z;
-            ekf.update_velocity(vx, wz);
+            ekf.update_velocity(vx, wz);  // Skipped if is_mrm_mode == true
 
             // COMMENTED OUT: 手動積分（Dead Reckoning）処理
             // Autowareとの精度向上のため、EKF内部状態から直接ポーズを取得するように変更
@@ -525,18 +549,19 @@ pub async fn run() {
             // COMMENTED OUT: 手動積分のポーズを返していた
             // (integrated_pose, odometry)
             // MODIFIED: EKFの推定ポーズを返す
-            ((ekf_pose, period_pose), (odometry, period_pose))
+            ((Arc::new(ekf_pose), period_pose), (Arc::new(odometry), period_pose))
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
     )
     .await;
 
     // Sink reactor for EKF Localizer output with TCP sending
-    dag.register_sink_reactor::<_, ((Pose, u32), (EKFOdometry, u32))>(
+    dag.register_sink_reactor::<_, ((Arc<Pose>, u32), (Arc<EKFOdometry>, u32))>(
         "ekf_sink".into(),
-        move|((_pose, _period_pose), (ekf_odom, _period_odom)): ((Pose, u32), (EKFOdometry, u32))| {
+        move|((_pose, _period_pose), (ekf_odom, _period_odom)): ((Arc<Pose>, u32), (Arc<EKFOdometry>, u32))| {
+            let ekf_odom = ekf_odom.as_ref();
             // log::info!("=== EKF Sink Reactor 実行 ===");
             
             // if LOG_ENABLE {
@@ -591,7 +616,7 @@ pub async fn run() {
             save_json_data_to_global(json_data);
         },
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
-        SchedulerType::GEDF(5),
+        SchedulerType::GEDF(0),
         Duration::from_millis(50),  // CHANGED: 10ms -> 50ms (Autowareと同じ)
     )
     .await;

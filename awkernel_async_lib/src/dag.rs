@@ -62,7 +62,7 @@ use crate::{
     }, 
     scheduler::SchedulerType, 
     task::{
-        DagInfo, perf::{NodeRecord, get_period_count, get_pub_count, get_sink_count, get_sub_count, increment_period_count, increment_pub_count, increment_sink_count, increment_sub_count, node_finish, node_start, publish_timestamp_at, subscribe_timestamp_at, update_fin_recv_outer_timestamp_at},
+        DagInfo, perf::{NodeRecord, get_period_count, get_pub_count, get_sink_count, get_sub_count, increment_period_count, increment_pub_count, increment_sink_count, increment_sub_count, node_finish, node_start, publish_timestamp_at, subscribe_timestamp_at, update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at},
     }, 
     time_interval::interval
 };
@@ -1084,14 +1084,16 @@ where
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
             // [end] pubsub communication latency
-            // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // let index_subscribe = get_period(&args).clone() as usize;
-            // let count_st = get_period(&args);
-            // subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
-            // let cpu_id = awkernel_lib::cpu::cpu_id();
-            // if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-            //     crate::task::set_task_period(task_id, Some(count_st));
-            // }
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            let index_subscribe = get_period(&args).clone() as usize;
+            let count_st = get_period(&args);
+            subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
+
+            // period count from message to TaskInfo
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                crate::task::set_task_period(task_id, Some(count_st));
+            }
             // let noderecord = NodeRecord {
             //     period_count: count_st,
             //     dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
@@ -1105,9 +1107,9 @@ where
             // let index_publish = get_period(&args) as usize;
             
             // [start] pubsub communication latency
-            // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // publish_timestamp_at(count_st as usize, end,1, dag_info.node_id.clone());
-            publishers.send_all(results).await;
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            publish_timestamp_at(count_st as usize, end,1, dag_info.node_id.clone());
+            publishers.send_all_with_meta(results, 1, count_st as usize, dag_info.node_id).await;
         }
     };
 
@@ -1154,6 +1156,7 @@ where
             if let Some(task_id) = crate::task::get_current_task(cpu_id) {
                 crate::task::set_task_period(task_id, Some(index as u32));
             }
+            // [node] per node 
             // let noderecord = NodeRecord {
             //     period_count: index as u32,
             //     dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
@@ -1161,6 +1164,10 @@ where
             // node_period_count(noderecord.clone());
             // let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             // node_start(noderecord.clone(), start);
+            if index != 0 {
+                let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                update_pre_send_outer_timestamp_at(index, release_time, dag_info.dag_id.clone());
+            }
             let results = f();
             // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             // node_finish(noderecord.clone(), end);
@@ -1168,13 +1175,13 @@ where
             // let index_publish = get_pub_count(0) as usize;
             
             // [start] pubsub communication latency
-            // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // publish_timestamp_at(index_publish, end, 0, dag_info.node_id.clone());
-            publishers.send_all(results).await;
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            publish_timestamp_at(index, end, 0, dag_info.node_id);
+            publishers.send_all_with_meta(results, 0, index, dag_info.node_id).await;
             
 
             increment_period_count(dag_info.dag_id.clone() as usize);
-            // increment_pub_count(0);
+            increment_pub_count(0);
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1223,17 +1230,21 @@ where
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
             // [end] pubsub communication latency
-            // let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            // let index_subscribe = get_period(&args) as usize;
-            // let count_st = get_period(&args);
-            // subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
-            // increment_pub_count(1);
-            // increment_sub_count(1);
-            // increment_sub_count(2);
-            // let cpu_id = awkernel_lib::cpu::cpu_id();
-            // if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-            //     crate::task::set_task_period(task_id, Some(count_st));
-            // }
+            let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            let index_subscribe = get_period(&args) as usize;
+            let count_st = get_period(&args);
+            subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
+            increment_pub_count(1);
+            increment_sub_count(1);
+            increment_sub_count(2);
+
+            // period count from message to TaskInfo
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                crate::task::set_task_period(task_id, Some(count_st));
+            }
+
+            // [node] per node
             // let noderecord = NodeRecord {
             //     period_count: count_st,
             //     dag_info: DagInfo { dag_id: dag_info.dag_id.clone(), node_id: dag_info.node_id.clone() },
@@ -1246,8 +1257,10 @@ where
             // node_finish(noderecord.clone(), end);
             let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             let counter = get_sink_count(dag_info.dag_id.clone() as usize) as usize;
-            update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id);
-            // update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+            if count_st != 0 {
+                // update_fin_recv_outer_timestamp_at(counter, timenow, dag_info.dag_id.clone());
+                update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+            }
             increment_sink_count(dag_info.dag_id.clone() as usize);
         }
     };

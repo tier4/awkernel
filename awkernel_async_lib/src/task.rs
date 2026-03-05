@@ -587,11 +587,11 @@ pub mod perf {
     static DAG_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
 
     //DAG+1
-    const MAX_DAGS: usize = 4;
+    const MAX_DAGS: usize = 3;
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
     pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
-    const MAX_NODES: usize = 20;
+    const MAX_NODES: usize = 10;
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
     static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);

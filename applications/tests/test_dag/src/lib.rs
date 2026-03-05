@@ -9,7 +9,7 @@ use core::time::Duration;
 use awkernel_async_lib::task::perf::get_period_count;
 
 const LOG_ENABLE: bool = false;
-const DATA_SIZE: usize = 65536;
+const DATA_SIZE: usize = 128;
 
 pub async fn run() {
     wait_microsec(1000000);

@@ -132,14 +132,14 @@ impl Scheduler for GEDFScheduler {
             let dag_id = dag_info.clone().unwrap().dag_id;
             let node_id = dag_info.clone().unwrap().node_id;
             let dag = get_dag(dag_id.clone()).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
-            let current_node_index = to_node_index(node_id);
-            if dag.is_source_node(current_node_index) {
-                // Update timestamp here
-                let index = get_period_count(dag_id.clone() as usize) as usize;
-                if index != 0 {
-                    update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
-                }
-            }
+            // let current_node_index = to_node_index(node_id);
+            // if dag.is_source_node(current_node_index) {
+            //     // Update timestamp here
+            //     let index = get_period_count(dag_id.clone() as usize) as usize;
+            //     if index != 0 {
+            //         update_pre_send_outer_timestamp_at(index, release_time, dag_id.clone());
+            //     }
+            // }
             let sink_relative_deadline = dag.get_sink_relative_deadline()
                 .map(|deadline| deadline.as_nanos() as u64)
                 .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"));
