@@ -73,8 +73,8 @@ There are several methods regarding the `PCIeBus` structure.
 impl PCIeDevice for PCIeBus {
     fn device_name(&self) -> Cow<'static, str> {
         if let Some(info) = self.info.as_ref() {
-            let bfd = info.get_bfd();
-            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            let bdf = info.get_bdf();
+            let name = format!("{bdf}: Bridge, Bus #{:02x}", self.bus_number);
             name.into()
         } else {
             let name = format!("Bus #{:02x}", self.bus_number);
@@ -141,7 +141,7 @@ There are several methods regarding `PCIeInfo` structure.
 | `fn from_addr(...)` | Construct the `PCIeInfo` structure using virtual address. |
 | `fn new(...)` | Construct the `PCIeInfo` structure. |
 | `fn init_base_address(&mut self, ranges: &mut [PCIeRange])` | Initialize the base address of the `PCIeInfo` based on the PCIe memory range. |
-| `pub fn get_bfd(&self)` | Get PCIe information in BDF (Bus, Device, Function) format. |
+| `pub fn get_bdf(&self)` | Get PCIe information in BDF (Bus, Device, Function) format. |
 | `pub fn get_secondary_bus(&self)` | Get the number of the PCIe secondary bus. |
 | `pub fn get_device_name(&self)` | Get the name of the PCIe device. |
 | `pub fn get_class(&self)` | Get the PCIe device classification. |
@@ -231,13 +231,13 @@ struct UnknownDevice {
 ```rust
 impl PCIeDevice for PCIeBus {
     fn device_name(&self) -> Cow<'static, str> {
-        let bfd = format!(
+        let bdf = format!(
             "{:04x}:{:02x}:{:02x}.{:01x}",
             self.segment_group, self.bus_number, self.device_number, self.function_number
         );
 
         let name = format!(
-            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            "{bdf}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
@@ -532,7 +532,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
                 ChildDevice::Unattached(info) => {
                     let name = format!(
                         "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
-                        info.get_bfd(),
+                        info.get_bdf(),
                         info.vendor,
                         info.id,
                         info.pcie_class,
