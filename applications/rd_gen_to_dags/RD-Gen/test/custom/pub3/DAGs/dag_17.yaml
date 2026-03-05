@@ -1,0 +1,31 @@
+directed: true
+graph: {}
+links:
+- source: 0
+  target: 1
+- source: 0
+  target: 2
+- source: 0
+  target: 3
+- source: 0
+  target: 4
+- source: 1
+  target: 2
+- source: 3
+  target: 2
+- source: 4
+  target: 2
+multigraph: false
+nodes:
+- execution_time: 2
+  id: 0
+  period: 50
+- execution_time: 49
+  id: 1
+- end_to_end_deadline: 105
+  execution_time: 45
+  id: 2
+- execution_time: 2
+  id: 3
+- execution_time: 2
+  id: 4
