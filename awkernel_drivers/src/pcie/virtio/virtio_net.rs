@@ -22,8 +22,12 @@ use awkernel_lib::{
     barrier::{membar_consumer, membar_producer, membar_sync},
     dma_pool::DMAPool,
     interrupt::IRQ,
-    net::net_device::{
-        EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+    net::{
+        multicast::MulticastAddrs,
+        net_device::{
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags,
+        },
     },
     paging::PAGESIZE,
     sync::{
@@ -34,7 +38,7 @@ use awkernel_lib::{
 
 const DEVICE_SHORT_NAME: &str = "virtio-net";
 
-const RECV_QUEUE_SIZE: usize = 32; // To Be Determined
+const RECV_QUEUE_SIZE: usize = 128; // To Be Determined
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -43,6 +47,7 @@ const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
 const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
 const VIRTIO_NET_F_CTRL_VQ: u64 = 1 << 17;
+const VIRTIO_NET_F_CTRL_RX: u64 = 1 << 18;
 const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // Reserved Feature Bits
@@ -476,9 +481,13 @@ impl Virtq {
 
             let data = data[header_len..len as usize].to_vec();
 
-            self.rx_buffer
+            if self
+                .rx_buffer
                 .push(EtherFrameBuf { data, vlan: None })
-                .unwrap();
+                .is_err()
+            {
+                log::debug!("virtio-net: rx software queue full; dropping frame");
+            }
 
             freed += self.virtio_dequeue_commit(slot);
         }
@@ -593,6 +602,54 @@ const _VIRTIO_NET_HDR_GSO_UDP: u8 = 3;
 const _VIRTIO_NET_HDR_GSO_TCPV6: u8 = 4;
 const _VIRTIO_NET_HDR_GSO_ECN: u8 = 0x80;
 
+const VIRTIO_NET_CTRL_RX_CLASS: u8 = 0;
+const VIRTIO_NET_CTRL_MAC: u8 = 1;
+
+const VIRTIO_NET_CTRL_RX_PROMISC: u8 = 0;
+const VIRTIO_NET_CTRL_RX_ALLMULTI: u8 = 1;
+const VIRTIO_NET_CTRL_MAC_TABLE_SET: u8 = 0;
+
+const VIRTIO_NET_CTRL_OK: u8 = 0;
+const VIRTIO_NET_CTRL_STAT_PENDING: u8 = 0xff;
+const VIRTIO_NET_CTRL_WAIT_SPINS: usize = 100_000;
+const VIRTIO_NET_CTRL_MAC_UC_ENTRIES: usize = 1;
+const VIRTIO_NET_CTRL_MAC_MC_ENTRIES: usize = 64;
+
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+struct VirtioNetCtrlCmd {
+    class: u8,
+    cmd: u8,
+}
+
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+struct VirtioNetCtrlStatus {
+    ack: u8,
+}
+
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+struct VirtioNetCtrlRx {
+    onoff: u8,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct VirtioNetCtrlMacTable<const N: usize> {
+    nentries: u32,
+    macs: [[u8; 6]; N],
+}
+
+impl<const N: usize> Default for VirtioNetCtrlMacTable<N> {
+    fn default() -> Self {
+        Self {
+            nentries: 0,
+            macs: [[0; 6]; N],
+        }
+    }
+}
+
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
 }
@@ -637,6 +694,13 @@ struct VirtioNetInner {
     active_features: u64,
     flags: NetFlags,
     capabilities: NetCapabilities,
+    multicast_addrs: MulticastAddrs,
+    ctrl_cmd: Option<DMAPool<VirtioNetCtrlCmd>>,
+    ctrl_status: Option<DMAPool<VirtioNetCtrlStatus>>,
+    ctrl_rx: Option<DMAPool<VirtioNetCtrlRx>>,
+    ctrl_mac_uc: Option<DMAPool<VirtioNetCtrlMacTable<VIRTIO_NET_CTRL_MAC_UC_ENTRIES>>>,
+    ctrl_mac_mc: Option<DMAPool<VirtioNetCtrlMacTable<VIRTIO_NET_CTRL_MAC_MC_ENTRIES>>>,
+    ctrl_mac_table_supported: bool,
     virtqueues: Vec<Queue>,
     ctrl_vq: Option<Mutex<Virtq>>,
     irq_to_type: BTreeMap<u16, IRQType>,
@@ -656,8 +720,15 @@ impl VirtioNetInner {
             active_features: 0,
             flags: NetFlags::empty(),
             capabilities: NetCapabilities::empty(),
+            multicast_addrs: MulticastAddrs::new(),
             virtqueues: Vec::new(),
             ctrl_vq: None,
+            ctrl_cmd: None,
+            ctrl_status: None,
+            ctrl_rx: None,
+            ctrl_mac_uc: None,
+            ctrl_mac_mc: None,
+            ctrl_mac_table_supported: true,
             irq_to_type: BTreeMap::new(),
             pcie_int: PCIeInt::None,
         }
@@ -708,6 +779,7 @@ impl VirtioNetInner {
         self.driver_features |= VIRTIO_NET_F_MRG_RXBUF;
         self.driver_features |= VIRTIO_NET_F_STATUS;
         self.driver_features |= VIRTIO_NET_F_CTRL_VQ;
+        self.driver_features |= VIRTIO_NET_F_CTRL_RX;
         self.driver_features |= VIRTIO_NET_F_SPEED_DUPLEX;
 
         self.virtio_pci_negotiate_features()?;
@@ -748,6 +820,33 @@ impl VirtioNetInner {
             vq.virtio_start_vq_intr();
 
             self.ctrl_vq = Some(Mutex::new(vq));
+
+            let mut ctrl_cmd: DMAPool<VirtioNetCtrlCmd> =
+                DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+            *ctrl_cmd.as_mut() = VirtioNetCtrlCmd::default();
+            self.ctrl_cmd = Some(ctrl_cmd);
+
+            let mut ctrl_status: DMAPool<VirtioNetCtrlStatus> =
+                DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+            *ctrl_status.as_mut() = VirtioNetCtrlStatus {
+                ack: VIRTIO_NET_CTRL_STAT_PENDING,
+            };
+            self.ctrl_status = Some(ctrl_status);
+
+            let mut ctrl_rx: DMAPool<VirtioNetCtrlRx> =
+                DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+            *ctrl_rx.as_mut() = VirtioNetCtrlRx::default();
+            self.ctrl_rx = Some(ctrl_rx);
+
+            let mut ctrl_mac_uc: DMAPool<VirtioNetCtrlMacTable<VIRTIO_NET_CTRL_MAC_UC_ENTRIES>> =
+                DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+            *ctrl_mac_uc.as_mut() = VirtioNetCtrlMacTable::default();
+            self.ctrl_mac_uc = Some(ctrl_mac_uc);
+
+            let mut ctrl_mac_mc: DMAPool<VirtioNetCtrlMacTable<VIRTIO_NET_CTRL_MAC_MC_ENTRIES>> =
+                DMAPool::new(0, 1).ok_or(VirtioDriverErr::DMAPool)?;
+            *ctrl_mac_mc.as_mut() = VirtioNetCtrlMacTable::default();
+            self.ctrl_mac_mc = Some(ctrl_mac_mc);
         }
 
         {
@@ -861,6 +960,7 @@ impl VirtioNetInner {
     }
 
     fn virtio_pci_kick(&mut self, idx: u16) -> Result<(), VirtioDriverErr> {
+        self.common_cfg.virtio_set_queue_select(idx)?;
         let queue_notify_off = self.common_cfg.virtio_get_queue_notify_off()? as usize;
         let notify_off_multiplier = self.notify_off_multiplier as usize;
         let offset = queue_notify_off * notify_off_multiplier;
@@ -873,12 +973,12 @@ impl VirtioNetInner {
         irq_type: IRQType,
     ) -> Result<IRQ, VirtioDriverErr> {
         let segment_number = self.info.segment_group as usize;
-        let bfd = self.info.get_bfd();
+        let bdf = self.info.get_bdf();
         let msix = self
             .info
             .get_msix_mut()
             .ok_or(VirtioDriverErr::InitFailure)?;
-        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-{idx}");
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bdf}-{idx}");
         let mut irq_new = msix
             .register_handler(
                 irq_name.into(),
@@ -913,6 +1013,15 @@ impl VirtioNetInner {
                 let mut node = MCSNode::new();
                 let tx = self.virtqueues[i].tx.lock(&mut node);
                 (tx.vq_index, tx.vq_intr_vec)
+            };
+            self.virtio_pci_set_msix_queue_vector(idx, vector)?;
+        }
+
+        if let Some(ctrl_vq) = &self.ctrl_vq {
+            let (idx, vector) = {
+                let mut node = MCSNode::new();
+                let ctrl_vq = ctrl_vq.lock(&mut node);
+                (ctrl_vq.vq_index, ctrl_vq.vq_intr_vec)
             };
             self.virtio_pci_set_msix_queue_vector(idx, vector)?;
         }
@@ -1110,9 +1219,232 @@ impl VirtioNetInner {
         Ok(())
     }
 
+    fn vio_ctrl_finish(&mut self) {
+        if let Some(ctrl_vq) = &self.ctrl_vq {
+            let mut node = MCSNode::new();
+            let mut ctrl_vq = ctrl_vq.lock(&mut node);
+            while let Some((slot, _)) = ctrl_vq.virtio_dequeue() {
+                ctrl_vq.virtio_dequeue_commit(slot);
+            }
+        }
+    }
+
+    fn vio_ctrl_submit(&mut self, vq_index: u16) -> Result<(), VirtioDriverErr> {
+        self.virtio_pci_kick(vq_index)?;
+
+        for _ in 0..VIRTIO_NET_CTRL_WAIT_SPINS {
+            self.vio_ctrl_finish();
+
+            if let Some(status) = &self.ctrl_status {
+                if status.as_ref().ack != VIRTIO_NET_CTRL_STAT_PENDING {
+                    if status.as_ref().ack == VIRTIO_NET_CTRL_OK {
+                        return Ok(());
+                    }
+                    return Err(VirtioDriverErr::InitFailure);
+                }
+            } else {
+                return Err(VirtioDriverErr::InitFailure);
+            }
+
+            core::hint::spin_loop();
+        }
+
+        Err(VirtioDriverErr::InitFailure)
+    }
+
+    fn vio_ctrl_start(
+        &mut self,
+        class: u8,
+        cmd: u8,
+        nsegs: usize,
+    ) -> Result<(usize, u16), VirtioDriverErr> {
+        let cmd_phy = {
+            let ctrl_cmd = self.ctrl_cmd.as_mut().ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_cmd.as_mut().class = class;
+            ctrl_cmd.as_mut().cmd = cmd;
+            ctrl_cmd.get_phy_addr().as_usize()
+        };
+
+        if let Some(ctrl_status) = self.ctrl_status.as_mut() {
+            ctrl_status.as_mut().ack = VIRTIO_NET_CTRL_STAT_PENDING;
+        } else {
+            return Err(VirtioDriverErr::InitFailure);
+        }
+
+        let ctrl_vq = self.ctrl_vq.as_ref().ok_or(VirtioDriverErr::InitFailure)?;
+        let mut node = MCSNode::new();
+        let mut ctrl_vq = ctrl_vq.lock(&mut node);
+        let slot = ctrl_vq
+            .virtio_enqueue_prep()
+            .ok_or(VirtioDriverErr::NoSlot)?;
+        ctrl_vq.virtio_enqueue_reserve(slot, nsegs)?;
+        ctrl_vq.virtio_enqueue(
+            slot,
+            cmd_phy,
+            core::mem::size_of::<VirtioNetCtrlCmd>(),
+            true,
+        );
+
+        Ok((slot, ctrl_vq.vq_index))
+    }
+
+    fn vio_ctrl_rx(&mut self, cmd: u8, onoff: bool) -> Result<(), VirtioDriverErr> {
+        let (rx_phy, status_phy) = {
+            let ctrl_rx = self.ctrl_rx.as_mut().ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_rx.as_mut().onoff = if onoff { 1 } else { 0 };
+            let rx_phy = ctrl_rx.get_phy_addr().as_usize();
+
+            let ctrl_status = self
+                .ctrl_status
+                .as_mut()
+                .ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_status.as_mut().ack = VIRTIO_NET_CTRL_STAT_PENDING;
+            let status_phy = ctrl_status.get_phy_addr().as_usize();
+
+            (rx_phy, status_phy)
+        };
+
+        let (slot, vq_index) = self.vio_ctrl_start(VIRTIO_NET_CTRL_RX_CLASS, cmd, 3)?;
+
+        {
+            let ctrl_vq = self.ctrl_vq.as_ref().ok_or(VirtioDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ctrl_vq = ctrl_vq.lock(&mut node);
+
+            ctrl_vq.virtio_enqueue(slot, rx_phy, core::mem::size_of::<VirtioNetCtrlRx>(), true);
+            ctrl_vq.virtio_enqueue(
+                slot,
+                status_phy,
+                core::mem::size_of::<VirtioNetCtrlStatus>(),
+                false,
+            );
+            ctrl_vq.virtio_enqueue_commit(slot);
+            ctrl_vq.publish_avail_idx();
+            membar_sync();
+        }
+
+        self.vio_ctrl_submit(vq_index)
+    }
+
+    fn vio_set_rx_filter(&mut self, multicast_list: &[[u8; 6]]) -> Result<(), VirtioDriverErr> {
+        if !self.ctrl_mac_table_supported {
+            return Err(VirtioDriverErr::InitFailure);
+        }
+
+        let len_uc = core::mem::size_of::<u32>() + 6;
+        let len_mc = core::mem::size_of::<u32>() + (multicast_list.len() * 6);
+
+        let (uc_phy, mc_phy, status_phy) = {
+            let ctrl_status = self
+                .ctrl_status
+                .as_mut()
+                .ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_status.as_mut().ack = VIRTIO_NET_CTRL_STAT_PENDING;
+            let status_phy = ctrl_status.get_phy_addr().as_usize();
+
+            let ctrl_mac_uc = self
+                .ctrl_mac_uc
+                .as_mut()
+                .ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_mac_uc.as_mut().nentries = 1;
+            ctrl_mac_uc.as_mut().macs[0] = self.mac_addr;
+            let uc_phy = ctrl_mac_uc.get_phy_addr().as_usize();
+
+            let ctrl_mac_mc = self
+                .ctrl_mac_mc
+                .as_mut()
+                .ok_or(VirtioDriverErr::InitFailure)?;
+            ctrl_mac_mc.as_mut().nentries = multicast_list.len() as u32;
+            for (i, addr) in multicast_list.iter().enumerate() {
+                ctrl_mac_mc.as_mut().macs[i] = *addr;
+            }
+            for i in multicast_list.len()..VIRTIO_NET_CTRL_MAC_MC_ENTRIES {
+                ctrl_mac_mc.as_mut().macs[i] = [0; 6];
+            }
+            let mc_phy = ctrl_mac_mc.get_phy_addr().as_usize();
+
+            (uc_phy, mc_phy, status_phy)
+        };
+
+        let (slot, vq_index) =
+            self.vio_ctrl_start(VIRTIO_NET_CTRL_MAC, VIRTIO_NET_CTRL_MAC_TABLE_SET, 4)?;
+
+        {
+            let ctrl_vq = self.ctrl_vq.as_ref().ok_or(VirtioDriverErr::InitFailure)?;
+            let mut node = MCSNode::new();
+            let mut ctrl_vq = ctrl_vq.lock(&mut node);
+
+            ctrl_vq.virtio_enqueue(slot, uc_phy, len_uc, true);
+            ctrl_vq.virtio_enqueue(slot, mc_phy, len_mc, true);
+            ctrl_vq.virtio_enqueue(
+                slot,
+                status_phy,
+                core::mem::size_of::<VirtioNetCtrlStatus>(),
+                false,
+            );
+            ctrl_vq.virtio_enqueue_commit(slot);
+            ctrl_vq.publish_avail_idx();
+            membar_sync();
+        }
+
+        let ret = self.vio_ctrl_submit(vq_index);
+        if ret.is_err() {
+            self.ctrl_mac_table_supported = false;
+            log::info!("virtio-net: disable MAC_TABLE_SET after failure");
+        }
+        ret
+    }
+
     fn vio_iff(&mut self) {
-        self.flags.insert(NetFlags::MULTICAST);
-        self.flags.insert(NetFlags::PROMISC);
+        self.flags.remove(NetFlags::ALLMULTI);
+
+        if !self.virtio_has_feature(VIRTIO_NET_F_CTRL_RX)
+            || self.ctrl_vq.is_none()
+            || self.ctrl_cmd.is_none()
+            || self.ctrl_status.is_none()
+            || self.ctrl_rx.is_none()
+            || self.ctrl_mac_uc.is_none()
+            || self.ctrl_mac_mc.is_none()
+        {
+            self.flags.insert(NetFlags::ALLMULTI);
+            self.flags.insert(NetFlags::PROMISC);
+            return;
+        }
+
+        let mut promisc = self.flags.contains(NetFlags::PROMISC);
+        let mut allmulti = false;
+
+        let multicast_list: Vec<[u8; 6]> = self.multicast_addrs.iter().copied().collect();
+        if !self.ctrl_mac_table_supported {
+            allmulti = true;
+            promisc = true;
+            self.flags.insert(NetFlags::ALLMULTI);
+            self.flags.insert(NetFlags::PROMISC);
+        } else if promisc || multicast_list.len() >= VIRTIO_NET_CTRL_MAC_MC_ENTRIES {
+            self.flags.insert(NetFlags::ALLMULTI);
+            if !promisc {
+                allmulti = true;
+            }
+        } else if self.vio_set_rx_filter(&multicast_list).is_err() {
+            allmulti = true;
+            self.flags.insert(NetFlags::ALLMULTI);
+        }
+
+        if self
+            .vio_ctrl_rx(VIRTIO_NET_CTRL_RX_ALLMULTI, allmulti)
+            .is_err()
+        {
+            promisc = true;
+            self.flags.insert(NetFlags::ALLMULTI);
+            self.flags.insert(NetFlags::PROMISC);
+        }
+
+        if self
+            .vio_ctrl_rx(VIRTIO_NET_CTRL_RX_PROMISC, promisc)
+            .is_err()
+        {
+            self.flags.insert(NetFlags::PROMISC);
+        }
     }
 
     fn vio_init(&mut self) -> Result<(), VirtioDriverErr> {
@@ -1425,12 +1757,18 @@ impl NetDevice for VirtioNet {
         None
     }
 
-    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
+        inner.vio_iff();
+        Ok(())
     }
 
-    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
-        todo!()
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
+        inner.vio_iff();
+        Ok(())
     }
 
     fn poll_in_service(&self) -> Result<(), NetDevError> {

@@ -776,11 +776,11 @@ impl NvmeInner {
 
     fn allocate_msix(&mut self) -> Result<PCIeInt, NvmeDriverErr> {
         let segment_group = self.info.get_segment_group();
-        let bfd = self.info.get_bfd();
+        let bdf = self.info.get_bdf();
 
         let msix = self.info.get_msix_mut().ok_or(NvmeDriverErr::InitFailure)?;
 
-        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bdf}-0");
         // Register single interrupt for both admin and I/O queues (like OpenBSD)
         // ENHANCE: It better to use a separate interrupt vector for I/O queues
         let mut irq = msix
@@ -820,13 +820,13 @@ impl NvmeInner {
         }
 
         let segment_group = self.info.get_segment_group();
-        let bfd = self.info.get_bfd();
+        let bdf = self.info.get_bdf();
 
         let msi = self.info.get_msi_mut().ok_or(NvmeDriverErr::InitFailure)?;
 
         msi.disable();
 
-        let irq_name = format!("{DEVICE_SHORT_NAME}-{bfd}-0");
+        let irq_name = format!("{DEVICE_SHORT_NAME}-{bdf}-0");
         let mut irq = msi
             .register_handler(
                 irq_name.into(),
@@ -989,8 +989,8 @@ impl Nvme {
 impl PCIeDevice for Nvme {
     fn device_name(&self) -> alloc::borrow::Cow<'static, str> {
         let inner = self.inner.read();
-        let bfd = inner.info.get_bfd();
-        let name = format!("{bfd}:{DEVICE_NAME}");
+        let bdf = inner.info.get_bdf();
+        let name = format!("{bdf}:{DEVICE_NAME}");
         name.into()
     }
 }
