@@ -147,10 +147,10 @@ kernel-x86_64.elf: $(X86ASM) FORCE
 	python3 scripts/embed_debug_info.py $@
 
 x86_64_boot.img: kernel-x86_64.elf
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk --no-default-features --features bios -- --kernel $< --output $@
 
 x86_64_uefi.img: kernel-x86_64.elf
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk --no-default-features --features uefi -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@
