@@ -1,0 +1,13 @@
+[package]
+name = "ekf_localizer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# no_std compatible dependencies
+libm = "0.2"
+nalgebra = { version = "0.32", default-features = false}
+approx = "0.5" 
+
+# Optional: for better math functions
+micromath = "2.1"
