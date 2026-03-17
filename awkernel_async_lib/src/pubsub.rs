@@ -52,6 +52,10 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
+use crate::task;
+use crate::task::{DagInfo};
+use crate::task::perf::{PUB_COUNT,get_pub_count, publish_timestamp_at};
+
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
@@ -381,9 +385,22 @@ impl<T> Publisher<T>
 where
     T: Clone + Sync + Send,
 {
+    /// Send with metadata forwarded from `send_all_with_meta`.
+    pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+        // record publish timestamp at send start
+        // let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+        // publish_timestamp_at(index, start, pub_id, node_id);
+
+        let sender = Sender::new(self, data);
+        sender.await;
+
+        r#yield().await;
+    }
+
     pub async fn send(&self, data: T) {
         let sender = Sender::new(self, data);
         sender.await;
+
         r#yield().await;
     }
 }
@@ -761,7 +778,18 @@ pub trait MultipleReceiver {
 pub trait MultipleSender {
     type Item;
 
-    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        // default to pub_id = 1 (intermediate), index = 0, node_id = 0
+        self.send_all_with_meta(item, 1, 0, 0)
+    }
+
+    fn send_all_with_meta(
+        &self,
+        item: Self::Item,
+        pub_id: u32,
+        index: usize,
+        node_id: u32,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
     type Publishers: MultipleSender;
@@ -825,6 +853,11 @@ impl_tuple_to_pub_sub!();
 impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6);
+impl_tuple_to_pub_sub!(T0, T1, T2, T3, T4, T5, T6, T7);
 
 macro_rules! impl_async_receiver_for_tuple {
     () => {
@@ -838,8 +871,7 @@ macro_rules! impl_async_receiver_for_tuple {
 
         impl MultipleSender for () {
             type Item = ();
-
-            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all_with_meta(&self, _item: Self::Item, _pub_id: u32, _index: usize, _node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -859,12 +891,15 @@ macro_rules! impl_async_receiver_for_tuple {
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
             type Item = ($($T,)+);
 
-            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all_with_meta(&self, item: Self::Item, pub_id: u32, index: usize, node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
                 Box::pin(async move {
                     $(
-                        $idx.send($idx2).await;
+                        // let now = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                        // publish_timestamp_at(index, now, pub_id, node_id);
+                        // $idx.send($idx2).await;
+                        $idx.send_with_meta($idx2, pub_id, index, node_id).await;
                     )+
                 })
             }
@@ -876,6 +911,41 @@ impl_async_receiver_for_tuple!();
 impl_async_receiver_for_tuple!((A, a, p));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
 impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
+impl_async_receiver_for_tuple!((T0, v0, p0), (T1, v1, p1), (T2, v2, p2), (T3, v3, p3));
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6)
+);
+impl_async_receiver_for_tuple!(
+    (T0, v0, p0),
+    (T1, v1, p1),
+    (T2, v2, p2),
+    (T3, v3, p3),
+    (T4, v4, p4),
+    (T5, v5, p5),
+    (T6, v6, p6),
+    (T7, v7, p7)
+);
 
 #[cfg(test)]
 mod tests {

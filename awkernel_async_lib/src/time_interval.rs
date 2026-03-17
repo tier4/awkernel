@@ -29,6 +29,11 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
+use crate::{
+    task::{
+        perf::{update_pre_send_outer_timestamp_at, get_period_count},
+    },
+};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{
@@ -95,13 +100,15 @@ pub enum MissedTickBehavior {
 /// }
 /// ```
 ///
-pub fn interval(period: Duration) -> Interval {
+pub fn interval(period: Duration, dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    interval_at(Time::now(), period)
+    interval_at(Time::now(), period, dag_id)
 }
 
-pub fn interval_at(start: Time, period: Duration) -> Interval {
+pub fn interval_at(start: Time, period: Duration, dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
+    let index = get_period_count(dag_id.clone() as usize) as usize;
+    update_pre_send_outer_timestamp_at(index, start.uptime().as_nanos() as u64, dag_id.clone());
     Interval {
         delay: None,
         next_tick_target: start,
