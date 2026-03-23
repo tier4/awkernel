@@ -1,9 +1,9 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{vec, vec::Vec, format,string::String};
+use alloc::{format, string::String, vec, vec::Vec};
 //use awkernel_lib::time::Time;
-use core::{f64::consts::PI};
+use core::f64::consts::PI;
 
 // IMU message structure
 #[derive(Clone, Debug)]
@@ -68,23 +68,28 @@ pub struct TamagawaImuParser {
 
 impl TamagawaImuParser {
     pub fn new(frame_id: &'static str) -> Self {
-        Self { 
+        Self {
             frame_id,
             dummy_counter: 0,
         }
     }
 
     /// Parse binary IMU data from Tamagawa sensor
-    /// 
+    ///
     /// # Arguments
     /// * `data` - Raw binary data from sensor (expected length 58 bytes)
     /// * `timestamp` - Current timestamp in nanoseconds
-    /// 
+    ///
     /// # Returns
     /// * `Option<ImuMsg>` - Parsed IMU message if data is valid, None otherwise
     pub fn parse_binary_data(&self, data: &[u8], timestamp: u64) -> Option<ImuMsg> {
         // Check if data is valid BIN format and correct length
-        if data.len() != 58 || data[5] != b'B' || data[6] != b'I' || data[7] != b'N' || data[8] != b',' {
+        if data.len() != 58
+            || data[5] != b'B'
+            || data[6] != b'I'
+            || data[7] != b'N'
+            || data[8] != b','
+        {
             return None;
         }
 
@@ -125,12 +130,12 @@ impl TamagawaImuParser {
     }
 
     /// Generate dummy binary data for testing
-    /// 
+    ///
     /// # Arguments
     /// * `timestamp` - Current timestamp in nanoseconds
     /// * `angular_velocity` - Angular velocity values in rad/s
     /// * `linear_acceleration` - Linear acceleration values in m/s²
-    /// 
+    ///
     /// # Returns
     /// * `Vec<u8>` - 58-byte binary data in Tamagawa format
     pub fn generate_dummy_binary_data(
@@ -140,29 +145,29 @@ impl TamagawaImuParser {
         linear_acceleration: Vector3,
     ) -> Vec<u8> {
         let mut data = vec![0u8; 58];
-        
+
         // Header: $TSC,BIN,
         data[0..5].copy_from_slice(b"$TSC,");
         data[5] = b'B';
         data[6] = b'I';
         data[7] = b'N';
         data[8] = b',';
-        
+
         // Counter (bytes 11-12)
         data[11] = (self.dummy_counter >> 8) as u8;
         data[12] = (self.dummy_counter & 0xFF) as u8;
         self.dummy_counter = self.dummy_counter.wrapping_add(1);
-        
+
         // Convert angular velocity from rad/s to LSB
         let angular_vel_x_lsb = self.convert_angular_velocity_to_lsb(angular_velocity.x);
         let angular_vel_y_lsb = self.convert_angular_velocity_to_lsb(angular_velocity.y);
         let angular_vel_z_lsb = self.convert_angular_velocity_to_lsb(angular_velocity.z);
-        
+
         // Convert acceleration from m/s² to LSB
         let accel_x_lsb = self.convert_acceleration_to_lsb(linear_acceleration.x);
         let accel_y_lsb = self.convert_acceleration_to_lsb(linear_acceleration.y);
         let accel_z_lsb = self.convert_acceleration_to_lsb(linear_acceleration.z);
-        
+
         // Angular velocity data (bytes 15-20)
         data[15] = (angular_vel_x_lsb >> 8) as u8;
         data[16] = (angular_vel_x_lsb & 0xFF) as u8;
@@ -170,7 +175,7 @@ impl TamagawaImuParser {
         data[18] = (angular_vel_y_lsb & 0xFF) as u8;
         data[19] = (angular_vel_z_lsb >> 8) as u8;
         data[20] = (angular_vel_z_lsb & 0xFF) as u8;
-        
+
         // Linear acceleration data (bytes 21-26)
         data[21] = (accel_x_lsb >> 8) as u8;
         data[22] = (accel_x_lsb & 0xFF) as u8;
@@ -178,48 +183,48 @@ impl TamagawaImuParser {
         data[24] = (accel_y_lsb & 0xFF) as u8;
         data[25] = (accel_z_lsb >> 8) as u8;
         data[26] = (accel_z_lsb & 0xFF) as u8;
-        
+
         data
     }
 
     /// Generate sinusoidal dummy data for realistic simulation
-    /// 
+    ///
     /// # Arguments
     /// * `timestamp` - Current timestamp in nanoseconds
     /// * `time_offset` - Time offset for phase calculation
-    /// 
+    ///
     /// # Returns
     /// * `Vec<u8>` - 58-byte binary data with sinusoidal motion
     /*
     pub fn generate_sinusoidal_dummy_data(&mut self, timestamp: u64, time_offset: f64) -> Vec<u8> {
         // Convert timestamp to seconds for sinusoidal calculation
         let time_sec = (timestamp as f64) / 1_000_000_000.0 + time_offset;
-        
+
         // Generate sinusoidal angular velocity (rotation around Z-axis)
         let angular_vel_z = 0.5 * (2.0 * PI * 0.1 * time_sec).sin(); // 0.1 Hz, ±0.5 rad/s
-        
+
         // Generate sinusoidal acceleration (oscillation in X-axis)
         let accel_x = 9.8 + 2.0 * (2.0 * PI * 0.05 * time_sec).sin(); // 0.05 Hz, 9.8±2.0 m/s²
-        
+
         let angular_velocity = Vector3::new(0.1, 0.2, angular_vel_z);
         let linear_acceleration = Vector3::new(accel_x, 0.0, 9.8);
-        
+
         self.generate_dummy_binary_data(timestamp, angular_velocity, linear_acceleration)
     }
     */
 
     /// Generate static dummy data with fixed values
-    /// 
+    ///
     /// # Arguments
     /// * `timestamp` - Current timestamp in nanoseconds
-    /// 
+    ///
     /// # Returns
     /// * `Vec<u8>` - 58-byte binary data with static values
     // Autoware側と統一：加速度は重力加速度のみ
     pub fn generate_static_dummy_data(&mut self, timestamp: u64) -> Vec<u8> {
         let angular_velocity = Vector3::new(0.1, 0.2, 0.01);
-        let linear_acceleration = Vector3::new(0.0, 0.0, 9.80665);  // z方向のみ重力加速度
-        
+        let linear_acceleration = Vector3::new(0.0, 0.0, 9.80665); // z方向のみ重力加速度
+
         self.generate_dummy_binary_data(timestamp, angular_velocity, linear_acceleration)
     }
 
@@ -237,7 +242,7 @@ impl TamagawaImuParser {
     }
 
     /// Parse signed 16-bit value from 2 bytes
-    /// 
+    ///
     /// This matches the C++ implementation:
     /// raw_data = ((((rbuf[15] << 8) & 0xFFFFFF00) | (rbuf[16] & 0x000000FF)));
     fn parse_signed_16bit(&self, data: &[u8]) -> i16 {
@@ -252,7 +257,7 @@ impl TamagawaImuParser {
     }
 
     /// Convert raw angular velocity data to rad/s
-    /// 
+    ///
     /// Raw data is in LSB units with range ±200 deg/s
     /// Conversion: raw * (200 / 2^15) * π / 180
     fn convert_angular_velocity(&self, raw_data: i16) -> f64 {
@@ -262,7 +267,7 @@ impl TamagawaImuParser {
     }
 
     /// Convert raw acceleration data to m/s²
-    /// 
+    ///
     /// Raw data is in LSB units with range ±100 m/s²
     /// Conversion: raw * (100 / 2^15)
     fn convert_acceleration(&self, raw_data: i16) -> f64 {
@@ -291,8 +296,6 @@ impl TamagawaImuParser {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,13 +304,13 @@ mod tests {
     fn example_usage() {
         // Create parser instance
         let mut parser = TamagawaImuParser::new("imu_link");
-        
+
         // Generate commands
         let version_cmd = TamagawaImuParser::generate_version_request();
         let binary_cmd = TamagawaImuParser::generate_binary_request(30);
         let offset_cmd = TamagawaImuParser::generate_offset_cancel_request(123);
         let heading_cmd = TamagawaImuParser::generate_heading_reset_request();
-        
+
         // Example 1: Generate static dummy data
         let static_dummy_data = parser.generate_static_dummy_data(123456789);
         if let Some(imu_msg) = parser.parse_binary_data(&static_dummy_data, 123456789) {
@@ -315,7 +318,7 @@ mod tests {
             let _angular_vel = imu_msg.angular_velocity;
             let _acceleration = imu_msg.linear_acceleration;
         }
-        
+
         // Example 2: Generate sinusoidal dummy data for realistic simulation
         let sinusoidal_dummy_data = parser.generate_sinusoidal_dummy_data(123456789, 0.0);
         if let Some(imu_msg) = parser.parse_binary_data(&sinusoidal_dummy_data, 123456789) {
@@ -323,14 +326,14 @@ mod tests {
             let _angular_vel = imu_msg.angular_velocity;
             let _acceleration = imu_msg.linear_acceleration;
         }
-        
+
         // Example 3: Generate custom dummy data
         let custom_angular_velocity = Vector3::new(0.5, -0.3, 1.2);
         let custom_acceleration = Vector3::new(8.5, 2.1, 10.2);
         let custom_dummy_data = parser.generate_dummy_binary_data(
-            123456789, 
-            custom_angular_velocity, 
-            custom_acceleration
+            123456789,
+            custom_angular_velocity,
+            custom_acceleration,
         );
         if let Some(imu_msg) = parser.parse_binary_data(&custom_dummy_data, 123456789) {
             // Use the parsed IMU message with custom values
@@ -338,4 +341,4 @@ mod tests {
             let _acceleration = imu_msg.linear_acceleration;
         }
     }
-} 
+}

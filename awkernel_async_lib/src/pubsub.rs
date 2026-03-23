@@ -53,8 +53,8 @@ use futures::Future;
 use pin_project::pin_project;
 
 use crate::task;
-use crate::task::{DagInfo};
-use crate::task::perf::{PUB_COUNT,get_pub_count, publish_timestamp_at};
+use crate::task::perf::{get_pub_count, publish_timestamp_at, PUB_COUNT};
+use crate::task::DagInfo;
 
 /// Data and timestamp.
 #[derive(Clone)]
@@ -778,10 +778,7 @@ pub trait MultipleReceiver {
 pub trait MultipleSender {
     type Item;
 
-    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        // default to pub_id = 1 (intermediate), index = 0, node_id = 0
-        self.send_all_with_meta(item, 1, 0, 0)
-    }
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 
     fn send_all_with_meta(
         &self,
@@ -871,6 +868,9 @@ macro_rules! impl_async_receiver_for_tuple {
 
         impl MultipleSender for () {
             type Item = ();
+            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move{})
+            }
             fn send_all_with_meta(&self, _item: Self::Item, _pub_id: u32, _index: usize, _node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
@@ -891,14 +891,21 @@ macro_rules! impl_async_receiver_for_tuple {
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
             type Item = ($($T,)+);
 
+            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)+) = self;
+                let ($($idx2,)+) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send($idx2).await;
+                    )+
+                })
+            }
+
             fn send_all_with_meta(&self, item: Self::Item, pub_id: u32, index: usize, node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
                 Box::pin(async move {
                     $(
-                        // let now = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                        // publish_timestamp_at(index, now, pub_id, node_id);
-                        // $idx.send($idx2).await;
                         $idx.send_with_meta($idx2, pub_id, index, node_id).await;
                     )+
                 })

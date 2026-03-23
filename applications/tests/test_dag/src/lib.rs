@@ -1,12 +1,12 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, vec, sync::Arc};
+use alloc::{borrow::Cow, sync::Arc, vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
+use awkernel_async_lib::task::perf::get_period_count;
 use awkernel_lib::delay::wait_microsec;
 use core::time::Duration;
-use awkernel_async_lib::task::perf::get_period_count;
 
 const LOG_ENABLE: bool = false;
 const DATA_SIZE: usize = 128;
@@ -29,7 +29,12 @@ pub async fn run() {
             let data: Arc<[u8; DATA_SIZE]> = Arc::new([0; DATA_SIZE]);
             let period_id = get_period_count(dag_id as usize) as u32;
             if LOG_ENABLE {
-                log::debug!("Sending data[0]={}, period_id={}, size={} in reactor_source_node", data[0], period_id, DATA_SIZE);
+                log::debug!(
+                    "Sending data[0]={}, period_id={}, size={} in reactor_source_node",
+                    data[0],
+                    period_id,
+                    DATA_SIZE
+                );
             }
             ((data, period_id),)
         },
@@ -58,7 +63,12 @@ pub async fn run() {
         "reactor_node2".into(),
         |((data, period),): ((Arc<[u8; DATA_SIZE]>, u32),)| -> ((Arc<[u8; DATA_SIZE]>, u32),) {
             if LOG_ENABLE {
-                log::debug!("Processing data[0]={}, period={}, size={} in reactor_node2", data[0], period, DATA_SIZE);
+                log::debug!(
+                    "Processing data[0]={}, period={}, size={} in reactor_node2",
+                    data[0],
+                    period,
+                    DATA_SIZE
+                );
             }
             ((data, period),)
         },
@@ -72,7 +82,12 @@ pub async fn run() {
         "reactor_node3".into(),
         |((data, period),): ((Arc<[u8; DATA_SIZE]>, u32),)| -> ((Arc<[u8; DATA_SIZE]>, u32),) {
             if LOG_ENABLE {
-                log::debug!("Processing data[0]={}, period={}, size={} in reactor_node3", data[0], period, DATA_SIZE);
+                log::debug!(
+                    "Processing data[0]={}, period={}, size={} in reactor_node3",
+                    data[0],
+                    period,
+                    DATA_SIZE
+                );
             }
             ((data, period),)
         },

@@ -14,7 +14,7 @@
 
 #![no_std]
 
-use imu_driver::{Vector3, Header};
+use imu_driver::{Header, Vector3};
 
 /// 速度レポートメッセージの構造体
 #[derive(Debug, Clone)]
@@ -53,10 +53,10 @@ pub struct Odometry {
 
 /// 車両速度変換器の構造体
 pub struct VehicleVelocityConverter {
-    frame_id: &'static str,              // → frame_id: base_link
-    stddev_vx: f64,                      // → velocity_stddev_xx: 0.2
-    stddev_wz: f64,                      // → angular_velocity_stddev_zz: 0.1
-    speed_scale_factor: f64,             // → speed_scale_factor: 1.0
+    frame_id: &'static str,  // → frame_id: base_link
+    stddev_vx: f64,          // → velocity_stddev_xx: 0.2
+    stddev_wz: f64,          // → angular_velocity_stddev_zz: 0.1
+    speed_scale_factor: f64, // → speed_scale_factor: 1.0
 }
 
 impl VehicleVelocityConverter {
@@ -123,21 +123,21 @@ impl VehicleVelocityConverter {
     /// 共分散行列を作成
     fn create_covariance_matrix(&self) -> [f64; 36] {
         let mut covariance = [0.0; 36];
-        
+
         // 線形速度の分散 (x方向)
         covariance[0 + 0 * 6] = self.stddev_vx * self.stddev_vx;
-        
+
         // その他の線形速度成分は大きな値（低い信頼度）を設定
         covariance[1 + 1 * 6] = 10000.0; // y方向
         covariance[2 + 2 * 6] = 10000.0; // z方向
-        
+
         // 角速度成分は大きな値（低い信頼度）を設定
         covariance[3 + 3 * 6] = 10000.0; // x方向
         covariance[4 + 4 * 6] = 10000.0; // y方向
-        
+
         // 角速度の分散 (z方向)
         covariance[5 + 5 * 6] = self.stddev_wz * self.stddev_wz;
-        
+
         covariance
     }
 
@@ -172,8 +172,16 @@ pub mod reactor_helpers {
             },
             twist: TwistWithCovariance {
                 twist: Twist {
-                    linear: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
-                    angular: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+                    linear: Vector3 {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    angular: Vector3 {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
                 },
                 covariance: [0.0; 36],
             },
@@ -187,12 +195,7 @@ mod tests {
 
     #[test]
     fn test_vehicle_velocity_converter_creation() {
-        let converter = VehicleVelocityConverter::new(
-            "base_link",
-            0.1,
-            0.1,
-            1.0,
-        );
+        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
 
         assert_eq!(converter.get_frame_id(), "base_link");
         assert_eq!(converter.get_stddev_vx(), 0.1);
@@ -211,12 +214,7 @@ mod tests {
 
     #[test]
     fn test_convert_velocity_report_success() {
-        let converter = VehicleVelocityConverter::new(
-            "base_link",
-            0.1,
-            0.1,
-            1.0,
-        );
+        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
 
         let velocity_report = VelocityReport {
             header: Header {
@@ -241,12 +239,7 @@ mod tests {
 
     #[test]
     fn test_convert_velocity_report_wrong_frame_id() {
-        let converter = VehicleVelocityConverter::new(
-            "base_link",
-            0.1,
-            0.1,
-            1.0,
-        );
+        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
 
         let velocity_report = VelocityReport {
             header: Header {
@@ -279,12 +272,7 @@ mod tests {
 
     #[test]
     fn test_from_params_array_with_defaults() {
-        let converter = VehicleVelocityConverter::from_params_array(
-            None,
-            None,
-            None,
-            "base_link",
-        );
+        let converter = VehicleVelocityConverter::from_params_array(None, None, None, "base_link");
 
         assert_eq!(converter.get_stddev_vx(), 0.1);
         assert_eq!(converter.get_stddev_wz(), 0.1);

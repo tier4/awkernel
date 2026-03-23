@@ -3,10 +3,10 @@
 
 extern crate alloc;
 
-use core::f64::consts::PI;
 use alloc::{vec, vec::Vec};
-use nalgebra::{Matrix6, Vector6, Vector3};
-use libm::{sin, cos, atan2, asin};
+use core::f64::consts::PI;
+use libm::{asin, atan2, cos, sin};
+use nalgebra::{Matrix6, Vector3, Vector6};
 
 /// State indices for EKF
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,7 +168,7 @@ impl EKFModule {
         let dim_x = 6;
         let mut state = StateVector::zeros();
         let mut covariance = StateCovariance::identity() * 1e15;
-        
+
         // Initialize covariance with reasonable values
         covariance[(StateIndex::Yaw as usize, StateIndex::Yaw as usize)] = 50.0;
         if params.enable_yaw_bias_estimation {
@@ -180,7 +180,7 @@ impl EKFModule {
         let mut z_filter = Simple1DFilter::new();
         let mut roll_filter = Simple1DFilter::new();
         let mut pitch_filter = Simple1DFilter::new();
-        
+
         z_filter.set_proc_var(params.z_filter_proc_dev * params.z_filter_proc_dev);
         roll_filter.set_proc_var(params.roll_filter_proc_dev * params.roll_filter_proc_dev);
         pitch_filter.set_proc_var(params.pitch_filter_proc_dev * params.pitch_filter_proc_dev);
@@ -240,9 +240,9 @@ impl EKFModule {
         // Normalize yaw to [-π, π] range (Autoware compatible)
         let yaw_next = yaw + wz * dt;
         x_next[StateIndex::Yaw as usize] = atan2(sin(yaw_next), cos(yaw_next));
-        x_next[StateIndex::YawBias as usize] = yaw_bias;  // yaw bias doesn't change
-        x_next[StateIndex::Vx as usize] = vx;  // velocity doesn't change in predict
-        x_next[StateIndex::Wz as usize] = wz;  // angular velocity doesn't change in predict
+        x_next[StateIndex::YawBias as usize] = yaw_bias; // yaw bias doesn't change
+        x_next[StateIndex::Vx as usize] = vx; // velocity doesn't change in predict
+        x_next[StateIndex::Wz as usize] = wz; // angular velocity doesn't change in predict
 
         x_next
     }
@@ -259,11 +259,11 @@ impl EKFModule {
         F[(StateIndex::X as usize, StateIndex::Yaw as usize)] = -vx * sin(yaw + yaw_bias) * dt;
         F[(StateIndex::X as usize, StateIndex::YawBias as usize)] = -vx * sin(yaw + yaw_bias) * dt;
         F[(StateIndex::X as usize, StateIndex::Vx as usize)] = cos(yaw + yaw_bias) * dt;
-        
+
         F[(StateIndex::Y as usize, StateIndex::Yaw as usize)] = vx * cos(yaw + yaw_bias) * dt;
         F[(StateIndex::Y as usize, StateIndex::YawBias as usize)] = vx * cos(yaw + yaw_bias) * dt;
         F[(StateIndex::Y as usize, StateIndex::Vx as usize)] = sin(yaw + yaw_bias) * dt;
-        
+
         F[(StateIndex::Yaw as usize, StateIndex::Wz as usize)] = dt;
 
         F
@@ -273,20 +273,20 @@ impl EKFModule {
     /// Q represents the uncertainty in the motion model
     fn process_noise_covariance(&self, dt: f64) -> Matrix6<f64> {
         let mut Q = Matrix6::zeros();
-        
+
         // Process noise for each state variable
-        Q[(StateIndex::Vx as usize, StateIndex::Vx as usize)] = 
+        Q[(StateIndex::Vx as usize, StateIndex::Vx as usize)] =
             self.params.proc_stddev_vx_c * self.params.proc_stddev_vx_c * dt * dt;
-        Q[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 
+        Q[(StateIndex::Wz as usize, StateIndex::Wz as usize)] =
             self.params.proc_stddev_wz_c * self.params.proc_stddev_wz_c * dt * dt;
-        Q[(StateIndex::Yaw as usize, StateIndex::Yaw as usize)] = 
+        Q[(StateIndex::Yaw as usize, StateIndex::Yaw as usize)] =
             self.params.proc_stddev_yaw_c * self.params.proc_stddev_yaw_c * dt * dt;
-        
+
         // No process noise for position and yaw bias
         Q[(StateIndex::X as usize, StateIndex::X as usize)] = 0.0;
         Q[(StateIndex::Y as usize, StateIndex::Y as usize)] = 0.0;
         Q[(StateIndex::YawBias as usize, StateIndex::YawBias as usize)] = 0.0;
-        
+
         Q
     }
 
@@ -325,12 +325,12 @@ impl EKFModule {
         let z = self.z_filter.get_x();
         let roll = self.roll_filter.get_x();
         let pitch = self.pitch_filter.get_x();
-        
+
         let x = self.state[StateIndex::X as usize];
         let y = self.state[StateIndex::Y as usize];
         let biased_yaw = self.state[StateIndex::Yaw as usize];
         let yaw_bias = self.state[StateIndex::YawBias as usize];
-        
+
         let yaw = if get_biased_yaw {
             biased_yaw
         } else {
@@ -363,10 +363,10 @@ impl EKFModule {
     pub fn get_current_pose_with_covariance(&self) -> PoseWithCovariance {
         // Get current pose
         let pose = self.get_current_pose(false);
-        
+
         // Get covariance matrix
         let pose_covariance = self.get_current_pose_covariance();
-        
+
         // Create and return PoseWithCovariance
         PoseWithCovariance {
             pose,
@@ -377,30 +377,30 @@ impl EKFModule {
     /// Get pose covariance (simplified 6x6 to 36-element array)
     pub fn get_current_pose_covariance(&self) -> [f64; 36] {
         let mut cov = [0.0; 36];
-        
+
         // Copy 6x6 covariance matrix to 36-element array
         for i in 0..6 {
             for j in 0..6 {
                 cov[i * 6 + j] = self.covariance[(i, j)];
             }
         }
-        
+
         // Add z, roll, pitch variances
-        cov[14] = self.z_filter.get_var();      // Z_Z
-        cov[21] = self.roll_filter.get_var();   // ROLL_ROLL
-        cov[28] = self.pitch_filter.get_var();  // PITCH_PITCH
-        
+        cov[14] = self.z_filter.get_var(); // Z_Z
+        cov[21] = self.roll_filter.get_var(); // ROLL_ROLL
+        cov[28] = self.pitch_filter.get_var(); // PITCH_PITCH
+
         cov
     }
 
     /// Get twist covariance
     pub fn get_current_twist_covariance(&self) -> [f64; 36] {
         let mut cov = [0.0; 36];
-        
+
         // Simplified: only vx and wz have significant covariance
-        cov[0] = self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)];  // VX_VX
+        cov[0] = self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)]; // VX_VX
         cov[35] = self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)]; // WZ_WZ
-        
+
         cov
     }
 
@@ -414,27 +414,25 @@ impl EKFModule {
 
         // Simple measurement update using Kalman gain
         // This assumes direct observation of velocity states
-        
+
         // Measurement variance (assumed)
         let vx_obs_var = 1.0;
         let wz_obs_var = 0.1;
-        
+
         // Update Vx
         let vx_var = self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)];
         let vx_gain = vx_var / (vx_var + vx_obs_var);
-        self.state[StateIndex::Vx as usize] = 
-            self.state[StateIndex::Vx as usize] + 
-            vx_gain * (vx_measurement - self.state[StateIndex::Vx as usize]);
-        self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)] = 
+        self.state[StateIndex::Vx as usize] = self.state[StateIndex::Vx as usize]
+            + vx_gain * (vx_measurement - self.state[StateIndex::Vx as usize]);
+        self.covariance[(StateIndex::Vx as usize, StateIndex::Vx as usize)] =
             (1.0 - vx_gain) * vx_var;
-        
+
         // Update Wz
         let wz_var = self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)];
         let wz_gain = wz_var / (wz_var + wz_obs_var);
-        self.state[StateIndex::Wz as usize] = 
-            self.state[StateIndex::Wz as usize] + 
-            wz_gain * (wz_measurement - self.state[StateIndex::Wz as usize]);
-        self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 
+        self.state[StateIndex::Wz as usize] = self.state[StateIndex::Wz as usize]
+            + wz_gain * (wz_measurement - self.state[StateIndex::Wz as usize]);
+        self.covariance[(StateIndex::Wz as usize, StateIndex::Wz as usize)] =
             (1.0 - wz_gain) * wz_var;
     }
 
@@ -455,10 +453,10 @@ impl EKFModule {
         if len == 0 {
             return;
         }
-        
+
         let last_time = self.accumulated_delay_times[len - 1];
         let new_time = last_time + dt;
-        
+
         // Shift and add new time
         for i in 0..len - 1 {
             self.accumulated_delay_times[i] = self.accumulated_delay_times[i + 1];
@@ -480,7 +478,7 @@ impl EKFModule {
         // Simple linear search for closest value
         let mut closest_index = 0;
         let mut min_diff = f64::MAX;
-        
+
         for i in 0..len {
             let time = self.accumulated_delay_times[i];
             let diff = (target_value - time).abs();
@@ -489,13 +487,16 @@ impl EKFModule {
                 closest_index = i;
             }
         }
-        
+
         closest_index
     }
 
     // Utility functions for quaternion and euler angle conversions
     fn quaternion_to_yaw(&self, q: Quaternion) -> f64 {
-        atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
     }
 
     fn rpy_to_quaternion(&self, roll: f64, pitch: f64, yaw: f64) -> Quaternion {
@@ -545,14 +546,23 @@ mod tests {
     fn test_ekf_initialization() {
         let params = EKFParameters::default();
         let mut ekf = EKFModule::new(params);
-        
+
         let initial_pose = Pose {
-            position: Point3D { x: 1.0, y: 2.0, z: 0.0 },
-            orientation: Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 },
+            position: Point3D {
+                x: 1.0,
+                y: 2.0,
+                z: 0.0,
+            },
+            orientation: Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
         };
-        
+
         ekf.initialize(initial_pose);
-        
+
         let pose = ekf.get_current_pose(false);
         assert!((pose.position.x - 1.0).abs() < 1e-6);
         assert!((pose.position.y - 2.0).abs() < 1e-6);
@@ -562,14 +572,14 @@ mod tests {
     fn test_quaternion_conversions() {
         let params = EKFParameters::default();
         let ekf = EKFModule::new(params);
-        
+
         let roll = 0.1;
         let pitch = 0.2;
         let yaw = 0.3;
-        
+
         let q = ekf.rpy_to_quaternion(roll, pitch, yaw);
         let (r, p, y) = ekf.quaternion_to_rpy(q);
-        
+
         assert!((roll - r).abs() < 1e-6);
         assert!((pitch - p).abs() < 1e-6);
         assert!((yaw - y).abs() < 1e-6);
@@ -579,21 +589,30 @@ mod tests {
     fn test_pose_with_covariance_generation() {
         let params = EKFParameters::default();
         let mut ekf = EKFModule::new(params);
-        
+
         let initial_pose = Pose {
-            position: Point3D { x: 1.0, y: 2.0, z: 0.0 },
-            orientation: Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 },
+            position: Point3D {
+                x: 1.0,
+                y: 2.0,
+                z: 0.0,
+            },
+            orientation: Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
         };
-        
+
         ekf.initialize(initial_pose);
-        
+
         let pose_with_cov = ekf.get_current_pose_with_covariance();
-        
+
         // Check pose
         assert!((pose_with_cov.pose.position.x - 1.0).abs() < 1e-6);
         assert!((pose_with_cov.pose.position.y - 2.0).abs() < 1e-6);
-        
+
         // Check covariance array
         assert_eq!(pose_with_cov.covariance.len(), 36);
     }
-} 
+}

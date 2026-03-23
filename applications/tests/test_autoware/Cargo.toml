@@ -7,6 +7,11 @@ edition = "2021"
 path = "src/lib.rs"
 crate-type = ["rlib"]
 
+[features]
+default = ["dag-no-period"]
+dag-send-period = []
+dag-no-period = ["awkernel_async_lib/relax-get-period"]
+
 [dependencies]
 log = "0.4"
 libm = "0.2"

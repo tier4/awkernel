@@ -1,39 +1,38 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, vec, vec::Vec, collections::VecDeque, string::String, format, sync::Arc};
+use alloc::{borrow::Cow, collections::VecDeque, format, string::String, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
+use awkernel_async_lib::net::IpAddr;
 use awkernel_async_lib::scheduler::SchedulerType;
+#[cfg(feature = "dag-send-period")]
 use awkernel_async_lib::task::perf::get_period_count;
-use awkernel_lib::net::{add_ipv4_addr, poll_interface, get_all_interface};
-use awkernel_async_lib::net::{tcp::TcpStream, tcp::TcpConfig, udp::{UdpConfig, UdpSocketError},IpAddr};
 use awkernel_lib::delay::wait_microsec;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::time::Duration;
 use core::net::Ipv4Addr;
-use csv_core::{Reader, ReadRecordResult};
+use core::time::Duration;
+use csv_core::{ReadRecordResult, Reader};
 // Thread-safe state management using atomic operations
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize,Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 // Global gyro odometer core instance with proper synchronization
-use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 use core::ptr::null_mut;
-
+use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 
 // IMU ドライバーライブラリをインポート
-use imu_driver::{ImuMsg,TamagawaImuParser, Header, Vector3};
 use imu_corrector::{ImuCorrector, ImuWithCovariance, Transform};
+use imu_driver::{Header, ImuMsg, TamagawaImuParser, Vector3};
 
 // Vehicle Velocity Converter ライブラリをインポート（C++のpubsub機能に対応）
 use vehicle_velocity_converter::{
-    VehicleVelocityConverter, VelocityReport, TwistWithCovarianceStamped,
-    TwistWithCovariance, Twist, reactor_helpers};
+    reactor_helpers, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
+    VehicleVelocityConverter, VelocityReport,
+};
 
 // Gyro Odometer ライブラリをインポート
-use gyro_odometer::{
-    GyroOdometerCore, GyroOdometerConfig};
+use gyro_odometer::{GyroOdometerConfig, GyroOdometerCore};
 
 // EKF Localizer ライブラリをインポート
-use ekf_localizer::{EKFModule, EKFParameters, Pose, Point3D, Quaternion, PoseWithCovariance};
+use ekf_localizer::{EKFModule, EKFParameters, Point3D, Pose, PoseWithCovariance, Quaternion};
 // COMMENTED OUT: 手動積分用の関数をコメントアウトしたためlibmは不要
 // use libm::{atan2, cos, sin};
 
@@ -46,8 +45,7 @@ pub struct EKFOdometry {
     pub twist: TwistWithCovariance,
 }
 
-const LOG_ENABLE: bool = false;
-
+const LOG_ENABLE: bool = true;
 
 // EKF pose covariance (6x6 matrix flattened to array)
 // Layout: [x, xy, xz, xr, xp, xy_yaw,
@@ -57,12 +55,9 @@ const LOG_ENABLE: bool = false;
 //          px, py, pz, pr, p, p_yaw,
 //          yaw_x, yaw_y, yaw_z, yaw_r, yaw_p, yaw]
 const EKF_POSE_COVARIANCE: [f64; 36] = [
-    0.0225, 0.0,    0.0,    0.0,      0.0,      0.0,
-    0.0,    0.0225, 0.0,    0.0,      0.0,      0.0,
-    0.0,    0.0,    0.0225, 0.0,      0.0,      0.0,
-    0.0,    0.0,    0.0,    0.000625, 0.0,      0.0,
-    0.0,    0.0,    0.0,    0.0,      0.000625, 0.0,
-    0.0,    0.0,    0.0,    0.0,      0.0,      0.000625,
+    0.0225, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0225, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0225, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.000625, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.000625, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.000625,
 ];
 
 // EKF twist covariance (6x6 matrix flattened to array)
@@ -75,12 +70,9 @@ const EKF_POSE_COVARIANCE: [f64; 36] = [
 //          wz_x, wz_y, wz_z, wz_rx, wz_ry, wz]
 // Based on Autoware's typical twist uncertainty (0.01 m/s for linear, 0.01 rad/s for angular)
 const EKF_TWIST_COVARIANCE: [f64; 36] = [
-    0.01,   0.0,    0.0,    0.0,     0.0,     0.0,
-    0.0,    0.01,   0.0,    0.0,     0.0,     0.0,
-    0.0,    0.0,    0.01,   0.0,     0.0,     0.0,
-    0.0,    0.0,    0.0,    0.0001,  0.0,     0.0,
-    0.0,    0.0,    0.0,    0.0,     0.0001,  0.0,
-    0.0,    0.0,    0.0,    0.0,     0.0,     0.0001,
+    0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0001,
 ];
 
 static LAST_DR_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
@@ -133,13 +125,46 @@ static mut VELOCITY_CSV_DATA: Option<Vec<VelocityCsvRow>> = None;
 static IMU_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 static VELOCITY_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 
-
 // Global EKF Localizer instance with proper synchronization
 static EKF_LOCALIZER: AtomicPtr<EKFModule> = AtomicPtr::new(null_mut());
 
+#[cfg(feature = "dag-send-period")]
+type DagMsg<T> = (T, u32);
+#[cfg(not(feature = "dag-send-period"))]
+type DagMsg<T> = T;
+
+#[cfg(feature = "dag-send-period")]
+fn pack_dag_msg<T>(value: T, period_id: u32) -> DagMsg<T> {
+    (value, period_id)
+}
+
+#[cfg(not(feature = "dag-send-period"))]
+fn pack_dag_msg<T>(value: T, _period_id: u32) -> DagMsg<T> {
+    value
+}
+
+#[cfg(feature = "dag-send-period")]
+fn unpack_dag_msg<T>(msg: DagMsg<T>) -> (T, u32) {
+    msg
+}
+
+#[cfg(not(feature = "dag-send-period"))]
+fn unpack_dag_msg<T>(msg: DagMsg<T>) -> (T, u32) {
+    (msg, 0)
+}
+
+#[cfg(feature = "dag-send-period")]
+fn current_period_id(dag_id: u32) -> u32 {
+    get_period_count(dag_id as usize) as u32
+}
+
+#[cfg(not(feature = "dag-send-period"))]
+fn current_period_id(_dag_id: u32) -> u32 {
+    0
+}
+
 // COMMENTED OUT: 手動積分用のDR_POSEはEKF内部状態からポーズを取得するようになったため不要
 // static mut DR_POSE: Option<Pose> = None;
-
 
 pub async fn run() {
     wait_microsec(1000000);
@@ -149,7 +174,7 @@ pub async fn run() {
     }
 
     log::info!("Starting Autoware test application with simplified TCP networking");
-    
+
     // 初期ネットワークインターフェース情報を表示
     //print_network_interfaces();
 
@@ -159,27 +184,36 @@ pub async fn run() {
     // ダミーデータ送信用リアクター
     // MODIFIED: 周期を10msから50msに変更（Autowareのekf_data_publisher.pyと同じ周期）
     // これにより、CSVデータの消費速度が両システムで一致する
-    dag.register_periodic_reactor::<_, ((i32, u32), (i32, u32), (i32, u32))>(
+    dag.register_periodic_reactor::<_, (DagMsg<i32>, DagMsg<i32>, DagMsg<i32>)>(
         "start_dummy_data".into(),
-        move || -> ((i32, u32), (i32, u32), (i32, u32)) {
-            let period_id = get_period_count(dag_id as usize) as u32;
-            return ((1, period_id), (2, period_id), (3, period_id)); // 通常のデータ処理用の値
+        move || -> (DagMsg<i32>, DagMsg<i32>, DagMsg<i32>) {
+            let period_id = current_period_id(dag_id);
+            (
+                pack_dag_msg(1, period_id),
+                pack_dag_msg(2, period_id),
+                pack_dag_msg(3, period_id),
+            )
         },
-        vec![Cow::from("start_imu"),Cow::from("start_vel"),Cow::from("start_pose")],
+        vec![
+            Cow::from("start_imu"),
+            Cow::from("start_vel"),
+            Cow::from("start_pose"),
+        ],
         SchedulerType::GEDF(5),
-        Duration::from_millis(50)  // CHANGED: 10ms -> 50ms (Autowareと同じ)
+        Duration::from_millis(50), // CHANGED: 10ms -> 50ms (Autowareと同じ)
     )
     .await;
 
     // IMU driver node (periodic_reactor) - Dummy data generator
-    dag.register_reactor::<_, ((i32, u32),), ((ImuMsg, u32),)>(
+    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<ImuMsg>,)>(
         "imu_driver".into(),
-        move |((_a, period_id),): ((i32, u32),)| -> ((ImuMsg, u32),) {
+        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<ImuMsg>,) {
+            let (_a, period_id) = unpack_dag_msg(start_msg);
             let mut node = MCSNode::new();
             let mut count_guard = IMU_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
             let data = unsafe { IMU_CSV_DATA.as_ref() };
-            
+
             let imu_msg = if let Some(csv_data) = data {
                 if csv_data.is_empty() {
                     let mut parser = TamagawaImuParser::new("imu_link");
@@ -210,7 +244,7 @@ pub async fn run() {
                     .parse_binary_data(&static_dummy_data, awkernel_timestamp)
                     .unwrap_or_default()
             };
-            
+
             *count_guard += 1;
             if *count_guard >= 5700 {
                 *count_guard = 0;
@@ -221,11 +255,12 @@ pub async fn run() {
             if LOG_ENABLE {
                 log::debug!(
                     "IMU data in imu_driver_node,num={}, timestamp={}",
-                    count, imu_msg.header.timestamp
+                    count,
+                    imu_msg.header.timestamp
                 );
             }
 
-            ((imu_msg, period_id),)
+            (pack_dag_msg(imu_msg, period_id),)
         },
         vec![Cow::from("start_imu")],
         vec![Cow::from("imu_data")],
@@ -234,9 +269,10 @@ pub async fn run() {
     .await;
 
     // Vehicle Velocity Converter node - VelocityReport to TwistWithCovarianceStamped converter
-    dag.register_reactor::<_, ((i32, u32),), ((TwistWithCovarianceStamped, u32),)>(
+    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<TwistWithCovarianceStamped>,)>(
         "vehicle_velocity_converter".into(),
-        move |((_b, period_id),): ((i32, u32),)| -> ((TwistWithCovarianceStamped, u32),) {
+        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<TwistWithCovarianceStamped>,) {
+            let (_b, period_id) = unpack_dag_msg(start_msg);
             let converter = VehicleVelocityConverter::default();
             
             let mut node = MCSNode::new();
@@ -275,7 +311,7 @@ pub async fn run() {
                 );
             }
             
-            ((twist_msg, period_id),)
+            (pack_dag_msg(twist_msg, period_id),)
         },
         vec![Cow::from("start_vel")], // Subscribe to start_vel topic
         vec![Cow::from("velocity_twist")], // Publish to twist_with_covariance topic
@@ -284,17 +320,17 @@ pub async fn run() {
     .await;
 
     //Imu Corrector
-    dag.register_reactor::<_, ((ImuMsg, u32),), ((ImuWithCovariance, u32),)>(
+    dag.register_reactor::<_, (DagMsg<ImuMsg>,), (DagMsg<ImuWithCovariance>,)>(
         "imu_corrector".into(),
-        |((imu_msg, period_id),): ((ImuMsg, u32),)| -> ((ImuWithCovariance, u32),) {
-            
+        |(imu_msg,): (DagMsg<ImuMsg>,)| -> (DagMsg<ImuWithCovariance>,) {
+            let (imu_msg, period_id) = unpack_dag_msg(imu_msg);
             let corrector = ImuCorrector::new();
             // Use the enhanced corrector that outputs ImuWithCovariance
             let corrected = corrector.correct_imu_with_covariance(&imu_msg, None);
             // if LOG_ENABLE {
             //     log::debug!("IMU corrected in imu_corrector node with covariance");
             // }
-            ((corrected, period_id),)
+            (pack_dag_msg(corrected, period_id),)
         },
         vec![Cow::from("imu_data")],
         vec![Cow::from("corrected_imu_data")],
@@ -303,9 +339,11 @@ pub async fn run() {
     .await;
 
     // Gyro Odometer node - Simplified single processing step
-    dag.register_reactor::<_, ((ImuWithCovariance, u32), (TwistWithCovarianceStamped, u32)), ((TwistWithCovarianceStamped, u32),)>(
+    dag.register_reactor::<_, (DagMsg<ImuWithCovariance>, DagMsg<TwistWithCovarianceStamped>), (DagMsg<TwistWithCovarianceStamped>,)>(
         "gyro_odometer".into(),
-        |((imu_with_cov, period_imu), (vehicle_twist, _period_twist)): ((ImuWithCovariance, u32), (TwistWithCovarianceStamped, u32))| -> ((TwistWithCovarianceStamped, u32),) {
+        |(imu_msg, vehicle_msg): (DagMsg<ImuWithCovariance>, DagMsg<TwistWithCovarianceStamped>)| -> (DagMsg<TwistWithCovarianceStamped>,) {
+            let (imu_with_cov, period_imu) = unpack_dag_msg(imu_msg);
+            let (vehicle_twist, _period_twist) = unpack_dag_msg(vehicle_msg);
             let current_timestamp = imu_with_cov.header.timestamp;
             let current_time = get_awkernel_uptime_timestamp();
             
@@ -313,7 +351,7 @@ pub async fn run() {
             let gyro_odometer = match gyro_odometer::get_or_initialize() {
                 Ok(core) => core,
                 Err(_) => {
-                    return ((reactor_helpers::create_empty_twist(current_timestamp), period_imu),);
+                    return (pack_dag_msg(reactor_helpers::create_empty_twist(current_timestamp), period_imu),);
                 }
             };
 
@@ -323,8 +361,8 @@ pub async fn run() {
             
             // Process once with current time and return result
             match gyro_odometer.process_and_get_result(current_time) {
-                Some(result) => ((gyro_odometer.process_result(result), period_imu),),
-                None => ((reactor_helpers::create_empty_twist(current_timestamp), period_imu),)
+                Some(result) => (pack_dag_msg(gyro_odometer.process_result(result), period_imu),),
+                None => (pack_dag_msg(reactor_helpers::create_empty_twist(current_timestamp), period_imu),)
             }
         },
         vec![Cow::from("corrected_imu_data"),Cow::from("velocity_twist")],
@@ -334,27 +372,28 @@ pub async fn run() {
     .await;
 
     // Pose dummy data generator reactor
-    dag.register_reactor::<_, ((i32, u32),), ((Pose, u32),)>(
+    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<Pose>,)>(
         "pose_dummy_generator".into(),
-        move |((_counter, period_id),): ((i32, u32),)| -> ((Pose, u32),) {
+        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<Pose>,) {
+            let (_counter, period_id) = unpack_dag_msg(start_msg);
             // Generate dummy pose data that moves in a circle
             // let time = counter as f64 * 0.1; // Time progression
             // let radius = 10.0; // Circle radius
             // let angular_velocity = 0.5; // rad/s
-            
+
             // aip_x1_description/config/sensors_calibration.yaml
             // if needed, comment out and use fixed values below
             // let x = 0.86419;
             // let y = 0.0;
             // let z = 2.18096;
             // let yaw = angular_velocity * time;
-            // for initial pose 
+            // for initial pose
             let x = 0.0;
             let y = 0.0;
             let z = 0.0;
-            
+
             let pose = Pose {
-                position: Point3D { x,y,z},
+                position: Point3D { x, y, z },
                 orientation: Quaternion {
                     x: 0.0,
                     y: 0.0,
@@ -362,13 +401,13 @@ pub async fn run() {
                     w: 1.0,
                 },
             };
-            
+
             // if LOG_ENABLE {
             //     log::debug!("Generated dummy pose: x={:.3}, y={:.3}, yaw={:.3}, counter={}",
             //         pose.position.x, pose.position.y, yaw, counter);
             // }
-            
-            ((pose, period_id),)
+
+            (pack_dag_msg(pose, period_id),)
         },
         vec![Cow::from("start_pose")],
         vec![Cow::from("dummy_pose")],
@@ -378,16 +417,18 @@ pub async fn run() {
 
     // EKF Localizer reactor - combines pose and twist data
     // MODIFIED: 手動積分（integrated_pose）を廃止し、EKFの内部状態から直接ポーズを取得するように変更
-    dag.register_reactor::<_, ((Pose, u32), (TwistWithCovarianceStamped, u32)), ((Pose, u32), (EKFOdometry, u32))>(
+    dag.register_reactor::<_, (DagMsg<Pose>, DagMsg<TwistWithCovarianceStamped>), (DagMsg<Pose>, DagMsg<EKFOdometry>)>(
         "ekf_localizer".into(),
-        |((pose, period_pose), (twist, _period_twist)): ((Pose, u32), (TwistWithCovarianceStamped, u32))| -> ((Pose, u32), (EKFOdometry, u32)) {
+        |(pose_msg, twist_msg): (DagMsg<Pose>, DagMsg<TwistWithCovarianceStamped>)| -> (DagMsg<Pose>, DagMsg<EKFOdometry>) {
+            let (pose, period_pose) = unpack_dag_msg(pose_msg);
+            let (twist, _period_twist) = unpack_dag_msg(twist_msg);
             // Initialize EKF Localizer if not already done
             if get_ekf_localizer().is_none() {
                 if let Err(e) = initialize_ekf_localizer() {
                     // if LOG_ENABLE {
                         // log::error!("Failed to initialize EKF Localizer: {}", e);
                     // }
-                    return ((pose, period_pose), (EKFOdometry {
+                    return (pack_dag_msg(pose, period_pose), pack_dag_msg(EKFOdometry {
                         header: imu_driver::Header {
                             frame_id: "map",
                             timestamp: twist.header.timestamp,
@@ -525,7 +566,7 @@ pub async fn run() {
             // COMMENTED OUT: 手動積分のポーズを返していた
             // (integrated_pose, odometry)
             // MODIFIED: EKFの推定ポーズを返す
-            ((ekf_pose, period_pose), (odometry, period_pose))
+            (pack_dag_msg(ekf_pose, period_pose), pack_dag_msg(odometry, period_pose))
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
@@ -534,9 +575,11 @@ pub async fn run() {
     .await;
 
     // Sink reactor for EKF Localizer output with TCP sending
-    dag.register_sink_reactor::<_, ((Pose, u32), (EKFOdometry, u32))>(
+    dag.register_sink_reactor::<_, (DagMsg<Pose>, DagMsg<EKFOdometry>)>(
         "ekf_sink".into(),
-        move|((_pose, _period_pose), (ekf_odom, _period_odom)): ((Pose, u32), (EKFOdometry, u32))| {
+        move |(pose_msg, odom_msg): (DagMsg<Pose>, DagMsg<EKFOdometry>)| {
+            let (_pose, _period_pose) = unpack_dag_msg(pose_msg);
+            let (ekf_odom, _period_odom) = unpack_dag_msg(odom_msg);
             // log::info!("=== EKF Sink Reactor 実行 ===");
             
             // if LOG_ENABLE {
@@ -621,32 +664,36 @@ pub async fn run() {
     log::info!("インターフェースID: {}", INTERFACE_ID);
     log::info!("インターフェースIP: {}", INTERFACE_ADDR);
     log::info!("宛先IP: {}", UDP_TCP_DST_ADDR);
-    // 
+    //
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
-    log::info!("IPv4アドレス設定完了: {} をインターフェース {} に追加", INTERFACE_ADDR, INTERFACE_ID);
+    log::info!(
+        "IPv4アドレス設定完了: {} をインターフェース {} に追加",
+        INTERFACE_ADDR,
+        INTERFACE_ID
+    );
 
     // ネットワークスタックの初期化を待つ
     log::info!("ネットワークスタック初期化のため待機中...");
     awkernel_async_lib::sleep(Duration::from_secs(2)).await;
-    
+
     // リアクターAPIに干渉しない周期UDP送信タスクを開始
     log::info!("周期UDP送信タスクを開始します");
     start_periodic_udp_sender().await;
-    
+
     // または、設定可能な周期で開始する場合
     // start_configurable_udp_sender(2).await; // 2秒間隔
-    
+
     // JSONデータが準備されるまで待機（最大3秒）
     log::info!("JSONデータの準備を待機中...");
     let mut wait_count = 0;
     const MAX_WAIT_COUNT: u32 = 3;
-    
+
     while !JSON_DATA_READY.load(Ordering::Relaxed) && wait_count < MAX_WAIT_COUNT {
         // log::info!("JSONデータ待機中... ({}/{})", wait_count + 1, MAX_WAIT_COUNT);
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
         wait_count += 1;
     }
-    
+
     if JSON_DATA_READY.load(Ordering::Relaxed) {
         // log::info!("JSONデータが準備されました。周期UDP送信タスクが動作中です");
         // 周期UDP送信タスクは既に動作中なので、ここでは何もしない
@@ -765,7 +812,8 @@ where
     let mut header_skipped = false;
 
     loop {
-        let (result, in_read, _out_written, num_fields) = reader.read_record(input, &mut output, &mut ends);
+        let (result, in_read, _out_written, num_fields) =
+            reader.read_record(input, &mut output, &mut ends);
         input = &input[in_read..];
 
         if matches!(result, ReadRecordResult::OutputFull) {
@@ -818,7 +866,9 @@ fn parse_u64(field: &str) -> Result<u64, &'static str> {
     if trimmed.is_empty() {
         return Ok(0);
     }
-    trimmed.parse::<u64>().map_err(|_| "u64パースに失敗しました")
+    trimmed
+        .parse::<u64>()
+        .map_err(|_| "u64パースに失敗しました")
 }
 
 fn parse_f64(field: &str) -> Result<f64, &'static str> {
@@ -826,39 +876,41 @@ fn parse_f64(field: &str) -> Result<f64, &'static str> {
     if trimmed.is_empty() {
         return Ok(0.0);
     }
-    trimmed.parse::<f64>().map_err(|_| "f64パースに失敗しました")
+    trimmed
+        .parse::<f64>()
+        .map_err(|_| "f64パースに失敗しました")
 }
 
 // fn find_first_moving_velocity_index() -> usize {
-    // const EPS: f64 = 1.0e-6;
-    // let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
-    // if let Some(rows) = data {
-        // for (idx, row) in rows.iter().enumerate() {
-            // if row.longitudinal_velocity.abs() > EPS || row.lateral_velocity.abs() > EPS {
-                // return idx;
-            // }
-        // }
-    // }
-    // 0
+// const EPS: f64 = 1.0e-6;
+// let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
+// if let Some(rows) = data {
+// for (idx, row) in rows.iter().enumerate() {
+// if row.longitudinal_velocity.abs() > EPS || row.lateral_velocity.abs() > EPS {
+// return idx;
 // }
-// 
+// }
+// }
+// 0
+// }
+//
 // fn find_first_active_imu_index() -> usize {
-    // const EPS: f64 = 1.0e-6;
-    // let data = unsafe { IMU_CSV_DATA.as_ref() };
-    // if let Some(rows) = data {
-        // for (idx, row) in rows.iter().enumerate() {
-            // if row.angular_velocity.x.abs() > EPS
-                // || row.angular_velocity.y.abs() > EPS
-                // || row.angular_velocity.z.abs() > EPS
-                // || row.linear_acceleration.x.abs() > EPS
-                // || row.linear_acceleration.y.abs() > EPS
-                // || row.linear_acceleration.z.abs() > EPS
-            // {
-                // return idx;
-            // }
-        // }
-    // }
-    // 0
+// const EPS: f64 = 1.0e-6;
+// let data = unsafe { IMU_CSV_DATA.as_ref() };
+// if let Some(rows) = data {
+// for (idx, row) in rows.iter().enumerate() {
+// if row.angular_velocity.x.abs() > EPS
+// || row.angular_velocity.y.abs() > EPS
+// || row.angular_velocity.z.abs() > EPS
+// || row.linear_acceleration.x.abs() > EPS
+// || row.linear_acceleration.y.abs() > EPS
+// || row.linear_acceleration.z.abs() > EPS
+// {
+// return idx;
+// }
+// }
+// }
+// 0
 // }
 
 // Awkernel起動時間からのタイムスタンプを取得する関数
@@ -877,7 +929,7 @@ fn get_awkernel_uptime_timestamp() -> u64 {
 // リアクターAPIに干渉しないUDP送信タスク（一定周期実行）
 pub async fn start_periodic_udp_sender() {
     // log::info!("=== 周期UDP送信タスク開始 ===");
-    
+
     // 独立したタスクとして実行
     awkernel_async_lib::spawn(
         "periodic_udp_sender".into(),
@@ -885,20 +937,20 @@ pub async fn start_periodic_udp_sender() {
         awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
-    
+
     // log::info!("周期UDP送信タスクを開始しました");
 }
 
 // 周期UDP送信タスクの実装
 async fn periodic_udp_sender_task() {
     // log::info!("周期UDP送信タスク: 開始");
-    
+
     // UDPソケットを作成（一度だけ）
     let socket_result = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
         &Default::default(),
     );
-    
+
     let mut socket = match socket_result {
         Ok(socket) => {
             // log::info!("周期UDP送信タスク: UDPソケット作成成功");
@@ -909,10 +961,10 @@ async fn periodic_udp_sender_task() {
             return;
         }
     };
-    
+
     let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
     let mut counter = 0;
-    
+
     // 無限ループで一定周期実行
     loop {
         // JSONデータの準備チェック
@@ -921,29 +973,36 @@ async fn periodic_udp_sender_task() {
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;
         }
-        
+
         // 安全にJSONデータを取得
-        let json_data = unsafe {
-            LATEST_JSON_DATA.as_ref().map(|s| s.clone())
-        };
-        
+        let json_data = unsafe { LATEST_JSON_DATA.as_ref().map(|s| s.clone()) };
+
         if let Some(data) = json_data {
             // UDP送信を実行
             match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
                 Ok(_) => {
                     counter += 1;
-                    log::info!("周期UDP送信タスク: 送信成功 #{} ({} bytes)", counter, data.len());
-                    
+                    log::info!(
+                        "周期UDP送信タスク: 送信成功 #{} ({} bytes)",
+                        counter,
+                        data.len()
+                    );
+
                     // レスポンス受信（オプション、タイムアウト付き）
                     let mut buf = [0u8; 1024];
-                    if let Some(Ok((n, src_addr, src_port))) = 
-                        awkernel_async_lib::timeout(
-                            Duration::from_millis(100), // 短いタイムアウト
-                            socket.recv(&mut buf)
-                        ).await {
+                    if let Some(Ok((n, src_addr, src_port))) = awkernel_async_lib::timeout(
+                        Duration::from_millis(100), // 短いタイムアウト
+                        socket.recv(&mut buf),
+                    )
+                    .await
+                    {
                         if let Ok(response) = core::str::from_utf8(&buf[..n]) {
-                            log::debug!("周期UDP送信タスク: レスポンス受信: {}:{} - {}", 
-                                src_addr.get_addr(), src_port, response);
+                            log::debug!(
+                                "周期UDP送信タスク: レスポンス受信: {}:{} - {}",
+                                src_addr.get_addr(),
+                                src_port,
+                                response
+                            );
                         }
                     }
                 }
@@ -954,7 +1013,7 @@ async fn periodic_udp_sender_task() {
         } else {
             log::warn!("周期UDP送信タスク: JSONデータが取得できませんでした");
         }
-        
+
         // 一定周期で待機（例: 2秒間隔 - DAGの実行周期と衝突を避けるため）
         awkernel_async_lib::sleep(Duration::from_millis(5)).await;
     }
@@ -963,7 +1022,7 @@ async fn periodic_udp_sender_task() {
 // リアクターAPIに干渉しないUDP送信タスク（設定可能な周期）
 // pub async fn start_configurable_udp_sender(interval_sec: u64) {
 //     log::info!("=== 設定可能周期UDP送信タスク開始 (間隔: {}秒) ===", interval_sec);
-    
+
 //     // 独立したタスクとして実行
 //     awkernel_async_lib::spawn(
 //         "configurable_udp_sender".into(),
@@ -971,20 +1030,20 @@ async fn periodic_udp_sender_task() {
 //         awkernel_async_lib::scheduler::SchedulerType::GEDF(5),
 //     )
 //     .await;
-    
+
 //     log::info!("設定可能周期UDP送信タスクを開始しました");
 // }
 
 // 設定可能な周期UDP送信タスクの実装
 // async fn configurable_udp_sender_task(interval_sec: u64) {
 //     log::info!("設定可能周期UDP送信タスク: 開始 (間隔: {}秒)", interval_sec);
-    
+
 //     // UDPソケットを作成
 //     let socket_result = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
 //         INTERFACE_ID,
 //         &Default::default(),
 //     );
-    
+
 //     let mut socket = match socket_result {
 //         Ok(socket) => {
 //             log::info!("設定可能周期UDP送信タスク: UDPソケット作成成功");
@@ -995,10 +1054,10 @@ async fn periodic_udp_sender_task() {
 //             return;
 //         }
 //     };
-    
+
 //     let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 //     let mut counter = 0;
-    
+
 //     loop {
 //         // ネットワーク初期化チェック
 //         if !NETWORK_INITIALIZED.load(Ordering::Relaxed) {
@@ -1006,25 +1065,25 @@ async fn periodic_udp_sender_task() {
 //             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
 //             continue;
 //         }
-        
+
 //         // JSONデータの準備チェック
 //         if !JSON_DATA_READY.load(Ordering::Relaxed) {
 //             log::debug!("設定可能周期UDP送信タスク: JSONデータ未準備、待機中...");
 //             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
 //             continue;
 //         }
-        
+
 //         // 安全にJSONデータを取得
 //         let json_data = unsafe {
 //             LATEST_JSON_DATA.as_ref().map(|s| s.clone())
 //         };
-        
+
 //         if let Some(data) = json_data {
 //             // UDP送信を実行
 //             match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
 //                 Ok(_) => {
 //                     counter += 1;
-//                     log::info!("設定可能周期UDP送信タスク: 送信成功 #{} ({} bytes, 間隔: {}秒)", 
+//                     log::info!("設定可能周期UDP送信タスク: 送信成功 #{} ({} bytes, 間隔: {}秒)",
 //                         counter, data.len(), interval_sec);
 //                 }
 //                 Err(e) => {
@@ -1034,7 +1093,7 @@ async fn periodic_udp_sender_task() {
 //         } else {
 //             log::warn!("設定可能周期UDP送信タスク: JSONデータが取得できませんでした");
 //         }
-        
+
 //         // 設定された周期で待機
 //         awkernel_async_lib::sleep(Duration::from_secs(interval_sec)).await;
 //     }
@@ -1066,11 +1125,11 @@ fn get_transform_safely(from_frame: &str, to_frame: &str) -> Result<Transform, &
 fn initialize_ekf_localizer() -> Result<(), &'static str> {
     let params = EKFParameters::default();
     let ekf = EKFModule::new(params);
-    
+
     // Allocate on heap and store pointer
     let boxed_ekf = alloc::boxed::Box::new(ekf);
     let ptr = alloc::boxed::Box::into_raw(boxed_ekf);
-    
+
     // Try to store the pointer atomically
     let old_ptr = EKF_LOCALIZER.compare_exchange(
         null_mut(),
@@ -1078,7 +1137,7 @@ fn initialize_ekf_localizer() -> Result<(), &'static str> {
         AtomicOrdering::Acquire,
         AtomicOrdering::Relaxed,
     );
-    
+
     match old_ptr {
         Ok(_) => Ok(()),
         Err(_) => {
@@ -1099,7 +1158,7 @@ fn initialize_ekf_localizer() -> Result<(), &'static str> {
 //     let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
 //     atan2(siny_cosp, cosy_cosp)
 // }
-// 
+//
 // fn yaw_to_quaternion(yaw: f64) -> Quaternion {
 //     let half = yaw * 0.5;
 //     Quaternion {

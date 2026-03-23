@@ -29,11 +29,7 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
-use crate::{
-    task::{
-        perf::{update_pre_send_outer_timestamp_at, get_period_count},
-    },
-};
+use crate::task::perf::{get_period_count, update_pre_send_outer_timestamp_at};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{

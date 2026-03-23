@@ -4,14 +4,15 @@ extern crate alloc;
 use alloc::{borrow::Cow, collections::VecDeque, string::String, vec::Vec};
 use core::time::Duration;
 // Global instance and lazy initialization support
-use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 use core::ptr::null_mut;
+use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 
 // Re-export common types for consistency with other libraries
-pub use imu_driver::{Header, Vector3, Quaternion, ImuMsg};
-pub use vehicle_velocity_converter::{Odometry, TwistWithCovarianceStamped, TwistWithCovariance, Twist};
-pub use imu_corrector::{ImuWithCovariance, Transform, transform_covariance};
-
+pub use imu_corrector::{transform_covariance, ImuWithCovariance, Transform};
+pub use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
+pub use vehicle_velocity_converter::{
+    Odometry, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
+};
 
 static GYRO_ODOMETER_INSTANCE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
 
@@ -49,7 +50,7 @@ impl GyroOdometerCore {
         let queue_size = config.queue_size;
         let output_frame = config.output_frame.clone();
         let message_timeout_sec = config.message_timeout_sec;
-        
+
         Ok(Self {
             output_frame,
             message_timeout_sec,
@@ -61,13 +62,14 @@ impl GyroOdometerCore {
         })
     }
 
-
-
     /// Main processing function (matching C++ concat_gyro_and_odometer)
-    /// 
+    ///
     /// # Arguments
     /// * `current_time` - Current system time in nanoseconds (matching C++ this->now())
-    pub fn concat_gyro_and_odometer(&mut self, current_time: u64) -> Result<Option<TwistWithCovarianceStamped>> {
+    pub fn concat_gyro_and_odometer(
+        &mut self,
+        current_time: u64,
+    ) -> Result<Option<TwistWithCovarianceStamped>> {
         // Check if first messages have arrived (matching C++ implementation)
         if !self.vehicle_twist_arrived {
             self.vehicle_twist_queue.clear();
@@ -83,25 +85,30 @@ impl GyroOdometerCore {
         // Check timeout (matching C++ implementation)
         // C++: vehicle_twist_dt = std::abs((this->now() - latest_vehicle_twist_ros_time_).seconds())
         if !self.vehicle_twist_queue.is_empty() && !self.gyro_queue.is_empty() {
-            let latest_vehicle_twist_stamp = self.vehicle_twist_queue.back().unwrap().header.timestamp;
+            let latest_vehicle_twist_stamp =
+                self.vehicle_twist_queue.back().unwrap().header.timestamp;
             let latest_imu_stamp = self.gyro_queue.back().unwrap().header.timestamp;
-            
+
             // Check vehicle twist timeout (matching C++ vehicle_twist_dt > message_timeout_sec_)
-            if Self::check_timeout(current_time, latest_vehicle_twist_stamp, self.message_timeout_sec) {
+            if Self::check_timeout(
+                current_time,
+                latest_vehicle_twist_stamp,
+                self.message_timeout_sec,
+            ) {
                 self.vehicle_twist_queue.clear();
                 self.gyro_queue.clear();
-                return Err(GyroOdometerError::TimeoutError(
-                    String::from("Vehicle twist message timeout")
-                ));
+                return Err(GyroOdometerError::TimeoutError(String::from(
+                    "Vehicle twist message timeout",
+                )));
             }
-            
+
             // Check IMU timeout (matching C++ imu_dt > message_timeout_sec_)
             if Self::check_timeout(current_time, latest_imu_stamp, self.message_timeout_sec) {
                 self.vehicle_twist_queue.clear();
                 self.gyro_queue.clear();
-                return Err(GyroOdometerError::TimeoutError(
-                    String::from("IMU message timeout")
-                ));
+                return Err(GyroOdometerError::TimeoutError(String::from(
+                    "IMU message timeout",
+                )));
             }
         }
 
@@ -159,7 +166,7 @@ impl GyroOdometerCore {
         // Create result (matching C++ implementation)
         let latest_vehicle_twist_stamp = self.vehicle_twist_queue.back().unwrap().header.timestamp;
         let latest_imu_stamp = self.gyro_queue.back().unwrap().header.timestamp;
-        
+
         let result_timestamp = if latest_vehicle_twist_stamp < latest_imu_stamp {
             latest_imu_stamp
         } else {
@@ -181,15 +188,15 @@ impl GyroOdometerCore {
         };
 
         // Set covariance (matching C++ implementation exactly)
-        result.twist.covariance[COV_IDX_XYZRPY_X_X] = 
+        result.twist.covariance[COV_IDX_XYZRPY_X_X] =
             vx_covariance_original / self.vehicle_twist_queue.len() as f64;
         result.twist.covariance[COV_IDX_XYZRPY_Y_Y] = 100000.0;
         result.twist.covariance[COV_IDX_XYZRPY_Z_Z] = 100000.0;
-        result.twist.covariance[COV_IDX_XYZRPY_ROLL_ROLL] = 
+        result.twist.covariance[COV_IDX_XYZRPY_ROLL_ROLL] =
             gyro_covariance_original.x / self.gyro_queue.len() as f64;
-        result.twist.covariance[COV_IDX_XYZRPY_PITCH_PITCH] = 
+        result.twist.covariance[COV_IDX_XYZRPY_PITCH_PITCH] =
             gyro_covariance_original.y / self.gyro_queue.len() as f64;
-        result.twist.covariance[COV_IDX_XYZRPY_YAW_YAW] = 
+        result.twist.covariance[COV_IDX_XYZRPY_YAW_YAW] =
             gyro_covariance_original.z / self.gyro_queue.len() as f64;
 
         // Clear queues (matching C++ implementation)
@@ -221,7 +228,10 @@ impl GyroOdometerCore {
     }
 
     /// Process result and apply vehicle stop logic
-    pub fn process_result(&self, twist_with_cov_raw: TwistWithCovarianceStamped) -> TwistWithCovarianceStamped {
+    pub fn process_result(
+        &self,
+        twist_with_cov_raw: TwistWithCovarianceStamped,
+    ) -> TwistWithCovarianceStamped {
         // 車両が停止している場合の処理 (matching C++ implementation exactly)
         if twist_with_cov_raw.twist.twist.angular.z.abs() < 0.01
             && twist_with_cov_raw.twist.twist.linear.x.abs() < 0.01
@@ -237,7 +247,11 @@ impl GyroOdometerCore {
     }
 
     /// Convert vehicle velocity data to twist format
-    pub fn convert_vehicle_velocity_to_twist(&self, odometry: &Odometry, timestamp: u64) -> TwistWithCovarianceStamped {
+    pub fn convert_vehicle_velocity_to_twist(
+        &self,
+        odometry: &Odometry,
+        timestamp: u64,
+    ) -> TwistWithCovarianceStamped {
         TwistWithCovarianceStamped {
             header: Header {
                 frame_id: "base_link",
@@ -266,7 +280,10 @@ impl GyroOdometerCore {
     }
 
     /// Process queues and get result (matching test_autoware process_queues_and_get_result)
-    pub fn process_and_get_result(&mut self, current_time: u64) -> Option<TwistWithCovarianceStamped> {
+    pub fn process_and_get_result(
+        &mut self,
+        current_time: u64,
+    ) -> Option<TwistWithCovarianceStamped> {
         match self.concat_gyro_and_odometer(current_time) {
             Ok(result) => result,
             Err(_) => None,
@@ -370,19 +387,28 @@ mod tests {
 
         assert_eq!(imu_msg.header.frame_id, converted_back.header.frame_id);
         assert_eq!(imu_msg.header.timestamp, converted_back.header.timestamp);
-        assert_eq!(imu_msg.angular_velocity.x, converted_back.angular_velocity.x);
-        assert_eq!(imu_msg.angular_velocity.y, converted_back.angular_velocity.y);
-        assert_eq!(imu_msg.angular_velocity.z, converted_back.angular_velocity.z);
+        assert_eq!(
+            imu_msg.angular_velocity.x,
+            converted_back.angular_velocity.x
+        );
+        assert_eq!(
+            imu_msg.angular_velocity.y,
+            converted_back.angular_velocity.y
+        );
+        assert_eq!(
+            imu_msg.angular_velocity.z,
+            converted_back.angular_velocity.z
+        );
     }
 
     #[test]
     fn test_vehicle_velocity_conversion() {
         let config = GyroOdometerConfig::default();
         let core = GyroOdometerCore::new(config).unwrap();
-        
+
         let odometry = Odometry { velocity: 15.5 };
         let twist = core.convert_vehicle_velocity_to_twist(&odometry, 123456789);
-        
+
         assert_eq!(twist.header.frame_id, "base_link");
         assert_eq!(twist.header.timestamp, 123456789);
         assert_eq!(twist.twist.twist.linear.x, 15.5);
@@ -394,7 +420,7 @@ mod tests {
     fn test_imu_corrector_integration() {
         let config = GyroOdometerConfig::default();
         let mut core = GyroOdometerCore::new(config).unwrap();
-        
+
         // Create IMU with covariance from imu_corrector
         let imu_with_cov = ImuWithCovariance {
             header: Header {
@@ -410,7 +436,17 @@ mod tests {
             angular_velocity: Vector3::new(0.1, 0.2, 0.3),
             angular_velocity_covariance: [0.0009, 0.0, 0.0, 0.0, 0.0009, 0.0, 0.0, 0.0, 0.0009], // 0.03^2
             linear_acceleration: Vector3::new(9.8, 0.0, 0.0),
-            linear_acceleration_covariance: [100000000.0, 0.0, 0.0, 0.0, 100000000.0, 0.0, 0.0, 0.0, 100000000.0], // 10000^2
+            linear_acceleration_covariance: [
+                100000000.0,
+                0.0,
+                0.0,
+                0.0,
+                100000000.0,
+                0.0,
+                0.0,
+                0.0,
+                100000000.0,
+            ], // 10000^2
         };
 
         // Process IMU with covariance
@@ -433,19 +469,19 @@ mod tests {
 /// This provides lazy initialization with thread-safe access
 pub fn get_or_initialize() -> Result<&'static mut GyroOdometerCore> {
     let ptr = GYRO_ODOMETER_INSTANCE.load(AtomicOrdering::Acquire);
-    
+
     if !ptr.is_null() {
         return Ok(unsafe { &mut *ptr });
     }
-    
+
     // Not initialized, try to initialize
     let config = GyroOdometerConfig::default();
     let core = GyroOdometerCore::new(config)?;
-    
+
     // Allocate on heap and store pointer
     let boxed_core = alloc::boxed::Box::new(core);
     let new_ptr = alloc::boxed::Box::into_raw(boxed_core);
-    
+
     // Try to store the pointer atomically
     match GYRO_ODOMETER_INSTANCE.compare_exchange(
         null_mut(),

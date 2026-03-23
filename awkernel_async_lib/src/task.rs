@@ -466,13 +466,12 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
-    use alloc::string::{String, ToString};
-    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
-    use core::{ptr::{read_volatile, write_volatile}};
     use crate::task::{self};
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use alloc::string::{String, ToString};
     use array_macro::array;
-    
+    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
+    use core::ptr::{read_volatile, write_volatile};
+    use core::sync::atomic::{AtomicU32, Ordering};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -501,7 +500,7 @@ pub mod perf {
         }
     }
     #[derive(Debug, Clone)]
-    pub struct NodeRecord{
+    pub struct NodeRecord {
         pub period_count: u32,
         pub dag_info: task::DagInfo,
     }
@@ -644,7 +643,7 @@ pub mod perf {
         }
     }
 
-    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
+    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
@@ -655,10 +654,9 @@ pub mod perf {
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
         }
-        
     }
 
-    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
+    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
 
         let mut node = MCSNode::new();
@@ -669,12 +667,14 @@ pub mod perf {
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
         }
-        
     }
 
-    pub fn node_start(node:NodeRecord, start: u64){
+    pub fn node_start(node: NodeRecord, start: u64) {
         // assert!(index < MAX_LOGS, "Node log index out of bounds");
-        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+        assert!(
+            (node.dag_info.node_id as usize) < MAX_NODES,
+            "Node ID out of bounds"
+        );
 
         let mut mcs_node = MCSNode::new();
         let mut recorder_opt = NODE_START.lock(&mut mcs_node);
@@ -686,9 +686,12 @@ pub mod perf {
         }
     }
 
-    pub fn node_finish(node:NodeRecord, finish: u64){
+    pub fn node_finish(node: NodeRecord, finish: u64) {
         // assert!(index < MAX_LOGS, "Node log index out of bounds");
-        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+        assert!(
+            (node.dag_info.node_id as usize) < MAX_NODES,
+            "Node ID out of bounds"
+        );
 
         let mut mcs_node = MCSNode::new();
         let mut recorder_opt = NODE_FINISH.lock(&mut mcs_node);
@@ -700,9 +703,12 @@ pub mod perf {
         }
     }
 
-    pub fn node_preempt(node:NodeRecord){
+    pub fn node_preempt(node: NodeRecord) {
         // assert!(index < MAX_LOGS, "Node log index out of bounds");
-        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+        assert!(
+            (node.dag_info.node_id as usize) < MAX_NODES,
+            "Node ID out of bounds"
+        );
 
         let mut mcs_node = MCSNode::new();
         let mut recorder_opt = NODE_PREEMPT_COUNT.lock(&mut mcs_node);
@@ -712,9 +718,12 @@ pub mod perf {
         recorder[node.period_count as usize][node.dag_info.node_id as usize] += 1;
     }
 
-    pub fn dag_preempt(node:NodeRecord){
+    pub fn dag_preempt(node: NodeRecord) {
         // assert!(index < MAX_LOGS, "Node log index out of bounds");
-        assert!((node.dag_info.dag_id as usize) < MAX_DAGS, "DAG ID out of bounds");
+        assert!(
+            (node.dag_info.dag_id as usize) < MAX_DAGS,
+            "DAG ID out of bounds"
+        );
 
         let mut mcs_node = MCSNode::new();
         let mut recorder_opt = DAG_PREEMPT_COUNT.lock(&mut mcs_node);
@@ -789,7 +798,12 @@ pub mod perf {
                 let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let dag_preempt = dag_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
-                if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 || dag_preempt != 0 {
+                if pre_send_outer != 0
+                    || fin_recv_outer != 0
+                    || absolute_deadline != 0
+                    || relative_deadline != 0
+                    || dag_preempt != 0
+                {
                     let format_ts = |ts: u64| -> String {
                         if ts == 0 {
                             "-".to_string()
@@ -857,10 +871,7 @@ pub mod perf {
                 let core_id = node_core_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
                 if start != 0 || finish != 0 || preempt_count != 0 {
-
-                    let format_ts = |ts: u64| -> String {
-                            ts.to_string()
-                    };
+                    let format_ts = |ts: u64| -> String { ts.to_string() };
 
                     let duration = if start != 0 && finish != 0 {
                         finish.saturating_sub(start).to_string()
