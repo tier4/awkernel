@@ -25,6 +25,27 @@ pub struct VelocityReport {
     pub heading_rate: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct VelocityCsvRow {
+    pub timestamp: u64,
+    pub longitudinal_velocity: f64,
+    pub lateral_velocity: f64,
+    pub heading_rate: f64,
+}
+
+pub fn build_velocity_report_from_csv_row(
+    row: &VelocityCsvRow,
+    frame_id: &'static str,
+    timestamp: u64,
+) -> VelocityReport {
+    VelocityReport {
+        header: Header { frame_id, timestamp },
+        longitudinal_velocity: row.longitudinal_velocity,
+        lateral_velocity: row.lateral_velocity,
+        heading_rate: row.heading_rate,
+    }
+}
+
 /// TwistWithCovarianceStampedメッセージの構造体
 #[derive(Debug, Clone)]
 pub struct TwistWithCovarianceStamped {

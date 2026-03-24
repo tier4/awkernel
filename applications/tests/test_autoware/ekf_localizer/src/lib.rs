@@ -5,8 +5,12 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 use core::f64::consts::PI;
+use core::ptr::null_mut;
+use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 use libm::{asin, atan2, cos, sin};
 use nalgebra::{Matrix6, Vector3, Vector6};
+
+static EKF_MODULE_INSTANCE: AtomicPtr<EKFModule> = AtomicPtr::new(null_mut());
 
 /// State indices for EKF
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -535,6 +539,31 @@ impl EKFModule {
         let yaw = atan2(siny_cosp, cosy_cosp);
 
         (roll, pitch, yaw)
+    }
+}
+
+pub fn get_or_initialize_default_module() -> &'static mut EKFModule {
+    let existing = EKF_MODULE_INSTANCE.load(AtomicOrdering::Acquire);
+    if !existing.is_null() {
+        return unsafe { &mut *existing };
+    }
+
+    let boxed = alloc::boxed::Box::new(EKFModule::new(EKFParameters::default()));
+    let ptr = alloc::boxed::Box::into_raw(boxed);
+
+    match EKF_MODULE_INSTANCE.compare_exchange(
+        null_mut(),
+        ptr,
+        AtomicOrdering::AcqRel,
+        AtomicOrdering::Acquire,
+    ) {
+        Ok(_) => unsafe { &mut *ptr },
+        Err(existing_ptr) => {
+            unsafe {
+                let _ = alloc::boxed::Box::from_raw(ptr);
+                &mut *existing_ptr
+            }
+        }
     }
 }
 

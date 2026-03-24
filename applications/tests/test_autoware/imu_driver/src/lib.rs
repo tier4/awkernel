@@ -15,6 +15,14 @@ pub struct ImuMsg {
 }
 
 #[derive(Clone, Debug)]
+pub struct ImuCsvRow {
+    pub timestamp: u64,
+    pub orientation: Quaternion,
+    pub angular_velocity: Vector3,
+    pub linear_acceleration: Vector3,
+}
+
+#[derive(Clone, Debug)]
 pub struct Header {
     pub frame_id: &'static str,
     pub timestamp: u64,
@@ -57,6 +65,19 @@ impl Default for ImuMsg {
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             linear_acceleration: Vector3::new(0.0, 0.0, 0.0),
         }
+    }
+}
+
+pub fn build_imu_msg_from_csv_row(
+    row: &ImuCsvRow,
+    frame_id: &'static str,
+    timestamp: u64,
+) -> ImuMsg {
+    ImuMsg {
+        header: Header { frame_id, timestamp },
+        orientation: row.orientation.clone(),
+        angular_velocity: row.angular_velocity.clone(),
+        linear_acceleration: row.linear_acceleration.clone(),
     }
 }
 

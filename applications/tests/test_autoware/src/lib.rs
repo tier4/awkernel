@@ -1,7 +1,7 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, collections::VecDeque, format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, format, string::String, vec, vec::Vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::net::IpAddr;
 use awkernel_async_lib::scheduler::SchedulerType;
@@ -13,22 +13,18 @@ use core::net::Ipv4Addr;
 use core::time::Duration;
 use csv_core::{ReadRecordResult, Reader};
 // Thread-safe state management using atomic operations
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-// Global gyro odometer core instance with proper synchronization
-use core::ptr::null_mut;
-use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use imu_corrector::{ImuCorrector, ImuWithCovariance, Transform};
-use imu_driver::{Header, ImuMsg, TamagawaImuParser, Vector3};
+use imu_corrector::{ImuCorrector, ImuWithCovariance};
+use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
 
 use vehicle_velocity_converter::{
+    build_velocity_report_from_csv_row,
     reactor_helpers, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
-    VehicleVelocityConverter, VelocityReport,
+    VehicleVelocityConverter, VelocityCsvRow,
 };
 
-use gyro_odometer::{GyroOdometerConfig, GyroOdometerCore};
-
-use ekf_localizer::{EKFModule, EKFParameters, Point3D, Pose, PoseWithCovariance, Quaternion};
+use ekf_localizer::{get_or_initialize_default_module, Point3D, Pose, PoseWithCovariance, Quaternion};
 
 /// EKF Odometry structure for publishing (equivalent to C++ nav_msgs::msg::Odometry)
 #[derive(Debug, Clone)]
@@ -39,37 +35,7 @@ pub struct EKFOdometry {
     pub twist: TwistWithCovariance,
 }
 
-const LOG_ENABLE: bool = true;
-
-// EKF pose covariance (6x6 matrix flattened to array)
-// Layout: [x, xy, xz, xr, xp, xy_yaw,
-//          yx, y, yz, yr, yp, y_yaw,
-//          zx, zy, z, zr, zp, z_yaw,
-//          rx, ry, rz, r, rp, r_yaw,
-//          px, py, pz, pr, p, p_yaw,
-//          yaw_x, yaw_y, yaw_z, yaw_r, yaw_p, yaw]
-const EKF_POSE_COVARIANCE: [f64; 36] = [
-    0.0225, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0225, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0225, 0.0, 0.0,
-    0.0, 0.0, 0.0, 0.0, 0.000625, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.000625, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 0.000625,
-];
-
-// EKF twist covariance (6x6 matrix flattened to array)
-// For twist, we mainly care about linear.x (vx) and angular.z (wz)
-// Layout: [vx_x, vx_y, vx_z, vx_rx, vx_ry, vx_wz,
-//          vy_x, vy_y, vy_z, vy_rx, vy_ry, vy_wz,
-//          vz_x, vz_y, vz_z, vz_rx, vz_ry, vz_wz,
-//          wx_x, wx_y, wx_z, wx_rx, wx_ry, wx_wz,
-//          wy_x, wy_y, wy_z, wy_rx, wy_ry, wy_wz,
-//          wz_x, wz_y, wz_z, wz_rx, wz_ry, wz]
-// Based on Autoware's typical twist uncertainty (0.01 m/s for linear, 0.01 rad/s for angular)
-const EKF_TWIST_COVARIANCE: [f64; 36] = [
-    0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
-    0.0, 0.0, 0.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0001,
-];
-
-static LAST_DR_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
+const LOG_ENABLE: bool = false;
 
 const INTERFACE_ID: u64 = 0;
 
@@ -90,29 +56,10 @@ static JSON_DATA_LENGTH: AtomicUsize = AtomicUsize::new(0);
 const IMU_CSV_DATA_STR: &str = include_str!("../imu_raw.csv");
 const VELOCITY_CSV_DATA_STR: &str = include_str!("../velocity_status.csv");
 
-#[derive(Clone, Debug)]
-struct ImuCsvRow {
-    timestamp: u64,
-    orientation: imu_driver::Quaternion,
-    angular_velocity: imu_driver::Vector3,
-    linear_acceleration: imu_driver::Vector3,
-}
-
-#[derive(Clone, Debug)]
-struct VelocityCsvRow {
-    timestamp: u64,
-    longitudinal_velocity: f64,
-    lateral_velocity: f64,
-    heading_rate: f64,
-}
-
 static mut IMU_CSV_DATA: Option<Vec<ImuCsvRow>> = None;
 static mut VELOCITY_CSV_DATA: Option<Vec<VelocityCsvRow>> = None;
 static IMU_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 static VELOCITY_CSV_COUNT: Mutex<usize> = Mutex::new(0);
-
-// Global EKF Localizer instance with proper synchronization
-static EKF_LOCALIZER: AtomicPtr<EKFModule> = AtomicPtr::new(null_mut());
 
 #[cfg(feature = "dag-send-period")]
 type DagMsg<T> = (T, u32);
@@ -202,15 +149,7 @@ pub async fn run() {
                     let idx = count % csv_data.len();
                     let row = &csv_data[idx];
                     let awkernel_timestamp = get_awkernel_uptime_timestamp();
-                    ImuMsg {
-                        header: Header {
-                            frame_id: "imu_link",
-                            timestamp: awkernel_timestamp,
-                        },
-                        orientation: row.orientation.clone(),
-                        angular_velocity: row.angular_velocity.clone(),
-                        linear_acceleration: row.linear_acceleration.clone(),
-                    }
+                    build_imu_msg_from_csv_row(row, "imu_link", awkernel_timestamp)
                 }
             } else {
                 let mut parser = TamagawaImuParser::new("imu_link");
@@ -259,15 +198,8 @@ pub async fn run() {
             let idx = count % csv_data.len();
             let row = &csv_data[idx];
             let awkernel_timestamp = get_awkernel_uptime_timestamp();
-            let velocity_report = VelocityReport {
-                header: Header {
-                    frame_id: "base_link",
-                    timestamp: awkernel_timestamp,
-                },
-                longitudinal_velocity: row.longitudinal_velocity,
-                lateral_velocity: row.lateral_velocity,
-                heading_rate: row.heading_rate,
-            };
+            let velocity_report =
+                build_velocity_report_from_csv_row(row, "base_link", awkernel_timestamp);
             
             *count_guard += 1;
             if *count_guard >= 5700 {
@@ -368,36 +300,12 @@ pub async fn run() {
         |(pose_msg, twist_msg): (DagMsg<Pose>, DagMsg<TwistWithCovarianceStamped>)| -> (DagMsg<Pose>, DagMsg<EKFOdometry>) {
             let (pose, period_pose) = unpack_dag_msg(pose_msg);
             let (twist, _period_twist) = unpack_dag_msg(twist_msg);
-            if get_ekf_localizer().is_none() {
-                if let Err(_e) = initialize_ekf_localizer() {
-                    return (pack_dag_msg(pose, period_pose), pack_dag_msg(EKFOdometry {
-                        header: imu_driver::Header {
-                            frame_id: "map",
-                            timestamp: twist.header.timestamp,
-                        },
-                        child_frame_id: "base_link",
-                        pose: PoseWithCovariance {
-                            pose: pose,
-                            covariance: EKF_POSE_COVARIANCE,
-                        },
-                        twist: TwistWithCovariance {
-                            twist: Twist {
-                                linear: imu_driver::Vector3::new(0.0, 0.0, 0.0),
-                                angular: imu_driver::Vector3::new(0.0, 0.0, 0.0),
-                            },
-                            covariance: EKF_TWIST_COVARIANCE,
-                        },
-                    }, period_pose));
-                }
-            }
-            
-            let ekf = get_ekf_localizer().unwrap();
+            let ekf = get_or_initialize_default_module();
 
             static mut INITIALIZED: bool = false;
             unsafe {
                 if !INITIALIZED {
                     ekf.initialize(pose.clone());
-                    LAST_DR_TIMESTAMP.store(twist.header.timestamp, Ordering::Relaxed);
                     INITIALIZED = true;
                 }
             }
@@ -790,55 +698,4 @@ fn save_json_data_to_global(json_data: String) {
     }
     JSON_DATA_READY.store(true, Ordering::Relaxed);
     JSON_DATA_LENGTH.store(json_data.len(), Ordering::Relaxed);
-}
-
-// Transform error handling function
-fn get_transform_safely(from_frame: &str, to_frame: &str) -> Result<Transform, &'static str> {
-    // For now, return identity transform
-    // In a real implementation, this would query the transform tree
-    if from_frame == to_frame {
-        Ok(Transform::identity())
-    } else {
-        // Simulate transform lookup
-        Ok(Transform::identity())
-    }
-}
-
-// Initialize EKF Localizer safely
-fn initialize_ekf_localizer() -> Result<(), &'static str> {
-    let params = EKFParameters::default();
-    let ekf = EKFModule::new(params);
-
-    // Allocate on heap and store pointer
-    let boxed_ekf = alloc::boxed::Box::new(ekf);
-    let ptr = alloc::boxed::Box::into_raw(boxed_ekf);
-
-    // Try to store the pointer atomically
-    let old_ptr = EKF_LOCALIZER.compare_exchange(
-        null_mut(),
-        ptr,
-        AtomicOrdering::Acquire,
-        AtomicOrdering::Relaxed,
-    );
-
-    match old_ptr {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            // Another thread already initialized it, clean up our allocation
-            unsafe {
-                let _ = alloc::boxed::Box::from_raw(ptr);
-            }
-            Ok(())
-        }
-    }
-}
-
-// Get EKF Localizer safely
-fn get_ekf_localizer() -> Option<&'static mut EKFModule> {
-    let ptr = EKF_LOCALIZER.load(AtomicOrdering::Acquire);
-    if ptr.is_null() {
-        None
-    } else {
-        unsafe { Some(&mut *ptr) }
-    }
 }
