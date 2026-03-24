@@ -623,7 +623,7 @@ pub async fn start_periodic_udp_sender() {
     awkernel_async_lib::spawn(
         "periodic_udp_sender".into(),
         periodic_udp_sender_task(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
+        awkernel_async_lib::scheduler::SchedulerType::GEDF(5),
     )
     .await;
 }
