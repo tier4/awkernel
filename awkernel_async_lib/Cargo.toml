@@ -40,7 +40,6 @@ features = ["awkernel"]
 
 [features]
 default = []
-x86 = []
 std = ["awkernel_lib/std", "no_preempt"]
 no_preempt = []
 spinlock = ["awkernel_lib/spinlock"]

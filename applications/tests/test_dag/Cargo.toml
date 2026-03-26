@@ -15,5 +15,5 @@ path = "../../../awkernel_lib"
 default-features = false
 
 [features]
-default = ["relax-get-period"]
+default = []
 relax-get-period = ["awkernel_async_lib/relax-get-period"]

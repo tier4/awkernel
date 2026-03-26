@@ -82,7 +82,6 @@ no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
 x86 = [
     "perf",
-    "awkernel_async_lib/x86",
     "no_std_unwinding",
     "awkernel_lib/x86",
     "dep:x86_64",
