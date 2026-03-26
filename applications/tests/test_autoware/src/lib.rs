@@ -5,8 +5,6 @@ use alloc::{borrow::Cow, format, string::String, vec, vec::Vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::net::IpAddr;
 use awkernel_async_lib::scheduler::SchedulerType;
-#[cfg(feature = "dag-send-period")]
-use awkernel_async_lib::task::perf::get_period_count;
 use awkernel_lib::delay::wait_microsec;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::net::Ipv4Addr;
@@ -62,41 +60,6 @@ static mut VELOCITY_CSV_DATA: Option<Vec<VelocityCsvRow>> = None;
 static IMU_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 static VELOCITY_CSV_COUNT: Mutex<usize> = Mutex::new(0);
 
-#[cfg(feature = "dag-send-period")]
-type DagMsg<T> = (T, u32);
-#[cfg(not(feature = "dag-send-period"))]
-type DagMsg<T> = T;
-
-#[cfg(feature = "dag-send-period")]
-fn pack_dag_msg<T>(value: T, period_id: u32) -> DagMsg<T> {
-    (value, period_id)
-}
-
-#[cfg(not(feature = "dag-send-period"))]
-fn pack_dag_msg<T>(value: T, _period_id: u32) -> DagMsg<T> {
-    value
-}
-
-#[cfg(feature = "dag-send-period")]
-fn unpack_dag_msg<T>(msg: DagMsg<T>) -> (T, u32) {
-    msg
-}
-
-#[cfg(not(feature = "dag-send-period"))]
-fn unpack_dag_msg<T>(msg: DagMsg<T>) -> (T, u32) {
-    (msg, 0)
-}
-
-#[cfg(feature = "dag-send-period")]
-fn current_period_id(dag_id: u32) -> u32 {
-    get_period_count(dag_id as usize) as u32
-}
-
-#[cfg(not(feature = "dag-send-period"))]
-fn current_period_id(_dag_id: u32) -> u32 {
-    0
-}
-
 pub async fn run() {
     wait_microsec(1000000);
 
@@ -109,15 +72,10 @@ pub async fn run() {
     let dag = create_dag();
     let dag_id = dag.get_id();
 
-    dag.register_periodic_reactor::<_, (DagMsg<i32>, DagMsg<i32>, DagMsg<i32>)>(
+    dag.register_periodic_reactor::<_, (i32, i32, i32)>(
         "start_dummy_data".into(),
-        move || -> (DagMsg<i32>, DagMsg<i32>, DagMsg<i32>) {
-            let period_id = current_period_id(dag_id);
-            (
-                pack_dag_msg(1, period_id),
-                pack_dag_msg(2, period_id),
-                pack_dag_msg(3, period_id),
-            )
+        move || -> (i32, i32, i32) {
+            (1, 2, 3)
         },
         vec![
             Cow::from("start_imu"),
@@ -129,10 +87,9 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<ImuMsg>,)>(
+    dag.register_reactor::<_, (i32,), (ImuMsg,)>(
         "imu_driver".into(),
-        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<ImuMsg>,) {
-            let (_a, period_id) = unpack_dag_msg(start_msg);
+        move |(_start_msg,): (i32,)| -> (ImuMsg,) {
             let mut node = MCSNode::new();
             let mut count_guard = IMU_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
@@ -176,7 +133,7 @@ pub async fn run() {
                 );
             }
 
-            (pack_dag_msg(imu_msg, period_id),)
+            (imu_msg,)
         },
         vec![Cow::from("start_imu")],
         vec![Cow::from("imu_data")],
@@ -184,10 +141,9 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<TwistWithCovarianceStamped>,)>(
+    dag.register_reactor::<_, (i32,), (TwistWithCovarianceStamped,)>(
         "vehicle_velocity_converter".into(),
-        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<TwistWithCovarianceStamped>,) {
-            let (_b, period_id) = unpack_dag_msg(start_msg);
+        move |(_start_msg,): (i32,)| -> (TwistWithCovarianceStamped,) {
             let converter = VehicleVelocityConverter::default();
 
             let mut node = MCSNode::new();
@@ -219,7 +175,7 @@ pub async fn run() {
                 );
             }
 
-            (pack_dag_msg(twist_msg, period_id),)
+            (twist_msg,)
         },
         vec![Cow::from("start_vel")],
         vec![Cow::from("velocity_twist")],
@@ -227,13 +183,12 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<ImuMsg>,), (DagMsg<ImuWithCovariance>,)>(
+    dag.register_reactor::<_, (ImuMsg,), (ImuWithCovariance,)>(
         "imu_corrector".into(),
-        |(imu_msg,): (DagMsg<ImuMsg>,)| -> (DagMsg<ImuWithCovariance>,) {
-            let (imu_msg, period_id) = unpack_dag_msg(imu_msg);
+        |(imu_msg,): (ImuMsg,)| -> (ImuWithCovariance,) {
             let corrector = ImuCorrector::new();
             let corrected = corrector.correct_imu_with_covariance(&imu_msg, None);
-            (pack_dag_msg(corrected, period_id),)
+            (corrected,)
         },
         vec![Cow::from("imu_data")],
         vec![Cow::from("corrected_imu_data")],
@@ -242,27 +197,22 @@ pub async fn run() {
     .await;
 
     dag.register_reactor::<_, (
-        DagMsg<ImuWithCovariance>,
-        DagMsg<TwistWithCovarianceStamped>,
-    ), (DagMsg<TwistWithCovarianceStamped>,)>(
+        ImuWithCovariance,
+        TwistWithCovarianceStamped,
+    ), (TwistWithCovarianceStamped,)>(
         "gyro_odometer".into(),
-        |(imu_msg, vehicle_msg): (
-            DagMsg<ImuWithCovariance>,
-            DagMsg<TwistWithCovarianceStamped>,
+        |(imu_with_cov, vehicle_twist): (
+            ImuWithCovariance,
+            TwistWithCovarianceStamped,
         )|
-         -> (DagMsg<TwistWithCovarianceStamped>,) {
-            let (imu_with_cov, period_imu) = unpack_dag_msg(imu_msg);
-            let (vehicle_twist, _period_twist) = unpack_dag_msg(vehicle_msg);
+         -> (TwistWithCovarianceStamped,) {
             let current_timestamp = imu_with_cov.header.timestamp;
             let current_time = get_awkernel_uptime_timestamp();
 
             let gyro_odometer = match gyro_odometer::get_or_initialize() {
                 Ok(core) => core,
                 Err(_) => {
-                    return (pack_dag_msg(
-                        reactor_helpers::create_empty_twist(current_timestamp),
-                        period_imu,
-                    ),);
+                    return (reactor_helpers::create_empty_twist(current_timestamp),);
                 }
             };
 
@@ -270,14 +220,8 @@ pub async fn run() {
             gyro_odometer.add_imu(imu_with_cov);
 
             match gyro_odometer.process_and_get_result(current_time) {
-                Some(result) => (pack_dag_msg(
-                    gyro_odometer.process_result(result),
-                    period_imu,
-                ),),
-                None => (pack_dag_msg(
-                    reactor_helpers::create_empty_twist(current_timestamp),
-                    period_imu,
-                ),),
+                Some(result) => (gyro_odometer.process_result(result),),
+                None => (reactor_helpers::create_empty_twist(current_timestamp),),
             }
         },
         vec![Cow::from("corrected_imu_data"), Cow::from("velocity_twist")],
@@ -286,10 +230,9 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<i32>,), (DagMsg<Pose>,)>(
+    dag.register_reactor::<_, (i32,), (Pose,)>(
         "pose_dummy_generator".into(),
-        move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<Pose>,) {
-            let (_counter, period_id) = unpack_dag_msg(start_msg);
+        move |(_start_msg,): (i32,)| -> (Pose,) {
             let x = 0.0;
             let y = 0.0;
             let z = 0.0;
@@ -304,7 +247,7 @@ pub async fn run() {
                 },
             };
 
-            (pack_dag_msg(pose, period_id),)
+            (pose,)
         },
         vec![Cow::from("start_pose")],
         vec![Cow::from("dummy_pose")],
@@ -312,11 +255,9 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<Pose>, DagMsg<TwistWithCovarianceStamped>), (DagMsg<Pose>, DagMsg<EKFOdometry>)>(
+    dag.register_reactor::<_, (Pose, TwistWithCovarianceStamped), (Pose, EKFOdometry)>(
         "ekf_localizer".into(),
-        |(pose_msg, twist_msg): (DagMsg<Pose>, DagMsg<TwistWithCovarianceStamped>)| -> (DagMsg<Pose>, DagMsg<EKFOdometry>) {
-            let (pose, period_pose) = unpack_dag_msg(pose_msg);
-            let (twist, _period_twist) = unpack_dag_msg(twist_msg);
+        |(pose, twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
             let ekf = get_or_initialize_default_module();
 
             static mut INITIALIZED: bool = false;
@@ -365,7 +306,7 @@ pub async fn run() {
                 },
             };
 
-            (pack_dag_msg(ekf_pose, period_pose), pack_dag_msg(odometry, period_pose))
+            (ekf_pose, odometry)
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
@@ -373,11 +314,9 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_sink_reactor::<_, (DagMsg<Pose>, DagMsg<EKFOdometry>)>(
+    dag.register_sink_reactor::<_, (Pose, EKFOdometry)>(
         "ekf_sink".into(),
-        move |(pose_msg, odom_msg): (DagMsg<Pose>, DagMsg<EKFOdometry>)| {
-            let (_pose, _period_pose) = unpack_dag_msg(pose_msg);
-            let (ekf_odom, _period_odom) = unpack_dag_msg(odom_msg);
+        move |(_pose, ekf_odom): (Pose, EKFOdometry)| {
 
             let json_data = format!(
                 r#"{{"header":{{"frame_id":"{}","timestamp":{}}},"child_frame_id":"{}","pose":{{"pose":{{"position":{{"x":{:.6},"y":{:.6},"z":{:.6}}},"orientation":{{"x":{:.6},"y":{:.6},"z":{:.6},"w":{:.6}}}}},"covariance":[{}]}},"twist":{{"twist":{{"linear":{{"x":{:.6},"y":{:.6},"z":{:.6}}},"angular":{{"x":{:.6},"y":{:.6},"z":{:.6}}}}},"covariance":[{}]}}}}"#,
