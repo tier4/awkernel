@@ -558,12 +558,10 @@ pub fn get_or_initialize_default_module() -> &'static mut EKFModule {
         AtomicOrdering::Acquire,
     ) {
         Ok(_) => unsafe { &mut *ptr },
-        Err(existing_ptr) => {
-            unsafe {
-                let _ = alloc::boxed::Box::from_raw(ptr);
-                &mut *existing_ptr
-            }
-        }
+        Err(existing_ptr) => unsafe {
+            let _ = alloc::boxed::Box::from_raw(ptr);
+            &mut *existing_ptr
+        },
     }
 }
 

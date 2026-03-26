@@ -471,7 +471,12 @@ pub mod perf {
     use array_macro::array;
     use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
     use core::ptr::{read_volatile, write_volatile};
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    /// Flag to control whether period tracking is enabled
+    /// When false (with relax-get-period feature), period tracking is disabled to reduce BSS memory
+    /// When true (without relax-get-period feature), period tracking is enabled
+    pub static ENABLE_PERIOD_TRACKING: AtomicBool = AtomicBool::new(false);
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]

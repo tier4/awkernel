@@ -19,12 +19,13 @@ use imu_corrector::{ImuCorrector, ImuWithCovariance};
 use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
 
 use vehicle_velocity_converter::{
-    build_velocity_report_from_csv_row,
-    reactor_helpers, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
-    VehicleVelocityConverter, VelocityCsvRow,
+    build_velocity_report_from_csv_row, reactor_helpers, Twist, TwistWithCovariance,
+    TwistWithCovarianceStamped, VehicleVelocityConverter, VelocityCsvRow,
 };
 
-use ekf_localizer::{get_or_initialize_default_module, Point3D, Pose, PoseWithCovariance, Quaternion};
+use ekf_localizer::{
+    get_or_initialize_default_module, Point3D, Pose, PoseWithCovariance, Quaternion,
+};
 
 /// EKF Odometry structure for publishing (equivalent to C++ nav_msgs::msg::Odometry)
 #[derive(Debug, Clone)]
@@ -188,28 +189,28 @@ pub async fn run() {
         move |(start_msg,): (DagMsg<i32>,)| -> (DagMsg<TwistWithCovarianceStamped>,) {
             let (_b, period_id) = unpack_dag_msg(start_msg);
             let converter = VehicleVelocityConverter::default();
-            
+
             let mut node = MCSNode::new();
             let mut count_guard = VELOCITY_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
             let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
-            
+
             let csv_data = data.expect("VELOCITY_CSV_DATA must be initialized");
             let idx = count % csv_data.len();
             let row = &csv_data[idx];
             let awkernel_timestamp = get_awkernel_uptime_timestamp();
             let velocity_report =
                 build_velocity_report_from_csv_row(row, "base_link", awkernel_timestamp);
-            
+
             *count_guard += 1;
             if *count_guard >= 5700 {
                 *count_guard = 0;
                 log::info!("rust_e2e_app: finish csv for Velocity");
                 loop {}
             }
-            
+
             let twist_msg = converter.convert_velocity_report(&velocity_report);
-            
+
             if LOG_ENABLE {
                 log::debug!("Vehicle velocity converter: Converted velocity report to twist - linear.x={:.3}, angular.z={:.3}, awkernel_timestamp={}",
                     twist_msg.twist.twist.linear.x,
@@ -217,7 +218,7 @@ pub async fn run() {
                     twist_msg.header.timestamp
                 );
             }
-            
+
             (pack_dag_msg(twist_msg, period_id),)
         },
         vec![Cow::from("start_vel")],
@@ -240,18 +241,28 @@ pub async fn run() {
     )
     .await;
 
-    dag.register_reactor::<_, (DagMsg<ImuWithCovariance>, DagMsg<TwistWithCovarianceStamped>), (DagMsg<TwistWithCovarianceStamped>,)>(
+    dag.register_reactor::<_, (
+        DagMsg<ImuWithCovariance>,
+        DagMsg<TwistWithCovarianceStamped>,
+    ), (DagMsg<TwistWithCovarianceStamped>,)>(
         "gyro_odometer".into(),
-        |(imu_msg, vehicle_msg): (DagMsg<ImuWithCovariance>, DagMsg<TwistWithCovarianceStamped>)| -> (DagMsg<TwistWithCovarianceStamped>,) {
+        |(imu_msg, vehicle_msg): (
+            DagMsg<ImuWithCovariance>,
+            DagMsg<TwistWithCovarianceStamped>,
+        )|
+         -> (DagMsg<TwistWithCovarianceStamped>,) {
             let (imu_with_cov, period_imu) = unpack_dag_msg(imu_msg);
             let (vehicle_twist, _period_twist) = unpack_dag_msg(vehicle_msg);
             let current_timestamp = imu_with_cov.header.timestamp;
             let current_time = get_awkernel_uptime_timestamp();
-            
+
             let gyro_odometer = match gyro_odometer::get_or_initialize() {
                 Ok(core) => core,
                 Err(_) => {
-                    return (pack_dag_msg(reactor_helpers::create_empty_twist(current_timestamp), period_imu),);
+                    return (pack_dag_msg(
+                        reactor_helpers::create_empty_twist(current_timestamp),
+                        period_imu,
+                    ),);
                 }
             };
 
@@ -259,11 +270,17 @@ pub async fn run() {
             gyro_odometer.add_imu(imu_with_cov);
 
             match gyro_odometer.process_and_get_result(current_time) {
-                Some(result) => (pack_dag_msg(gyro_odometer.process_result(result), period_imu),),
-                None => (pack_dag_msg(reactor_helpers::create_empty_twist(current_timestamp), period_imu),)
+                Some(result) => (pack_dag_msg(
+                    gyro_odometer.process_result(result),
+                    period_imu,
+                ),),
+                None => (pack_dag_msg(
+                    reactor_helpers::create_empty_twist(current_timestamp),
+                    period_imu,
+                ),),
             }
         },
-        vec![Cow::from("corrected_imu_data"),Cow::from("velocity_twist")],
+        vec![Cow::from("corrected_imu_data"), Cow::from("velocity_twist")],
         vec![Cow::from("twist_with_covariance")],
         SchedulerType::GEDF(5),
     )
@@ -594,9 +611,7 @@ fn parse_u64(field: &str) -> Result<u64, &'static str> {
     if trimmed.is_empty() {
         return Ok(0);
     }
-    trimmed
-        .parse::<u64>()
-        .map_err(|_| "Failed to parse u64")
+    trimmed.parse::<u64>().map_err(|_| "Failed to parse u64")
 }
 
 fn parse_f64(field: &str) -> Result<f64, &'static str> {
@@ -604,9 +619,7 @@ fn parse_f64(field: &str) -> Result<f64, &'static str> {
     if trimmed.is_empty() {
         return Ok(0.0);
     }
-    trimmed
-        .parse::<f64>()
-        .map_err(|_| "Failed to parse f64")
+    trimmed.parse::<f64>().map_err(|_| "Failed to parse f64")
 }
 
 // Returns monotonic uptime in nanoseconds clamped to u64.
@@ -637,7 +650,10 @@ async fn periodic_udp_sender_task() {
     let mut socket = match socket_result {
         Ok(socket) => socket,
         Err(e) => {
-            log::error!("Periodic UDP sender task: failed to create UDP socket: {:?}", e);
+            log::error!(
+                "Periodic UDP sender task: failed to create UDP socket: {:?}",
+                e
+            );
             return;
         }
     };

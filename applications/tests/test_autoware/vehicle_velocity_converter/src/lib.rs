@@ -39,7 +39,10 @@ pub fn build_velocity_report_from_csv_row(
     timestamp: u64,
 ) -> VelocityReport {
     VelocityReport {
-        header: Header { frame_id, timestamp },
+        header: Header {
+            frame_id,
+            timestamp,
+        },
         longitudinal_velocity: row.longitudinal_velocity,
         lateral_velocity: row.lateral_velocity,
         heading_rate: row.heading_rate,

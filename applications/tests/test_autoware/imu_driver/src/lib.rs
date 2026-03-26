@@ -74,7 +74,10 @@ pub fn build_imu_msg_from_csv_row(
     timestamp: u64,
 ) -> ImuMsg {
     ImuMsg {
-        header: Header { frame_id, timestamp },
+        header: Header {
+            frame_id,
+            timestamp,
+        },
         orientation: row.orientation.clone(),
         angular_velocity: row.angular_velocity.clone(),
         linear_acceleration: row.linear_acceleration.clone(),
