@@ -84,7 +84,6 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::sync::atomic::Ordering;
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
@@ -106,150 +105,53 @@ pub trait TupleSize {
     const SIZE: usize;
 }
 
-macro_rules! impl_tuple_size {
-    (@count) => { 0 };
-    (@count $_head:ident $($tail:ident)*) => { 1 + impl_tuple_size!(@count $($tail)*) };
-
-    ($($T:ident),*) => {
-        impl<$($T),*> TupleSize for ($($T,)*) {
-            const SIZE: usize = impl_tuple_size!(@count $($T)*);
-        }
-    };
-}
-
-impl_tuple_size!();
-impl_tuple_size!(T1);
-impl_tuple_size!(T1, T2);
-impl_tuple_size!(T1, T2, T3);
-impl_tuple_size!(T1, T2, T3, T4);
-impl_tuple_size!(T1, T2, T3, T4, T5);
-impl_tuple_size!(T1, T2, T3, T4, T5, T6);
-impl_tuple_size!(T1, T2, T3, T4, T5, T6, T7);
-impl_tuple_size!(T1, T2, T3, T4, T5, T6, T7, T8);
-
-// Trait to extract the period (u32) carried in the last element of
-// subscriber tuples. Each subscriber tuple element is expected to be
-// a `(value, u32)` pair; implementations below return the u32 from
-// the last tuple element. The trait is public so `get_period` bounds
-// in other functions can reference it.
 pub trait GetPeriod {
     fn get_period(&self) -> u32;
 }
 
-// When relax-get-period is NOT enabled, enforce period_id presence via GetPeriod
+macro_rules! impl_tuple_traits {
+    () => {
+        impl TupleSize for () {
+            const SIZE: usize = 0;
+        }
+    };
+
+    ($last_idx:tt => $($T:ident),+) => {
+        impl<$($T),+> TupleSize for ($($T,)+) {
+            const SIZE: usize = $last_idx + 1;
+        }
+
+        #[cfg(not(feature = "relax-get-period"))]
+        impl<$($T),+> GetPeriod for ($(($T, u32),)+) {
+            fn get_period(&self) -> u32 {
+                self.$last_idx .1
+            }
+        }
+    };
+}
+
+impl_tuple_traits!();
+impl_tuple_traits!(0 => T1);
+impl_tuple_traits!(1 => T1, T2);
+impl_tuple_traits!(2 => T1, T2, T3);
+impl_tuple_traits!(3 => T1, T2, T3, T4);
+impl_tuple_traits!(4 => T1, T2, T3, T4, T5);
+impl_tuple_traits!(5 => T1, T2, T3, T4, T5, T6);
+impl_tuple_traits!(6 => T1, T2, T3, T4, T5, T6, T7);
+impl_tuple_traits!(7 => T1, T2, T3, T4, T5, T6, T7, T8);
+
 #[cfg(not(feature = "relax-get-period"))]
 pub trait DagSubscriberItem: TupleSize + GetPeriod + Send {}
 
 #[cfg(not(feature = "relax-get-period"))]
 impl<T> DagSubscriberItem for T where T: TupleSize + GetPeriod + Send {}
 
-#[cfg(not(feature = "relax-get-period"))]
-impl<V> GetPeriod for ((V, u32),) {
-    fn get_period(&self) -> u32 {
-        self.0 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2> GetPeriod for ((V1, u32), (V2, u32)) {
-    fn get_period(&self) -> u32 {
-        self.1 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3> GetPeriod for ((V1, u32), (V2, u32), (V3, u32)) {
-    fn get_period(&self) -> u32 {
-        self.2 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3, V4> GetPeriod for ((V1, u32), (V2, u32), (V3, u32), (V4, u32)) {
-    fn get_period(&self) -> u32 {
-        self.3 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3, V4, V5> GetPeriod for ((V1, u32), (V2, u32), (V3, u32), (V4, u32), (V5, u32)) {
-    fn get_period(&self) -> u32 {
-        self.4 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3, V4, V5, V6> GetPeriod
-    for (
-        (V1, u32),
-        (V2, u32),
-        (V3, u32),
-        (V4, u32),
-        (V5, u32),
-        (V6, u32),
-    )
-{
-    fn get_period(&self) -> u32 {
-        self.5 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3, V4, V5, V6, V7> GetPeriod
-    for (
-        (V1, u32),
-        (V2, u32),
-        (V3, u32),
-        (V4, u32),
-        (V5, u32),
-        (V6, u32),
-        (V7, u32),
-    )
-{
-    fn get_period(&self) -> u32 {
-        self.6 .1
-    }
-}
-
-#[cfg(not(feature = "relax-get-period"))]
-impl<V1, V2, V3, V4, V5, V6, V7, V8> GetPeriod
-    for (
-        (V1, u32),
-        (V2, u32),
-        (V3, u32),
-        (V4, u32),
-        (V5, u32),
-        (V6, u32),
-        (V7, u32),
-        (V8, u32),
-    )
-{
-    fn get_period(&self) -> u32 {
-        self.7 .1
-    }
-}
-
-// When relax-get-period feature is enabled, provide a default implementation
-#[cfg(feature = "relax-get-period")]
-impl<T> GetPeriod for T {
-    fn get_period(&self) -> u32 {
-        0
-    }
-}
-
-// When relax-get-period is enabled, DagSubscriberItem does not require GetPeriod
 #[cfg(feature = "relax-get-period")]
 pub trait DagSubscriberItem: TupleSize + Send {}
 
 #[cfg(feature = "relax-get-period")]
 impl<T> DagSubscriberItem for T where T: TupleSize + Send {}
-
-// #[cfg(feature = "relax-get-period")]
-// impl<T> DagSubscriberItem for T where T: TupleSize + Send {}
-
-
-
-/// Convenience helper to extract period from a subscriber tuple by reference.
+#[cfg(not(feature = "relax-get-period"))]
 pub fn get_period<T: GetPeriod>(args: &T) -> u32 {
     args.get_period()
 }
@@ -1119,23 +1021,26 @@ where
                 subscribers.recv_all().await;
 
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                let count_st = get_period(&args);
-                subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
+                #[cfg(not(feature = "relax-get-period"))]
+                {
+                    // [end] pubsub communication latency
+                    let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    let count_st = get_period(&args);
+                    subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
 
-                // period count from message to TaskInfo
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(count_st));
+                    // period count from message to TaskInfo
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                        crate::task::set_task_period(task_id, Some(count_st));
+                    }
+                    let results = f(args);
+                    // [start] pubsub communication latency
+                    let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    publish_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
+                    publishers
+                        .send_all_with_meta(results, 1, count_st as usize, dag_info.node_id)
+                        .await;
                 }
-                let results = f(args);
-                // [start] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                publish_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
-                publishers
-                    .send_all_with_meta(results, 1, count_st as usize, dag_info.node_id)
-                    .await;
             } else {
                 let results = f(args);
                 publishers.send_all(results).await;
@@ -1182,29 +1087,32 @@ where
 
         loop {
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(index as u32));
-                }
-                if index != 0 {
-                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                    update_pre_send_outer_timestamp_at(
-                        index,
-                        release_time,
-                        dag_info.dag_id.clone(),
-                    );
-                }
-                let results = f();
-                // [start] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                publish_timestamp_at(index, end, 0, dag_info.node_id);
-                publishers
-                    .send_all_with_meta(results, 0, index, dag_info.node_id)
-                    .await;
+                #[cfg(not(feature = "relax-get-period"))]
+                {
+                    let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                        crate::task::set_task_period(task_id, Some(index as u32));
+                    }
+                    if index != 0 {
+                        let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                        update_pre_send_outer_timestamp_at(
+                            index,
+                            release_time,
+                            dag_info.dag_id.clone(),
+                        );
+                    }
+                    let results = f();
+                    // [start] pubsub communication latency
+                    let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    publish_timestamp_at(index, end, 0, dag_info.node_id);
+                    publishers
+                        .send_all_with_meta(results, 0, index, dag_info.node_id)
+                        .await;
 
-                increment_period_count(dag_info.dag_id.clone() as usize);
-                increment_pub_count(0);
+                    increment_period_count(dag_info.dag_id.clone() as usize);
+                    increment_pub_count(0);
+                }
             } else {
                 let results = f();
                 publishers.send_all(results).await;
@@ -1246,24 +1154,28 @@ where
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
 
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                let count_st = get_period(&args);
-                subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
-                increment_pub_count(1);
-                increment_sub_count(1);
-                increment_sub_count(2);
+                #[cfg(not(feature = "relax-get-period"))]
+                {
+                    // [end] pubsub communication latency
+                    let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    let count_st = get_period(&args);
+                    subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
+                    increment_pub_count(1);
+                    increment_sub_count(1);
+                    increment_sub_count(2);
 
-                // period count from message to TaskInfo
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(count_st));
+                    // period count from message to TaskInfo
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    if let Some(task_id) = crate::task::get_current_task(cpu_id) {
+                        crate::task::set_task_period(task_id, Some(count_st));
+                    }
+                    let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    if count_st != 0 {
+                        update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+                    }
+                    increment_sink_count(dag_info.dag_id.clone() as usize);
                 }
-                let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                if count_st != 0 {
-                    update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
-                }
-                increment_sink_count(dag_info.dag_id.clone() as usize);
+                
             }
             f(args);
         }
