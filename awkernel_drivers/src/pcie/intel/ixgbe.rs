@@ -290,6 +290,8 @@ impl fmt::Display for IxgbeDriverErr {
     }
 }
 
+impl core::error::Error for IxgbeDriverErr {}
+
 impl IxgbeInner {
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let (mut hw, ops) = ixgbe_hw::IxgbeHw::new(&mut info)?;
