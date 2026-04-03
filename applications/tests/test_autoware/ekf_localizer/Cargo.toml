@@ -8,6 +8,8 @@ edition = "2021"
 libm = "0.2"
 nalgebra = { version = "0.32", default-features = false}
 approx = "0.5" 
+imu_driver = { path = "../imu_driver", default-features = false }
+vehicle_velocity_converter = { path = "../vehicle_velocity_converter", default-features = false}
 
 # Optional: for better math functions
 micromath = "2.1"

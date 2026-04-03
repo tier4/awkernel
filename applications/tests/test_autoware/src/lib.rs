@@ -10,40 +10,23 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::net::Ipv4Addr;
 use core::time::Duration;
 use csv_core::{ReadRecordResult, Reader};
-// Thread-safe state management using atomic operations
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use imu_corrector::{ImuCorrector, ImuWithCovariance};
 use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
-
 use vehicle_velocity_converter::{
     build_velocity_report_from_csv_row, reactor_helpers, Twist, TwistWithCovariance,
     TwistWithCovarianceStamped, VehicleVelocityConverter, VelocityCsvRow,
 };
-
 use ekf_localizer::{
-    get_or_initialize_default_module, Point3D, Pose, PoseWithCovariance, Quaternion,
+    get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
 };
-
-/// EKF Odometry structure for publishing (equivalent to C++ nav_msgs::msg::Odometry)
-#[derive(Debug, Clone)]
-pub struct EKFOdometry {
-    pub header: imu_driver::Header,
-    pub child_frame_id: &'static str,
-    pub pose: PoseWithCovariance,
-    pub twist: TwistWithCovariance,
-}
 
 const LOG_ENABLE: bool = false;
 
 const INTERFACE_ID: u64 = 0;
-
-// 10.0.2.0/24 is the IP address range of the Qemu's network.
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
-
-// 10.0.2.2 is the IP address of the Qemu's host.
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
-
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
 const TCP_LISTEN_PORT: u16 = 26100;
@@ -561,7 +544,6 @@ fn parse_f64(field: &str) -> Result<f64, &'static str> {
     trimmed.parse::<f64>().map_err(|_| "Failed to parse f64")
 }
 
-// Returns monotonic uptime in nanoseconds clamped to u64.
 fn get_awkernel_uptime_timestamp() -> u64 {
     let uptime_nanos = awkernel_lib::delay::uptime_nano();
     if uptime_nanos > u64::MAX as u128 {

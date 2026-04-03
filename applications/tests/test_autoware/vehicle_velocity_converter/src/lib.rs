@@ -16,7 +16,6 @@
 
 use imu_driver::{Header, Vector3};
 
-/// 速度レポートメッセージの構造体
 #[derive(Debug, Clone)]
 pub struct VelocityReport {
     pub header: Header,
@@ -49,21 +48,18 @@ pub fn build_velocity_report_from_csv_row(
     }
 }
 
-/// TwistWithCovarianceStampedメッセージの構造体
 #[derive(Debug, Clone)]
 pub struct TwistWithCovarianceStamped {
     pub header: Header,
     pub twist: TwistWithCovariance,
 }
 
-/// TwistWithCovariance構造体
 #[derive(Debug, Clone)]
 pub struct TwistWithCovariance {
     pub twist: Twist,
     pub covariance: [f64; 36],
 }
 
-/// Twist構造体
 #[derive(Debug, Clone)]
 pub struct Twist {
     pub linear: Vector3,
@@ -75,16 +71,14 @@ pub struct Odometry {
     pub velocity: f64,
 }
 
-/// 車両速度変換器の構造体
 pub struct VehicleVelocityConverter {
-    frame_id: &'static str,  // → frame_id: base_link
-    stddev_vx: f64,          // → velocity_stddev_xx: 0.2
-    stddev_wz: f64,          // → angular_velocity_stddev_zz: 0.1
-    speed_scale_factor: f64, // → speed_scale_factor: 1.0
+    frame_id: &'static str,
+    stddev_vx: f64,
+    stddev_wz: f64,
+    speed_scale_factor: f64,
 }
 
 impl VehicleVelocityConverter {
-    /// 新しいVehicleVelocityConverterインスタンスを作成
     pub fn new(
         frame_id: &'static str,
         stddev_vx: f64,
@@ -99,7 +93,6 @@ impl VehicleVelocityConverter {
         }
     }
 
-    /// パラメータからVehicleVelocityConverterを作成（配列ベース版）
     pub fn from_params_array(
         velocity_stddev_xx: Option<f64>,
         angular_velocity_stddev_zz: Option<f64>,
@@ -113,17 +106,13 @@ impl VehicleVelocityConverter {
         Self::new(frame_id, stddev_vx, stddev_wz, speed_scale_factor)
     }
 
-    /// デフォルト設定でVehicleVelocityConverterを作成
     pub fn default() -> Self {
         Self::new("base_link", 0.2, 0.1, 1.0)
     }
 
-    /// 速度レポートをTwistWithCovarianceStampedに変換
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
-        // WARN Only
         let _frame_id_mismatch = msg.header.frame_id != self.frame_id;
 
-        // TwistWithCovarianceStampedメッセージを生成
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
@@ -144,28 +133,18 @@ impl VehicleVelocityConverter {
         }
     }
 
-    /// 共分散行列を作成
     fn create_covariance_matrix(&self) -> [f64; 36] {
         let mut covariance = [0.0; 36];
-
-        // 線形速度の分散 (x方向)
         covariance[0 + 0 * 6] = self.stddev_vx * self.stddev_vx;
-
-        // その他の線形速度成分は大きな値（低い信頼度）を設定
-        covariance[1 + 1 * 6] = 10000.0; // y方向
-        covariance[2 + 2 * 6] = 10000.0; // z方向
-
-        // 角速度成分は大きな値（低い信頼度）を設定
-        covariance[3 + 3 * 6] = 10000.0; // x方向
-        covariance[4 + 4 * 6] = 10000.0; // y方向
-
-        // 角速度の分散 (z方向)
+        covariance[1 + 1 * 6] = 10000.0;
+        covariance[2 + 2 * 6] = 10000.0;
+        covariance[3 + 3 * 6] = 10000.0;
+        covariance[4 + 4 * 6] = 10000.0;
         covariance[5 + 5 * 6] = self.stddev_wz * self.stddev_wz;
 
         covariance
     }
 
-    /// パラメータを取得
     pub fn get_frame_id(&self) -> &'static str {
         self.frame_id
     }
@@ -183,11 +162,9 @@ impl VehicleVelocityConverter {
     }
 }
 
-/// リアクターAPI用のヘルパー関数
 pub mod reactor_helpers {
     use super::*;
 
-    /// 空のTwistWithCovarianceStampedを生成
     pub fn create_empty_twist(timestamp: u64) -> TwistWithCovarianceStamped {
         TwistWithCovarianceStamped {
             header: Header {
@@ -257,8 +234,8 @@ mod tests {
         assert_eq!(twist_msg.twist.twist.linear.x, 10.0);
         assert_eq!(twist_msg.twist.twist.linear.y, 2.0);
         assert_eq!(twist_msg.twist.twist.angular.z, 0.5);
-        assert_eq!(twist_msg.twist.covariance[0], 0.01); // 0.1^2
-        assert_eq!(twist_msg.twist.covariance[35], 0.01); // 0.1^2
+        assert_eq!(twist_msg.twist.covariance[0], 0.01);
+        assert_eq!(twist_msg.twist.covariance[35], 0.01);
     }
 
     #[test]
