@@ -52,9 +52,7 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
-use crate::task;
-use crate::task::perf::{get_pub_count, publish_timestamp_at, PUB_COUNT};
-use crate::task::DagInfo;
+use crate::task::perf::publish_timestamp_at;
 
 /// Data and timestamp.
 #[derive(Clone)]
@@ -387,9 +385,11 @@ where
 {
     /// Send with metadata forwarded from `send_all_with_meta`.
     pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
-        // record publish timestamp at send start
-        // let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-        // publish_timestamp_at(index, start, pub_id, node_id);
+        #[cfg(not(feature = "relax-get-period"))]
+        {
+            let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+            publish_timestamp_at(index, start, pub_id, node_id);
+        }
 
         let sender = Sender::new(self, data);
         sender.await;

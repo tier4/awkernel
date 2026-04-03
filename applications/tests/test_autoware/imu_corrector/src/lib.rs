@@ -206,24 +206,6 @@ impl<T: TransformListener> ImuCorrector<T> {
         cov_transformed
     }
 
-    fn create_default_covariance_array(&self) -> [f64; 9] {
-        [0.0; 9]
-    }
-
-    fn matrix3_to_array(&self, matrix: &Matrix3<f64>) -> [f64; 9] {
-        [
-            matrix[(0, 0)],
-            matrix[(0, 1)],
-            matrix[(0, 2)],
-            matrix[(1, 0)],
-            matrix[(1, 1)],
-            matrix[(1, 2)],
-            matrix[(2, 0)],
-            matrix[(2, 1)],
-            matrix[(2, 2)],
-        ]
-    }
-
     pub fn correct_imu_with_covariance(
         &self,
         imu_msg: &ImuMsg,

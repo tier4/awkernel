@@ -67,9 +67,8 @@ use crate::{
     task::{
         perf::{
             get_period_count, get_pub_count, get_sink_count, get_sub_count, increment_period_count,
-            increment_pub_count, increment_sink_count, increment_sub_count, node_finish,
-            node_start, publish_timestamp_at, subscribe_timestamp_at,
-            update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at, NodeRecord,
+            increment_pub_count, increment_sink_count, increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
+            update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
         },
         DagInfo,
     },

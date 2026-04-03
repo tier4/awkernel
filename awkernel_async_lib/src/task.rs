@@ -469,7 +469,7 @@ pub mod perf {
     use crate::task::{self};
     use alloc::string::{String, ToString};
     use array_macro::array;
-    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
+    use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
     use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 

@@ -451,25 +451,6 @@ impl EKFModule {
             z: cr * cp * sy - sr * sp * cy,
         }
     }
-
-    fn quaternion_to_rpy(&self, q: Quaternion) -> (f64, f64, f64) {
-        let sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z);
-        let cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
-        let roll = atan2(sinr_cosp, cosr_cosp);
-
-        let sinp = 2.0 * (q.w * q.y - q.z * q.x);
-        let pitch = if sinp.abs() >= 1.0 {
-            PI / 2.0 * sinp.signum()
-        } else {
-            asin(sinp)
-        };
-
-        let siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
-        let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
-        let yaw = atan2(siny_cosp, cosy_cosp);
-
-        (roll, pitch, yaw)
-    }
 }
 
 pub fn get_or_initialize_default_module() -> &'static mut EKFModule {

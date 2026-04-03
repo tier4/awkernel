@@ -28,8 +28,6 @@ const INTERFACE_ID: u64 = 0;
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 const UDP_DST_PORT: u16 = 26099;
-const TCP_DST_PORT: u16 = 26099;
-const TCP_LISTEN_PORT: u16 = 26100;
 
 static mut LATEST_JSON_DATA: Option<String> = None;
 static JSON_DATA_READY: AtomicBool = AtomicBool::new(false);

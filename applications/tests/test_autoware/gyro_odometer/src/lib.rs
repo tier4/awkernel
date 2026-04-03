@@ -1,7 +1,7 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, collections::VecDeque, string::String, vec::Vec};
+use alloc::{collections::VecDeque, string::String};
 use core::time::Duration;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};

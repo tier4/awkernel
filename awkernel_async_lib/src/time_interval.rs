@@ -103,8 +103,11 @@ pub fn interval(period: Duration, dag_id: u32) -> Interval {
 
 pub fn interval_at(start: Time, period: Duration, dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    let index = get_period_count(dag_id.clone() as usize) as usize;
-    update_pre_send_outer_timestamp_at(index, start.uptime().as_nanos() as u64, dag_id.clone());
+    #[cfg(not(feature = "relax-get-period"))]
+    {
+        let index = get_period_count(dag_id.clone() as usize) as usize;
+        update_pre_send_outer_timestamp_at(index, start.uptime().as_nanos() as u64, dag_id.clone());
+    }
     Interval {
         delay: None,
         next_tick_target: start,
