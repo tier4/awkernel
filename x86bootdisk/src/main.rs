@@ -2,6 +2,9 @@ use clap::Parser;
 use ovmf_prebuilt::{Prebuilt, Source};
 use std::{fs::File, io::Write, path::Path};
 
+#[cfg(not(any(feature = "bios", feature = "uefi")))]
+compile_error!("At least one of the `bios` or `uefi` features must be enabled.");
+
 #[cfg(feature = "bios")]
 use bootloader::BiosBoot;
 #[cfg(feature = "uefi")]
