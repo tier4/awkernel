@@ -1,12 +1,33 @@
-use bootloader::{BiosBoot, UefiBoot};
 use clap::Parser;
 use ovmf_prebuilt::{Prebuilt, Source};
 use std::{fs::File, io::Write, path::Path};
 
+#[cfg(not(any(feature = "bios", feature = "uefi")))]
+compile_error!("At least one of the `bios` or `uefi` features must be enabled.");
+
+#[cfg(feature = "bios")]
+use bootloader::BiosBoot;
+#[cfg(feature = "uefi")]
+use bootloader::UefiBoot;
+
 #[derive(Debug, clap::ValueEnum, Clone)]
 enum BootType {
+    #[cfg(feature = "uefi")]
     Uefi,
+    #[cfg(feature = "bios")]
     Bios,
+}
+
+impl Default for BootType {
+    #[cfg(feature = "bios")]
+    fn default() -> Self {
+        Self::Bios
+    }
+
+    #[cfg(all(not(feature = "bios"), feature = "uefi"))]
+    fn default() -> Self {
+        Self::Uefi
+    }
 }
 
 /// Simple program to greet a person
@@ -26,7 +47,7 @@ struct Args {
     pxe: String,
 
     /// uefi or bios.
-    #[arg(value_enum, long, default_value_t = BootType::Bios)]
+    #[arg(value_enum, long, default_value_t = BootType::default())]
     boot_type: BootType,
 }
 
@@ -38,6 +59,7 @@ fn main() {
     let pxe_path = Path::new(&args.pxe);
 
     match args.boot_type {
+        #[cfg(feature = "uefi")]
         BootType::Uefi => {
             let uefi = UefiBoot::new(kernel_path);
             uefi.create_disk_image(output_path).unwrap();
@@ -61,6 +83,7 @@ fn main() {
                 output_path.display()
             )
         }
+        #[cfg(feature = "bios")]
         BootType::Bios => {
             BiosBoot::new(kernel_path)
                 .create_disk_image(output_path)
