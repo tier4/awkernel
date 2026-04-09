@@ -20,6 +20,7 @@ use alloc::boxed::Box;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
+mod prioritized_lifo;
 mod prioritized_rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
@@ -74,6 +75,7 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 pub enum SchedulerType {
     GEDF(u64), // relative deadline
     PrioritizedFIFO(u8),
+    PrioritizedLIFO(u8),
     PrioritizedRR(u8),
     Panicked,
 }
@@ -86,6 +88,10 @@ impl SchedulerType {
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
+                )
+                | (
+                    SchedulerType::PrioritizedLIFO(_),
+                    SchedulerType::PrioritizedLIFO(_)
                 )
                 | (
                     SchedulerType::PrioritizedRR(_),
@@ -104,14 +110,16 @@ impl SchedulerType {
 ///   - GEDF scheduler.
 /// - The second highest priority.
 ///   - Prioritized FIFO scheduler.
+///   - Prioritized LIFO scheduler.
 /// - The third highest priority.
 ///   - Round-Robin scheduler.
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 4] = [
+static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::PrioritizedLIFO(0),
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
 ];
@@ -157,6 +165,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
+        SchedulerType::PrioritizedLIFO(_) => &prioritized_lifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,

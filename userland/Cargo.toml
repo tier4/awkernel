@@ -38,6 +38,10 @@ optional = true
 path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
+[dependencies.test_prioritized_lifo]
+path = "../applications/tests/test_prioritized_lifo"
+optional = true
+
 [dependencies.test_multi_prioritized_scheduler]
 path = "../applications/tests/test_multi_prioritized_scheduler"
 optional = true
@@ -87,6 +91,7 @@ test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
+test_prioritized_lifo = ["dep:test_prioritized_lifo"]
 test_prioritized_rr = ["dep:test_prioritized_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]

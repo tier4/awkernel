@@ -295,6 +295,7 @@ impl Tasks {
                 // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
                 let task_priority = match scheduler_type {
                     SchedulerType::PrioritizedFIFO(priority)
+                    | SchedulerType::PrioritizedLIFO(priority)
                     | SchedulerType::PrioritizedRR(priority) => priority as u64,
                     _ => MAX_TASK_PRIORITY,
                 };
@@ -390,7 +391,10 @@ pub fn inner_spawn(
     sched_type: SchedulerType,
     dag_info: Option<DagInfo>,
 ) -> u32 {
-    if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
+    if let SchedulerType::PrioritizedFIFO(p)
+    | SchedulerType::PrioritizedLIFO(p)
+    | SchedulerType::PrioritizedRR(p) = sched_type
+    {
         if p > HIGHEST_PRIORITY {
             log::warn!(
                 "Task priority should be between 0 and {HIGHEST_PRIORITY}. It is addressed as {HIGHEST_PRIORITY}."
