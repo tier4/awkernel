@@ -168,5 +168,7 @@ impl fmt::Display for VfsIoError {
     }
 }
 
+impl core::error::Error for VfsIoError {}
+
 /// The result type of this crate
 pub type VfsResult<T> = core::result::Result<T, VfsError>;

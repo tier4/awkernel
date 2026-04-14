@@ -1042,6 +1042,14 @@ impl From<NvmeDriverErr> for PCIeDeviceErr {
     }
 }
 
+impl core::fmt::Display for NvmeDriverErr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for NvmeDriverErr {}
+
 #[inline(always)]
 pub fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), NvmeDriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(NvmeDriverErr::NoBar0)?;
