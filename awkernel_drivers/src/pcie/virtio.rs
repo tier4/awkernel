@@ -1,4 +1,5 @@
 use alloc::sync::Arc;
+use core::fmt;
 
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
@@ -35,6 +36,14 @@ pub enum VirtioDriverErr {
     DMAPool,
     NoSlot,
 }
+
+impl fmt::Display for VirtioDriverErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for VirtioDriverErr {}
 
 impl From<VirtioDriverErr> for PCIeDeviceErr {
     fn from(value: VirtioDriverErr) -> Self {

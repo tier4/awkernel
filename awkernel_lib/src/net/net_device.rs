@@ -132,6 +132,14 @@ pub enum NetDevError {
     MulticastAddrError,
 }
 
+impl core::fmt::Display for NetDevError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for NetDevError {}
+
 #[derive(Debug, Clone)]
 pub struct EtherFrameRef<'a> {
     pub data: &'a [u8],
