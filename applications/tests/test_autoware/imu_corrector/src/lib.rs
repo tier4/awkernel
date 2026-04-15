@@ -3,7 +3,7 @@ extern crate alloc;
 
 use alloc::{format, string::String};
 use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
-use nalgebra::{Matrix3, Quaternion as NQuaternion, UnitQuaternion, Vector3 as NVector3};
+use nalgebra::{Quaternion as NQuaternion, UnitQuaternion, Vector3 as NVector3};
 
 #[derive(Clone, Debug)]
 pub struct Transform {
