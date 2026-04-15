@@ -395,6 +395,8 @@ impl fmt::Display for IgbDriverErr {
     }
 }
 
+impl core::error::Error for IgbDriverErr {}
+
 impl IgbInner {
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
