@@ -384,11 +384,11 @@ where
     T: Clone + Sync + Send,
 {
     /// Send with metadata forwarded from `send_all_with_meta`.
-    pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+    pub async fn send_with_meta(&self, data: T, _pub_id: u32, _index: usize, _node_id: u32) {
         #[cfg(not(feature = "relax-get-period"))]
         {
             let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            publish_timestamp_at(index, start, pub_id, node_id);
+            publish_timestamp_at(_index, start, _pub_id, _node_id);
         }
 
         let sender = Sender::new(self, data);

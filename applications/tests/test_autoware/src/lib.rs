@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(static_mut_refs)]
 extern crate alloc;
 
 use alloc::{borrow::Cow, format, string::String, vec, vec::Vec};
@@ -51,7 +52,7 @@ pub async fn run() {
     log::info!("Starting Autoware test application with simplified TCP networking");
 
     let dag = create_dag();
-    let dag_id = dag.get_id();
+    let _dag_id = dag.get_id();
 
     dag.register_periodic_reactor::<_, (i32, i32, i32)>(
         "start_dummy_data".into(),
