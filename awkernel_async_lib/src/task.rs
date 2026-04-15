@@ -246,7 +246,7 @@ struct Tasks {
     id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug,Clone)]
 pub struct DagInfo {
     pub dag_id: u32,
     pub node_id: u32,
@@ -454,8 +454,13 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
-    use awkernel_lib::cpu::NUM_MAX_CPU;
-    use core::ptr::{read_volatile, write_volatile};
+    use alloc::string::{String, ToString};
+    use awkernel_lib::{cpu::NUM_MAX_CPU, device_tree::node};
+    use core::{ptr::{read_volatile, write_volatile}};
+    use crate::task::{self};
+    use core::sync::atomic::{AtomicU32, Ordering};
+    use array_macro::array;
+    
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -464,6 +469,7 @@ pub mod perf {
         Kernel,
         Task,
         ContextSwitch,
+        ContextSwitchMain,
         Interrupt,
         Idle,
     }
@@ -475,11 +481,21 @@ pub mod perf {
                 1 => Self::Kernel,
                 2 => Self::Task,
                 3 => Self::ContextSwitch,
-                4 => Self::Interrupt,
-                5 => Self::Idle,
+                4 => Self::ContextSwitchMain,
+                5 => Self::Interrupt,
+                6 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
         }
+    }
+    #[derive(Debug, Clone)]
+    pub struct NodeRecord{
+        pub period_count: u32,
+        pub dag_info: task::DagInfo,
+        // start: u64,
+        // end: u64,
+        // preempt_count: u32,
+        // core_id: u8,
     }
 
     static mut PERF_STATES: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
@@ -490,6 +506,7 @@ pub mod perf {
     static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -497,6 +514,7 @@ pub mod perf {
     static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -504,8 +522,409 @@ pub mod perf {
     static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    const MAX_LOGS: usize = 8192;
+
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static DAG_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+
+    //DAG+1
+    const MAX_DAGS: usize = 4;
+    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+    pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+
+    const MAX_NODES: usize = 20;
+    static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+    static NODE_CORE: Mutex<Option<[[u8; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
+
+    //pubsub
+    const MAX_PUBSUB: usize = 3;
+    static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+    static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+    pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+    pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
+
+    pub fn reset_perf_logs() {
+        for i in 0..MAX_PUBSUB {
+            PUB_COUNT[i].store(0, Ordering::Relaxed);
+            SUB_COUNT[i].store(0, Ordering::Relaxed);
+        }
+        for i in 0..MAX_DAGS {
+            PERIOD_COUNT[i].store(0, Ordering::Relaxed);
+            SINK_COUNT[i].store(0, Ordering::Relaxed);
+        }
+        *SEND_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
+        *RECV_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
+        *ABSOLUTE_DEADLINE.lock(&mut MCSNode::new()) = None;
+        *RELATIVE_DEADLINE.lock(&mut MCSNode::new()) = None;
+        *NODE_START.lock(&mut MCSNode::new()) = None;
+        *NODE_FINISH.lock(&mut MCSNode::new()) = None;
+    }
+
+    pub fn increment_pub_count(pub_id: usize) {
+        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
+        PUB_COUNT[pub_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn increment_sub_count(sub_id: usize) {
+        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
+        SUB_COUNT[sub_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_pub_count(pub_id: usize) -> u32 {
+        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
+        PUB_COUNT[pub_id].load(Ordering::Relaxed)
+    }
+
+    pub fn get_sub_count(sub_id: usize) -> u32 {
+        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
+        SUB_COUNT[sub_id].load(Ordering::Relaxed)
+    }
+
+    pub fn increment_period_count(dag_id: usize) {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_period_count(dag_id: usize) -> u32 {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+    }
+
+    pub fn increment_sink_count(dag_id: usize) {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        SINK_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_sink_count(dag_id: usize) -> u32 {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        SINK_COUNT[dag_id].load(Ordering::Relaxed)
+    }
+
+    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        if recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = new_timestamp;
+        }
+    }
+
+    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        if (dag_id as usize) < recorder[0].len() {
+            recorder[index][dag_id as usize] = new_timestamp;
+        }
+    }
+
+    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        if recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = deadline;
+        }
+        
+    }
+
+    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32){
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        if recorder[index][dag_id as usize] == 0 {
+            recorder[index][dag_id as usize] = deadline;
+        }
+        
+    }
+
+    pub fn node_start(node:NodeRecord, start: u64){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_START.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
+            recorder[node.period_count as usize][node.dag_info.node_id as usize] = start;
+        }
+    }
+
+    pub fn node_finish(node:NodeRecord, finish: u64){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_FINISH.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
+            recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
+        }
+    }
+
+    pub fn node_preempt(node:NodeRecord){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.node_id as usize) < MAX_NODES, "Node ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = NODE_PREEMPT_COUNT.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
+
+        recorder[node.period_count as usize][node.dag_info.node_id as usize] += 1;
+    }
+
+    pub fn dag_preempt(node:NodeRecord){
+        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!((node.dag_info.dag_id as usize) < MAX_DAGS, "DAG ID out of bounds");
+
+        let mut mcs_node = MCSNode::new();
+        let mut recorder_opt = DAG_PREEMPT_COUNT.lock(&mut mcs_node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+
+        recorder[node.period_count as usize][node.dag_info.dag_id as usize] += 1;
+    }
+
+    pub fn publish_timestamp_at(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = PUBLISH.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+
+        if recorder[index][pub_id as usize][node_id as usize] == 0 {
+            recorder[index][pub_id as usize][node_id as usize] = new_timestamp;
+        }
+    }
+
+    pub fn subscribe_timestamp_at(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
+        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SUBSCRIBE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+
+        if recorder[index][sub_id as usize][node_id as usize] == 0 {
+            recorder[index][sub_id as usize][node_id as usize] = new_timestamp;
+        }
+    }
+
+    // For precision of the cycle
+    pub fn print_timestamp_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
+        let mut node5 = MCSNode::new();
+
+        let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
+        let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
+        let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
+        let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
+        let dag_preempt_opt = DAG_PREEMPT_COUNT.lock(&mut node5);
+
+        log::info!("--- Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "Index",
+            "DAG-ID",
+            "Send-Outer",
+            "Recv-Outer",
+            "Latency",
+            "Absolute Deadline",
+            "Relative Deadline",
+            "DAG Preemptions"
+        );
+
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
+
+        for i in 0..MAX_LOGS {
+            for j in 1..MAX_DAGS {
+                let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let dag_preempt = dag_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
+
+                if pre_send_outer != 0 || fin_recv_outer != 0 || absolute_deadline != 0 || relative_deadline != 0 || dag_preempt != 0 {
+                    let format_ts = |ts: u64| -> String {
+                        if ts == 0 {
+                            "-".to_string()
+                        } else {
+                            ts.to_string()
+                        }
+                    };
+
+                    let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
+                        fin_recv_outer.saturating_sub(pre_send_outer).to_string()
+                    } else {
+                        "-".to_string()
+                    };
+
+                    log::info!(
+                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20} | {: >20}",
+                        i,
+                        format_ts(j as u64),
+                        format_ts(pre_send_outer),
+                        format_ts(fin_recv_outer),
+                        latency_str,
+                        format_ts(absolute_deadline),
+                        format_ts(relative_deadline),
+                        format_ts(dag_preempt as u64),
+                    );
+                }
+            }
+        }
+        log::info!("----------------------------------------------------------");
+    }
+
+    /// Print per-node timing table.
+    /// Columns: DAG ID | node id | period | start(ns) | end(ns) | duration(ns) | preemptions | core
+    /// not used now
+    pub fn print_node_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
+
+        let node_start_opt = NODE_START.lock(&mut node1);
+        let node_finish_opt = NODE_FINISH.lock(&mut node2);
+        let node_preempt_opt = NODE_PREEMPT_COUNT.lock(&mut node3);
+        let node_core_opt = NODE_CORE.lock(&mut node4);
+
+        log::info!("--- Per-node Timing Summary (in nanoseconds) ---");
+        log::info!(
+            "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
+            "Index",
+            "DAG-ID",
+            "NODE-ID",
+            "start(ns)",
+            "end(ns)",
+            "duration(ns)",
+            "preemptions",
+            "core"
+        );
+        log::info!("------|--------|---------|----------------------|----------------------|----------------------|-----");
+
+        for i in 0..MAX_LOGS {
+            for j in 0..MAX_NODES {
+                let start = node_start_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let finish = node_finish_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let preempt_count = node_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let core_id = node_core_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                // let period_count = node_period_count_opt.as_ref().map_or(0, |arr| arr[i][j]);
+
+                if start != 0 || finish != 0 || preempt_count != 0 {
+
+                    let format_ts = |ts: u64| -> String {
+                            ts.to_string()
+                    };
+
+                    let duration = if start != 0 && finish != 0 {
+                        finish.saturating_sub(start).to_string()
+                    } else {
+                        "-".to_string()
+                    };
+
+                    log::info!(
+                        "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
+                        i,
+                        1, // DAG ID (assumed 1 for simplicity)
+                        format_ts(j as u64),
+                        format_ts(start),
+                        format_ts(finish),
+                        duration,
+                        format_ts(preempt_count as u64),
+                        format_ts(core_id as u64),
+                    );
+                }
+            }
+        }
+        log::info!("--------------------------------------------------------------");
+    }
+
+    // For pubsub communication latency
+    pub fn print_pubsub_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+
+        let publish_opt = PUBLISH.lock(&mut node1);
+        let subscribe_opt = SUBSCRIBE.lock(&mut node2);
+
+        log::info!("--- Pub/Sub Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
+            "Index",
+            "Pub/Sub ID",
+            "Node ID",
+            "Publish Time",
+            "Subscribe Time"
+        );
+        log::info!("-----|------------|---------|----------------|----------------");
+        for i in 0..MAX_LOGS {
+            for j in 0..MAX_PUBSUB {
+                for k in 0..MAX_NODES {
+                    let publish_time = publish_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
+                    let subscribe_time = subscribe_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
+
+                    if publish_time != 0 || subscribe_time != 0 {
+                        let format_ts = |ts: u64| -> String {
+                            if ts == 0 {
+                                "-".to_string()
+                            } else {
+                                ts.to_string()
+                            }
+                        };
+
+                        log::info!(
+                            "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
+                            i,
+                            j,
+                            k,
+                            format_ts(publish_time),
+                            format_ts(subscribe_time),
+                        );
+                    }
+                }
+            }
+        }
+        log::info!("--------------------------------------------------------------");
+    }
 
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
@@ -554,6 +973,101 @@ pub mod perf {
                     let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
                 },
+                PerfState::ContextSwitchMain => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Idle => unsafe {
+                    let t = read_volatile(&IDLE_TIME[cpu_id]);
+                    write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&IDLE_COUNT[cpu_id]);
+                    write_volatile(&mut IDLE_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&IDLE_WCET[cpu_id]);
+                    write_volatile(&mut IDLE_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Boot => (),
+            }
+        }
+
+        let cnt = awkernel_lib::delay::cpu_counter();
+
+        unsafe {
+            // Overhead of this.
+            let t = read_volatile(&PERF_TIME[cpu_id]);
+            write_volatile(&mut PERF_TIME[cpu_id], t + (cnt - end));
+            let c = read_volatile(&PERF_COUNT[cpu_id]);
+            write_volatile(&mut PERF_COUNT[cpu_id], c + 1);
+            let wcet = read_volatile(&PERF_WCET[cpu_id]);
+            write_volatile(&mut PERF_WCET[cpu_id], wcet.max(cnt - end));
+
+            // State transition.
+            write_volatile(&mut START_TIME[cpu_id], cnt);
+            write_volatile(&mut PERF_STATES[cpu_id], next_state as u8);
+        }
+    }
+
+    fn update_time_and_state_for_dag(next_state: PerfState) {
+        let end = awkernel_lib::delay::cpu_counter();
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        if state == next_state {
+            return;
+        }
+
+        let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
+
+        if start > 0 && start <= end {
+            let diff = end - start;
+
+            match state {
+                PerfState::Kernel => unsafe {
+                    let t = read_volatile(&KERNEL_TIME[cpu_id]);
+                    write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&KERNEL_COUNT[cpu_id]);
+                    write_volatile(&mut KERNEL_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&KERNEL_WCET[cpu_id]);
+                    write_volatile(&mut KERNEL_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Task => unsafe {
+                    let t = read_volatile(&TASK_TIME[cpu_id]);
+                    write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&TASK_COUNT[cpu_id]);
+                    write_volatile(&mut TASK_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&TASK_WCET[cpu_id]);
+                    write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::Interrupt => unsafe {
+                    // log::info!("PreemptionTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
+                    write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
+                    write_volatile(&mut INTERRUPT_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&INTERRUPT_WCET[cpu_id]);
+                    write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitch => unsafe {
+                    // log::info!("ContextSwitchTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    // log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
+                },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
                     write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
@@ -598,7 +1112,33 @@ pub mod perf {
     pub fn start_interrupt() -> PerfState {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let previous: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
-        update_time_and_state(PerfState::Interrupt);
+
+        // Check the current task
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::Interrupt);
+                    // Create a NodeRecord with the current period count and call node_preempt
+                    // let period = get_task_period(task_id).unwrap();
+                    // if let Some(di) = dag_info {
+                    //     let nr = NodeRecord {
+                    //         period_count: period,
+                    //         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+                    //     };
+                    //     dag_preempt(nr);
+                    // }
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::Interrupt);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::Interrupt);
+        }
+
         previous
     }
 
@@ -609,6 +1149,7 @@ pub mod perf {
             PerfState::Kernel => start_kernel(),
             PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
+            PerfState::ContextSwitchMain => start_context_switch_main(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
@@ -618,8 +1159,87 @@ pub mod perf {
 
     #[inline(always)]
     pub(crate) fn start_context_switch() {
-        update_time_and_state(PerfState::ContextSwitch);
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitch);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitch);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitch);
+        }
     }
+
+    #[inline(always)]
+    pub(crate) fn start_context_switch_main() {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        if let Some(task_id) = task::get_current_task(cpu_id) {
+            if let Some(task) = task::get_task(task_id) {
+                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+                if dag_info.is_some() {
+                    // DAG task-specific handling
+                    update_time_and_state_for_dag(PerfState::ContextSwitchMain);
+                } else {
+                    // Normal task-specific handling
+                    update_time_and_state(PerfState::ContextSwitchMain);
+                }
+            }
+        } else {
+            // Default handling if no task is running
+            update_time_and_state(PerfState::ContextSwitchMain);
+        }
+    }
+
+    // pub fn count_preempt() {
+    //     let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    //     if let Some(task_id) = task::get_current_task(cpu_id) {
+    //         if let Some(task) = task::get_task(task_id) {
+    //             let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+    //             if dag_info.is_some() {
+    //                 // DAG task-specific handling
+    //                 let period = get_task_period(task_id).unwrap();
+    //                 if let Some(di) = dag_info {
+    //                     let nr = NodeRecord {
+    //                         period_count: period,
+    //                         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+    //                     };
+    //                     dag_preempt(nr);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // pub fn memo_core(){
+    //     let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    //     if let Some(task_id) = task::get_current_task(cpu_id) {
+    //         if let Some(task) = task::get_task(task_id) {
+    //             let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
+    //             if dag_info.is_some() {
+    //                 // DAG task-specific handling
+    //                 let period = get_task_period(task_id).unwrap();
+    //                 if let Some(di) = dag_info {
+    //                     let nr = NodeRecord {
+    //                         period_count: period,
+    //                         dag_info: task::DagInfo { dag_id: di.dag_id, node_id: di.node_id },
+    //                     };
+    //                     node_core(nr, cpu_id as u8);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     #[inline(always)]
     pub fn start_idle() {
@@ -722,6 +1342,21 @@ pub mod perf {
     pub fn get_perf_wcet(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_WCET[cpu_id]) }
     }
+
+    // Compare release_time and timenow with absolute_deadline.
+    // pub fn compare_release_and_timenow_with_deadline(release_time: awkernel_lib::time::Time, timenow: u64, absolute_deadline: u64) {
+    //     let release_time_millis = release_time.as_millis() as u64;
+    //     let timenow_millis = timenow/1000000 as u64;
+    //     let absolute_deadline_ms = absolute_deadline/1000;
+    //     // let absolute_difference = (release_time_millis - timenow_millis).abs();
+    //     log::info!("Release time: {} ms, Current time: {} ms, Absolute deadline: {} ms", release_time_millis, timenow_millis, absolute_deadline_ms);
+
+    //     if timenow_millis > absolute_deadline_ms  {
+    //         log::warn!("Deadline missed! Difference: {} ms", timenow_millis-absolute_deadline_ms);
+    //     } else {
+    //         log::info!("Within deadline. Difference: {} ms", absolute_deadline_ms-timenow_millis);
+    //     }
+    // }
 }
 
 pub fn run_main() {
