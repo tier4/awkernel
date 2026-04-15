@@ -868,9 +868,11 @@ macro_rules! impl_async_receiver_for_tuple {
 
         impl MultipleSender for () {
             type Item = ();
+
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
+            
             fn send_all_with_meta(&self, _item: Self::Item, _pub_id: u32, _index: usize, _node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
