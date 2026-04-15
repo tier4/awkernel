@@ -385,7 +385,7 @@ where
 {
     /// Send with metadata forwarded from `send_all_with_meta`.
     pub async fn send_with_meta(&self, data: T, _pub_id: u32, _index: usize, _node_id: u32) {
-        #[cfg(not(feature = "relax-get-period"))]
+        #[cfg(feature = "need-get-period")]
         {
             let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
             publish_timestamp_at(_index, start, _pub_id, _node_id);
