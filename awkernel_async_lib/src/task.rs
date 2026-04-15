@@ -474,8 +474,8 @@ pub mod perf {
     use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     /// Flag to control whether period tracking is enabled
-    /// When false (with relax-get-period feature), period tracking is disabled to reduce BSS memory
-    /// When true (without relax-get-period feature), period tracking is enabled
+    /// When false (without need-get-period feature), period tracking is disabled to reduce BSS memory
+    /// When true (with need-get-period feature), period tracking is enabled
     pub static ENABLE_PERIOD_TRACKING: AtomicBool = AtomicBool::new(false);
 
     #[derive(Debug, Clone, PartialEq, Eq)]

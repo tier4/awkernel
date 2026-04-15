@@ -120,7 +120,7 @@ macro_rules! impl_tuple_traits {
             const SIZE: usize = $last_idx + 1;
         }
 
-        #[cfg(not(feature = "relax-get-period"))]
+        #[cfg(feature = "need-get-period")]
         impl<$($T),+> GetPeriod for ($(($T, u32),)+) {
             fn get_period(&self) -> u32 {
                 self.$last_idx .1
@@ -139,18 +139,18 @@ impl_tuple_traits!(5 => T1, T2, T3, T4, T5, T6);
 impl_tuple_traits!(6 => T1, T2, T3, T4, T5, T6, T7);
 impl_tuple_traits!(7 => T1, T2, T3, T4, T5, T6, T7, T8);
 
-#[cfg(not(feature = "relax-get-period"))]
+#[cfg(feature = "need-get-period")]
 pub trait DagSubscriberItem: TupleSize + GetPeriod + Send {}
 
-#[cfg(not(feature = "relax-get-period"))]
+#[cfg(feature = "need-get-period")]
 impl<T> DagSubscriberItem for T where T: TupleSize + GetPeriod + Send {}
 
-#[cfg(feature = "relax-get-period")]
+#[cfg(not(feature = "need-get-period"))]
 pub trait DagSubscriberItem: TupleSize + Send {}
 
-#[cfg(feature = "relax-get-period")]
+#[cfg(not(feature = "need-get-period"))]
 impl<T> DagSubscriberItem for T where T: TupleSize + Send {}
-#[cfg(not(feature = "relax-get-period"))]
+#[cfg(feature = "need-get-period")]
 pub fn get_period<T: GetPeriod>(args: &T) -> u32 {
     args.get_period()
 }
@@ -1020,7 +1020,7 @@ where
                 subscribers.recv_all().await;
 
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "relax-get-period"))]
+                #[cfg(feature = "need-get-period")]
                 {
                     // [end] pubsub communication latency
                     let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -1086,7 +1086,7 @@ where
 
         loop {
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "relax-get-period"))]
+                #[cfg(feature = "need-get-period")]
                 {
                     let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
                     let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -1153,7 +1153,7 @@ where
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
 
             if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "relax-get-period"))]
+                #[cfg(feature = "need-get-period")]
                 {
                     // [end] pubsub communication latency
                     let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
