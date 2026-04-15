@@ -102,6 +102,8 @@ impl fmt::Display for PCIeDeviceErr {
     }
 }
 
+impl core::error::Error for PCIeDeviceErr {}
+
 pub(crate) mod registers {
     use alloc::vec::Vec;
     use core::fmt;

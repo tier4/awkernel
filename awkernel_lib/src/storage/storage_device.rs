@@ -19,6 +19,14 @@ pub enum StorageDevError {
     NotSupported,
 }
 
+impl core::fmt::Display for StorageDevError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for StorageDevError {}
+
 pub trait StorageDevice: Send + Sync {
     fn device_id(&self) -> u64;
 
