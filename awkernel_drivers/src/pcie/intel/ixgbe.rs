@@ -161,19 +161,11 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
+    que: Vec<Queue>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
 pub struct Ixgbe {
-    // The order of lock acquisition must be as follows:
-    //
-    // 1. `IgbInner`'s lock
-    // 2. `Queue`'s lock
-    // 3. `Queue`'s unlock
-    // 4. `IgbInner`'s unlock
-    //
-    // Otherwise, a deadlock will occur.
-    que: Vec<Queue>,
     inner: RwLock<IxgbeInner>,
 }
 
@@ -298,8 +290,10 @@ impl fmt::Display for IxgbeDriverErr {
     }
 }
 
+impl core::error::Error for IxgbeDriverErr {}
+
 impl IxgbeInner {
-    fn new(mut info: PCIeInfo) -> Result<(Self, Vec<Queue>), PCIeDeviceErr> {
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let (mut hw, ops) = ixgbe_hw::IxgbeHw::new(&mut info)?;
 
         // Allocate our TX/RX Queues
@@ -403,15 +397,16 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
+            que,
         };
 
-        Ok((ixgbe, que))
+        Ok(ixgbe)
     }
 
-    fn init(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn init(&mut self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
-        self.stop(que)?;
+        self.stop()?;
 
         // reprogram the RAR[0] in case user changed it.
         self.ops.mac_set_rar(
@@ -424,24 +419,24 @@ impl IxgbeInner {
         )?;
         self.hw.addr_ctrl.rar_used_count = 1;
 
-        if let Err(e) = self.setup_transmit_structures(que) {
+        if let Err(e) = self.setup_transmit_structures() {
             log::error!("Could not setup transmit structures");
-            self.stop(que)?;
+            self.stop()?;
             return Err(e);
         }
 
         self.ops.mac_init_hw(&mut self.info, &mut self.hw)?;
-        self.initialize_transmit_unit(que)?;
+        self.initialize_transmit_unit()?;
 
         // Prepare receive descriptors and buffers
-        if let Err(e) = self.setup_receive_structures(que) {
+        if let Err(e) = self.setup_receive_structures() {
             log::error!("Could not setup receieve structures");
-            self.stop(que)?;
+            self.stop()?;
             return Err(e);
         }
 
         // Configure RX settings
-        self.initialize_receive_unit(que)?;
+        self.initialize_receive_unit()?;
 
         // Enable SDP & MSIX interrupts based on adapter
         self.config_gpie()?;
@@ -469,7 +464,7 @@ impl IxgbeInner {
             ixgbe_hw::write_reg(&self.info, IXGBE_TXDCTL(i), txdctl)?;
         }
 
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
 
@@ -495,7 +490,7 @@ impl IxgbeInner {
             ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_tail as u32)?;
         }
 
-        self.setup_vlan_hw_support(que)?;
+        self.setup_vlan_hw_support(&self.que)?;
 
         // Enable Receive engine
         let mut rxctrl = ixgbe_hw::read_reg(&self.info, IXGBE_RXCTRL)?;
@@ -508,7 +503,7 @@ impl IxgbeInner {
 
         // Set up MSI/X routing
         if let PCIeInt::MsiX(_) = self.pcie_int {
-            self.configure_ivars(que)?;
+            self.configure_ivars(&self.que)?;
             // Set up auto-mask
             if self.hw.mac.mac_type == IxgbeMac82598EB {
                 ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
@@ -542,7 +537,7 @@ impl IxgbeInner {
 
         if let PCIeInt::MsiX(_) = self.pcie_int {
             // Set moderation on the Link interrupt
-            let linkvec = que.len();
+            let linkvec = self.que.len();
             ixgbe_hw::write_reg(&self.info, IXGBE_EITR(linkvec), IXGBE_LINK_ITR)?;
         }
 
@@ -560,14 +555,14 @@ impl IxgbeInner {
 
         // And now turn on interrupts
         self.enable_intr()?;
-        self.enable_queues(que)?;
+        self.enable_queues(&self.que)?;
 
         self.flags |= NetFlags::RUNNING;
 
         Ok(())
     }
 
-    fn stop(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn stop(&mut self) -> Result<(), IxgbeDriverErr> {
         self.flags.remove(NetFlags::RUNNING);
 
         self.disable_intr()?;
@@ -600,7 +595,7 @@ impl IxgbeInner {
         // ctrl_ext &= !IXGBE_CTRL_EXT_DRV_LOAD;
         // ixgbe_hw::write_reg(&self.info, IXGBE_CTRL_EXT, ctrl_ext);
 
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
             tx.write_buf = None;
@@ -652,8 +647,8 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn setup_transmit_structures(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        for que in que.iter() {
+    fn setup_transmit_structures(&self) -> Result<(), IxgbeDriverErr> {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
             tx.tx_desc_tail = 0;
@@ -682,10 +677,10 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn initialize_transmit_unit(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn initialize_transmit_unit(&mut self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
 
@@ -749,8 +744,8 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        for que in que.iter() {
+    fn setup_receive_structures(&mut self) -> Result<(), IxgbeDriverErr> {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
@@ -779,7 +774,7 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn initialize_receive_unit(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn initialize_receive_unit(&mut self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
         // Make sure receives are disabled while
@@ -803,7 +798,7 @@ impl IxgbeInner {
         ixgbe_hw::write_reg(&self.info, IXGBE_HLREG0, hlreg)?;
 
         let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEPKT_SHIFT;
-        for que in que.iter() {
+        for que in self.que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
 
@@ -1336,187 +1331,18 @@ impl IxgbeInner {
 
         Ok(())
     }
-}
 
-impl Ixgbe {
-    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let (inner, que) = IxgbeInner::new(info)?;
+    fn recv_jumbo(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
+        let que = &self.que[que_id];
 
-        let ixgbe = Self {
-            inner: RwLock::new(inner),
-            que,
-        };
+        let mut node = MCSNode::new();
+        let rx = que.rx.lock(&mut node);
 
-        Ok(ixgbe)
-    }
-
-    fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
-        let inner = self.inner.read();
-
-        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
-            *reason
-        } else {
-            return Ok(());
-        };
-
-        match reason {
-            IRQRxTxLink::Legacy(que_id) => {
-                drop(inner);
-                self.intr_legacy_and_link()?;
-
-                let inner = self.inner.read();
-                if inner.flags.contains(NetFlags::RUNNING) {
-                    drop(inner);
-                    self.rx_recv(que_id)?;
-                    self.txeof(que_id)?;
-                } else {
-                    drop(inner);
-                }
-
-                let inner = self.inner.read();
-                inner.enable_queues(&self.que)?;
-                drop(inner);
-            }
-            IRQRxTxLink::RxTx(que_id) => {
-                if inner.flags.contains(NetFlags::RUNNING) {
-                    drop(inner);
-                    self.rx_recv(que_id)?;
-                    self.txeof(que_id)?;
-                }
-
-                let inner = self.inner.read();
-                let queue = 1u64 << que_id;
-
-                match inner.hw.mac.mac_type {
-                    MacType::IxgbeMac82598EB => {
-                        // TODO
-                    }
-                    _ => {
-                        let mask_lo = (queue & 0xFFFFFFFF) as u32;
-                        if mask_lo != 0 {
-                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(0), mask_lo)?;
-                        }
-                        let mask_hi = (queue >> 32) as u32;
-                        if mask_hi != 0 {
-                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(1), mask_hi)?;
-                        }
-                    }
-                }
-            }
-            IRQRxTxLink::Link => {
-                drop(inner);
-                self.intr_legacy_and_link()?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn intr_legacy_and_link(&self) -> Result<(), IxgbeDriverErr> {
-        let mut inner = self.inner.write();
-        let mut reg_eicr;
-
-        match inner.pcie_int {
-            PCIeInt::MsiX(_) => {
-                // Pause other interrupts
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
-                // First get the cause
-                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
-                // Be sure the queue bits are not cleared
-                reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
-                // Clear interrupt with write
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
-            }
-            _ => {
-                // For Msi and Legacy
-                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICR)?;
-                if reg_eicr == 0 {
-                    inner.enable_intr()?;
-                    inner.enable_queues(&self.que)?;
-                }
-            }
-        }
-
-        // Link status change
-        if reg_eicr & IXGBE_EICR_LSC != 0 {
-            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_LSC)?;
-            inner.update_link_status()?;
-        }
-
-        if inner.hw.mac.mac_type != MacType::IxgbeMac82598EB {
-            if reg_eicr & IXGBE_EICR_ECC != 0 {
-                log::error!(
-                    "{}: CRITICAL: ECC ERROR!! Please Reboot!!\n",
-                    self.device_name()
-                );
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_ECC)?;
-            }
-            // Check for over temp condition
-            if reg_eicr & IXGBE_EICR_TS != 0 {
-                log::error!("CRITICAL: OVER TEMP!! PHY IS SHUT DOWN!!\n");
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_TS)?;
-            }
-        }
-
-        // Pluggable optics-related interrupt
-        if inner.is_sfp() {
-            let mod_mask;
-            let msf_mask;
-            if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
-                mod_mask = IXGBE_EICR_GPI_SDP0_X540;
-                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
-            } else if inner.hw.mac.mac_type == MacType::IxgbeMacX540
-                || inner.hw.mac.mac_type == MacType::IxgbeMacX550
-                || inner.hw.mac.mac_type == MacType::IxgbeMacX550EMX
-            {
-                mod_mask = IXGBE_EICR_GPI_SDP2_X540;
-                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
-            } else {
-                mod_mask = IXGBE_EICR_GPI_SDP2;
-                msf_mask = IXGBE_EICR_GPI_SDP1;
-            }
-            if reg_eicr & mod_mask != 0 {
-                // Clear the interrupt
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, mod_mask)?;
-                inner.handle_mod()?;
-            } else if (inner.hw.phy.media_type != MediaType::IxgbeMediaTypeCopper)
-                && (reg_eicr & msf_mask != 0)
-            {
-                // Clear the interrupt
-                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, msf_mask)?;
-                inner.handle_msf()?;
-            }
-        }
-
-        // Check for fan failure
-        if inner.info.id == IXGBE_DEV_ID_82598AT && reg_eicr & IXGBE_EICR_GPI_SDP1 != 0 {
-            log::error!("CRITICAL: FAN FAILURE!! REPLACE IMMEDIATELY!!\n");
-            ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP1)?;
-        }
-
-        // External PHY interrupt
-        if inner.info.id == IXGBE_DEV_ID_X550EM_X_10G_T && reg_eicr & IXGBE_EICR_GPI_SDP0_X540 != 0
-        {
-            // Clear the interrupt
-            ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP0_X540)?;
-            // TODO: The below is for X550em.
-            // self.handle_phy()?;
-        }
-
-        ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS, IXGBE_EIMS_OTHER | IXGBE_EIMS_LSC)?;
-
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    /// This is for X550em.
-    fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
-        Err(IxgbeDriverErr::NotImplemented)
+        let _rx_desc_ring = rx.rx_desc_ring.as_ref();
+        todo!()
     }
 
     fn rx_fill(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
-        let inner = self.inner.read();
-
         let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
@@ -1550,7 +1376,20 @@ impl Ixgbe {
         }
 
         rx.rx_desc_head = prev as u32;
-        ixgbe_hw::write_reg(&inner.info, IXGBE_RDT(que.me), rx.rx_desc_head)?;
+        ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_head)?;
+
+        Ok(())
+    }
+
+    fn txeof(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
+        let reg_tdh = { ixgbe_hw::read_reg(&self.info, IXGBE_TDH(que_id))? as usize };
+
+        let que = &self.que[que_id];
+
+        let mut node = MCSNode::new();
+        let mut tx = que.tx.lock(&mut node);
+
+        tx.tx_desc_tail = reg_tdh;
 
         Ok(())
     }
@@ -1559,8 +1398,6 @@ impl Ixgbe {
         let que = &self.que[que_id];
 
         {
-            let inner = self.inner.read();
-
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
@@ -1616,7 +1453,6 @@ impl Ixgbe {
 
                 if !eop {
                     drop(rx);
-                    drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
                     let read_buf = rx.read_buf.as_ref().unwrap();
@@ -1639,48 +1475,138 @@ impl Ixgbe {
         Ok(())
     }
 
-    fn recv_jumbo(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
-        let que = &self.que[que_id];
+    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
+        if !self.link_active {
+            return Ok(());
+        }
 
         let mut node = MCSNode::new();
-        let rx = que.rx.lock(&mut node);
+        let mut tx = self.que[que_id].tx.lock(&mut node);
 
-        let _rx_desc_ring = rx.rx_desc_ring.as_ref();
-        todo!()
-    }
+        let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
 
-    fn txeof(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
-        let reg_tdh = {
-            let inner = self.inner.read();
-            ixgbe_hw::read_reg(&inner.info, IXGBE_TDH(que_id))? as usize
-        };
+        let head = tx.tx_desc_head;
+        let mut free = tx.tx_desc_tail;
+        if free <= head {
+            free += sc_tx_slots;
+        }
+        free -= head;
 
-        let que = &self.que[que_id];
+        let mut post = false;
+        for ether_frame in ether_frames.iter() {
+            // Check that we have the minimal number of TX descriptors.
+            // use 2 because cksum setup can use an extra slot
+            if free <= self.num_segs as usize + 2 {
+                break;
+            }
 
-        let mut node = MCSNode::new();
-        let mut tx = que.tx.lock(&mut node);
+            let used = self.encap(&mut tx, ether_frame)?;
 
-        tx.tx_desc_tail = reg_tdh;
+            free -= used;
+
+            post = true;
+        }
+
+        if post {
+            ixgbe_hw::write_reg(&self.info, IXGBE_TDT(que_id), tx.tx_desc_head as u32)?;
+        }
 
         Ok(())
     }
 
-    // TODO: Ipv6
-    fn calc_pseudo_cksum(&self, ext: &EtherExtracted) -> u16 {
-        match ext.network {
-            NetworkHdr::Ipv4(ip_hdr) => {
-                let ip_src = ip_hdr.ip_src.swap_bytes();
-                let ip_dst = ip_hdr.ip_dst.swap_bytes();
-                let len = ip_hdr.ip_len.swap_bytes() as u32 - core::mem::size_of::<Ip>() as u32;
-                let protocol = ip_hdr.ip_p.swap_bytes() as u32;
-                in_pseudo(ip_src, ip_dst, len + protocol)
-            }
-            NetworkHdr::Ipv6(_) => {
-                /* TODO */
-                0
-            }
-            NetworkHdr::None => 0,
+    /// This routine maps the mbufs to tx descriptors, allowing the
+    /// TX engine to transmit the packets.
+    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
+        let len = ether_frame.data.len();
+        if len > MCLBYTES as usize {
+            return Err(IxgbeDriverErr::InvalidPacket);
         }
+
+        let mut head = tx.tx_desc_head;
+
+        let (ntxc, mut cmd_type_len, olinfo_status, _cksum_pseudo, _cksum_offset) =
+            self.tx_ctx_setup(tx, ether_frame, head)?;
+
+        // Basic descriptor defines
+        cmd_type_len |= IXGBE_ADVTXD_DTYP_DATA | IXGBE_ADVTXD_DCMD_IFCS | IXGBE_ADVTXD_DCMD_DEXT;
+
+        let tx_slots = tx.tx_desc_ring.as_ref().len();
+
+        head += ntxc as usize;
+        if head == tx_slots {
+            head = 0;
+        }
+        let addr = unsafe {
+            let write_buf = tx.write_buf.as_mut().unwrap();
+            let dst = &mut write_buf.as_mut()[head];
+            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            // TODO: cksum offloading
+            //if let Some(cksum_offset) = cksum_offset {
+            //log::info!("cksum: {}", cksum_pseudo);
+            //core::ptr::write(
+            //dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
+            //cksum_pseudo.to_be(),
+            //);
+            //}
+            (write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
+        };
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        desc.adv_tx.buffer_addr = u64::to_le(addr);
+        desc.adv_tx.cmd_type_len = u32::to_le(
+            tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
+        );
+        desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
+
+        head += 1;
+        if head == tx_slots {
+            head = 0;
+        }
+
+        tx.tx_desc_head = head;
+
+        Ok(ntxc as usize + 1)
+    }
+
+    /// Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
+    fn tx_ctx_setup(
+        &self,
+        tx: &mut Tx,
+        ether_frame: &EtherFrameRef,
+        head: usize,
+    ) -> Result<(u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
+        let mut cmd_type_len = 0;
+
+        let (
+            mut offload,
+            mut vlan_macip_lens,
+            mut type_tucmd_mlhl,
+            olinfo_status,
+            cksum_pseudo,
+            cksum_offset,
+        ) = self.tx_offload(ether_frame)?;
+
+        // TODO: Configuration for VLAN when VLANTAG is set
+        if let Some(vlan) = ether_frame.vlan {
+            vlan_macip_lens |= (vlan as u32) << IXGBE_ADVTXD_VLAN_SHIFT;
+            cmd_type_len |= IXGBE_ADVTXD_DCMD_VLE;
+            offload |= true;
+        }
+
+        if !offload {
+            return Ok((0, cmd_type_len, olinfo_status, 0, None));
+        }
+
+        type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        // Now copy bits into descriptor
+        desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
+        desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
+        desc.adv_ctx.seqnum_seed = u32::to_le(0);
+        desc.adv_ctx.mss_l4len_idx = u32::to_le(0); // mss_l4_len_idx
+
+        Ok((1, cmd_type_len, olinfo_status, cksum_pseudo, cksum_offset))
     }
 
     /// Advanced Context Descriptor setup for VLAN or CSUM
@@ -1772,143 +1698,191 @@ impl Ixgbe {
             Some(cksum_offset),
         ))
     }
-
-    /// Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
-    fn tx_ctx_setup(
-        &self,
-        tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
-        head: usize,
-    ) -> Result<(u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
-        let mut cmd_type_len = 0;
-
-        let (
-            mut offload,
-            mut vlan_macip_lens,
-            mut type_tucmd_mlhl,
-            olinfo_status,
-            cksum_pseudo,
-            cksum_offset,
-        ) = self.tx_offload(ether_frame)?;
-
-        // TODO: Configuration for VLAN when VLANTAG is set
-        if let Some(vlan) = ether_frame.vlan {
-            vlan_macip_lens |= (vlan as u32) << IXGBE_ADVTXD_VLAN_SHIFT;
-            cmd_type_len |= IXGBE_ADVTXD_DCMD_VLE;
-            offload |= true;
+    // TODO: Ipv6
+    fn calc_pseudo_cksum(&self, ext: &EtherExtracted) -> u16 {
+        match ext.network {
+            NetworkHdr::Ipv4(ip_hdr) => {
+                let ip_src = ip_hdr.ip_src.swap_bytes();
+                let ip_dst = ip_hdr.ip_dst.swap_bytes();
+                let len = ip_hdr.ip_len.swap_bytes() as u32 - core::mem::size_of::<Ip>() as u32;
+                let protocol = ip_hdr.ip_p.swap_bytes() as u32;
+                in_pseudo(ip_src, ip_dst, len + protocol)
+            }
+            NetworkHdr::Ipv6(_) => {
+                /* TODO */
+                0
+            }
+            NetworkHdr::None => 0,
         }
-
-        if !offload {
-            return Ok((0, cmd_type_len, olinfo_status, 0, None));
-        }
-
-        type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
-
-        let desc = &mut tx.tx_desc_ring.as_mut()[head];
-        // Now copy bits into descriptor
-        desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
-        desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
-        desc.adv_ctx.seqnum_seed = u32::to_le(0);
-        desc.adv_ctx.mss_l4len_idx = u32::to_le(0); // mss_l4_len_idx
-
-        Ok((1, cmd_type_len, olinfo_status, cksum_pseudo, cksum_offset))
     }
+}
 
-    /// This routine maps the mbufs to tx descriptors, allowing the
-    /// TX engine to transmit the packets.
-    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
-        let len = ether_frame.data.len();
-        if len > MCLBYTES as usize {
-            return Err(IxgbeDriverErr::InvalidPacket);
-        }
+impl Ixgbe {
+    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        let inner = IxgbeInner::new(info)?;
 
-        let mut head = tx.tx_desc_head;
-
-        let (ntxc, mut cmd_type_len, olinfo_status, _cksum_pseudo, _cksum_offset) =
-            self.tx_ctx_setup(tx, ether_frame, head)?;
-
-        // Basic descriptor defines
-        cmd_type_len |= IXGBE_ADVTXD_DTYP_DATA | IXGBE_ADVTXD_DCMD_IFCS | IXGBE_ADVTXD_DCMD_DEXT;
-
-        let tx_slots = tx.tx_desc_ring.as_ref().len();
-
-        head += ntxc as usize;
-        if head == tx_slots {
-            head = 0;
-        }
-        let addr = unsafe {
-            let write_buf = tx.write_buf.as_mut().unwrap();
-            let dst = &mut write_buf.as_mut()[head];
-            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            // TODO: cksum offloading
-            //if let Some(cksum_offset) = cksum_offset {
-            //log::info!("cksum: {}", cksum_pseudo);
-            //core::ptr::write(
-            //dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
-            //cksum_pseudo.to_be(),
-            //);
-            //}
-            (write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
+        let ixgbe = Self {
+            inner: RwLock::new(inner),
         };
 
-        let desc = &mut tx.tx_desc_ring.as_mut()[head];
-        desc.adv_tx.buffer_addr = u64::to_le(addr);
-        desc.adv_tx.cmd_type_len = u32::to_le(
-            tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
-        );
-        desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
-
-        head += 1;
-        if head == tx_slots {
-            head = 0;
-        }
-
-        tx.tx_desc_head = head;
-
-        Ok(ntxc as usize + 1)
+        Ok(ixgbe)
     }
 
-    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
+    fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
         let inner = self.inner.read();
 
-        if !inner.link_active {
+        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
+            *reason
+        } else {
             return Ok(());
-        }
+        };
 
-        let mut node = MCSNode::new();
-        let mut tx = self.que[que_id].tx.lock(&mut node);
+        match reason {
+            IRQRxTxLink::Legacy(que_id) => {
+                drop(inner);
+                self.intr_legacy_and_link()?;
 
-        let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
+                let inner = self.inner.read();
+                inner.rx_recv(que_id)?;
 
-        let head = tx.tx_desc_head;
-        let mut free = tx.tx_desc_tail;
-        if free <= head {
-            free += sc_tx_slots;
-        }
-        free -= head;
-
-        let mut post = false;
-        for ether_frame in ether_frames.iter() {
-            // Check that we have the minimal number of TX descriptors.
-            // use 2 because cksum setup can use an extra slot
-            if free <= inner.num_segs as usize + 2 {
-                break;
+                let inner = self.inner.read();
+                inner.enable_queues(&inner.que)?;
+                drop(inner);
             }
+            IRQRxTxLink::RxTx(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    inner.rx_recv(que_id)?;
+                    inner.txeof(que_id)?;
+                }
 
-            let used = self.encap(&mut tx, ether_frame)?;
+                let inner = self.inner.read();
+                let queue = 1u64 << que_id;
 
-            free -= used;
-
-            post = true;
+                match inner.hw.mac.mac_type {
+                    MacType::IxgbeMac82598EB => {
+                        // TODO
+                    }
+                    _ => {
+                        let mask_lo = (queue & 0xFFFFFFFF) as u32;
+                        if mask_lo != 0 {
+                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(0), mask_lo)?;
+                        }
+                        let mask_hi = (queue >> 32) as u32;
+                        if mask_hi != 0 {
+                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(1), mask_hi)?;
+                        }
+                    }
+                }
+            }
+            IRQRxTxLink::Link => {
+                drop(inner);
+                self.intr_legacy_and_link()?;
+            }
         }
-
-        if post {
-            ixgbe_hw::write_reg(&inner.info, IXGBE_TDT(que_id), tx.tx_desc_head as u32)?;
-        }
-
-        drop(inner);
 
         Ok(())
+    }
+
+    fn intr_legacy_and_link(&self) -> Result<(), IxgbeDriverErr> {
+        let mut inner = self.inner.write();
+        let mut reg_eicr;
+
+        match inner.pcie_int {
+            PCIeInt::MsiX(_) => {
+                // Pause other interrupts
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
+                // First get the cause
+                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
+                // Be sure the queue bits are not cleared
+                reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
+                // Clear interrupt with write
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
+            }
+            _ => {
+                // For Msi and Legacy
+                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICR)?;
+                if reg_eicr == 0 {
+                    inner.enable_intr()?;
+                    inner.enable_queues(&inner.que)?;
+                }
+            }
+        }
+
+        // Link status change
+        if reg_eicr & IXGBE_EICR_LSC != 0 {
+            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_LSC)?;
+            inner.update_link_status()?;
+        }
+
+        if inner.hw.mac.mac_type != MacType::IxgbeMac82598EB {
+            if reg_eicr & IXGBE_EICR_ECC != 0 {
+                log::error!(
+                    "{}: CRITICAL: ECC ERROR!! Please Reboot!!\n",
+                    self.device_name()
+                );
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_ECC)?;
+            }
+            // Check for over temp condition
+            if reg_eicr & IXGBE_EICR_TS != 0 {
+                log::error!("CRITICAL: OVER TEMP!! PHY IS SHUT DOWN!!\n");
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_TS)?;
+            }
+        }
+
+        // Pluggable optics-related interrupt
+        if inner.is_sfp() {
+            let mod_mask;
+            let msf_mask;
+            if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
+                mod_mask = IXGBE_EICR_GPI_SDP0_X540;
+                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+            } else if inner.hw.mac.mac_type == MacType::IxgbeMacX540
+                || inner.hw.mac.mac_type == MacType::IxgbeMacX550
+                || inner.hw.mac.mac_type == MacType::IxgbeMacX550EMX
+            {
+                mod_mask = IXGBE_EICR_GPI_SDP2_X540;
+                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+            } else {
+                mod_mask = IXGBE_EICR_GPI_SDP2;
+                msf_mask = IXGBE_EICR_GPI_SDP1;
+            }
+            if reg_eicr & mod_mask != 0 {
+                // Clear the interrupt
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, mod_mask)?;
+                inner.handle_mod()?;
+            } else if (inner.hw.phy.media_type != MediaType::IxgbeMediaTypeCopper)
+                && (reg_eicr & msf_mask != 0)
+            {
+                // Clear the interrupt
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, msf_mask)?;
+                inner.handle_msf()?;
+            }
+        }
+
+        // Check for fan failure
+        if inner.info.id == IXGBE_DEV_ID_82598AT && reg_eicr & IXGBE_EICR_GPI_SDP1 != 0 {
+            log::error!("CRITICAL: FAN FAILURE!! REPLACE IMMEDIATELY!!\n");
+            ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP1)?;
+        }
+
+        // External PHY interrupt
+        if inner.info.id == IXGBE_DEV_ID_X550EM_X_10G_T && reg_eicr & IXGBE_EICR_GPI_SDP0_X540 != 0
+        {
+            // Clear the interrupt
+            ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP0_X540)?;
+            // TODO: The below is for X550em.
+            // self.handle_phy()?;
+        }
+
+        ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS, IXGBE_EIMS_OTHER | IXGBE_EIMS_LSC)?;
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    /// This is for X550em.
+    fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
+        Err(IxgbeDriverErr::NotImplemented)
     }
 }
 
@@ -1918,7 +1892,7 @@ fn allocate_msix(
     que: &[Queue],
 ) -> Result<PCIeInt, IxgbeDriverErr> {
     let segment_number = info.segment_group as usize;
-    let bfd = info.get_bfd();
+    let bdf = info.get_bdf();
 
     let msix = info
         .get_msix_mut()
@@ -1927,7 +1901,7 @@ fn allocate_msix(
     let mut irqs = Vec::new();
 
     for q in que.iter() {
-        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q.me);
+        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bdf, q.me);
         let mut irq_rxtx = msix
             .register_handler(
                 irq_name_rxtx.into(),
@@ -1943,7 +1917,7 @@ fn allocate_msix(
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
 
-    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
+    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bdf}-Other");
     let mut irq_other = msix
         .register_handler(
             irq_name_tx.into(),
@@ -1976,7 +1950,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
     }
 
     let segment_number = info.get_segment_group() as usize;
-    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bfd());
+    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bdf());
 
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
@@ -2046,19 +2020,25 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
 //===========================================================================
 impl PCIeDevice for Ixgbe {
     fn device_name(&self) -> Cow<'static, str> {
-        let (mac_type, bfd) = {
+        let (mac_type, bdf) = {
             let inner = self.inner.read();
-            (inner.hw.get_mac_type(), inner.info.get_bfd())
+            (inner.hw.get_mac_type(), inner.info.get_bdf())
         };
 
-        let name = format!("{bfd}: {DEVICE_NAME} ({mac_type:?})");
+        let name = format!("{bdf}: {DEVICE_NAME} ({mac_type:?})");
         name.into()
+    }
+
+    fn config_space(&self) -> Option<crate::pcie::config_space::ConfigSpace> {
+        let inner = self.inner.read();
+        Some(inner.info.config_space.clone())
     }
 }
 
 impl NetDevice for Ixgbe {
     fn num_queues(&self) -> usize {
-        self.que.len()
+        let inner = self.inner.read();
+        inner.que.len()
     }
 
     fn flags(&self) -> NetFlags {
@@ -2067,8 +2047,8 @@ impl NetDevice for Ixgbe {
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
-        let bfd = self.inner.read().info.get_bfd();
-        let name = format!("{DEVICE_SHORT_NAME}-{bfd}");
+        let bdf = self.inner.read().info.get_bdf();
+        let name = format!("{DEVICE_SHORT_NAME}-{bdf}");
         name.into()
     }
 
@@ -2111,9 +2091,10 @@ impl NetDevice for Ixgbe {
     }
 
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+        let inner = self.inner.read();
         {
             let mut node = MCSNode::new();
-            let mut rx = self.que[que_id].rx.lock(&mut node);
+            let mut rx = inner.que[que_id].rx.lock(&mut node);
 
             let data = rx.read_queue.pop();
             if data.is_some() {
@@ -2121,10 +2102,10 @@ impl NetDevice for Ixgbe {
             }
         }
 
-        self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
+        inner.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
 
         let mut node = MCSNode::new();
-        let mut rx = self.que[que_id].rx.lock(&mut node);
+        let mut rx = inner.que[que_id].rx.lock(&mut node);
         if let Some(data) = rx.read_queue.pop() {
             Ok(Some(data))
         } else {
@@ -2147,15 +2128,18 @@ impl NetDevice for Ixgbe {
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        let inner = self.inner.read();
+        inner
+            .send(que_id, &frames)
+            .or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if !inner.flags.contains(NetFlags::UP) {
-            if let Err(err_init) = inner.init(&self.que) {
-                if let Err(err_stop) = inner.stop(&self.que) {
+            if let Err(err_init) = inner.init() {
+                if let Err(err_stop) = inner.stop() {
                     log::error!("ixgbe: stop failed: {err_stop:?}");
                 }
 
@@ -2174,7 +2158,7 @@ impl NetDevice for Ixgbe {
         let mut inner = self.inner.write();
 
         if inner.flags.contains(NetFlags::UP) {
-            if let Err(e) = inner.stop(&self.que) {
+            if let Err(e) = inner.stop() {
                 log::error!("ixgbe: stop failed: {e:?}");
                 Err(NetDevError::DeviceError)
             } else {

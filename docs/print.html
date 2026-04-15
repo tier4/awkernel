@@ -1712,8 +1712,8 @@ Each scheduler must be registered in the following three locations.
 </span>impl PCIeDevice for PCIeBus {
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
         if let Some(info) = self.info.as_ref() {
-            let bfd = info.get_bfd();
-            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            let bdf = info.get_bdf();
+            let name = format!("{bdf}: Bridge, Bus #{:02x}", self.bus_number);
             name.into()
         } else {
             let name = format!("Bus #{:02x}", self.bus_number);
@@ -1772,7 +1772,7 @@ pub struct PCIeInfo {
 <tr><td><code>fn from_addr(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using virtual address.</td></tr>
 <tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeInfo</code> structure.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of the <code>PCIeInfo</code> based on the PCIe memory range.</td></tr>
-<tr><td><code>pub fn get_bfd(&amp;self)</code></td><td>Get PCIe information in BDF (Bus, Device, Function) format.</td></tr>
+<tr><td><code>pub fn get_bdf(&amp;self)</code></td><td>Get PCIe information in BDF (Bus, Device, Function) format.</td></tr>
 <tr><td><code>pub fn get_secondary_bus(&amp;self)</code></td><td>Get the number of the PCIe secondary bus.</td></tr>
 <tr><td><code>pub fn get_device_name(&amp;self)</code></td><td>Get the name of the PCIe device.</td></tr>
 <tr><td><code>pub fn get_class(&amp;self)</code></td><td>Get the PCIe device classification.</td></tr>
@@ -1852,13 +1852,13 @@ pub struct PCIeInfo {
 </span><span class="boring">fn main() {
 </span>impl PCIeDevice for PCIeBus {
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
-        let bfd = format!(
+        let bdf = format!(
             "{:04x}:{:02x}:{:02x}.{:01x}",
             self.segment_group, self.bus_number, self.device_number, self.function_number
         );
 
         let name = format!(
-            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            "{bdf}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
@@ -2127,7 +2127,7 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
                 ChildDevice::Unattached(info) =&gt; {
                     let name = format!(
                         "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
-                        info.get_bfd(),
+                        info.get_bdf(),
                         info.vendor,
                         info.id,
                         info.pcie_class,
