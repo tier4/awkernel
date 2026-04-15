@@ -4,10 +4,9 @@
 extern crate alloc;
 
 use alloc::{vec, vec::Vec};
-use core::f64::consts::PI;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
-use libm::{asin, atan2, cos, sin};
+use libm::{atan2, cos, sin};
 use nalgebra::{Matrix6, Vector3, Vector6};
 pub use imu_driver;
 pub use vehicle_velocity_converter::TwistWithCovariance;
@@ -149,22 +148,19 @@ impl Simple1DFilter {
 #[derive(Debug, Clone)]
 pub struct EKFModule {
     params: EKFParameters,
-    dim_x: usize,
     state: StateVector,
     covariance: StateCovariance,
     z_filter: Simple1DFilter,
     roll_filter: Simple1DFilter,
     pitch_filter: Simple1DFilter,
     accumulated_delay_times: Vec<f64>,
-    last_angular_velocity: Vector3<f64>,
     // When true, only prediction is performed (no measurement updates)
     is_mrm_mode: bool,
 }
 
 impl EKFModule {
     pub fn new(params: EKFParameters) -> Self {
-        let dim_x = 6;
-        let mut state = StateVector::zeros();
+        let state = StateVector::zeros();
         let mut covariance = StateCovariance::identity() * 1e15;
 
         covariance[(StateIndex::Yaw as usize, StateIndex::Yaw as usize)] = 50.0;
@@ -186,14 +182,12 @@ impl EKFModule {
 
         Self {
             params,
-            dim_x,
             state,
             covariance,
             z_filter,
             roll_filter,
             pitch_filter,
             accumulated_delay_times,
-            last_angular_velocity: Vector3::zeros(),
             is_mrm_mode: false,
         }
     }
