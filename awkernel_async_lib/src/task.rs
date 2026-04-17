@@ -1065,6 +1065,9 @@ pub mod perf {
                     // Normal task-specific handling
                     update_time_and_state(PerfState::Interrupt);
                 }
+            } else {
+                // Default handling if the current task cannot be resolved
+                update_time_and_state(PerfState::Interrupt);
             }
         } else {
             // Default handling if no task is running
