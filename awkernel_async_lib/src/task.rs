@@ -517,19 +517,37 @@ pub mod perf {
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
-    use alloc::vec::Vec;
+    use alloc::{collections::BTreeMap, vec::Vec};
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     const MAX_LOGS: usize = 8192;
 
-    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
-    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
-    static ABSOLUTE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
-    static RELATIVE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
+    type DagTimestampMap = BTreeMap<u32, u64>;
+    type DagTimestampTable = [DagTimestampMap; MAX_LOGS];
 
-    //DAG+1
-    const MAX_DAGS: usize = 4;
-    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
 
+    pub static PERIOD_COUNT: Mutex<BTreeMap<u32, AtomicU32>> = Mutex::new(BTreeMap::new());
+
+    pub fn get_period_count(dag_id: u32) -> u32 {
+        let mut node = MCSNode::new();
+        let period_count = PERIOD_COUNT.lock(&mut node);
+        period_count
+            .get(&dag_id)
+            .map(|count| count.load(core::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0)
+    }
+
+    pub fn increment_period_count(dag_id: u32) -> u32 {
+        let mut node = MCSNode::new();
+        let mut period_count = PERIOD_COUNT.lock(&mut node);
+        let count = period_count
+            .entry(dag_id)
+            .or_insert_with(|| AtomicU32::new(0));
+        count.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
+    }
     //pubsub
     const MAX_PUBSUB: usize = 3;
     const MAX_NODES: usize = 20;
