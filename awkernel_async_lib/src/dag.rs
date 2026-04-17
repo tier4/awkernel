@@ -922,8 +922,6 @@ where
     Ret: VectorToPublishers,
     Ret::Publishers: Send,
     Args::Subscribers: Send,
-    <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
-    <Ret::Publishers as MultipleSender>::Item: TupleSize,
 {
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -1052,7 +1050,6 @@ where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
-    <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
 {
     let future = async move {
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
