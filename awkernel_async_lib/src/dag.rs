@@ -71,8 +71,8 @@ use crate::{
 #[cfg(feature = "need-get-period")]
 use crate::task::perf::{
     get_period_count, increment_period_count, increment_pub_count, increment_sink_count,
-            increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
-            update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
+    increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
+    update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
 };
 
 use alloc::{
