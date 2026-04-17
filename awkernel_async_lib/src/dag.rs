@@ -1029,7 +1029,7 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period, dag_info.dag_id.clone() as u32);
+        let mut interval = interval(period, dag_info.dag_id as u32);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
