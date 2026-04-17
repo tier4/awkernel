@@ -1042,8 +1042,7 @@ where
                     crate::task::set_task_period(task_id, Some(index as u32));
                 }
                 if index != 0 {
-                    let release_time =
-                        awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     update_pre_send_outer_timestamp_at(
                         index,
                         release_time,
@@ -1061,8 +1060,9 @@ where
                 increment_period_count(dag_info.dag_id.clone() as usize);
                 increment_pub_count(0);
             }
-            
-            #[cfg(not(feature = "need-get-period"))] {
+
+            #[cfg(not(feature = "need-get-period"))]
+            {
                 let results = f();
                 publishers.send_all(results).await;
             }
@@ -1119,15 +1119,11 @@ where
                 }
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if count_st != 0 {
-                    update_fin_recv_outer_timestamp_at(
-                        count_st as usize,
-                        timenow,
-                        dag_info.dag_id,
-                    );
+                    update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
                 }
                 increment_sink_count(dag_info.dag_id.clone() as usize);
             }
-            
+
             f(args);
         }
     };
