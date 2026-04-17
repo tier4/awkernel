@@ -65,7 +65,8 @@ use crate::{
     scheduler::SchedulerType,
     task::{
         perf::{
-            get_period_count, increment_period_count, increment_pub_count, increment_sink_count, increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
+            get_period_count, increment_period_count, increment_pub_count, increment_sink_count,
+            increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
             update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
         },
         DagInfo,
@@ -967,7 +968,8 @@ where
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
 
-            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
+            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed)
+            {
                 #[cfg(feature = "need-get-period")]
                 {
                     // [end] pubsub communication latency
@@ -1033,7 +1035,8 @@ where
         interval.tick().await;
 
         loop {
-            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
+            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed)
+            {
                 #[cfg(feature = "need-get-period")]
                 {
                     let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
@@ -1042,7 +1045,8 @@ where
                         crate::task::set_task_period(task_id, Some(index as u32));
                     }
                     if index != 0 {
-                        let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                        let release_time =
+                            awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                         update_pre_send_outer_timestamp_at(
                             index,
                             release_time,
@@ -1100,7 +1104,8 @@ where
         loop {
             let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
 
-            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed) {
+            if crate::task::perf::ENABLE_PERIOD_TRACKING.load(core::sync::atomic::Ordering::Relaxed)
+            {
                 #[cfg(feature = "need-get-period")]
                 {
                     // [end] pubsub communication latency
@@ -1118,11 +1123,14 @@ where
                     }
                     let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     if count_st != 0 {
-                        update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+                        update_fin_recv_outer_timestamp_at(
+                            count_st as usize,
+                            timenow,
+                            dag_info.dag_id,
+                        );
                     }
                     increment_sink_count(dag_info.dag_id.clone() as usize);
                 }
-                
             }
             f(args);
         }
