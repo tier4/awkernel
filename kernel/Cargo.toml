@@ -92,12 +92,14 @@ x86 = [
     "awkernel_drivers/uart_16550",
 ]
 rv32 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv32",
     "dep:ns16550a",
     "awkernel_drivers/rv32",
 ]
 rv64 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv64",
     "dep:ns16550a",
@@ -112,6 +114,7 @@ aarch64 = [
     "awkernel_drivers/aarch64",
 ]
 raspi = [
+    "perf",
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pl011",
@@ -119,6 +122,7 @@ raspi = [
 ]
 
 raspi5 = [
+    "perf",
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pcie",
@@ -129,6 +133,7 @@ raspi5 = [
 ]
 
 aarch64_virt = [
+    "perf",
     "aarch64",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/pl011",
