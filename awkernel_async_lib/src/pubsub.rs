@@ -787,9 +787,7 @@ pub trait MultipleReceiver {
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 
     #[cfg(feature = "need-get-period")]
-    fn recv_all_with_period(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
+    fn recv_all_with_period(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {

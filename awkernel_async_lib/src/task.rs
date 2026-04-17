@@ -517,18 +517,14 @@ pub mod perf {
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
-    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     use alloc::vec::Vec;
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     const MAX_LOGS: usize = 8192;
 
-    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
-        Mutex::new(None);
-    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
-        Mutex::new(None);
-    static ABSOLUTE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
-        Mutex::new(None);
-    static RELATIVE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
-        Mutex::new(None);
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> = Mutex::new(None);
 
     //DAG+1
     const MAX_DAGS: usize = 4;
@@ -646,7 +642,11 @@ pub mod perf {
 
         let node_id_usize = node_id as usize;
         if node_id_usize >= MAX_NODES {
-            log::warn!("Publish node ID out of bounds: {} (max {})", node_id_usize, MAX_NODES);
+            log::warn!(
+                "Publish node ID out of bounds: {} (max {})",
+                node_id_usize,
+                MAX_NODES
+            );
             return;
         }
 
@@ -668,7 +668,11 @@ pub mod perf {
 
         let node_id_usize = node_id as usize;
         if node_id_usize >= MAX_NODES {
-            log::warn!("Subscribe node ID out of bounds: {} (max {})", node_id_usize, MAX_NODES);
+            log::warn!(
+                "Subscribe node ID out of bounds: {} (max {})",
+                node_id_usize,
+                MAX_NODES
+            );
             return;
         }
 

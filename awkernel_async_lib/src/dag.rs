@@ -1061,10 +1061,8 @@ where
         loop {
             #[cfg(feature = "need-get-period")]
             {
-                let (args, count_st): (
-                    <Args::Subscribers as MultipleReceiver>::Item,
-                    u32,
-                ) = subscribers.recv_all_with_period().await;
+                let (args, count_st): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
+                    subscribers.recv_all_with_period().await;
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
