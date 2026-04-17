@@ -976,9 +976,6 @@ where
                 subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
 
                 let results = f(args);
-                // [start] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                publish_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
                 publishers
                     .send_all_with_meta(results, 1, count_st as usize, dag_info.node_id)
                     .await;
@@ -1041,9 +1038,6 @@ where
                     );
                 }
                 let results = f();
-                // [start] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                publish_timestamp_at(index, end, 0, dag_info.node_id);
                 publishers
                     .send_all_with_meta(results, 0, index, dag_info.node_id)
                     .await;
