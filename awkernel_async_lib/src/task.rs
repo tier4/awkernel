@@ -471,8 +471,6 @@ pub mod perf {
     use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
-    #[cfg(feature = "need-get-period")]
-    use core::sync::atomic::AtomicBool;
     use core::sync::atomic::{AtomicU32, Ordering};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
