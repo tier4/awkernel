@@ -114,7 +114,6 @@ aarch64 = [
     "awkernel_drivers/aarch64",
 ]
 raspi = [
-    "perf",
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pl011",
@@ -122,7 +121,6 @@ raspi = [
 ]
 
 raspi5 = [
-    "perf",
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pcie",
@@ -133,7 +131,6 @@ raspi5 = [
 ]
 
 aarch64_virt = [
-    "perf",
     "aarch64",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/pl011",
