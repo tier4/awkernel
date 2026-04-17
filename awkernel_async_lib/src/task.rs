@@ -487,11 +487,6 @@ pub mod perf {
             }
         }
     }
-    #[derive(Debug, Clone)]
-    pub struct NodeRecord {
-        pub period_count: u32,
-        pub dag_info: task::DagInfo,
-    }
 
     static mut PERF_STATES: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -528,20 +523,14 @@ pub mod perf {
     static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
-    static DAG_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
 
     //DAG+1
     const MAX_DAGS: usize = 4;
     pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
-    const MAX_NODES: usize = 20;
-    static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
-    static NODE_FINISH: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
-    static NODE_PREEMPT_COUNT: Mutex<Option<[[u32; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
-    static NODE_CORE: Mutex<Option<[[u8; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
-
     //pubsub
     const MAX_PUBSUB: usize = 3;
+    const MAX_NODES: usize = 20;
     static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
 
@@ -607,66 +596,6 @@ pub mod perf {
         }
     }
 
-    pub fn node_start(node: NodeRecord, start: u64) {
-        assert!(
-            (node.dag_info.node_id as usize) < MAX_NODES,
-            "Node ID out of bounds"
-        );
-
-        let mut mcs_node = MCSNode::new();
-        let mut recorder_opt = NODE_START.lock(&mut mcs_node);
-
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
-
-        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
-            recorder[node.period_count as usize][node.dag_info.node_id as usize] = start;
-        }
-    }
-
-    pub fn node_finish(node: NodeRecord, finish: u64) {
-        assert!(
-            (node.dag_info.node_id as usize) < MAX_NODES,
-            "Node ID out of bounds"
-        );
-
-        let mut mcs_node = MCSNode::new();
-        let mut recorder_opt = NODE_FINISH.lock(&mut mcs_node);
-
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
-
-        if recorder[node.period_count as usize][node.dag_info.node_id as usize] == 0 {
-            recorder[node.period_count as usize][node.dag_info.node_id as usize] = finish;
-        }
-    }
-
-    pub fn node_preempt(node: NodeRecord) {
-        assert!(
-            (node.dag_info.node_id as usize) < MAX_NODES,
-            "Node ID out of bounds"
-        );
-
-        let mut mcs_node = MCSNode::new();
-        let mut recorder_opt = NODE_PREEMPT_COUNT.lock(&mut mcs_node);
-
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_NODES]; MAX_LOGS]);
-
-        recorder[node.period_count as usize][node.dag_info.node_id as usize] += 1;
-    }
-
-    pub fn dag_preempt(node: NodeRecord) {
-        assert!(
-            (node.dag_info.dag_id as usize) < MAX_DAGS,
-            "DAG ID out of bounds"
-        );
-
-        let mut mcs_node = MCSNode::new();
-        let mut recorder_opt = DAG_PREEMPT_COUNT.lock(&mut mcs_node);
-
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
-
-        recorder[node.period_count as usize][node.dag_info.dag_id as usize] += 1;
-    }
-
     pub fn publish_timestamp_at(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
         assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
@@ -701,25 +630,22 @@ pub mod perf {
         let mut node2 = MCSNode::new();
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
-        let mut node5 = MCSNode::new();
 
         let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
         let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
         let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
-        let dag_preempt_opt = DAG_PREEMPT_COUNT.lock(&mut node5);
 
         log::info!("--- Timestamp Summary (in nanoseconds) ---");
         log::info!(
-            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
             "Index",
             "DAG-ID",
             "Send-Outer",
             "Recv-Outer",
             "Latency",
             "Absolute Deadline",
-            "Relative Deadline",
-            "DAG Preemptions"
+            "Relative Deadline"
         );
 
         log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
@@ -730,13 +656,11 @@ pub mod perf {
                 let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
                 let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let dag_preempt = dag_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
 
                 if pre_send_outer != 0
                     || fin_recv_outer != 0
                     || absolute_deadline != 0
                     || relative_deadline != 0
-                    || dag_preempt != 0
                 {
                     let format_ts = |ts: u64| -> String {
                         if ts == 0 {
@@ -753,7 +677,7 @@ pub mod perf {
                     };
 
                     log::info!(
-                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20} | {: >20}",
+                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
                         i,
                         format_ts(j as u64),
                         format_ts(pre_send_outer),
@@ -761,73 +685,11 @@ pub mod perf {
                         latency_str,
                         format_ts(absolute_deadline),
                         format_ts(relative_deadline),
-                        format_ts(dag_preempt as u64),
                     );
                 }
             }
         }
         log::info!("----------------------------------------------------------");
-    }
-
-    /// Print per-node timing table.
-    /// Columns: DAG ID | node id | period | start(ns) | end(ns) | duration(ns) | preemptions | core
-    /// not used now
-    pub fn print_node_table() {
-        let mut node1 = MCSNode::new();
-        let mut node2 = MCSNode::new();
-        let mut node3 = MCSNode::new();
-        let mut node4 = MCSNode::new();
-
-        let node_start_opt = NODE_START.lock(&mut node1);
-        let node_finish_opt = NODE_FINISH.lock(&mut node2);
-        let node_preempt_opt = NODE_PREEMPT_COUNT.lock(&mut node3);
-        let node_core_opt = NODE_CORE.lock(&mut node4);
-
-        log::info!("--- Per-node Timing Summary (in nanoseconds) ---");
-        log::info!(
-            "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
-            "Index",
-            "DAG-ID",
-            "NODE-ID",
-            "start(ns)",
-            "end(ns)",
-            "duration(ns)",
-            "preemptions",
-            "core"
-        );
-        log::info!("------|--------|---------|----------------------|----------------------|----------------------|-----");
-
-        for i in 0..MAX_LOGS {
-            for j in 0..MAX_NODES {
-                let start = node_start_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let finish = node_finish_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let preempt_count = node_preempt_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let core_id = node_core_opt.as_ref().map_or(0, |arr| arr[i][j]);
-
-                if start != 0 || finish != 0 || preempt_count != 0 {
-                    let format_ts = |ts: u64| -> String { ts.to_string() };
-
-                    let duration = if start != 0 && finish != 0 {
-                        finish.saturating_sub(start).to_string()
-                    } else {
-                        "-".to_string()
-                    };
-
-                    log::info!(
-                        "{:<5} | {:<6} | {:<7} | {:<20} | {:<20} | {:<20} | {:<12} | {:<4}",
-                        i,
-                        1, // DAG ID (assumed 1 for simplicity)
-                        format_ts(j as u64),
-                        format_ts(start),
-                        format_ts(finish),
-                        duration,
-                        format_ts(preempt_count as u64),
-                        format_ts(core_id as u64),
-                    );
-                }
-            }
-        }
-        log::info!("--------------------------------------------------------------");
     }
 
     // For pubsub communication latency
