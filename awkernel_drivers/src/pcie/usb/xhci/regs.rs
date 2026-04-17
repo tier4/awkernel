@@ -80,6 +80,28 @@ pub mod trb_type {
     pub const PORT_STATUS_CHANGE: u32 = 34;
 }
 
+/// Port Status and Control Register offsets — relative to op_base. xHCI spec §5.4.8.
+/// Port n (1-based) is at BASE + (n-1) * STRIDE.
+pub mod port {
+    pub const BASE: usize = 0x400;
+    pub const STRIDE: usize = 0x10;
+
+    pub const CCS: u32 = 1 << 0;  // Current Connect Status (RO)
+    pub const PED: u32 = 1 << 1;  // Port Enabled/Disabled (RW1C — write 1 to disable)
+    pub const PR: u32 = 1 << 4;   // Port Reset (RWS)
+    pub const PP: u32 = 1 << 9;   // Port Power (RWS)
+    pub const CSC: u32 = 1 << 17; // Connect Status Change (RW1CS)
+    pub const PEC: u32 = 1 << 18; // Port Enabled/Disabled Change (RW1CS)
+    pub const WRC: u32 = 1 << 19; // Warm Port Reset Change (RW1CS)
+    pub const OCC: u32 = 1 << 20; // Over-current Change (RW1CS)
+    pub const PRC: u32 = 1 << 21; // Port Reset Change (RW1CS)
+    pub const PLC: u32 = 1 << 22; // Port Link State Change (RW1CS)
+    pub const CEC: u32 = 1 << 23; // Port Config Error Change (RW1CS)
+
+    /// All RW1CS change bits.
+    pub const CHANGE_BITS: u32 = CSC | PEC | WRC | OCC | PRC | PLC | CEC;
+}
+
 /// Bit position of the TRB type field within the ctrl word.
 pub const TRB_TYPE_SHIFT: u32 = 10;
 

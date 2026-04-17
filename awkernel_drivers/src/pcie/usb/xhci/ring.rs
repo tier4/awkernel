@@ -46,6 +46,10 @@ pub struct ErstEntry {
 /// A one-entry ERST.  DMAPool allocates 1 page; only 16 bytes are used.
 pub type ErstMem = [ErstEntry; 1];
 
+// Transfer Ring shares the same size / layout as the Command Ring.
+pub const XFER_RING_SIZE: usize = CMD_RING_SIZE;
+pub type XferRingMem = CmdRingMem;
+
 // ---------------------------------------------------------------------------
 // Command Ring
 // ---------------------------------------------------------------------------
@@ -66,6 +70,42 @@ impl CommandRing {
             enqueue_idx: 0,
             cycle_bit: 1,
         })
+    }
+
+    /// Enqueue a command TRB, stamping the current Producer Cycle State onto it.
+    /// Advances the enqueue index and handles wrap-around via the Link TRB.
+    /// Returns `false` if the ring is logically full (all data slots occupied).
+    pub fn enqueue(&mut self, mut trb: Trb) -> bool {
+        if self.enqueue_idx >= CMD_RING_SIZE - 1 {
+            return false; // all data slots occupied; caller should drain completions first
+        }
+        let idx = self.enqueue_idx;
+        let pcs = self.cycle_bit;
+
+        // Stamp cycle bit (preserve all other ctrl bits set by caller).
+        trb.ctrl = (trb.ctrl & !TRB_CYCLE) | pcs;
+
+        let next = idx + 1;
+        let wraps = next == CMD_RING_SIZE - 1;
+
+        {
+            let mem = self.mem.as_mut();
+            mem[idx] = trb;
+            if wraps {
+                // Update Link TRB's cycle bit to match current PCS so the controller
+                // recognises it and toggles its internal cycle state (TC=1).
+                let ctrl = mem[CMD_RING_SIZE - 1].ctrl;
+                mem[CMD_RING_SIZE - 1].ctrl = (ctrl & !TRB_CYCLE) | pcs;
+            }
+        } // mutable borrow of self.mem ends here
+
+        if wraps {
+            self.enqueue_idx = 0;
+            self.cycle_bit ^= 1;
+        } else {
+            self.enqueue_idx = next;
+        }
+        true
     }
 
     /// Zero all TRBs and install the Link TRB at the last slot.
@@ -117,6 +157,34 @@ impl EventRing {
         })
     }
 
+    /// Return the next event TRB if its cycle bit matches the Consumer Cycle State.
+    /// Advances the dequeue index and toggles the cycle state on ring wrap-around.
+    pub fn dequeue(&mut self) -> Option<Trb> {
+        let idx = self.dequeue_idx;
+        let pcs = self.cycle_bit;
+
+        // Copy the TRB out (Trb is Copy) then immediately release the borrow.
+        let trb = { self.seg_mem.as_mut()[idx] };
+
+        if trb.ctrl & TRB_CYCLE != pcs {
+            return None; // no event ready
+        }
+
+        let next = idx + 1;
+        if next >= EVT_RING_SIZE {
+            self.dequeue_idx = 0;
+            self.cycle_bit ^= 1;
+        } else {
+            self.dequeue_idx = next;
+        }
+        Some(trb)
+    }
+
+    /// Physical address of the current dequeue position (written to ERDP after processing).
+    pub fn dequeue_phys(&self) -> u64 {
+        self.seg_phys() + (self.dequeue_idx * core::mem::size_of::<Trb>()) as u64
+    }
+
     /// Zero the segment and populate the ERST entry.
     pub fn init(&mut self) {
         for trb in self.seg_mem.as_mut().iter_mut() {
@@ -165,6 +233,69 @@ impl Dcbaa {
     }
 
     /// Physical base address (written to DCBAAP during init).
+    pub fn phys_base(&self) -> u64 {
+        self.mem.get_phy_addr().as_usize() as u64
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transfer Ring  (EP0 default control pipe, and future bulk endpoints)
+// ---------------------------------------------------------------------------
+
+pub struct TransferRing {
+    pub mem: DMAPool<XferRingMem>,
+    /// Software enqueue index (0 … XFER_RING_SIZE-2; skips the Link TRB slot).
+    pub enqueue_idx: usize,
+    /// Current Producer Cycle State.
+    pub cycle_bit: u32,
+}
+
+impl TransferRing {
+    pub fn new(numa_id: usize) -> Option<Self> {
+        let mem = DMAPool::<XferRingMem>::new(numa_id, 1)?;
+        Some(Self { mem, enqueue_idx: 0, cycle_bit: 1 })
+    }
+
+    /// Zero all TRBs and install the Link TRB at the last slot.
+    pub fn init(&mut self) {
+        let phy_base = self.phys_base();
+        let trbs = self.mem.as_mut();
+        for trb in trbs.iter_mut() {
+            *trb = Trb::default();
+        }
+        let link = &mut trbs[XFER_RING_SIZE - 1];
+        link.param = phy_base;
+        link.ctrl = (trb_type::LINK << TRB_TYPE_SHIFT) | TRB_LINK_TC | TRB_CYCLE;
+    }
+
+    /// Enqueue a TRB, stamping the current Producer Cycle State onto it.
+    pub fn enqueue(&mut self, mut trb: Trb) -> bool {
+        if self.enqueue_idx >= XFER_RING_SIZE - 1 {
+            return false;
+        }
+        let idx = self.enqueue_idx;
+        let pcs = self.cycle_bit;
+        trb.ctrl = (trb.ctrl & !TRB_CYCLE) | pcs;
+        let next = idx + 1;
+        let wraps = next == XFER_RING_SIZE - 1;
+        {
+            let mem = self.mem.as_mut();
+            mem[idx] = trb;
+            if wraps {
+                let ctrl = mem[XFER_RING_SIZE - 1].ctrl;
+                mem[XFER_RING_SIZE - 1].ctrl = (ctrl & !TRB_CYCLE) | pcs;
+            }
+        }
+        if wraps {
+            self.enqueue_idx = 0;
+            self.cycle_bit ^= 1;
+        } else {
+            self.enqueue_idx = next;
+        }
+        true
+    }
+
+    /// Physical base address of the ring (written to EP Context TR Dequeue Pointer).
     pub fn phys_base(&self) -> u64 {
         self.mem.get_phy_addr().as_usize() as u64
     }
