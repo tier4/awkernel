@@ -411,7 +411,16 @@ where
         // [start] pubsub communication latency
         let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
         publish_timestamp_at(index, start, pub_id, node_id);
-        let period = u32::try_from(index).unwrap_or(u32::MAX);
+        let period = match u32::try_from(index) {
+            Ok(period) => period,
+            Err(_) => {
+                log::warn!(
+                    "Period index {} exceeds u32::MAX; saturating period metadata",
+                    index
+                );
+                u32::MAX
+            }
+        };
         let sender = Sender::new(self, data).with_period(period);
         sender.await;
         r#yield().await;
