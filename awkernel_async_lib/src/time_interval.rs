@@ -107,6 +107,7 @@ pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
     #[cfg(feature = "need-get-period")]
     {
         let index = get_period_count(_dag_id.clone() as usize) as usize;
+        // [start] cycle deviation index == 0 (basis of cycle deviation)
         update_pre_send_outer_timestamp_at(
             index,
             start.uptime().as_nanos() as u64,

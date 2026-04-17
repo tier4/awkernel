@@ -60,6 +60,8 @@ use crate::task::perf::publish_timestamp_at;
 pub struct Data<T> {
     pub timestamp: awkernel_lib::time::Time,
     pub data: T,
+    #[cfg(feature = "need-get-period")]
+    pub index: u32,
 }
 
 /// Publisher.
@@ -263,6 +265,8 @@ struct Sender<'a, T: 'static + Send> {
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
     timestamp: awkernel_lib::time::Time,
+    #[cfg(feature = "need-get-period")]
+    index: u32,
 }
 
 enum SenderState {
@@ -279,7 +283,15 @@ impl<'a, T: Send> Sender<'a, T> {
             subscribers: Default::default(),
             state: SenderState::Start,
             timestamp: awkernel_lib::time::Time::now(),
+            #[cfg(feature = "need-get-period")]
+            index: 0,
         }
+    }
+
+    #[cfg(feature = "need-get-period")]
+    pub(super) fn with_period(mut self, index: u32) -> Self {
+        self.index = index;
+        self
     }
 }
 
@@ -312,6 +324,8 @@ where
                             if let Err(data) = guard.push(Data {
                                 timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
+                                #[cfg(feature = "need-get-period")]
+                                index: *this.index,
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
                                 guard.pop();
@@ -345,6 +359,8 @@ where
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
+                            #[cfg(feature = "need-get-period")]
+                            index: *this.index,
                         }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
@@ -384,21 +400,18 @@ impl<T> Publisher<T>
 where
     T: Clone + Sync + Send,
 {
-    pub async fn send_with_meta(&self, data: T, _pub_id: u32, _index: usize, _node_id: u32) {
-        #[cfg(feature = "need-get-period")]
-        {
-            // [start] pubsub communication latency
-            let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-            publish_timestamp_at(_index, start, _pub_id, _node_id);
-        }
-
+    pub async fn send(&self, data: T) {
         let sender = Sender::new(self, data);
         sender.await;
         r#yield().await;
     }
 
-    pub async fn send(&self, data: T) {
-        let sender = Sender::new(self, data);
+    #[cfg(feature = "need-get-period")]
+    pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+        // [start] pubsub communication latency
+        let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+        publish_timestamp_at(index, start, pub_id, node_id);
+        let sender = Sender::new(self, data).with_period(index as u32);
         sender.await;
         r#yield().await;
     }
@@ -772,6 +785,11 @@ pub trait MultipleReceiver {
     type Item;
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+
+    #[cfg(feature = "need-get-period")]
+    fn recv_all_with_period(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {
@@ -860,6 +878,13 @@ macro_rules! impl_async_receiver_for_tuple {
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
                 Box::pin(async move{})
             }
+
+            #[cfg(feature = "need-get-period")]
+            fn recv_all_with_period(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                Box::pin(async move { ((), 0) })
+            }
         }
 
         impl MultipleSender for () {
@@ -869,8 +894,15 @@ macro_rules! impl_async_receiver_for_tuple {
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
+
             #[cfg(feature = "need-get-period")]
-            fn send_all_with_meta(&self, _item: Self::Item, _pub_id: u32, _index: usize, _node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all_with_meta(
+                &self,
+                _item: Self::Item,
+                _pub_id: u32,
+                _index: usize,
+                _node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -883,6 +915,22 @@ macro_rules! impl_async_receiver_for_tuple {
                 let ($($idx,)+) = self;
                 Box::pin(async move {
                     ($($idx.recv().await.data,)+)
+                })
+            }
+
+            #[cfg(feature = "need-get-period")]
+            fn recv_all_with_period(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                let ($($idx,)+) = self;
+                Box::pin(async move {
+                    let mut _period: u32 = 0;
+                    $(
+                        let item = $idx.recv().await;
+                        _period = item.index;
+                        let $idx2 = item.data;
+                    )+
+                    (($($idx2,)+), _period)
                 })
             }
         }
@@ -902,7 +950,13 @@ macro_rules! impl_async_receiver_for_tuple {
             }
 
             #[cfg(feature = "need-get-period")]
-            fn send_all_with_meta(&self, item: Self::Item, pub_id: u32, index: usize, node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            fn send_all_with_meta(
+                &self,
+                item: Self::Item,
+                pub_id: u32,
+                index: usize,
+                node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
                 Box::pin(async move {

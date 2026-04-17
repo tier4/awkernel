@@ -455,6 +455,7 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 #[cfg(feature = "perf")]
 pub mod perf {
     use crate::task::{self};
+    use alloc::boxed::Box;
     use alloc::string::{String, ToString};
     use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
@@ -517,12 +518,17 @@ pub mod perf {
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    use alloc::vec::Vec;
     const MAX_LOGS: usize = 8192;
 
-    static SEND_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
-    static RECV_OUTER_TIMESTAMP: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
-    static ABSOLUTE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
-    static RELATIVE_DEADLINE: Mutex<Option<[[u64; MAX_DAGS]; MAX_LOGS]>> = Mutex::new(None);
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
+        Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
+        Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
+        Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<Box<[[u64; MAX_DAGS]; MAX_LOGS]>>> =
+        Mutex::new(None);
 
     //DAG+1
     const MAX_DAGS: usize = 4;
@@ -531,8 +537,46 @@ pub mod perf {
     //pubsub
     const MAX_PUBSUB: usize = 3;
     const MAX_NODES: usize = 20;
-    static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
-    static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+    #[derive(Clone)]
+    struct PubSubTable {
+        timestamps: [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
+        used_indices: Vec<usize>,
+    }
+
+    impl Default for PubSubTable {
+        fn default() -> Self {
+            Self {
+                timestamps: [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
+                used_indices: Vec::new(),
+            }
+        }
+    }
+
+    impl PubSubTable {
+        #[inline(always)]
+        fn flat_index(index: usize, pub_id: usize, node_id: usize) -> usize {
+            (index * MAX_PUBSUB * MAX_NODES) + (pub_id * MAX_NODES) + node_id
+        }
+
+        #[inline(always)]
+        fn decode_flat_index(flat_index: usize) -> (usize, usize, usize) {
+            let per_log = MAX_PUBSUB * MAX_NODES;
+            let index = flat_index / per_log;
+            let rem = flat_index % per_log;
+            let pub_id = rem / MAX_NODES;
+            let node_id = rem % MAX_NODES;
+            (index, pub_id, node_id)
+        }
+
+        #[inline(always)]
+        fn mark_used(&mut self, index: usize, pub_id: usize, node_id: usize) {
+            self.used_indices
+                .push(Self::flat_index(index, pub_id, node_id));
+        }
+    }
+
+    static PUBLISH: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
+    static SUBSCRIBE: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
 
     pub fn increment_period_count(dag_id: usize) {
         assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
@@ -550,7 +594,7 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = new_timestamp;
@@ -563,7 +607,7 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
         if (dag_id as usize) < recorder[0].len() {
             recorder[index][dag_id as usize] = new_timestamp;
@@ -576,7 +620,7 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
@@ -589,7 +633,7 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[0; MAX_DAGS]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
         if recorder[index][dag_id as usize] == 0 {
             recorder[index][dag_id as usize] = deadline;
@@ -600,13 +644,21 @@ pub mod perf {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
         assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
 
+        let node_id_usize = node_id as usize;
+        if node_id_usize >= MAX_NODES {
+            log::warn!("Publish node ID out of bounds: {} (max {})", node_id_usize, MAX_NODES);
+            return;
+        }
+
         let mut node = MCSNode::new();
         let mut recorder_opt = PUBLISH.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let pub_id = pub_id as usize;
 
-        if recorder[index][pub_id as usize][node_id as usize] == 0 {
-            recorder[index][pub_id as usize][node_id as usize] = new_timestamp;
+        if recorder.timestamps[index][pub_id][node_id_usize] == 0 {
+            recorder.timestamps[index][pub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(index, pub_id, node_id_usize);
         }
     }
 
@@ -614,13 +666,21 @@ pub mod perf {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
         assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
 
+        let node_id_usize = node_id as usize;
+        if node_id_usize >= MAX_NODES {
+            log::warn!("Subscribe node ID out of bounds: {} (max {})", node_id_usize, MAX_NODES);
+            return;
+        }
+
         let mut node = MCSNode::new();
         let mut recorder_opt = SUBSCRIBE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]);
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let sub_id = sub_id as usize;
 
-        if recorder[index][sub_id as usize][node_id as usize] == 0 {
-            recorder[index][sub_id as usize][node_id as usize] = new_timestamp;
+        if recorder.timestamps[index][sub_id][node_id_usize] == 0 {
+            recorder.timestamps[index][sub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(index, sub_id, node_id_usize);
         }
     }
 
@@ -652,10 +712,22 @@ pub mod perf {
 
         for i in 0..MAX_LOGS {
             for j in 1..MAX_DAGS {
-                let pre_send_outer = send_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let fin_recv_outer = recv_outer_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let absolute_deadline = absolute_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
-                let relative_deadline = relative_deadline_opt.as_ref().map_or(0, |arr| arr[i][j]);
+                let pre_send_outer = match &*send_outer_opt {
+                    Some(arr) => arr[i][j],
+                    None => 0,
+                };
+                let fin_recv_outer = match &*recv_outer_opt {
+                    Some(arr) => arr[i][j],
+                    None => 0,
+                };
+                let absolute_deadline = match &*absolute_deadline_opt {
+                    Some(arr) => arr[i][j],
+                    None => 0,
+                };
+                let relative_deadline = match &*relative_deadline_opt {
+                    Some(arr) => arr[i][j],
+                    None => 0,
+                };
 
                 if pre_send_outer != 0
                     || fin_recv_outer != 0
@@ -700,6 +772,16 @@ pub mod perf {
         let publish_opt = PUBLISH.lock(&mut node1);
         let subscribe_opt = SUBSCRIBE.lock(&mut node2);
 
+        let mut indices = Vec::new();
+        if let Some(publish) = publish_opt.as_ref() {
+            indices.extend_from_slice(&publish.used_indices);
+        }
+        if let Some(subscribe) = subscribe_opt.as_ref() {
+            indices.extend_from_slice(&subscribe.used_indices);
+        }
+        indices.sort_unstable();
+        indices.dedup();
+
         log::info!("--- Pub/Sub Timestamp Summary (in nanoseconds) ---");
         log::info!(
             "{: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
@@ -710,31 +792,39 @@ pub mod perf {
             "Subscribe Time"
         );
         log::info!("-----|------------|---------|----------------|----------------");
-        for i in 0..MAX_LOGS {
-            for j in 0..MAX_PUBSUB {
-                for k in 0..MAX_NODES {
-                    let publish_time = publish_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
-                    let subscribe_time = subscribe_opt.as_ref().map_or(0, |arr| arr[i][j][k]);
+        for flat_index in indices {
+            let (i, j, k) = PubSubTable::decode_flat_index(flat_index);
+            // Skip if decoded indices are out of bounds
+            if i >= MAX_LOGS || j >= MAX_PUBSUB || k >= MAX_NODES {
+                log::warn!("Decoded index out of bounds: ({}, {}, {})", i, j, k);
+                continue;
+            }
+            let publish_time = match &*publish_opt {
+                Some(table) => table.timestamps[i][j][k],
+                None => 0,
+            };
+            let subscribe_time = match &*subscribe_opt {
+                Some(table) => table.timestamps[i][j][k],
+                None => 0,
+            };
 
-                    if publish_time != 0 || subscribe_time != 0 {
-                        let format_ts = |ts: u64| -> String {
-                            if ts == 0 {
-                                "-".to_string()
-                            } else {
-                                ts.to_string()
-                            }
-                        };
-
-                        log::info!(
-                            "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
-                            i,
-                            j,
-                            k,
-                            format_ts(publish_time),
-                            format_ts(subscribe_time),
-                        );
+            if publish_time != 0 || subscribe_time != 0 {
+                let format_ts = |ts: u64| -> String {
+                    if ts == 0 {
+                        "-".to_string()
+                    } else {
+                        ts.to_string()
                     }
-                }
+                };
+
+                log::info!(
+                    "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
+                    i,
+                    j,
+                    k,
+                    format_ts(publish_time),
+                    format_ts(subscribe_time),
+                );
             }
         }
         log::info!("--------------------------------------------------------------");
