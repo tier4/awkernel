@@ -29,6 +29,7 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
+#[cfg(feature = "need-get-period")]
 use crate::task::perf::{get_period_count, update_pre_send_outer_timestamp_at};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;

@@ -63,17 +63,18 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    task::{
-        perf::{
-            get_period_count, increment_period_count, increment_pub_count, increment_sink_count,
-            increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
-            update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
-        },
-        DagInfo,
-    },
+    task::DagInfo,
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+
+#[cfg(feature = "need-get-period")]
+use crate::task::perf::{
+    get_period_count, increment_period_count, increment_pub_count, increment_sink_count,
+            increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
+            update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
+};
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -1029,7 +1030,7 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period, dag_info.dag_id as u32);
+        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 

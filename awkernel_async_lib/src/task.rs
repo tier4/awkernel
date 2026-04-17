@@ -471,7 +471,9 @@ pub mod perf {
     use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
-    use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use core::sync::atomic::{Ordering, AtomicU32};
+    #[cfg(feature = "need-get-period")]
+    use core::sync::atomic::AtomicBool;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -559,23 +561,6 @@ pub mod perf {
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
     pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
-
-    pub fn reset_perf_logs() {
-        for i in 0..MAX_PUBSUB {
-            PUB_COUNT[i].store(0, Ordering::Relaxed);
-            SUB_COUNT[i].store(0, Ordering::Relaxed);
-        }
-        for i in 0..MAX_DAGS {
-            PERIOD_COUNT[i].store(0, Ordering::Relaxed);
-            SINK_COUNT[i].store(0, Ordering::Relaxed);
-        }
-        *SEND_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
-        *RECV_OUTER_TIMESTAMP.lock(&mut MCSNode::new()) = None;
-        *ABSOLUTE_DEADLINE.lock(&mut MCSNode::new()) = None;
-        *RELATIVE_DEADLINE.lock(&mut MCSNode::new()) = None;
-        *NODE_START.lock(&mut MCSNode::new()) = None;
-        *NODE_FINISH.lock(&mut MCSNode::new()) = None;
-    }
 
     pub fn increment_pub_count(pub_id: usize) {
         assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");

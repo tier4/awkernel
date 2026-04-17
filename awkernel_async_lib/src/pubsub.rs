@@ -52,6 +52,7 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
+#[cfg(feature = "need-get-period")]
 use crate::task::perf::publish_timestamp_at;
 
 /// Data and timestamp.
