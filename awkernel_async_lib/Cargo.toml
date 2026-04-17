@@ -39,7 +39,7 @@ default-features = false
 features = ["awkernel"]
 
 [features]
-default = ["need-get-period"]
+default = []
 std = ["awkernel_lib/std", "no_preempt"]
 no_preempt = []
 spinlock = ["awkernel_lib/spinlock"]
