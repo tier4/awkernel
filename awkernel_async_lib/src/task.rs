@@ -574,70 +574,103 @@ pub mod perf {
     static PUBLISH: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
     static SUBSCRIBE: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
 
+    #[inline(always)]
+    fn normalize_log_index(index: usize) -> usize {
+        index % MAX_LOGS
+    }
+
+    #[inline(always)]
+    fn dag_index(dag_id: u32) -> Option<usize> {
+        let dag_idx = dag_id as usize;
+        if dag_idx < MAX_DAGS {
+            Some(dag_idx)
+        } else {
+            log::warn!("DAG ID out of bounds: {} (max {})", dag_idx, MAX_DAGS - 1);
+            None
+        }
+    }
+
     pub fn increment_period_count(dag_id: usize) {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+        if dag_id < MAX_DAGS {
+            PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+        } else {
+            log::warn!("DAG ID out of bounds: {} (max {})", dag_id, MAX_DAGS - 1);
+        }
     }
 
     pub fn get_period_count(dag_id: usize) -> u32 {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+        if dag_id < MAX_DAGS {
+            PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+        } else {
+            log::warn!("DAG ID out of bounds: {} (max {})", dag_id, MAX_DAGS - 1);
+            0
+        }
     }
 
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let Some(dag_idx) = dag_index(dag_id) else {
+            return;
+        };
+        let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
 
         let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
-        if recorder[index][dag_id as usize] == 0 {
-            recorder[index][dag_id as usize] = new_timestamp;
+        if recorder[index][dag_idx] == 0 {
+            recorder[index][dag_idx] = new_timestamp;
         }
     }
 
     pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let Some(dag_idx) = dag_index(dag_id) else {
+            return;
+        };
+        let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
 
         let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
-        if (dag_id as usize) < recorder[0].len() {
-            recorder[index][dag_id as usize] = new_timestamp;
-        }
+        recorder[index][dag_idx] = new_timestamp;
     }
 
     pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let Some(dag_idx) = dag_index(dag_id) else {
+            return;
+        };
+        let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
 
         let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
-        if recorder[index][dag_id as usize] == 0 {
-            recorder[index][dag_id as usize] = deadline;
+        if recorder[index][dag_idx] == 0 {
+            recorder[index][dag_idx] = deadline;
         }
     }
 
     pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let Some(dag_idx) = dag_index(dag_id) else {
+            return;
+        };
+        let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
 
         let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
 
-        if recorder[index][dag_id as usize] == 0 {
-            recorder[index][dag_id as usize] = deadline;
+        if recorder[index][dag_idx] == 0 {
+            recorder[index][dag_idx] = deadline;
         }
     }
 
     pub fn publish_timestamp_at(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let index = normalize_log_index(index);
         assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
 
         let node_id_usize = node_id as usize;
@@ -663,7 +696,7 @@ pub mod perf {
     }
 
     pub fn subscribe_timestamp_at(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
-        assert!(index < MAX_LOGS, "Timestamp index out of bounds");
+        let index = normalize_log_index(index);
         assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
 
         let node_id_usize = node_id as usize;
