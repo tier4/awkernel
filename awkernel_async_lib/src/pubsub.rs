@@ -393,14 +393,12 @@ where
 
         let sender = Sender::new(self, data);
         sender.await;
-
         r#yield().await;
     }
 
     pub async fn send(&self, data: T) {
         let sender = Sender::new(self, data);
         sender.await;
-
         r#yield().await;
     }
 }

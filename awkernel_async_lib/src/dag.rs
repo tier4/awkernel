@@ -70,8 +70,7 @@ use crate::{
 
 #[cfg(feature = "need-get-period")]
 use crate::task::perf::{
-    get_period_count, increment_period_count, increment_pub_count, increment_sink_count,
-    increment_sub_count, publish_timestamp_at, subscribe_timestamp_at,
+    publish_timestamp_at, subscribe_timestamp_at,
     update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
 };
 
@@ -976,11 +975,6 @@ where
                 let count_st = get_period(&args);
                 subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
 
-                // period count from message to TaskInfo
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(count_st));
-                }
                 let results = f(args);
                 // [start] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -1038,10 +1032,6 @@ where
             #[cfg(feature = "need-get-period")]
             {
                 let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(index as u32));
-                }
                 if index != 0 {
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     update_pre_send_outer_timestamp_at(
@@ -1057,9 +1047,6 @@ where
                 publishers
                     .send_all_with_meta(results, 0, index, dag_info.node_id)
                     .await;
-
-                increment_period_count(dag_info.dag_id.clone() as usize);
-                increment_pub_count(0);
             }
 
             #[cfg(not(feature = "need-get-period"))]
@@ -1109,20 +1096,11 @@ where
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 let count_st = get_period(&args);
                 subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
-                increment_pub_count(1);
-                increment_sub_count(1);
-                increment_sub_count(2);
 
-                // period count from message to TaskInfo
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                if let Some(task_id) = crate::task::get_current_task(cpu_id) {
-                    crate::task::set_task_period(task_id, Some(count_st));
-                }
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if count_st != 0 {
                     update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
                 }
-                increment_sink_count(dag_info.dag_id.clone() as usize);
             }
 
             f(args);

@@ -158,7 +158,6 @@ pub struct TaskInfo {
     pub(crate) need_preemption: bool,
     panicked: bool,
     pub(crate) dag_info: Option<DagInfo>,
-    pub(crate) current_period: Option<u32>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -226,16 +225,6 @@ impl TaskInfo {
     pub fn get_dag_info(&self) -> Option<DagInfo> {
         self.dag_info.clone()
     }
-
-    #[inline(always)]
-    pub fn set_current_period(&mut self, p: Option<u32>) {
-        self.current_period = p;
-    }
-
-    #[inline(always)]
-    pub fn get_current_period(&self) -> Option<u32> {
-        self.current_period
-    }
 }
 
 /// State of task.
@@ -297,7 +286,6 @@ impl Tasks {
                     need_preemption: false,
                     panicked: false,
                     dag_info,
-                    current_period: None,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -468,10 +456,8 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub mod perf {
     use crate::task::{self};
     use alloc::string::{String, ToString};
-    use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
-    use core::sync::atomic::{AtomicU32, Ordering};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -544,8 +530,6 @@ pub mod perf {
 
     //DAG+1
     const MAX_DAGS: usize = 4;
-    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
-    pub static SINK_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
     const MAX_NODES: usize = 20;
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
@@ -557,48 +541,6 @@ pub mod perf {
     const MAX_PUBSUB: usize = 3;
     static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
-    pub static PUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
-    pub static SUB_COUNT: [AtomicU32; MAX_PUBSUB] = array![_ => AtomicU32::new(0); MAX_PUBSUB];
-
-    pub fn increment_pub_count(pub_id: usize) {
-        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
-        PUB_COUNT[pub_id].fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn increment_sub_count(sub_id: usize) {
-        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
-        SUB_COUNT[sub_id].fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn get_pub_count(pub_id: usize) -> u32 {
-        assert!(pub_id < MAX_PUBSUB, "Pub ID out of bounds");
-        PUB_COUNT[pub_id].load(Ordering::Relaxed)
-    }
-
-    pub fn get_sub_count(sub_id: usize) -> u32 {
-        assert!(sub_id < MAX_PUBSUB, "Sub ID out of bounds");
-        SUB_COUNT[sub_id].load(Ordering::Relaxed)
-    }
-
-    pub fn increment_period_count(dag_id: usize) {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn get_period_count(dag_id: usize) -> u32 {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
-    }
-
-    pub fn increment_sink_count(dag_id: usize) {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        SINK_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn get_sink_count(dag_id: usize) -> u32 {
-        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
-        SINK_COUNT[dag_id].load(Ordering::Relaxed)
-    }
 
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
@@ -653,7 +595,7 @@ pub mod perf {
     }
 
     pub fn node_start(node: NodeRecord, start: u64) {
-        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -670,7 +612,7 @@ pub mod perf {
     }
 
     pub fn node_finish(node: NodeRecord, finish: u64) {
-        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -687,7 +629,7 @@ pub mod perf {
     }
 
     pub fn node_preempt(node: NodeRecord) {
-        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -702,7 +644,7 @@ pub mod perf {
     }
 
     pub fn dag_preempt(node: NodeRecord) {
-        // assert!(index < MAX_LOGS, "Node log index out of bounds");
+        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.dag_id as usize) < MAX_DAGS,
             "DAG ID out of bounds"
@@ -1564,24 +1506,6 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
         let info = task.info.lock(&mut node);
         info.get_scheduler_type()
     })
-}
-
-pub fn set_task_period(task_id: u32, period: Option<u32>) {
-    if let Some(task) = get_task(task_id) {
-        let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
-        info.set_current_period(period);
-    }
-}
-
-pub fn get_task_period(task_id: u32) -> Option<u32> {
-    if let Some(task) = get_task(task_id) {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_current_period()
-    } else {
-        None
-    }
 }
 
 #[inline(always)]
