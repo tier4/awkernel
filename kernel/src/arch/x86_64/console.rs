@@ -36,13 +36,20 @@ pub fn register_console() {
 
 impl Write for Uart {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.port.write_str(s)
+        self.port.write_str(s)?;
+        // Mirror output to a USB CDC-ACM serial adapter if one was enumerated.
+        #[cfg(feature = "usb_serial")]
+        awkernel_drivers::pcie::usb::xhci::xhci_usb_serial_puts(s);
+        Ok(())
     }
 }
 
 unsafe fn unsafe_puts(data: &str) {
     let mut port = unsafe { uart_16550::SerialPort::new(BASE) };
     let _ = port.write_str(data);
+    // Also output to USB CDC-ACM serial if registered (CDC_LOCK prevents recursion).
+    #[cfg(feature = "usb_serial")]
+    awkernel_drivers::pcie::usb::xhci::xhci_usb_serial_puts(data);
 }
 
 impl Console for Uart {

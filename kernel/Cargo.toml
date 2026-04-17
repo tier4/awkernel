@@ -80,6 +80,7 @@ default = ["x86"]
 perf = ["awkernel_async_lib/perf", "userland/perf"]
 no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
+usb_serial = ["awkernel_drivers/xhci"]
 x86 = [
     "perf",
     "no_std_unwinding",
@@ -90,6 +91,7 @@ x86 = [
     "awkernel_drivers/x86",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/uart_16550",
+    "usb_serial",
 ]
 rv32 = [
     "no_std_unwinding",
