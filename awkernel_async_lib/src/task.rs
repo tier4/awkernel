@@ -458,6 +458,8 @@ pub mod perf {
     use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
+    use core::sync::atomic::{AtomicU32, Ordering};
+    use array_macro::array;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -530,6 +532,7 @@ pub mod perf {
 
     //DAG+1
     const MAX_DAGS: usize = 4;
+    pub static PERIOD_COUNT: [AtomicU32; MAX_DAGS] = array![_ => AtomicU32::new(0); MAX_DAGS];
 
     const MAX_NODES: usize = 20;
     static NODE_START: Mutex<Option<[[u64; MAX_NODES]; MAX_LOGS]>> = Mutex::new(None);
@@ -541,6 +544,16 @@ pub mod perf {
     const MAX_PUBSUB: usize = 3;
     static PUBLISH: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
     static SUBSCRIBE: Mutex<Option<[[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]>> = Mutex::new(None);
+
+    pub fn increment_period_count(dag_id: usize) {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_period_count(dag_id: usize) -> u32 {
+        assert!(dag_id < MAX_DAGS, "DAG ID out of bounds");
+        PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
+    }
 
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
         assert!(index < MAX_LOGS, "Timestamp index out of bounds");
@@ -595,7 +608,6 @@ pub mod perf {
     }
 
     pub fn node_start(node: NodeRecord, start: u64) {
-        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -612,7 +624,6 @@ pub mod perf {
     }
 
     pub fn node_finish(node: NodeRecord, finish: u64) {
-        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -629,7 +640,6 @@ pub mod perf {
     }
 
     pub fn node_preempt(node: NodeRecord) {
-        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.node_id as usize) < MAX_NODES,
             "Node ID out of bounds"
@@ -644,7 +654,6 @@ pub mod perf {
     }
 
     pub fn dag_preempt(node: NodeRecord) {
-        assert!(index < MAX_LOGS, "Node log index out of bounds");
         assert!(
             (node.dag_info.dag_id as usize) < MAX_DAGS,
             "DAG ID out of bounds"
