@@ -456,10 +456,10 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 pub mod perf {
     use crate::task::{self};
     use alloc::string::{String, ToString};
+    use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
     use core::sync::atomic::{AtomicU32, Ordering};
-    use array_macro::array;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
