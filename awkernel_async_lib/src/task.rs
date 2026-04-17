@@ -727,27 +727,16 @@ pub mod perf {
         let mut node2 = MCSNode::new();
         let mut node3 = MCSNode::new();
         let mut node4 = MCSNode::new();
+        const MAX_ROWS_TO_PRINT: usize = 256;
 
         let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
         let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
         let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
         let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
 
-        log::info!("--- Timestamp Summary (in nanoseconds) ---");
-        log::info!(
-            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
-            "Index",
-            "DAG-ID",
-            "Send-Outer",
-            "Recv-Outer",
-            "Latency",
-            "Absolute Deadline",
-            "Relative Deadline"
-        );
-
-        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
-
-        for i in 0..MAX_LOGS {
+        let mut rows = Vec::new();
+        let mut truncated = false;
+        'collect_rows: for i in 0..MAX_LOGS {
             for j in 1..MAX_DAGS {
                 let pre_send_outer = match &*send_outer_opt {
                     Some(arr) => arr[i][j],
@@ -771,32 +760,71 @@ pub mod perf {
                     || absolute_deadline != 0
                     || relative_deadline != 0
                 {
-                    let format_ts = |ts: u64| -> String {
-                        if ts == 0 {
-                            "-".to_string()
-                        } else {
-                            ts.to_string()
-                        }
-                    };
-
-                    let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
-                        fin_recv_outer.saturating_sub(pre_send_outer).to_string()
-                    } else {
-                        "-".to_string()
-                    };
-
-                    log::info!(
-                        "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                    if rows.len() >= MAX_ROWS_TO_PRINT {
+                        truncated = true;
+                        break 'collect_rows;
+                    }
+                    rows.push((
                         i,
-                        format_ts(j as u64),
-                        format_ts(pre_send_outer),
-                        format_ts(fin_recv_outer),
-                        latency_str,
-                        format_ts(absolute_deadline),
-                        format_ts(relative_deadline),
-                    );
+                        j,
+                        pre_send_outer,
+                        fin_recv_outer,
+                        absolute_deadline,
+                        relative_deadline,
+                    ));
                 }
             }
+        }
+        drop(relative_deadline_opt);
+        drop(absolute_deadline_opt);
+        drop(recv_outer_opt);
+        drop(send_outer_opt);
+
+        log::info!("--- Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "Index",
+            "DAG-ID",
+            "Send-Outer",
+            "Recv-Outer",
+            "Latency",
+            "Absolute Deadline",
+            "Relative Deadline"
+        );
+
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
+
+        for (i, j, pre_send_outer, fin_recv_outer, absolute_deadline, relative_deadline) in rows {
+            let format_ts = |ts: u64| -> String {
+                if ts == 0 {
+                    "-".to_string()
+                } else {
+                    ts.to_string()
+                }
+            };
+
+            let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
+                fin_recv_outer.saturating_sub(pre_send_outer).to_string()
+            } else {
+                "-".to_string()
+            };
+
+            log::info!(
+                "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                i,
+                format_ts(j as u64),
+                format_ts(pre_send_outer),
+                format_ts(fin_recv_outer),
+                latency_str,
+                format_ts(absolute_deadline),
+                format_ts(relative_deadline),
+            );
+        }
+        if truncated {
+            log::warn!(
+                "Timestamp Summary truncated to {} rows; call print_timestamp_table() again to continue inspection",
+                MAX_ROWS_TO_PRINT
+            );
         }
         log::info!("----------------------------------------------------------");
     }
