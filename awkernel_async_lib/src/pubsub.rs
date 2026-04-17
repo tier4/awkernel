@@ -997,13 +997,25 @@ macro_rules! impl_async_receiver_for_tuple {
             ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
                 let ($($idx,)+) = self;
                 Box::pin(async move {
-                    let mut _period: u32 = 0;
+                    let mut period: Option<u32> = None;
                     $(
                         let item = $idx.recv().await;
-                        _period = item.index;
+                        match period {
+                            Some(expected) => {
+                                assert!(
+                                    expected == item.index,
+                                    "recv_all_with_period received mismatched periods: expected {}, got {}",
+                                    expected,
+                                    item.index
+                                );
+                            }
+                            None => {
+                                period = Some(item.index);
+                            }
+                        }
                         let $idx2 = item.data;
                     )+
-                    (($($idx2,)+), _period)
+                    (($($idx2,)+), period.expect("recv_all_with_period requires at least one subscriber"))
                 })
             }
         }
