@@ -78,6 +78,7 @@ optional = true
 [features]
 default = ["x86"]
 perf = ["awkernel_async_lib/perf", "userland/perf"]
+need-get-period = ["awkernel_async_lib/need-get-period"]
 no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
 x86 = [

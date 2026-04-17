@@ -78,7 +78,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         loop {
             if last_print.elapsed().as_secs() >= 30 {
-                #[cfg(feature = "perf")]
+                #[cfg(feature = "need-get-period")]
                 {
                     awkernel_async_lib::task::perf::print_timestamp_table();
                     // awkernel_async_lib::task::perf::print_pubsub_table();
