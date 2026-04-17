@@ -40,6 +40,7 @@ pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+pub mod usb;
 pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
@@ -1104,6 +1105,18 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        // Class-based detection runs before vendor matching so that USB host
+        // controllers are handled regardless of which silicon vendor made them.
+        #[cfg(feature = "xhci")]
+        if matches!(self.pcie_class, pcie_class::PCIeClass::SerialBusController) {
+            let cls = self.config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
+            let sub_class = ((cls >> 16) & 0xff) as u8;
+            let prog_if = ((cls >> 8) & 0xff) as u8;
+            if sub_class == 0x03 && prog_if == 0x30 {
+                return usb::attach(self);
+            }
+        }
+
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 return intel::attach(self);
