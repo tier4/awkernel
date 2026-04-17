@@ -766,6 +766,12 @@ impl XhciDevice {
                 log::warn!("xHCI: {}: PL2303 setup skipped: {:?}", self.name, e);
             }
         }
+
+        // Diagnostic: immediately write a test string via bulk OUT to confirm the
+        // write path works before CDC_DEV_PTR is registered via the normal log mirror.
+        if self.is_pl2303 || self.is_cdcacm {
+            let _ = self.cdcacm_write(slot, b"\r\n[awkernel USB diag OK]\r\n");
+        }
         Ok(())
     }
 
@@ -867,8 +873,10 @@ impl XhciDevice {
     /// Scan all ports for connected devices and enumerate the first one found.
     /// This is a blocking, synchronous scan intended for single-threaded boot code.
     pub fn boot_enumerate(&mut self) {
-        // Give the controller time to power on ports and generate events (≤20ms USB2).
-        for _ in 0..2_000_000u32 {
+        // Give the controller time to power on ports and generate events.
+        // USB 2.0 spec allows up to 100ms for VBUS stabilization; on fast CPUs
+        // PAUSE ≈ 10 cycles so 30M iterations ≈ 100ms at 3GHz.
+        for _ in 0..30_000_000u32 {
             core::hint::spin_loop();
         }
         self.drain_events();

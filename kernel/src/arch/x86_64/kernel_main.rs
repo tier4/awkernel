@@ -104,12 +104,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     super::console::init_device(); // 2. Initialize the serial port.
 
+    // BAR 0 (red): kernel_main reached, FPU + serial init done.
+    draw_boot_bar(boot_info, 0, 255, 0, 0);
+
     unsafe { unsafe_puts("\r\nThe primary CPU is waking up.\r\n") };
 
     // 3. Initialize virtual memory
 
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
+        // BAR 1 (green): page table mapped OK.
+        draw_boot_bar(boot_info, 1, 0, 255, 0);
         page_table
     } else {
         unsafe { unsafe_puts("Physical memory is not mapped.\r\n") };
@@ -119,6 +124,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 4. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table);
+
+    // BAR 2 (blue): backup heap OK — about to enter kernel_main2.
+    draw_boot_bar(boot_info, 2, 0, 0, 255);
 
     let _ = catch_unwind(|| {
         kernel_main2(
@@ -140,9 +148,23 @@ fn kernel_main2(
     backup_region: MemoryRegion,
     backup_next_frame: Option<PhysFrame>,
 ) {
+    // BAR 3 (yellow): kernel_main2 entered — inside catch_unwind.
+    draw_boot_bar(boot_info, 3, 255, 255, 0);
+
     // 5. Enable logger.
     super::console::register_console();
 
+    // BAR 4 (cyan): register_console returned — about to init framebuffer.
+    draw_boot_bar(boot_info, 4, 0, 255, 255);
+
+    // Early framebuffer init: lets log::info! appear on screen before PCIe/xHCI.
+    if let Some(framebuffer) = boot_info.framebuffer.take() {
+        let info = framebuffer.info();
+        let buffer = framebuffer.into_buffer();
+        unsafe { awkernel_drivers::ic::x86_64::lfb::init(info, buffer) };
+    }
+
+    log::info!("[boot] step 5: logger + framebuffer ready");
     log::info!(
         "Backup heap: start = 0x{:x}, size = {}MiB",
         HEAP_START,
@@ -308,20 +330,6 @@ fn kernel_main2(
 
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
-
-    if let Some(framebuffer) = boot_info.framebuffer.take() {
-        let info = framebuffer.info();
-        let buffer = framebuffer.into_buffer();
-
-        log::info!(
-            "Framebuffer: width = {}, height = {}, pixel_format = {:?}",
-            info.width,
-            info.height,
-            info.pixel_format
-        );
-
-        unsafe { awkernel_drivers::ic::x86_64::lfb::init(info, buffer) };
-    }
 
     BSP_READY.store(true, Ordering::SeqCst);
 
@@ -880,4 +888,34 @@ fn init_dma(
     };
 
     page_allocator
+}
+
+/// Draw a solid 16-pixel-high horizontal bar directly onto the bootloader
+/// framebuffer.  bar_index 0 → rows [0,16), index 1 → [16,32), …
+///
+/// Safe to call before any driver init and before the logger is ready.
+/// No-ops silently if the framebuffer is absent or already consumed.
+fn draw_boot_bar(boot_info: &mut BootInfo, bar_index: usize, r: u8, g: u8, b: u8) {
+    use bootloader_api::info::PixelFormat;
+    let Some(fb) = boot_info.framebuffer.as_mut() else { return };
+    let info = fb.info();
+    let buf  = fb.buffer_mut();
+    const BAR_H: usize = 16;
+    let y0 = bar_index * BAR_H;
+    let y1 = (y0 + BAR_H).min(info.height);
+    for y in y0..y1 {
+        for x in 0..info.width {
+            // stride is in pixels (bootloader_api spec)
+            let off = (y * info.stride + x) * info.bytes_per_pixel;
+            if off + 3 > buf.len() { break; }
+            match info.pixel_format {
+                PixelFormat::Rgb => { buf[off]=r; buf[off+1]=g; buf[off+2]=b; }
+                PixelFormat::Bgr => { buf[off]=b; buf[off+1]=g; buf[off+2]=r; }
+                _ => {
+                    let luma = ((r as u16 + g as u16 + b as u16) / 3) as u8;
+                    buf[off] = luma;
+                }
+            }
+        }
+    }
 }
