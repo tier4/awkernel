@@ -154,17 +154,9 @@ fn kernel_main2(
     // 5. Enable logger.
     super::console::register_console();
 
-    // BAR 4 (cyan): register_console returned — about to init framebuffer.
+    // BAR 4 (cyan): register_console returned — logger ready.
     draw_boot_bar(boot_info, 4, 0, 255, 255);
 
-    // Early framebuffer init: lets log::info! appear on screen before PCIe/xHCI.
-    if let Some(framebuffer) = boot_info.framebuffer.take() {
-        let info = framebuffer.info();
-        let buffer = framebuffer.into_buffer();
-        unsafe { awkernel_drivers::ic::x86_64::lfb::init(info, buffer) };
-    }
-
-    log::info!("[boot] step 5: logger + framebuffer ready");
     log::info!(
         "Backup heap: start = 0x{:x}, size = {}MiB",
         HEAP_START,
@@ -180,12 +172,18 @@ fn kernel_main2(
 
     log::info!("Physical memory offset: 0x{offset:x}");
 
+    // BAR 5 (orange): physical memory offset obtained.
+    draw_boot_bar(boot_info, 5, 255, 128, 0);
+
     // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
+        // BAR 6a (light blue): create_acpi returned Some — ACPI OK.
+        draw_boot_bar(boot_info, 6, 0, 128, 255);
         acpi
     } else {
-        log::error!("Failed to initialize ACPI.");
+        // BAR 6b (dark red): create_acpi returned None — ACPI failed.
+        draw_boot_bar(boot_info, 6, 160, 0, 0);
         wait_forever();
     };
 
@@ -201,6 +199,9 @@ fn kernel_main2(
         page_allocators.insert(*numa_id, page_allocator);
     }
 
+    // BAR 9 (lime): NUMA + DMA init done.
+    draw_boot_bar(boot_info, 9, 128, 255, 0);
+
     for (cpu, numa) in cpu_to_numa.iter() {
         log::info!("CPU/NUMA: {cpu}/{numa}");
     }
@@ -210,6 +211,9 @@ fn kernel_main2(
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
+
+    // BAR 10 (sky): map_stack done.
+    draw_boot_bar(boot_info, 10, 0, 200, 200);
 
     unsafe { set_raw_cpu_id_to_numa(cpu_to_numa) };
 
@@ -223,20 +227,30 @@ fn kernel_main2(
             wait_forever();
         }
 
+        // BAR 11 (pink): awkernel_lib init done.
+        draw_boot_bar(boot_info, 11, 255, 100, 180);
+
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(
             &mut awkernel_page_table,
             page_allocator0,
         );
 
+        // BAR 12 (gold): APIC init done.
+        draw_boot_bar(boot_info, 12, 255, 200, 0);
+
         // 12. Map a page for `mpboot.img`.
         let mpboot_start = map_mpboot_page(boot_info, &mut awkernel_page_table, page_allocator0);
 
         (type_apic, mpboot_start)
     } else {
-        log::error!("No page allocator for NUMA #0.");
+        // BAR 9b (dark): no page allocator for NUMA #0.
+        draw_boot_bar(boot_info, 9, 80, 0, 0);
         awkernel_lib::delay::wait_forever();
     };
+
+    // BAR 7 (magenta): ACPI + APIC + stack init done — about to wake non-primary CPUs.
+    draw_boot_bar(boot_info, 7, 255, 0, 255);
 
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset, mpboot_start);
@@ -321,6 +335,9 @@ fn kernel_main2(
 
     // 15. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
+
+    // BAR 8 (white): all CPUs ready — about to init PCIe/xHCI.
+    draw_boot_bar(boot_info, 8, 255, 255, 255);
 
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
