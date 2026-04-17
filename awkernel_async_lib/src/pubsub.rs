@@ -427,6 +427,73 @@ where
     }
 }
 
+#[cfg(all(test, feature = "need-get-period"))]
+mod need_get_period_tests {
+    use super::*;
+    use core::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    };
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn wake(_: *const ()) {}
+            fn wake_by_ref(_: *const ()) {}
+            fn drop(_: *const ()) {}
+
+            RawWaker::new(
+                core::ptr::null(),
+                &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
+            )
+        }
+
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut future = Box::pin(future);
+
+        loop {
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(&mut future).poll(&mut context) {
+                Poll::Ready(output) => return output,
+                Poll::Pending => {}
+            }
+        }
+    }
+
+    #[test]
+    fn send_with_meta_propagates_period_to_receiver() {
+        block_on(async {
+            let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
+            publisher.send_with_meta(42, 1, 7, 99).await;
+
+            let (value, period) = subscriber.recv_with_period().await;
+            assert_eq!(value, 42);
+            assert_eq!(period, 7);
+        });
+    }
+
+    #[test]
+    fn tuple_recv_all_with_period_preserves_each_period() {
+        block_on(async {
+            let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
+            let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
+
+            publisher1.send_with_meta(10, 11, 3, 21).await;
+            publisher2.send_with_meta(20, 12, 5, 22).await;
+
+            let ((value1, period1), (value2, period2)) =
+                (subscriber1, subscriber2).recv_all_with_period().await;
+
+            assert_eq!(value1, 10);
+            assert_eq!(period1, 3);
+            assert_eq!(value2, 20);
+            assert_eq!(period2, 5);
+        });
+    }
+}
 /// Create an anonymous publisher and an anonymous subscriber.
 /// This channel works as a channel of multiple producers and multiple consumers.
 ///
