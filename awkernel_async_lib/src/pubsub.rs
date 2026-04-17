@@ -777,8 +777,10 @@ pub trait MultipleReceiver {
 pub trait MultipleSender {
     type Item;
 
+    #[cfg(not(feature = "need-get-period"))]
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 
+    #[cfg(feature = "need-get-period")]
     fn send_all_with_meta(
         &self,
         item: Self::Item,
@@ -863,9 +865,11 @@ macro_rules! impl_async_receiver_for_tuple {
         impl MultipleSender for () {
             type Item = ();
 
+            #[cfg(not(feature = "need-get-period"))]
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
+            #[cfg(feature = "need-get-period")]
             fn send_all_with_meta(&self, _item: Self::Item, _pub_id: u32, _index: usize, _node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
@@ -886,6 +890,7 @@ macro_rules! impl_async_receiver_for_tuple {
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
             type Item = ($($T,)+);
 
+            #[cfg(not(feature = "need-get-period"))]
             fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
@@ -896,6 +901,7 @@ macro_rules! impl_async_receiver_for_tuple {
                 })
             }
 
+            #[cfg(feature = "need-get-period")]
             fn send_all_with_meta(&self, item: Self::Item, pub_id: u32, index: usize, node_id: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;

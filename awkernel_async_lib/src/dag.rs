@@ -133,17 +133,18 @@ impl_tuple_traits!(0 => T1);
 impl_tuple_traits!(1 => T1, T2);
 impl_tuple_traits!(2 => T1, T2, T3);
 
+#[cfg(not(feature = "need-get-period"))]
+pub trait DagSubscriberItem: TupleSize + Send {}
+
+#[cfg(not(feature = "need-get-period"))]
+impl<T> DagSubscriberItem for T where T: TupleSize + Send {}
+
 #[cfg(feature = "need-get-period")]
 pub trait DagSubscriberItem: TupleSize + GetPeriod + Send {}
 
 #[cfg(feature = "need-get-period")]
 impl<T> DagSubscriberItem for T where T: TupleSize + GetPeriod + Send {}
 
-#[cfg(not(feature = "need-get-period"))]
-pub trait DagSubscriberItem: TupleSize + Send {}
-
-#[cfg(not(feature = "need-get-period"))]
-impl<T> DagSubscriberItem for T where T: TupleSize + Send {}
 #[cfg(feature = "need-get-period")]
 pub fn get_period<T: GetPeriod>(args: &T) -> u32 {
     args.get_period()
