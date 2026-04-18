@@ -251,11 +251,12 @@ impl Igc {
         Ok(igc)
     }
 
-    fn intr(&self, _irq: Option<u16>) -> Result<(), IgcDriverErr> {
+    fn intr(&self, irq: Option<u16>) -> Result<(), IgcDriverErr> {
         // TODO: Handle Tx/Rx interrupts.
 
         let mut inner = self.inner.read();
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
+        let should_poll_link = irq.is_none() && (igc_icr & igc_defines::IGC_ICR_LSC) == 0;
 
         if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
             // Link status change interrupt.
@@ -263,6 +264,13 @@ impl Igc {
             {
                 let mut inner = self.inner.write();
                 inner.igc_intr_link()?;
+            }
+            inner = self.inner.read();
+        } else if should_poll_link {
+            drop(inner);
+            {
+                let mut inner = self.inner.write();
+                inner.igc_poll_link()?;
             }
             inner = self.inner.read();
         }
@@ -802,6 +810,12 @@ impl IgcInner {
         )
     }
 
+    #[inline(always)]
+    fn igc_poll_link(&mut self) -> Result<(), IgcDriverErr> {
+        self.hw.mac.get_link_status = true;
+        self.igc_intr_link()
+    }
+
     fn igc_iff(&mut self) -> Result<(), IgcDriverErr> {
         use igc_regs::*;
 
@@ -1154,6 +1168,8 @@ fn igc_update_link_status(
     hw: &mut IgcHw,
     link_info: &mut LinkInfo,
 ) -> Result<(), IgcDriverErr> {
+    let previous_status = link_info.link_status;
+
     if hw.mac.get_link_status {
         ops.check_for_link(info, hw)?;
     }
@@ -1164,6 +1180,7 @@ fn igc_update_link_status(
             link_info.link_speed = Some(speed);
             link_info.link_duplex = Some(duplex);
             link_info.link_active = true;
+            log::debug!("igc: link up: speed={speed:?}, duplex={duplex:?}");
         }
 
         if link_info.link_duplex == Some(IgcDuplex::Full) {
@@ -1176,9 +1193,14 @@ fn igc_update_link_status(
             link_info.link_speed = None;
             link_info.link_duplex = None;
             link_info.link_active = false;
+            log::debug!("igc: link down");
         }
         LinkStatus::Down
     };
+
+    if previous_status != link_info.link_status {
+        log::info!("igc: link status changed: {}", link_info.link_status);
+    }
 
     Ok(())
 }
