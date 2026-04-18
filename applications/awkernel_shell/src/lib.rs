@@ -48,6 +48,8 @@ async fn console_handler() -> TaskResult {
         Box::new(TaskFfi),
         Box::new(InterruptFfi),
         Box::new(IfconfigFfi),
+        Box::new(RebootFfi),
+        Box::new(ShutdownFfi),
     ];
 
     #[cfg(feature = "perf")]
@@ -166,6 +168,12 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
+
+(export reboot () (IO (-> () []))
+    (reboot_ffi))
+
+(export shutdown () (IO (-> () []))
+    (shutdown_ffi))
 ";
 
 const PERF_CODE: &str = "(export perf () (IO (-> () []))
@@ -184,6 +192,8 @@ fn help_ffi() {
     lines.push_str("(task)      ; print tasks\r\n");
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
+    lines.push_str("(reboot)    ; reboot x86_64 systems\r\n");
+    lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
 
     #[cfg(feature = "perf")]
     lines.push_str("(perf)      ; print performance information\r\n");
@@ -234,6 +244,32 @@ fn ifconfig_ffi() {
     for netif in ifs.iter() {
         let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);
+    }
+}
+
+#[embedded]
+fn reboot_ffi() {
+    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
+    {
+        awkernel_lib::arch::x86_64::power::reboot();
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
+    {
+        console::print("reboot is unsupported on this architecture\r\n");
+    }
+}
+
+#[embedded]
+fn shutdown_ffi() {
+    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
+    {
+        awkernel_lib::arch::x86_64::power::shutdown();
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
+    {
+        console::print("shutdown is unsupported on this architecture\r\n");
     }
 }
 

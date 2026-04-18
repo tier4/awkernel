@@ -14,6 +14,7 @@ pub mod msr;
 pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
+pub mod power;
 
 pub struct X86;
 
@@ -24,6 +25,10 @@ pub fn init(
     page_table: &mut page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
 ) -> Result<(), &'static str> {
+    if let Err(err) = power::init(acpi) {
+        log::warn!("Failed to initialize x86 power control. {err}");
+    }
+
     // Initialize timer.
     delay::init(acpi, page_table, page_allocator)
 }
