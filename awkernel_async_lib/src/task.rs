@@ -457,10 +457,9 @@ pub mod perf {
     use crate::task::{self};
     use alloc::boxed::Box;
     use alloc::string::{String, ToString};
-    use array_macro::array;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use core::sync::atomic::AtomicU32;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -597,93 +596,57 @@ pub mod perf {
         index % MAX_LOGS
     }
 
-    #[inline(always)]
-    fn dag_index(dag_id: u32) -> Option<usize> {
-        let dag_idx = dag_id as usize;
-        if dag_idx < MAX_DAGS {
-            Some(dag_idx)
-        } else {
-            log::warn!("DAG ID out of bounds: {} (max {})", dag_idx, MAX_DAGS - 1);
-            None
-        }
-    }
-
-    pub fn increment_period_count(dag_id: usize) {
-        if dag_id < MAX_DAGS {
-            PERIOD_COUNT[dag_id].fetch_add(1, Ordering::Relaxed);
-        } else {
-            log::warn!("DAG ID out of bounds: {} (max {})", dag_id, MAX_DAGS - 1);
-        }
-    }
-
-    pub fn get_period_count(dag_id: usize) -> u32 {
-        if dag_id < MAX_DAGS {
-            PERIOD_COUNT[dag_id].load(Ordering::Relaxed)
-        } else {
-            log::warn!("DAG ID out of bounds: {} (max {})", dag_id, MAX_DAGS - 1);
-            0
-        }
-    }
-
     pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        let Some(dag_idx) = dag_index(dag_id) else {
-            return;
-        };
         let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index][dag_idx] == 0 {
-            recorder[index][dag_idx] = new_timestamp;
+        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[index].insert(dag_id, new_timestamp);
         }
     }
 
     pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        let Some(dag_idx) = dag_index(dag_id) else {
-            return;
-        };
         let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        recorder[index][dag_idx] = new_timestamp;
+        recorder[index].insert(dag_id, new_timestamp);
     }
 
     pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        let Some(dag_idx) = dag_index(dag_id) else {
-            return;
-        };
         let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index][dag_idx] == 0 {
-            recorder[index][dag_idx] = deadline;
+        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[index].insert(dag_id, deadline);
         }
     }
 
     pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        let Some(dag_idx) = dag_index(dag_id) else {
-            return;
-        };
         let index = normalize_log_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new([[0; MAX_DAGS]; MAX_LOGS]));
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index][dag_idx] == 0 {
-            recorder[index][dag_idx] = deadline;
+        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[index].insert(dag_id, deadline);
         }
     }
 
@@ -755,21 +718,38 @@ pub mod perf {
         let mut rows = Vec::new();
         let mut truncated = false;
         'collect_rows: for i in 0..MAX_LOGS {
-            for j in 1..MAX_DAGS {
+            let mut dag_ids = Vec::new();
+            if let Some(arr) = &*send_outer_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*recv_outer_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*absolute_deadline_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*relative_deadline_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+
+            dag_ids.sort_unstable();
+            dag_ids.dedup();
+
+            for dag_id in dag_ids {
                 let pre_send_outer = match &*send_outer_opt {
-                    Some(arr) => arr[i][j],
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
                     None => 0,
                 };
                 let fin_recv_outer = match &*recv_outer_opt {
-                    Some(arr) => arr[i][j],
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
                     None => 0,
                 };
                 let absolute_deadline = match &*absolute_deadline_opt {
-                    Some(arr) => arr[i][j],
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
                     None => 0,
                 };
                 let relative_deadline = match &*relative_deadline_opt {
-                    Some(arr) => arr[i][j],
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
                     None => 0,
                 };
 
@@ -784,7 +764,7 @@ pub mod perf {
                     }
                     rows.push((
                         i,
-                        j,
+                        dag_id,
                         pre_send_outer,
                         fin_recv_outer,
                         absolute_deadline,
@@ -812,7 +792,9 @@ pub mod perf {
 
         log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
 
-        for (i, j, pre_send_outer, fin_recv_outer, absolute_deadline, relative_deadline) in rows {
+        for (i, dag_id, pre_send_outer, fin_recv_outer, absolute_deadline, relative_deadline) in
+            rows
+        {
             let format_ts = |ts: u64| -> String {
                 if ts == 0 {
                     "-".to_string()
@@ -830,7 +812,7 @@ pub mod perf {
             log::info!(
                 "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
                 i,
-                format_ts(j as u64),
+                format_ts(dag_id as u64),
                 format_ts(pre_send_outer),
                 format_ts(fin_recv_outer),
                 latency_str,
