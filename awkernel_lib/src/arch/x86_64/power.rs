@@ -1,6 +1,7 @@
 use super::acpi::AcpiMapper;
 use crate::{
     delay,
+    interrupt,
     mmio::{ReadOnlyOffset, WriteOnlyOffset},
     sync::mutex::{MCSNode, Mutex},
 };
@@ -14,7 +15,7 @@ use aml::{
     value::{AmlValue, Args},
     AmlContext, AmlName, DebugVerbosity, Handler,
 };
-use core::{ptr, slice};
+use core::{convert::TryFrom, ptr, slice};
 use x86_64::{
     instructions::{
         hlt,
@@ -29,6 +30,7 @@ const SLP_EN: u16 = 1 << 13;
 const SLP_TYP_MASK: u64 = 0x7 << SLP_TYP_SHIFT;
 
 static POWER_CONTROL: Mutex<PowerControlState> = Mutex::new(PowerControlState::Uninitialized);
+static PCI_CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy)]
 enum PowerControlState {
@@ -56,6 +58,7 @@ struct AcpiRegister {
     address: u64,
 }
 
+/// Initialize x86_64 power control after `delay::init` has completed.
 pub fn init(acpi: &AcpiTables<AcpiMapper>) -> Result<(), &'static str> {
     let mut node = MCSNode::new();
     let mut state = POWER_CONTROL.lock(&mut node);
@@ -77,7 +80,10 @@ pub fn init(acpi: &AcpiTables<AcpiMapper>) -> Result<(), &'static str> {
     }
 }
 
+/// Enter ACPI S5 and fall back to the QEMU/Bochs shutdown ports if needed.
 pub fn shutdown() -> ! {
+    interrupt::disable();
+
     let control = match current_power_control() {
         Ok(control) => control,
         Err(err) => {
@@ -105,8 +111,15 @@ pub fn shutdown() -> ! {
     wait_for_power_transition();
 }
 
+/// Reboot via the ACPI reset register and then fall back to legacy reset ports.
 pub fn reboot() -> ! {
+    interrupt::disable();
+
     if let Ok(control) = current_power_control() {
+        if let Err(err) = enable_acpi(&control) {
+            log::warn!("Failed to enable ACPI mode before reboot. {err}");
+        }
+
         if let Some(reset_reg) = control.reset_reg {
             if let Err(err) = write_register(reset_reg, control.reset_value as u64) {
                 log::warn!("ACPI reset register reboot failed. {err}");
@@ -146,11 +159,19 @@ fn init_power_control(acpi: &AcpiTables<AcpiMapper>) -> Result<PowerControl, &'s
         .transpose()?;
 
     let (slp_typa, slp_typb) = parse_s5_sleep_types(acpi, fadt.handler().clone())?;
+    let smi_cmd_port = if fadt.smi_cmd_port == 0 {
+        None
+    } else {
+        Some(
+            u16::try_from(fadt.smi_cmd_port)
+                .map_err(|_| "SMI command port exceeds 16-bit port range.")?,
+        )
+    };
 
     Ok(PowerControl {
         reset_reg,
         reset_value: fadt.reset_value,
-        smi_cmd_port: (fadt.smi_cmd_port != 0).then_some(fadt.smi_cmd_port as u16),
+        smi_cmd_port,
         acpi_enable: fadt.acpi_enable,
         pm1a_control,
         pm1b_control,
@@ -495,6 +516,7 @@ impl Handler for AmlHandler {
     }
 
     fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16 {
+        let offset = offset & !1;
         (read_pci_config(segment, bus, device, function, offset & !3)
             >> (((offset & 2) * 8) as u32)) as u16
     }
@@ -524,6 +546,7 @@ impl Handler for AmlHandler {
         offset: u16,
         value: u16,
     ) {
+        let offset = offset & !1;
         write_pci_partial(segment, bus, device, function, offset, value as u32, 0xFFFF);
     }
 
@@ -549,37 +572,11 @@ impl Handler for AmlHandler {
 }
 
 fn read_pci_config(segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32 {
-    if segment != 0 {
-        return 0;
-    }
-
-    let address = 0x8000_0000u32
-        | ((bus as u32) << 16)
-        | ((device as u32) << 11)
-        | ((function as u32) << 8)
-        | ((offset as u32) & 0xFC);
-
-    unsafe {
-        PortWriteOnly::<u32>::new(0xCF8).write(address);
-        PortReadOnly::<u32>::new(0xCFC).read()
-    }
+    with_pci_config_lock(|| read_pci_config_raw(segment, bus, device, function, offset))
 }
 
 fn write_pci_config(segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32) {
-    if segment != 0 {
-        return;
-    }
-
-    let address = 0x8000_0000u32
-        | ((bus as u32) << 16)
-        | ((device as u32) << 11)
-        | ((function as u32) << 8)
-        | ((offset as u32) & 0xFC);
-
-    unsafe {
-        PortWriteOnly::<u32>::new(0xCF8).write(address);
-        PortWriteOnly::<u32>::new(0xCFC).write(value);
-    }
+    with_pci_config_lock(|| write_pci_config_raw(segment, bus, device, function, offset, value));
 }
 
 fn write_pci_partial(
@@ -591,9 +588,51 @@ fn write_pci_partial(
     value: u32,
     mask: u32,
 ) {
-    let aligned = offset & !3;
-    let shift = ((offset & 3) * 8) as u32;
-    let current = read_pci_config(segment, bus, device, function, aligned);
-    let value = (current & !(mask << shift)) | ((value & mask) << shift);
-    write_pci_config(segment, bus, device, function, aligned, value);
+    with_pci_config_lock(|| {
+        let aligned = offset & !3;
+        let shift = ((offset & 3) * 8) as u32;
+        let current = read_pci_config_raw(segment, bus, device, function, aligned);
+        let value = (current & !(mask << shift)) | ((value & mask) << shift);
+        write_pci_config_raw(segment, bus, device, function, aligned, value);
+    });
+}
+
+fn with_pci_config_lock<T>(f: impl FnOnce() -> T) -> T {
+    let mut node = MCSNode::new();
+    let _guard = PCI_CONFIG_LOCK.lock(&mut node);
+    f()
+}
+
+fn read_pci_config_raw(segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32 {
+    if segment != 0 {
+        return 0;
+    }
+
+    let address = pci_config_address(bus, device, function, offset);
+
+    unsafe {
+        PortWriteOnly::<u32>::new(0xCF8).write(address);
+        PortReadOnly::<u32>::new(0xCFC).read()
+    }
+}
+
+fn write_pci_config_raw(segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32) {
+    if segment != 0 {
+        return;
+    }
+
+    let address = pci_config_address(bus, device, function, offset);
+
+    unsafe {
+        PortWriteOnly::<u32>::new(0xCF8).write(address);
+        PortWriteOnly::<u32>::new(0xCFC).write(value);
+    }
+}
+
+fn pci_config_address(bus: u8, device: u8, function: u8, offset: u16) -> u32 {
+    0x8000_0000u32
+        | ((bus as u32) << 16)
+        | ((device as u32) << 11)
+        | ((function as u32) << 8)
+        | ((offset as u32) & 0xFC)
 }
