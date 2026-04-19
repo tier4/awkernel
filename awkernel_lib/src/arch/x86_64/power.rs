@@ -24,7 +24,7 @@ use x86_64::{
 };
 
 const SCI_EN: u64 = 1 << 0;
-const SLP_TYP_SHIFT: u16 = 10;
+const SLP_TYP_SHIFT: u32 = 10;
 const SLP_EN: u16 = 1 << 13;
 const SLP_TYP_MASK: u64 = 0x7 << SLP_TYP_SHIFT;
 
@@ -59,8 +59,10 @@ struct AcpiRegister {
 pub fn init(acpi: &AcpiTables<AcpiMapper>) -> Result<(), &'static str> {
     let mut node = MCSNode::new();
     let mut state = POWER_CONTROL.lock(&mut node);
-    if !matches!(*state, PowerControlState::Uninitialized) {
-        return Ok(());
+    match *state {
+        PowerControlState::Uninitialized => {}
+        PowerControlState::Ready(_) => return Ok(()),
+        PowerControlState::Failed(err) => return Err(err),
     }
 
     match init_power_control(acpi) {
@@ -341,11 +343,16 @@ fn parse_aml_table(
 ) -> Result<(), &'static str> {
     let mapping =
         unsafe { handler.map_physical_region::<u8>(table.address, table.length as usize) };
-    let data =
-        unsafe { slice::from_raw_parts(mapping.virtual_start().as_ptr(), mapping.region_length()) };
-    context
-        .parse_table(data)
-        .map_err(|_| "Failed to parse AML table.")
+    let result = {
+        let data = unsafe {
+            slice::from_raw_parts(mapping.virtual_start().as_ptr(), mapping.region_length())
+        };
+        context
+            .parse_table(data)
+            .map_err(|_| "Failed to parse AML table.")
+    };
+    AcpiMapper::unmap_physical_region(&mapping);
+    result
 }
 
 fn parse_sleep_types(value: &AmlValue, context: &AmlContext) -> Result<(u16, u16), &'static str> {

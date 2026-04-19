@@ -25,10 +25,13 @@ pub fn init(
     page_table: &mut page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
 ) -> Result<(), &'static str> {
+    // Initialize timer before AML-driven power initialization can invoke
+    // delay-backed Stall/Sleep handlers.
+    delay::init(acpi, page_table, page_allocator)?;
+
     if let Err(err) = power::init(acpi) {
         log::warn!("Failed to initialize x86 power control. {err}");
     }
 
-    // Initialize timer.
-    delay::init(acpi, page_table, page_allocator)
+    Ok(())
 }
