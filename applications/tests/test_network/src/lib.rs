@@ -11,17 +11,13 @@ use awkernel_async_lib::net::{
     IpAddr,
 };
 
-const INTERFACE_ID: u64 = 0;
+const INTERFACE_ID: u64 = 1;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
-
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 22);
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
-
-// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1);
 
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
@@ -35,13 +31,6 @@ pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
-        "test udp".into(),
-        udp_test(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
-
-    awkernel_async_lib::spawn(
         "test tcp listen".into(),
         tcp_listen_test(),
         awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
@@ -49,22 +38,8 @@ pub async fn run() {
     .await;
 
     awkernel_async_lib::spawn(
-        "test tcp connect".into(),
-        tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
-
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast recv".into(),
-        ipv4_multicast_recv_test(),
-        awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
-
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast send".into(),
-        ipv4_multicast_send_test(),
+        "test udp recv".into(),
+        udp_recv_test(),
         awkernel_async_lib::scheduler::SchedulerType::PrioritizedFIFO(0),
     )
     .await;
@@ -209,6 +184,7 @@ async fn tcp_listen_test() {
     };
 
     loop {
+        log::debug!("tcp_listen_test: waiting on accept().await");
         let Ok(tcp_stream) = tcp_listener.accept().await else {
             log::error!("Failed to accept TCP connection.");
             continue;
@@ -228,7 +204,9 @@ async fn tcp_listen_test() {
 async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) {
     let mut buf = [0u8; 1024 * 2];
 
+    log::debug!("bogus_http_server: waiting on recv().await");
     let n = stream.recv(&mut buf).await.unwrap();
+    log::debug!("bogus_http_server: recv().await resumed with {n} bytes");
 
     let request = core::str::from_utf8(&buf[..n]).unwrap();
     log::debug!("Received HTTP request: {request}");
@@ -239,6 +217,30 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
     let response = format!("HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: {len}\r\n\r\n");
     stream.send(response.as_bytes()).await.unwrap();
     stream.send(MSG.as_bytes()).await.unwrap();
+}
+
+async fn udp_recv_test() {
+    let config = UdpConfig {
+        addr: IpAddr::new_v4(INTERFACE_ADDR),
+        port: Some(UDP_DST_PORT),
+        ..Default::default()
+    };
+
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, &config)
+        .unwrap();
+
+    let mut buf = [0u8; 2048];
+
+    loop {
+        log::debug!("udp_recv_test: waiting on recv().await");
+        let (n, addr, port) = socket.recv(&mut buf).await.unwrap();
+        log::debug!(
+            "udp_recv_test: recv().await resumed from {}:{} with {} bytes",
+            addr.get_addr(),
+            port,
+            n
+        );
+    }
 }
 
 async fn udp_test() {
