@@ -202,7 +202,7 @@ debug-x86_64:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S
 
-qemu-x86_64_nographic:
+qemu-x86_64-nographic:
 	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -nographic
 
@@ -278,4 +278,3 @@ clean: FORCE
 
 monitor : FORCE
 	telnet localhost $(QEMUPORT)
-

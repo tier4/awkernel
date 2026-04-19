@@ -1,6 +1,7 @@
 use super::acpi::AcpiMapper;
 use crate::{
     delay,
+    mmio::{ReadOnlyOffset, WriteOnlyOffset},
     sync::mutex::{MCSNode, Mutex},
 };
 use acpi::{
@@ -25,6 +26,7 @@ use x86_64::{
 const SCI_EN: u64 = 1 << 0;
 const SLP_TYP_SHIFT: u16 = 10;
 const SLP_EN: u16 = 1 << 13;
+const SLP_TYP_MASK: u64 = 0x7 << SLP_TYP_SHIFT;
 
 static POWER_CONTROL: Mutex<PowerControlState> = Mutex::new(PowerControlState::Uninitialized);
 
@@ -78,7 +80,7 @@ pub fn shutdown() -> ! {
         Ok(control) => control,
         Err(err) => {
             log::error!("Shutdown is unavailable. {err}");
-            wait_for_power_transition();
+            qemu_shutdown_fallback();
         }
     };
 
@@ -86,21 +88,19 @@ pub fn shutdown() -> ! {
         log::warn!("Failed to enable ACPI mode before shutdown. {err}");
     }
 
-    let value_a = SLP_EN | (control.slp_typa << SLP_TYP_SHIFT);
-    if let Err(err) = write_register(control.pm1a_control, value_a as u64) {
+    if let Err(err) = write_sleep_control(control.pm1a_control, control.slp_typa) {
         log::error!("Failed to write PM1a control block. {err}");
         qemu_shutdown_fallback();
     }
 
     if let Some(pm1b) = control.pm1b_control {
-        let value_b = SLP_EN | (control.slp_typb << SLP_TYP_SHIFT);
-        if let Err(err) = write_register(pm1b, value_b as u64) {
+        if let Err(err) = write_sleep_control(pm1b, control.slp_typb) {
             log::error!("Failed to write PM1b control block. {err}");
             qemu_shutdown_fallback();
         }
     }
 
-    qemu_shutdown_fallback();
+    wait_for_power_transition();
 }
 
 pub fn reboot() -> ! {
@@ -177,8 +177,19 @@ fn convert_register(
     }
 
     let address = match register.address_space {
-        AddressSpace::SystemIo => register.address,
+        AddressSpace::SystemIo => {
+            if register.address > u16::MAX as u64 {
+                return Err("System I/O register address exceeds 16-bit port range.");
+            }
+            if !matches!(width_bytes, 1 | 2 | 4) {
+                return Err("Unsupported I/O register width.");
+            }
+            register.address
+        }
         AddressSpace::SystemMemory => {
+            if !matches!(width_bytes, 1 | 2 | 4 | 8) {
+                return Err("Unsupported memory register width.");
+            }
             let virt = VirtAddr::new(physical_memory_offset as u64) + register.address;
             virt.as_u64()
         }
@@ -218,15 +229,13 @@ fn read_register(register: AcpiRegister) -> Result<u64, &'static str> {
                 _ => return Err("Unsupported I/O register width."),
             })
         },
-        AddressSpace::SystemMemory => unsafe {
-            Ok(match register.width_bytes {
-                1 => ptr::read_volatile(register.address as *const u8) as u64,
-                2 => ptr::read_volatile(register.address as *const u16) as u64,
-                4 => ptr::read_volatile(register.address as *const u32) as u64,
-                8 => ptr::read_volatile(register.address as *const u64),
-                _ => return Err("Unsupported memory register width."),
-            })
-        },
+        AddressSpace::SystemMemory => Ok(match register.width_bytes {
+            1 => ReadOnlyOffset::<0, u8>::new().read(register.address as usize) as u64,
+            2 => ReadOnlyOffset::<0, u16>::new().read(register.address as usize) as u64,
+            4 => ReadOnlyOffset::<0, u32>::new().read(register.address as usize) as u64,
+            8 => ReadOnlyOffset::<0, u64>::new().read(register.address as usize),
+            _ => return Err("Unsupported memory register width."),
+        }),
         _ => Err("Unsupported ACPI register address space."),
     }
 }
@@ -241,19 +250,26 @@ fn write_register(register: AcpiRegister, value: u64) -> Result<(), &'static str
                 _ => return Err("Unsupported I/O register width."),
             }
         },
-        AddressSpace::SystemMemory => unsafe {
-            match register.width_bytes {
-                1 => ptr::write_volatile(register.address as *mut u8, value as u8),
-                2 => ptr::write_volatile(register.address as *mut u16, value as u16),
-                4 => ptr::write_volatile(register.address as *mut u32, value as u32),
-                8 => ptr::write_volatile(register.address as *mut u64, value),
-                _ => return Err("Unsupported memory register width."),
-            }
+        AddressSpace::SystemMemory => match register.width_bytes {
+            1 => WriteOnlyOffset::<0, u8>::new().write(value as u8, register.address as usize),
+            2 => WriteOnlyOffset::<0, u16>::new().write(value as u16, register.address as usize),
+            4 => WriteOnlyOffset::<0, u32>::new().write(value as u32, register.address as usize),
+            8 => WriteOnlyOffset::<0, u64>::new().write(value, register.address as usize),
+            _ => return Err("Unsupported memory register width."),
         },
         _ => return Err("Unsupported ACPI register address space."),
     }
 
     Ok(())
+}
+
+fn write_sleep_control(register: AcpiRegister, slp_typ: u16) -> Result<(), &'static str> {
+    let current = read_register(register)?;
+    let sleep_type = ((slp_typ as u64) << SLP_TYP_SHIFT) & SLP_TYP_MASK;
+    let prepared = (current & !(SLP_TYP_MASK | SLP_EN as u64)) | sleep_type;
+
+    write_register(register, prepared)?;
+    write_register(register, prepared | SLP_EN as u64)
 }
 
 fn enable_acpi(control: &PowerControl) -> Result<(), &'static str> {
@@ -288,7 +304,7 @@ fn parse_s5_sleep_types(
     acpi: &AcpiTables<AcpiMapper>,
     handler: AcpiMapper,
 ) -> Result<(u16, u16), &'static str> {
-    let mut context = AmlContext::new(Box::new(AmlHandler), DebugVerbosity::None);
+    let mut context = AmlContext::new(Box::new(AmlHandler::new(handler.clone())), DebugVerbosity::None);
 
     parse_aml_table(
         &mut context,
@@ -377,39 +393,66 @@ fn wait_for_power_transition() -> ! {
     }
 }
 
-struct AmlHandler;
+struct AmlHandler {
+    mapper: AcpiMapper,
+}
+
+impl AmlHandler {
+    fn new(mapper: AcpiMapper) -> Self {
+        Self { mapper }
+    }
+
+    fn read_system_memory<T: Copy>(&self, address: usize) -> T {
+        let mapping = unsafe {
+            self.mapper
+                .map_physical_region::<T>(address, core::mem::size_of::<T>())
+        };
+        let value = ReadOnlyOffset::<0, T>::new().read(mapping.virtual_start().as_ptr() as usize);
+        AcpiMapper::unmap_physical_region(&mapping);
+        value
+    }
+
+    fn write_system_memory<T: Copy>(&mut self, address: usize, value: T) {
+        let mapping = unsafe {
+            self.mapper
+                .map_physical_region::<T>(address, core::mem::size_of::<T>())
+        };
+        WriteOnlyOffset::<0, T>::new().write(value, mapping.virtual_start().as_ptr() as usize);
+        AcpiMapper::unmap_physical_region(&mapping);
+    }
+}
 
 impl Handler for AmlHandler {
     fn read_u8(&self, address: usize) -> u8 {
-        unsafe { ptr::read_volatile(address as *const u8) }
+        self.read_system_memory(address)
     }
 
     fn read_u16(&self, address: usize) -> u16 {
-        unsafe { ptr::read_volatile(address as *const u16) }
+        self.read_system_memory(address)
     }
 
     fn read_u32(&self, address: usize) -> u32 {
-        unsafe { ptr::read_volatile(address as *const u32) }
+        self.read_system_memory(address)
     }
 
     fn read_u64(&self, address: usize) -> u64 {
-        unsafe { ptr::read_volatile(address as *const u64) }
+        self.read_system_memory(address)
     }
 
     fn write_u8(&mut self, address: usize, value: u8) {
-        unsafe { ptr::write_volatile(address as *mut u8, value) }
+        self.write_system_memory(address, value)
     }
 
     fn write_u16(&mut self, address: usize, value: u16) {
-        unsafe { ptr::write_volatile(address as *mut u16, value) }
+        self.write_system_memory(address, value)
     }
 
     fn write_u32(&mut self, address: usize, value: u32) {
-        unsafe { ptr::write_volatile(address as *mut u32, value) }
+        self.write_system_memory(address, value)
     }
 
     fn write_u64(&mut self, address: usize, value: u64) {
-        unsafe { ptr::write_volatile(address as *mut u64, value) }
+        self.write_system_memory(address, value)
     }
 
     fn read_io_u8(&self, port: u16) -> u8 {
