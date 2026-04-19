@@ -1,7 +1,6 @@
 use super::acpi::AcpiMapper;
 use crate::{
-    delay,
-    interrupt,
+    delay, interrupt,
     mmio::{ReadOnlyOffset, WriteOnlyOffset},
     sync::mutex::{MCSNode, Mutex},
 };
