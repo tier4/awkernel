@@ -304,7 +304,10 @@ fn parse_s5_sleep_types(
     acpi: &AcpiTables<AcpiMapper>,
     handler: AcpiMapper,
 ) -> Result<(u16, u16), &'static str> {
-    let mut context = AmlContext::new(Box::new(AmlHandler::new(handler.clone())), DebugVerbosity::None);
+    let mut context = AmlContext::new(
+        Box::new(AmlHandler::new(handler.clone())),
+        DebugVerbosity::None,
+    );
 
     parse_aml_table(
         &mut context,
