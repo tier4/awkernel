@@ -268,8 +268,7 @@ mod tests {
     fn parse_rejects_invalid_tsc_prefix() {
         let parser = TamagawaImuParser::new("imu_link");
         let mut data = [0u8; 58];
-        data[0..5].copy_from_slice(b"@TSC,");
-        data[5..9].copy_from_slice(b"BIN,");
+        data[0..9].copy_from_slice(b"@TSC,BIN,");
 
         assert!(parser.parse_binary_data(&data, 1).is_none());
     }
