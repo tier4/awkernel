@@ -55,10 +55,10 @@ impl Default for ImuMsg {
                 timestamp: 0,
             },
             orientation: Quaternion {
-                x: 1.0,
+                x: 0.0,
                 y: 0.0,
                 z: 0.0,
-                w: 0.0,
+                w: 1.0,
             },
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             linear_acceleration: Vector3::new(0.0, 0.0, 0.0),
