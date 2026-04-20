@@ -481,8 +481,8 @@ mod need_get_period_tests {
             let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
             let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
 
-            publisher1.send_with_meta(10, 11, 3, 21).await;
-            publisher2.send_with_meta(20, 12, 5, 22).await;
+            publisher1.send_with_meta(10, 1, 3, 21).await;
+            publisher2.send_with_meta(20, 2, 5, 22).await;
 
             let ((value1, period1), (value2, period2)) =
                 (subscriber1, subscriber2).recv_all_with_period().await;
