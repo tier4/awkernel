@@ -1155,6 +1155,9 @@ pub mod perf {
                     // Normal task-specific handling
                     update_time_and_state(PerfState::ContextSwitchMain);
                 }
+            } else {
+                // Fallback handling if the current task ID cannot be resolved
+                update_time_and_state(PerfState::ContextSwitchMain);
             }
         } else {
             // Default handling if no task is running
