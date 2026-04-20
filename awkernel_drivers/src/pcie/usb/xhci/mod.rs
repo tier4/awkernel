@@ -37,9 +37,52 @@ static CDC_SLOT:    AtomicU8    = AtomicU8::new(0);
 /// CDC write), skip rather than deadlock.
 static CDC_LOCK:    AtomicBool  = AtomicBool::new(false);
 
+/// Incremented each time start_controller() succeeds.
+static XHCI_STARTED: AtomicUsize = AtomicUsize::new(0);
+/// Incremented for every port with CCS=1 seen across all boot_enumerate() calls.
+static XHCI_CCS_SEEN: AtomicUsize = AtomicUsize::new(0);
+/// Incremented when enumerate_port() returns Ok (device was addressed + described).
+static XHCI_ENUM_OK: AtomicUsize = AtomicUsize::new(0);
+/// Set when try_setup_pl2303() sees VID:PID 067b:23xx (PL2303 chip identified).
+static XHCI_PL2303_VID_SEEN: AtomicBool = AtomicBool::new(false);
+/// Incremented when port reset (PRC polling) succeeds.
+static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
+/// Incremented when Enable Slot command completes with code=1.
+static XHCI_SLOT_ENABLED: AtomicUsize = AtomicUsize::new(0);
+
 /// Returns true if a CDC-ACM or PL2303 device was found and registered.
 pub fn is_cdc_registered() -> bool {
     CDC_DEV_PTR.load(Ordering::Acquire) != 0
+}
+
+/// Returns true if at least one xHCI controller successfully started.
+pub fn xhci_any_started() -> bool {
+    XHCI_STARTED.load(Ordering::Relaxed) > 0
+}
+
+/// Returns true if at least one USB device (CCS=1) was seen during enumeration.
+pub fn xhci_any_device_seen() -> bool {
+    XHCI_CCS_SEEN.load(Ordering::Relaxed) > 0
+}
+
+/// Returns true if at least one port reset completed (PRC=1 seen).
+pub fn xhci_any_port_reset_ok() -> bool {
+    XHCI_PORT_RESET_OK.load(Ordering::Relaxed) > 0
+}
+
+/// Returns true if at least one Enable Slot command completed successfully.
+pub fn xhci_any_slot_enabled() -> bool {
+    XHCI_SLOT_ENABLED.load(Ordering::Relaxed) > 0
+}
+
+/// Returns true if at least one device was fully addressed (enumerate_port returned Ok).
+pub fn xhci_any_enum_ok() -> bool {
+    XHCI_ENUM_OK.load(Ordering::Relaxed) > 0
+}
+
+/// Returns true if PL2303 VID:PID (067b:23xx) was matched during setup.
+pub fn xhci_pl2303_vid_seen() -> bool {
+    XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed)
 }
 
 /// Write `data` to the CDC-ACM USB serial adapter if one has been configured.
@@ -230,6 +273,7 @@ pub(super) fn attach(
     }
 
     dev.start_controller(interrupt_ready)?;
+    XHCI_STARTED.fetch_add(1, Ordering::Relaxed);
 
     // Synchronous boot-time enumeration: find and address any device already connected.
     dev.boot_enumerate();
@@ -890,6 +934,8 @@ impl XhciDevice {
             }
         }
 
+        XHCI_CCS_SEEN.fetch_add(ccs_ports.len(), Ordering::Relaxed);
+
         if ccs_ports.is_empty() {
             log::info!("xHCI: {}: no device found at boot", self.name);
             return;
@@ -908,6 +954,7 @@ impl XhciDevice {
                 log::error!("xHCI: {}: port {} reset timeout", self.name, port);
                 continue;
             }
+            XHCI_PORT_RESET_OK.fetch_add(1, Ordering::Relaxed);
             let portsc = self.read_portsc(port);
             self.write_portsc(port, portsc & !(regs::port::PED | regs::port::CHANGE_BITS));
             self.drain_events();
@@ -925,6 +972,7 @@ impl XhciDevice {
                 log::error!("xHCI: {}: Enable Slot failed (code={}) on port {}", self.name, code, port);
                 continue;
             }
+            XHCI_SLOT_ENABLED.fetch_add(1, Ordering::Relaxed);
             log::info!("xHCI: {}: slot {} assigned for port {}", self.name, slot, port);
 
             if let Err(e) = self.enumerate_port(port, slot) {
@@ -932,6 +980,7 @@ impl XhciDevice {
                 self.abandon_dev_state();
                 continue;
             }
+            XHCI_ENUM_OK.fetch_add(1, Ordering::Relaxed);
 
             if self.is_pl2303 || self.is_cdcacm {
                 return; // Found our serial adapter — done.
@@ -1241,6 +1290,7 @@ impl XhciDevice {
         if !pl2303::is_pl2303(self.dev_vid, self.dev_pid) {
             return Ok(());
         }
+        XHCI_PL2303_VID_SEEN.store(true, Ordering::Relaxed);
 
         log::info!(
             "xHCI: {}: slot {} — PL2303 detected VID={:#06x} PID={:#06x} bcdDevice={:#06x}",

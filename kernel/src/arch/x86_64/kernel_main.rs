@@ -355,6 +355,36 @@ fn kernel_main2(
         draw_boot_bar(boot_info, 16, 160, 0, 0);   // dark red
     }
 
+    // BAR 17: bright yellow = at least 1 xHCI controller started.
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_started() {
+        draw_boot_bar(boot_info, 17, 255, 255, 0);
+    }
+
+    // BAR 18: bright cyan = at least 1 USB device (CCS=1) seen.
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_device_seen() {
+        draw_boot_bar(boot_info, 18, 0, 255, 255);
+    }
+
+    // BAR 19 (pink): enumerate_port returned Ok for at least one device.
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_enum_ok() {
+        draw_boot_bar(boot_info, 19, 255, 100, 180);
+    }
+
+    // BAR 20 (gold): PL2303 VID:PID (067b:23xx) was matched.
+    if awkernel_drivers::pcie::usb::xhci::xhci_pl2303_vid_seen() {
+        draw_boot_bar(boot_info, 20, 255, 200, 0);
+    }
+
+    // BAR 21 (teal): at least one port reset completed (PRC=1).
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_port_reset_ok() {
+        draw_boot_bar(boot_info, 21, 0, 180, 180);
+    }
+
+    // BAR 22 (orange): at least one Enable Slot completed successfully.
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_slot_enabled() {
+        draw_boot_bar(boot_info, 22, 255, 140, 0);
+    }
+
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 
