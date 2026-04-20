@@ -14,7 +14,18 @@
 
 #![no_std]
 
-use imu_driver::{Header, Vector3};
+#[derive(Debug, Clone)]
+pub struct Header {
+    pub frame_id: &'static str,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Vector3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
 
 #[derive(Debug, Clone)]
 pub struct VelocityReport {
@@ -194,94 +205,96 @@ pub mod reactor_helpers {
 mod tests {
     use super::*;
 
+    fn assert_approx_eq(actual: f64, expected: f64, eps: f64) {
+        assert!((actual - expected).abs() <= eps, "left: {actual}, right: {expected}");
+    }
+
     #[test]
-    fn test_vehicle_velocity_converter_creation() {
-        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
+    fn node_instantiation() {
+        let converter = VehicleVelocityConverter::from_params_array(
+            Some(0.2),
+            Some(0.1),
+            Some(1.0),
+            "base_link",
+        );
 
         assert_eq!(converter.get_frame_id(), "base_link");
-        assert_eq!(converter.get_stddev_vx(), 0.1);
+        assert_eq!(converter.get_stddev_vx(), 0.2);
         assert_eq!(converter.get_stddev_wz(), 0.1);
         assert_eq!(converter.get_speed_scale_factor(), 1.0);
     }
 
     #[test]
-    fn test_vehicle_velocity_converter_default() {
-        let converter = VehicleVelocityConverter::default();
-        assert_eq!(converter.get_frame_id(), "base_link");
-        assert_eq!(converter.get_stddev_vx(), 0.1);
-        assert_eq!(converter.get_stddev_wz(), 0.1);
-        assert_eq!(converter.get_speed_scale_factor(), 1.0);
-    }
-
-    #[test]
-    fn test_convert_velocity_report_success() {
-        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
-
+    fn message_conversion() {
+        let converter = VehicleVelocityConverter::from_params_array(
+            Some(0.2),
+            Some(0.1),
+            Some(1.5),
+            "base_link",
+        );
         let velocity_report = VelocityReport {
             header: Header {
                 frame_id: "base_link",
                 timestamp: 1234567890,
             },
-            longitudinal_velocity: 10.0,
-            lateral_velocity: 2.0,
-            heading_rate: 0.5,
+            longitudinal_velocity: 2.0,
+            lateral_velocity: 0.1,
+            heading_rate: 0.3,
         };
 
-        let result = converter.convert_velocity_report(&velocity_report);
-        assert!(result.is_ok());
+        let twist_msg = converter.convert_velocity_report(&velocity_report);
 
-        let twist_msg = result.unwrap();
-        assert_eq!(twist_msg.twist.twist.linear.x, 10.0);
-        assert_eq!(twist_msg.twist.twist.linear.y, 2.0);
-        assert_eq!(twist_msg.twist.twist.angular.z, 0.5);
-        assert_eq!(twist_msg.twist.covariance[0], 0.01);
-        assert_eq!(twist_msg.twist.covariance[35], 0.01);
+        assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
+        assert_eq!(twist_msg.twist.twist.linear.x, velocity_report.longitudinal_velocity * 1.5);
+        assert_eq!(twist_msg.twist.twist.linear.y, velocity_report.lateral_velocity);
+        assert_eq!(twist_msg.twist.twist.angular.z, velocity_report.heading_rate);
+        assert_approx_eq(twist_msg.twist.covariance[0], 0.2 * 0.2, 1e-12);
+        assert_eq!(twist_msg.twist.covariance[7], 10000.0);
+        assert_eq!(twist_msg.twist.covariance[14], 10000.0);
+        assert_eq!(twist_msg.twist.covariance[21], 10000.0);
+        assert_eq!(twist_msg.twist.covariance[28], 10000.0);
+        assert_approx_eq(twist_msg.twist.covariance[35], 0.1 * 0.1, 1e-12);
     }
 
     #[test]
-    fn test_convert_velocity_report_wrong_frame_id() {
-        let converter = VehicleVelocityConverter::new("base_link", 0.1, 0.1, 1.0);
-
-        let velocity_report = VelocityReport {
-            header: Header {
-                frame_id: "wrong_frame",
-                timestamp: 1234567890,
-            },
-            longitudinal_velocity: 10.0,
-            lateral_velocity: 2.0,
-            heading_rate: 0.5,
-        };
-
-        let result = converter.convert_velocity_report(&velocity_report);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "frame_id mismatch");
-    }
-
-    #[test]
-    fn test_from_params_array() {
+    fn different_frame_id() {
         let converter = VehicleVelocityConverter::from_params_array(
             Some(0.2),
-            Some(0.3),
-            Some(1.5),
+            Some(0.1),
+            Some(1.0),
             "base_link",
         );
 
-        assert_eq!(converter.get_stddev_vx(), 0.2);
-        assert_eq!(converter.get_stddev_wz(), 0.3);
-        assert_eq!(converter.get_speed_scale_factor(), 1.5);
+        let velocity_report = VelocityReport {
+            header: Header {
+                frame_id: "different_frame",
+                timestamp: 1234567890,
+            },
+            longitudinal_velocity: 2.0,
+            lateral_velocity: 0.1,
+            heading_rate: 0.3,
+        };
+
+        let twist_msg = converter.convert_velocity_report(&velocity_report);
+
+        // As in the original C++ test, conversion still succeeds even with a different frame_id.
+        assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
+        assert_eq!(twist_msg.twist.twist.linear.x, velocity_report.longitudinal_velocity);
+        assert_eq!(twist_msg.twist.twist.linear.y, velocity_report.lateral_velocity);
+        assert_eq!(twist_msg.twist.twist.angular.z, velocity_report.heading_rate);
     }
 
     #[test]
-    fn test_from_params_array_with_defaults() {
+    fn from_params_array_with_defaults() {
         let converter = VehicleVelocityConverter::from_params_array(None, None, None, "base_link");
 
-        assert_eq!(converter.get_stddev_vx(), 0.1);
+        assert_eq!(converter.get_stddev_vx(), 0.2);
         assert_eq!(converter.get_stddev_wz(), 0.1);
         assert_eq!(converter.get_speed_scale_factor(), 1.0);
     }
 
     #[test]
-    fn test_reactor_helpers() {
+    fn reactor_helpers() {
         let empty_twist = reactor_helpers::create_empty_twist(1234567890);
         assert_eq!(empty_twist.header.frame_id, "base_link");
         assert_eq!(empty_twist.twist.twist.linear.x, 0.0);
