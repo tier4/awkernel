@@ -105,7 +105,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::console::init_device(); // 2. Initialize the serial port.
 
     // BAR 0 (gray): kernel_main reached. Bars 0–15 are all gray = early init OK.
-    draw_boot_bar(boot_info, 0, 100, 100, 100);
+    // draw_boot_bar(boot_info, 0, 100, 100, 100);
 
     unsafe { unsafe_puts("\r\nThe primary CPU is waking up.\r\n") };
 
@@ -114,7 +114,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         // BAR 1 (green): page table mapped OK.
-        draw_boot_bar(boot_info, 1, 100, 100, 100);
+        // draw_boot_bar(boot_info, 1, 100, 100, 100);
         page_table
     } else {
         unsafe { unsafe_puts("Physical memory is not mapped.\r\n") };
@@ -126,7 +126,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         init_backup_heap(boot_info, &mut page_table);
 
     // BAR 2 (blue): backup heap OK — about to enter kernel_main2.
-    draw_boot_bar(boot_info, 2, 100, 100, 100);
+    // draw_boot_bar(boot_info, 2, 100, 100, 100);
 
     let _ = catch_unwind(|| {
         kernel_main2(
@@ -149,13 +149,13 @@ fn kernel_main2(
     backup_next_frame: Option<PhysFrame>,
 ) {
     // BAR 3 (yellow): kernel_main2 entered — inside catch_unwind.
-    draw_boot_bar(boot_info, 3, 100, 100, 100);
+    // draw_boot_bar(boot_info, 3, 100, 100, 100);
 
     // 5. Enable logger.
     super::console::register_console();
 
     // BAR 4 (cyan): register_console returned — logger ready.
-    draw_boot_bar(boot_info, 4, 100, 100, 100);
+    // draw_boot_bar(boot_info, 4, 100, 100, 100);
 
     log::info!(
         "Backup heap: start = 0x{:x}, size = {}MiB",
@@ -173,17 +173,17 @@ fn kernel_main2(
     log::info!("Physical memory offset: 0x{offset:x}");
 
     // BAR 5 (orange): physical memory offset obtained.
-    draw_boot_bar(boot_info, 5, 100, 100, 100);
+    // draw_boot_bar(boot_info, 5, 100, 100, 100);
 
     // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         // BAR 6a (light blue): create_acpi returned Some — ACPI OK.
-        draw_boot_bar(boot_info, 6, 100, 100, 100);
+        // draw_boot_bar(boot_info, 6, 100, 100, 100);
         acpi
     } else {
         // BAR 6b (dark red): create_acpi returned None — ACPI failed.
-        draw_boot_bar(boot_info, 6, 100, 100, 100);
+        // draw_boot_bar(boot_info, 6, 100, 100, 100);
         wait_forever();
     };
 
@@ -200,7 +200,7 @@ fn kernel_main2(
     }
 
     // BAR 9 (lime): NUMA + DMA init done.
-    draw_boot_bar(boot_info, 9, 100, 100, 100);
+    // draw_boot_bar(boot_info, 9, 100, 100, 100);
 
     for (cpu, numa) in cpu_to_numa.iter() {
         log::info!("CPU/NUMA: {cpu}/{numa}");
@@ -213,7 +213,7 @@ fn kernel_main2(
     }
 
     // BAR 10 (sky): map_stack done.
-    draw_boot_bar(boot_info, 10, 100, 100, 100);
+    // draw_boot_bar(boot_info, 10, 100, 100, 100);
 
     unsafe { set_raw_cpu_id_to_numa(cpu_to_numa) };
 
@@ -228,7 +228,7 @@ fn kernel_main2(
         }
 
         // BAR 11 (pink): awkernel_lib init done.
-        draw_boot_bar(boot_info, 11, 100, 100, 100);
+        // draw_boot_bar(boot_info, 11, 100, 100, 100);
 
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(
@@ -237,7 +237,7 @@ fn kernel_main2(
         );
 
         // BAR 12 (gold): APIC init done.
-        draw_boot_bar(boot_info, 12, 100, 100, 100);
+        // draw_boot_bar(boot_info, 12, 100, 100, 100);
 
         // 12. Map a page for `mpboot.img`.
         let mpboot_start = map_mpboot_page(boot_info, &mut awkernel_page_table, page_allocator0);
@@ -245,12 +245,12 @@ fn kernel_main2(
         (type_apic, mpboot_start)
     } else {
         // BAR 9b (dark): no page allocator for NUMA #0.
-        draw_boot_bar(boot_info, 9, 100, 100, 100);
+        // draw_boot_bar(boot_info, 9, 100, 100, 100);
         awkernel_lib::delay::wait_forever();
     };
 
     // BAR 7 (magenta): ACPI + APIC + stack init done — about to wake non-primary CPUs.
-    draw_boot_bar(boot_info, 7, 100, 100, 100);
+    // draw_boot_bar(boot_info, 7, 100, 100, 100);
 
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset, mpboot_start);
@@ -337,7 +337,7 @@ fn kernel_main2(
     init_primary_heap(&mut page_table, &mut page_allocators);
 
     // BAR 8 (white): all CPUs ready — about to init PCIe/xHCI.
-    draw_boot_bar(boot_info, 8, 100, 100, 100);
+    draw_boot_bar(boot_info, 1, 100, 100, 100);
 
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
@@ -346,7 +346,7 @@ fn kernel_main2(
     }
 
     // BAR 13 (lime): PCIe/xHCI init returned.
-    draw_boot_bar(boot_info, 13, 100, 100, 100);
+    // draw_boot_bar(boot_info, 13, 100, 100, 100);
 
     // BAR 16: bright green = PL2303/CDC found; dark red = not found.
     if awkernel_drivers::pcie::usb::xhci::is_cdc_registered() {
@@ -398,6 +398,20 @@ fn kernel_main2(
     // BAR 30: green = BUS_MASTER confirmed set after enable_bus_master()
     if awkernel_drivers::pcie::usb::xhci::xhci_bus_master_ok() {
         draw_boot_bar(boot_info, 30, 0, 180, 60);
+    }
+
+    // BARs 31-35: PL2303 setup sub-steps (only relevant when bar 20 is gold).
+    // 31=got_config_desc  32=got_bulk_eps  33=set_configuration  34=configure_ep  35=init_seq
+    {
+        use awkernel_drivers::pcie::usb::xhci::{
+            xhci_pl2303_got_cfg, xhci_pl2303_got_eps, xhci_pl2303_set_cfg,
+            xhci_pl2303_cfg_eps, xhci_pl2303_init_seq,
+        };
+        if xhci_pl2303_got_cfg()  { draw_boot_bar(boot_info, 31, 100, 150, 255); } // steel-blue
+        if xhci_pl2303_got_eps()  { draw_boot_bar(boot_info, 32, 0,   220,  80); } // spring-green
+        if xhci_pl2303_set_cfg()  { draw_boot_bar(boot_info, 33, 160,  0,  200); } // purple
+        if xhci_pl2303_cfg_eps()  { draw_boot_bar(boot_info, 34, 255, 100,  60); } // coral
+        if xhci_pl2303_init_seq() { draw_boot_bar(boot_info, 35, 180, 255,   0); } // yellow-green
     }
 
     // BARs 24-29: USBSTS bits captured at first command timeout (drawn only when bits are set).

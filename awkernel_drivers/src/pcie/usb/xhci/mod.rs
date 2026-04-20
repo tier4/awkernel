@@ -44,7 +44,17 @@ static XHCI_CCS_SEEN: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when enumerate_port() returns Ok (device was addressed + described).
 static XHCI_ENUM_OK: AtomicUsize = AtomicUsize::new(0);
 /// Set when try_setup_pl2303() sees VID:PID 067b:23xx (PL2303 chip identified).
-static XHCI_PL2303_VID_SEEN: AtomicBool = AtomicBool::new(false);
+static XHCI_PL2303_VID_SEEN:  AtomicBool = AtomicBool::new(false);
+/// Set after get_config_descriptor() succeeds inside try_setup_pl2303().
+static XHCI_PL2303_GOT_CFG:   AtomicBool = AtomicBool::new(false);
+/// Set after find_bulk_endpoints() finds IN+OUT pair inside try_setup_pl2303().
+static XHCI_PL2303_GOT_EPS:   AtomicBool = AtomicBool::new(false);
+/// Set after set_configuration() succeeds inside try_setup_pl2303().
+static XHCI_PL2303_SET_CFG:   AtomicBool = AtomicBool::new(false);
+/// Set after configure_bulk_endpoints() (CONFIGURE_EP) succeeds.
+static XHCI_PL2303_CFG_EPS:   AtomicBool = AtomicBool::new(false);
+/// Set after pl2303_init_seq() completes successfully.
+static XHCI_PL2303_INIT_SEQ:  AtomicBool = AtomicBool::new(false);
 /// Incremented when port reset (PRC polling) succeeds.
 static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when Enable Slot command completes with code=1.
@@ -87,9 +97,12 @@ pub fn xhci_any_enum_ok() -> bool {
 }
 
 /// Returns true if PL2303 VID:PID (067b:23xx) was matched during setup.
-pub fn xhci_pl2303_vid_seen() -> bool {
-    XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed)
-}
+pub fn xhci_pl2303_vid_seen() -> bool { XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_got_cfg()  -> bool { XHCI_PL2303_GOT_CFG.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_got_eps()  -> bool { XHCI_PL2303_GOT_EPS.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_set_cfg()  -> bool { XHCI_PL2303_SET_CFG.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_cfg_eps()  -> bool { XHCI_PL2303_CFG_EPS.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_init_seq() -> bool { XHCI_PL2303_INIT_SEQ.load(Ordering::Relaxed) }
 
 /// 0 = not attempted, 1 = success, 2 = fail/timeout
 pub fn xhci_noop_result() -> u32 {
@@ -1439,6 +1452,8 @@ impl XhciDevice {
 
         // Walk the configuration descriptor for bulk endpoints.
         let (cfg, cfg_len) = self.get_config_descriptor(slot)?;
+        XHCI_PL2303_GOT_CFG.store(true, Ordering::Relaxed);
+
         let mut info = match pl2303::find_bulk_endpoints(&cfg, cfg_len) {
             Some(i) => i,
             None => {
@@ -1446,6 +1461,7 @@ impl XhciDevice {
                 return Err(PCIeDeviceErr::InitFailure);
             }
         };
+        XHCI_PL2303_GOT_EPS.store(true, Ordering::Relaxed);
 
         // Determine chip type from cached device descriptor fields.
         let mut chip_type = pl2303::detect_chip_type(
@@ -1468,12 +1484,16 @@ impl XhciDevice {
         );
 
         self.set_configuration(slot, info.config_val)?;
+        XHCI_PL2303_SET_CFG.store(true, Ordering::Relaxed);
+
         self.configure_bulk_endpoints(
             slot, info.bulk_in_addr, info.bulk_out_addr, info.max_pkt,
         )?;
+        XHCI_PL2303_CFG_EPS.store(true, Ordering::Relaxed);
 
         // Phase B: chip initialization sequence.
         self.pl2303_init_seq(slot, chip_type, info.data_iface_no)?;
+        XHCI_PL2303_INIT_SEQ.store(true, Ordering::Relaxed);
 
         // SET_LINE_CODING (115200 8N1) — same CDC class request as CDC-ACM,
         // but wIndex = data_iface_no (PL2303 uses the data interface for class requests).
