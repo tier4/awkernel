@@ -1001,21 +1001,21 @@ where
         loop {
             #[cfg(feature = "need-get-period")]
             {
-                let index = get_period_count(dag_info.dag_id.clone() as usize) as usize;
+                let index = get_period_count(dag_info.dag_id) as usize;
                 if index != 0 {
                     // [start] cycle deviation index >= 1
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                     update_pre_send_outer_timestamp_at(
                         index,
                         release_time,
-                        dag_info.dag_id.clone(),
+                        dag_info.dag_id,
                     );
                 }
                 let results = f();
                 publishers
                     .send_all_with_meta(results, 0, index, dag_info.node_id)
                     .await;
-                increment_period_count(dag_info.dag_id.clone() as usize);
+                increment_period_count(dag_info.dag_id);
             }
 
             #[cfg(not(feature = "need-get-period"))]
