@@ -37,6 +37,11 @@ static CDC_SLOT:    AtomicU8    = AtomicU8::new(0);
 /// CDC write), skip rather than deadlock.
 static CDC_LOCK:    AtomicBool  = AtomicBool::new(false);
 
+/// Returns true if a CDC-ACM or PL2303 device was found and registered.
+pub fn is_cdc_registered() -> bool {
+    CDC_DEV_PTR.load(Ordering::Acquire) != 0
+}
+
 /// Write `data` to the CDC-ACM USB serial adapter if one has been configured.
 /// No-ops when CDC-ACM is unavailable; never blocks more than a USB bulk timeout.
 /// Skips silently on reentrant calls (e.g. log from within a CDC write path).
@@ -870,69 +875,97 @@ impl XhciDevice {
     // Phase 3b: Boot-time enumeration (called synchronously from attach())
     // -------------------------------------------------------------------------
 
-    /// Scan all ports for connected devices and enumerate the first one found.
-    /// This is a blocking, synchronous scan intended for single-threaded boot code.
+    /// Scan all ports for a CDC-ACM or PL2303 device and enumerate the first match.
+    /// Tries every port with CCS=1 in order; stops as soon as a serial adapter is found.
     pub fn boot_enumerate(&mut self) {
-        // Give the controller time to power on ports and generate events.
-        // USB 2.0 spec allows up to 100ms for VBUS stabilization; on fast CPUs
-        // PAUSE ≈ 10 cycles so 30M iterations ≈ 100ms at 3GHz.
-        for _ in 0..30_000_000u32 {
-            core::hint::spin_loop();
-        }
+        // Wait up to ~500ms for VBUS stabilization and device connection.
+        awkernel_lib::delay::wait_microsec(500_000);
         self.drain_events();
 
-        // Find the first port with a device connected.
-        let mut found_port = None;
+        // Collect all ports that report a device connected.
+        let mut ccs_ports: alloc::vec::Vec<usize> = alloc::vec::Vec::new();
         for p in 1..=self.max_ports as usize {
             if self.read_portsc(p) & regs::port::CCS != 0 {
-                found_port = Some(p);
-                break;
+                ccs_ports.push(p);
             }
         }
 
-        let port = match found_port {
-            Some(p) => p,
-            None => {
-                log::info!("xHCI: {}: no device found at boot", self.name);
-                return;
-            }
-        };
-
-        log::info!("xHCI: {}: device detected on port {}", self.name, port);
-
-        // Issue port reset and wait for PRC (Port Reset Change).
-        let portsc = self.read_portsc(port);
-        self.write_portsc(
-            port,
-            (portsc & !(regs::port::PED | regs::port::CHANGE_BITS)) | regs::port::PR,
-        );
-        if !self.poll_portsc(port, regs::port::PRC, regs::port::PRC, 2_000_000) {
-            log::error!("xHCI: {}: port {} reset timeout", self.name, port);
+        if ccs_ports.is_empty() {
+            log::info!("xHCI: {}: no device found at boot", self.name);
             return;
         }
-        // Clear change bits.
-        let portsc = self.read_portsc(port);
-        self.write_portsc(port, portsc & !(regs::port::PED | regs::port::CHANGE_BITS));
-        self.drain_events();
 
-        // Enable Slot.
-        self.send_enable_slot();
-        let (code, slot) = match self.poll_cmd_completion(2_000_000) {
-            Some(r) => r,
-            None => {
-                log::error!("xHCI: {}: Enable Slot timeout", self.name);
-                return;
+        for port in ccs_ports {
+            log::info!("xHCI: {}: device detected on port {}", self.name, port);
+
+            // Issue port reset and wait for PRC (Port Reset Change).
+            let portsc = self.read_portsc(port);
+            self.write_portsc(
+                port,
+                (portsc & !(regs::port::PED | regs::port::CHANGE_BITS)) | regs::port::PR,
+            );
+            if !self.poll_portsc(port, regs::port::PRC, regs::port::PRC, 2_000_000) {
+                log::error!("xHCI: {}: port {} reset timeout", self.name, port);
+                continue;
             }
-        };
-        if code != 1 {
-            log::error!("xHCI: {}: Enable Slot failed (code={})", self.name, code);
-            return;
-        }
-        log::info!("xHCI: {}: slot {} assigned for port {}", self.name, slot, port);
+            let portsc = self.read_portsc(port);
+            self.write_portsc(port, portsc & !(regs::port::PED | regs::port::CHANGE_BITS));
+            self.drain_events();
 
-        if let Err(e) = self.enumerate_port(port, slot) {
-            log::error!("xHCI: {}: enumerate_port failed: {:?}", self.name, e);
+            // Enable Slot — each port attempt gets its own slot number.
+            self.send_enable_slot();
+            let (code, slot) = match self.poll_cmd_completion(2_000_000) {
+                Some(r) => r,
+                None => {
+                    log::error!("xHCI: {}: Enable Slot timeout on port {}", self.name, port);
+                    continue;
+                }
+            };
+            if code != 1 {
+                log::error!("xHCI: {}: Enable Slot failed (code={}) on port {}", self.name, code, port);
+                continue;
+            }
+            log::info!("xHCI: {}: slot {} assigned for port {}", self.name, slot, port);
+
+            if let Err(e) = self.enumerate_port(port, slot) {
+                log::error!("xHCI: {}: port {} enumerate_port failed: {:?}", self.name, port, e);
+                self.abandon_dev_state();
+                continue;
+            }
+
+            if self.is_pl2303 || self.is_cdcacm {
+                return; // Found our serial adapter — done.
+            }
+
+            // Device found but not a serial adapter; leak its DMA state (hardware still
+            // holds a reference through DCBAA) and try the next port.
+            self.abandon_dev_state();
         }
+    }
+
+    /// Discard per-device state after enumerating a non-serial device.
+    /// DMA allocations are intentionally leaked — the xHCI controller retains a
+    /// reference through the DCBAA and the slot cannot be safely disabled here.
+    fn abandon_dev_state(&mut self) {
+        if let Some(ctx)  = self.dev_ctx.take()        { core::mem::forget(ctx); }
+        if let Some(r)    = self.ep0_ring.take()        { core::mem::forget(r); }
+        if let Some(r)    = self.bulk_in_ring.take()    { core::mem::forget(r); }
+        if let Some(r)    = self.bulk_out_ring.take()   { core::mem::forget(r); }
+        if let Some(dma)  = self.cdcacm_tx_dma.take()  { core::mem::forget(dma); }
+        self.dev_slot       = None;
+        self.is_pl2303      = false;
+        self.is_cdcacm      = false;
+        self.dev_vid        = 0;
+        self.dev_pid        = 0;
+        self.dev_bcd        = 0;
+        self.dev_class      = 0;
+        self.dev_max_pkt0   = 0;
+        self.dev_speed      = 0;
+        self.dev_port       = 0;
+        self.cdcacm_ctrl_if = 0;
+        self.cdcacm_max_pkt = 0;
+        self.bulk_in_ep_id  = 0;
+        self.bulk_out_ep_id = 0;
     }
     // -------------------------------------------------------------------------
     // Phase 4a: Generic control transfer helpers

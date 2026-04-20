@@ -345,6 +345,16 @@ fn kernel_main2(
         awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
+    // BAR 13 (lime): PCIe/xHCI init returned.
+    draw_boot_bar(boot_info, 13, 0, 255, 64);
+
+    // BAR 16: bright green = PL2303/CDC found; dark red = not found.
+    if awkernel_drivers::pcie::usb::xhci::is_cdc_registered() {
+        draw_boot_bar(boot_info, 16, 0, 255, 0);   // bright green
+    } else {
+        draw_boot_bar(boot_info, 16, 160, 0, 0);   // dark red
+    }
+
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 
@@ -354,8 +364,14 @@ fn kernel_main2(
         core::hint::spin_loop();
     }
 
+    // BAR 14 (orange-red): all APs done, about to sync TSC.
+    draw_boot_bar(boot_info, 14, 255, 80, 0);
+
     // 18. Synchronize TSC.
     unsafe { synchronize_tsc(non_primary_cpus.len() + 1) };
+
+    // BAR 15 (violet): TSC sync done, about to call main().
+    draw_boot_bar(boot_info, 15, 180, 0, 255);
 
     log::info!("All CPUs are ready.");
 
