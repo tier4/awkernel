@@ -228,7 +228,10 @@ mod tests {
     use core::f64::consts::PI;
 
     fn assert_approx_eq(actual: f64, expected: f64, eps: f64) {
-        assert!((actual - expected).abs() <= eps, "left: {actual}, right: {expected}");
+        assert!(
+            (actual - expected).abs() <= eps,
+            "left: {actual}, right: {expected}"
+        );
     }
 
     fn expected_ang_vel(raw: i16) -> f64 {
@@ -289,7 +292,9 @@ mod tests {
         put_i16_be(&mut data[23..25], ay);
         put_i16_be(&mut data[25..27], az);
 
-        let imu = parser.parse_binary_data(&data, timestamp).expect("should parse");
+        let imu = parser
+            .parse_binary_data(&data, timestamp)
+            .expect("should parse");
 
         assert_eq!(imu.header.frame_id, "imu_link");
         assert_eq!(imu.header.timestamp, timestamp);
@@ -317,7 +322,9 @@ mod tests {
             input_angular_velocity.clone(),
             input_linear_acceleration.clone(),
         );
-        let imu = parser.parse_binary_data(&data, timestamp).expect("should parse");
+        let imu = parser
+            .parse_binary_data(&data, timestamp)
+            .expect("should parse");
 
         let ang_eps = (200.0 / (1 << 15) as f64) * (PI / 180.0);
         let acc_eps = 100.0 / (1 << 15) as f64;
@@ -326,8 +333,20 @@ mod tests {
         assert_approx_eq(imu.angular_velocity.y, input_angular_velocity.y, ang_eps);
         assert_approx_eq(imu.angular_velocity.z, input_angular_velocity.z, ang_eps);
 
-        assert_approx_eq(imu.linear_acceleration.x, input_linear_acceleration.x, acc_eps);
-        assert_approx_eq(imu.linear_acceleration.y, input_linear_acceleration.y, acc_eps);
-        assert_approx_eq(imu.linear_acceleration.z, input_linear_acceleration.z, acc_eps);
+        assert_approx_eq(
+            imu.linear_acceleration.x,
+            input_linear_acceleration.x,
+            acc_eps,
+        );
+        assert_approx_eq(
+            imu.linear_acceleration.y,
+            input_linear_acceleration.y,
+            acc_eps,
+        );
+        assert_approx_eq(
+            imu.linear_acceleration.z,
+            input_linear_acceleration.z,
+            acc_eps,
+        );
     }
 }

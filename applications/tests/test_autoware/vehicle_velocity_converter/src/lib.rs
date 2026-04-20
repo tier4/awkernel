@@ -206,7 +206,10 @@ mod tests {
     use super::*;
 
     fn assert_approx_eq(actual: f64, expected: f64, eps: f64) {
-        assert!((actual - expected).abs() <= eps, "left: {actual}, right: {expected}");
+        assert!(
+            (actual - expected).abs() <= eps,
+            "left: {actual}, right: {expected}"
+        );
     }
 
     #[test]
@@ -245,9 +248,18 @@ mod tests {
         let twist_msg = converter.convert_velocity_report(&velocity_report);
 
         assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
-        assert_eq!(twist_msg.twist.twist.linear.x, velocity_report.longitudinal_velocity * 1.5);
-        assert_eq!(twist_msg.twist.twist.linear.y, velocity_report.lateral_velocity);
-        assert_eq!(twist_msg.twist.twist.angular.z, velocity_report.heading_rate);
+        assert_eq!(
+            twist_msg.twist.twist.linear.x,
+            velocity_report.longitudinal_velocity * 1.5
+        );
+        assert_eq!(
+            twist_msg.twist.twist.linear.y,
+            velocity_report.lateral_velocity
+        );
+        assert_eq!(
+            twist_msg.twist.twist.angular.z,
+            velocity_report.heading_rate
+        );
         assert_approx_eq(twist_msg.twist.covariance[0], 0.2 * 0.2, 1e-12);
         assert_eq!(twist_msg.twist.covariance[7], 10000.0);
         assert_eq!(twist_msg.twist.covariance[14], 10000.0);
@@ -279,9 +291,18 @@ mod tests {
 
         // As in the original C++ test, conversion still succeeds even with a different frame_id.
         assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
-        assert_eq!(twist_msg.twist.twist.linear.x, velocity_report.longitudinal_velocity);
-        assert_eq!(twist_msg.twist.twist.linear.y, velocity_report.lateral_velocity);
-        assert_eq!(twist_msg.twist.twist.angular.z, velocity_report.heading_rate);
+        assert_eq!(
+            twist_msg.twist.twist.linear.x,
+            velocity_report.longitudinal_velocity
+        );
+        assert_eq!(
+            twist_msg.twist.twist.linear.y,
+            velocity_report.lateral_velocity
+        );
+        assert_eq!(
+            twist_msg.twist.twist.angular.z,
+            velocity_report.heading_rate
+        );
     }
 
     #[test]
