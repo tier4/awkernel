@@ -225,36 +225,109 @@ impl TamagawaImuParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::f64::consts::PI;
+
+    fn assert_approx_eq(actual: f64, expected: f64, eps: f64) {
+        assert!((actual - expected).abs() <= eps, "left: {actual}, right: {expected}");
+    }
+
+    fn expected_ang_vel(raw: i16) -> f64 {
+        let lsb_to_deg_per_sec = 200.0 / (1 << 15) as f64;
+        let deg_to_rad = PI / 180.0;
+        (raw as f64) * lsb_to_deg_per_sec * deg_to_rad
+    }
+
+    fn expected_acc(raw: i16) -> f64 {
+        let lsb_to_m_per_sec_squared = 100.0 / (1 << 15) as f64;
+        (raw as f64) * lsb_to_m_per_sec_squared
+    }
+
+    fn put_i16_be(buf: &mut [u8], value: i16) {
+        let raw = value as u16;
+        buf[0] = (raw >> 8) as u8;
+        buf[1] = (raw & 0xFF) as u8;
+    }
 
     #[test]
-    fn example_usage() {
+    fn parse_rejects_invalid_length() {
+        let parser = TamagawaImuParser::new("imu_link");
+        let data = [0u8; 57];
+
+        assert!(parser.parse_binary_data(&data, 1).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_non_bin_header() {
+        let parser = TamagawaImuParser::new("imu_link");
+        let mut data = [0u8; 58];
+        data[0..5].copy_from_slice(b"$TSC,");
+        data[5..9].copy_from_slice(b"XIN,");
+
+        assert!(parser.parse_binary_data(&data, 1).is_none());
+    }
+
+    #[test]
+    fn parse_extracts_fields_and_converts_units() {
+        let parser = TamagawaImuParser::new("imu_link");
+        let timestamp = 123456789u64;
+
+        let mut data = [0u8; 58];
+        data[0..5].copy_from_slice(b"$TSC,");
+        data[5..9].copy_from_slice(b"BIN,");
+
+        let gx: i16 = 1;
+        let gy: i16 = -2;
+        let gz: i16 = 1234;
+        let ax: i16 = -300;
+        let ay: i16 = 0;
+        let az: i16 = 32767;
+
+        put_i16_be(&mut data[15..17], gx);
+        put_i16_be(&mut data[17..19], gy);
+        put_i16_be(&mut data[19..21], gz);
+        put_i16_be(&mut data[21..23], ax);
+        put_i16_be(&mut data[23..25], ay);
+        put_i16_be(&mut data[25..27], az);
+
+        let imu = parser.parse_binary_data(&data, timestamp).expect("should parse");
+
+        assert_eq!(imu.header.frame_id, "imu_link");
+        assert_eq!(imu.header.timestamp, timestamp);
+
+        let eps = 1e-12;
+        assert_approx_eq(imu.angular_velocity.x, expected_ang_vel(gx), eps);
+        assert_approx_eq(imu.angular_velocity.y, expected_ang_vel(gy), eps);
+        assert_approx_eq(imu.angular_velocity.z, expected_ang_vel(gz), eps);
+
+        assert_approx_eq(imu.linear_acceleration.x, expected_acc(ax), eps);
+        assert_approx_eq(imu.linear_acceleration.y, expected_acc(ay), eps);
+        assert_approx_eq(imu.linear_acceleration.z, expected_acc(az), eps);
+    }
+
+    #[test]
+    fn generate_dummy_data_roundtrip_is_close() {
         let mut parser = TamagawaImuParser::new("imu_link");
-        let version_cmd = TamagawaImuParser::generate_version_request();
-        let binary_cmd = TamagawaImuParser::generate_binary_request(30);
-        let offset_cmd = TamagawaImuParser::generate_offset_cancel_request(123);
-        let heading_cmd = TamagawaImuParser::generate_heading_reset_request();
-        let static_dummy_data = parser.generate_static_dummy_data(123456789);
-        if let Some(imu_msg) = parser.parse_binary_data(&static_dummy_data, 123456789) {
-            let _angular_vel = imu_msg.angular_velocity;
-            let _acceleration = imu_msg.linear_acceleration;
-        }
+        let timestamp = 42u64;
 
-        let sinusoidal_dummy_data = parser.generate_sinusoidal_dummy_data(123456789, 0.0);
-        if let Some(imu_msg) = parser.parse_binary_data(&sinusoidal_dummy_data, 123456789) {
-            let _angular_vel = imu_msg.angular_velocity;
-            let _acceleration = imu_msg.linear_acceleration;
-        }
+        let input_angular_velocity = Vector3::new(0.5, -0.3, 1.2);
+        let input_linear_acceleration = Vector3::new(8.5, 2.1, 10.2);
 
-        let custom_angular_velocity = Vector3::new(0.5, -0.3, 1.2);
-        let custom_acceleration = Vector3::new(8.5, 2.1, 10.2);
-        let custom_dummy_data = parser.generate_dummy_binary_data(
-            123456789,
-            custom_angular_velocity,
-            custom_acceleration,
+        let data = parser.generate_dummy_binary_data(
+            timestamp,
+            input_angular_velocity.clone(),
+            input_linear_acceleration.clone(),
         );
-        if let Some(imu_msg) = parser.parse_binary_data(&custom_dummy_data, 123456789) {
-            let _angular_vel = imu_msg.angular_velocity;
-            let _acceleration = imu_msg.linear_acceleration;
-        }
+        let imu = parser.parse_binary_data(&data, timestamp).expect("should parse");
+
+        let ang_eps = (200.0 / (1 << 15) as f64) * (PI / 180.0);
+        let acc_eps = 100.0 / (1 << 15) as f64;
+
+        assert_approx_eq(imu.angular_velocity.x, input_angular_velocity.x, ang_eps);
+        assert_approx_eq(imu.angular_velocity.y, input_angular_velocity.y, ang_eps);
+        assert_approx_eq(imu.angular_velocity.z, input_angular_velocity.z, ang_eps);
+
+        assert_approx_eq(imu.linear_acceleration.x, input_linear_acceleration.x, acc_eps);
+        assert_approx_eq(imu.linear_acceleration.y, input_linear_acceleration.y, acc_eps);
+        assert_approx_eq(imu.linear_acceleration.z, input_linear_acceleration.z, acc_eps);
     }
 }
