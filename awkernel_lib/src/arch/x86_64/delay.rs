@@ -33,6 +33,17 @@ impl Delay for super::X86 {
     }
 
     fn wait_microsec(usec: u64) {
+        // When TSC is not yet calibrated (HPET absent), uptime() always returns 0
+        // and the normal loop never exits.  Fall back to a raw spin-count that
+        // assumes ≈10 ns per PAUSE instruction — inaccurate but non-hanging.
+        let hz = unsafe { TSC_FREQ };
+        if hz == 0 && pvclock::uptime_nano().is_none() {
+            for _ in 0..usec.saturating_mul(100) {
+                core::hint::spin_loop();
+            }
+            return;
+        }
+
         let start = uptime();
         loop {
             let t = uptime();
