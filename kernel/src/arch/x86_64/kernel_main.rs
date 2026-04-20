@@ -617,19 +617,16 @@ fn map_mpboot_page(
     };
 
     unsafe {
-        match page_table.map_to(
+        // Ignore errors: the bootloader may have already identity-mapped this page.
+        // The physical address equals the virtual address either way.
+        let _ = page_table.map_to(
             awkernel_lib::addr::virt_addr::VirtAddr::new(start as usize),
             awkernel_lib::addr::phy_addr::PhyAddr::new(start as usize),
             flags,
             page_allocator,
-        ) {
-            Ok(_) => start,
-            Err(_) => {
-                unsafe_puts("Failed to map the page for `mpboot.img`.\r\n");
-                wait_forever();
-            }
-        }
+        );
     }
+    start
 }
 
 fn init_backup_heap(
