@@ -43,7 +43,11 @@ pub(super) fn igc_sync_mdic_phy_addr(
 ) -> Result<u32, IgcDriverErr> {
     let mdicnfg = read_reg(info, IGC_MDICNFG)?;
     let phy_addr = (mdicnfg & IGC_MDICNFG_PHY_MASK) >> IGC_MDICNFG_PHY_SHIFT;
-    let phy_addr = if phy_addr == 0 { default_addr } else { phy_addr };
+    let phy_addr = if phy_addr == 0 {
+        default_addr
+    } else {
+        phy_addr
+    };
 
     let mdicnfg = (mdicnfg & !IGC_MDICNFG_PHY_MASK) | (phy_addr << IGC_MDICNFG_PHY_SHIFT);
     write_reg(info, IGC_MDICNFG, mdicnfg)?;
