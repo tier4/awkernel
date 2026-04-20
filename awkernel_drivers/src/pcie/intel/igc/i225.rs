@@ -5,7 +5,7 @@ use crate::pcie::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
             igc_check_downshift_generic, igc_phy_has_link_generic, igc_setup_copper_link_generic,
-            IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD,
+            IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD, IGC_I225_PHPM_ULP,
         },
         IgcMacType,
     },
@@ -551,7 +551,7 @@ fn igc_init_phy_params_i225(
     let phy_addr = igc_sync_mdic_phy_addr(info, hw, 1)?;
 
     let mut phpm = read_reg(info, IGC_I225_PHPM)?;
-    phpm &= !(IGC_I225_PHPM_GO_LINKD | 0x0400);
+    phpm &= !(IGC_I225_PHPM_GO_LINKD | IGC_I225_PHPM_ULP);
     write_reg(info, IGC_I225_PHPM, phpm)?;
 
     ops.power_up(info, hw)?;

@@ -32,7 +32,7 @@ const IGC_I225_PHPM_DIS_1000: u32 = 0x0040; // Disable 1G globally
 const IGC_I225_PHPM_SPD_B2B_EN: u32 = 0x0080; // Smart Power Down Back2Back
 const IGC_I225_PHPM_RST_COMPL: u32 = 0x0100; // PHY Reset Completed
 const IGC_I225_PHPM_DIS_100_D3: u32 = 0x0200; // Disable 100M in D3
-const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
+pub(super) const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
 const IGC_I225_PHPM_DIS_2500: u32 = 0x0800; // Disable 2.5G globally
 const IGC_I225_PHPM_DIS_2500_D3: u32 = 0x1000; // Disable 2.5G in D3
 
@@ -289,6 +289,9 @@ pub(super) fn igc_phy_hw_reset_generic(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
+    const PHY_RESET_POLL_TIGHT_LOOPS: usize = 150;
+    const PHY_RESET_POLL_BACKOFF_MSEC: usize = 100;
+
     match ops.check_reset_block(info) {
         Err(IgcDriverErr::BlkPhyReset) => {
             return Ok(());
@@ -320,12 +323,24 @@ pub(super) fn igc_phy_hw_reset_generic(
 
             wait_microsec(150);
 
-            for _ in 0..100000 {
+            // Some firmware leaves RST_COMPL deasserted even when the PHY is
+            // already responsive over MDIC. Keep a short tight poll for the
+            // fast-success case, then fall back to millisecond backoff to
+            // avoid burning CPU during bring-up.
+            for _ in 0..PHY_RESET_POLL_TIGHT_LOOPS {
                 phpm = read_reg(info, IGC_I225_PHPM)?;
-                wait_microsec(1);
                 if phpm & IGC_I225_PHPM_RST_COMPL != 0 {
                     return Ok(());
                 }
+                wait_microsec(1);
+            }
+
+            for _ in 0..PHY_RESET_POLL_BACKOFF_MSEC {
+                phpm = read_reg(info, IGC_I225_PHPM)?;
+                if phpm & IGC_I225_PHPM_RST_COMPL != 0 {
+                    return Ok(());
+                }
+                wait_millisec(1);
             }
 
             if attempt == 0 {
