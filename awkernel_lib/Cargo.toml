@@ -37,6 +37,10 @@ optional = true
 git = "https://github.com/ytakano/acpi.git"
 optional = true
 
+[dependencies.aml]
+git = "https://github.com/ytakano/acpi.git"
+optional = true
+
 [dependencies.bootloader_api]
 version = "0.11"
 optional = true
@@ -76,6 +80,7 @@ default = ["x86"]
 x86 = [
     "dep:x86_64",
     "dep:acpi",
+    "dep:aml",
     "dep:bootloader_api",
     "awkernel_sync/x86",
     "awkernel_sync/x86_mwait",
