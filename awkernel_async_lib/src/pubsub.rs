@@ -469,9 +469,9 @@ mod need_get_period_tests {
             let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
             publisher.send_with_meta(42, 1, 7, 99).await;
 
-            let (value, period) = subscriber.recv_with_period().await;
-            assert_eq!(value, 42);
-            assert_eq!(period, 7);
+            let received = subscriber.recv().await;
+            assert_eq!(received.data, 42);
+            assert_eq!(received.index, 7);
         });
     }
 
