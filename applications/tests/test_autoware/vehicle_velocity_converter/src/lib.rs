@@ -122,7 +122,6 @@ impl VehicleVelocityConverter {
     }
 
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
-        let _frame_id_mismatch = msg.header.frame_id != self.frame_id;
 
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
