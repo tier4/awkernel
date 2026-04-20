@@ -385,6 +385,22 @@ fn kernel_main2(
         draw_boot_bar(boot_info, 22, 255, 140, 0);
     }
 
+    // BAR 23 (green): NOOP command ring test succeeded.
+    if awkernel_drivers::pcie::usb::xhci::xhci_noop_ok() {
+        draw_boot_bar(boot_info, 23, 0, 200, 100);
+    }
+
+    // BARs 24-29: USBSTS bits captured at Enable Slot timeout (only drawn on failure).
+    // 24=HCH(bit0) 25=HSE(bit2) 26=EINT(bit3) 27=PCD(bit4) 28=CNR(bit11) 29=HCE(bit12)
+    if let Some(usbsts) = awkernel_drivers::pcie::usb::xhci::xhci_usbsts_on_fail() {
+        if usbsts & (1 << 0)  != 0 { draw_boot_bar(boot_info, 24, 200, 0,   0); }   // HCH red
+        if usbsts & (1 << 2)  != 0 { draw_boot_bar(boot_info, 25, 200, 0,   0); }   // HSE red
+        if usbsts & (1 << 3)  != 0 { draw_boot_bar(boot_info, 26, 255, 255, 0); }   // EINT yellow
+        if usbsts & (1 << 4)  != 0 { draw_boot_bar(boot_info, 27, 0,   200, 200); } // PCD cyan
+        if usbsts & (1 << 11) != 0 { draw_boot_bar(boot_info, 28, 255, 140, 0); }   // CNR orange
+        if usbsts & (1 << 12) != 0 { draw_boot_bar(boot_info, 29, 200, 0,   0); }   // HCE red
+    }
+
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 

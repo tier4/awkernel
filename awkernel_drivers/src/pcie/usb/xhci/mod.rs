@@ -14,7 +14,7 @@ mod pl2303;
 mod regs;
 mod ring;
 
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 
 use ring::{CommandRing, Dcbaa, EventRing, TransferRing, Trb};
 
@@ -49,6 +49,10 @@ static XHCI_PL2303_VID_SEEN: AtomicBool = AtomicBool::new(false);
 static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when Enable Slot command completes with code=1.
 static XHCI_SLOT_ENABLED: AtomicUsize = AtomicUsize::new(0);
+/// Set to true when the boot-time NOOP command test completes successfully.
+static XHCI_NOOP_OK: AtomicBool = AtomicBool::new(false);
+/// USBSTS value captured at the first Enable Slot timeout; u32::MAX = no timeout yet.
+static XHCI_USBSTS_ON_SLOT_FAIL: AtomicU32 = AtomicU32::new(u32::MAX);
 
 /// Returns true if a CDC-ACM or PL2303 device was found and registered.
 pub fn is_cdc_registered() -> bool {
@@ -83,6 +87,17 @@ pub fn xhci_any_enum_ok() -> bool {
 /// Returns true if PL2303 VID:PID (067b:23xx) was matched during setup.
 pub fn xhci_pl2303_vid_seen() -> bool {
     XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed)
+}
+
+/// Returns true if the boot-time NOOP command completed successfully.
+pub fn xhci_noop_ok() -> bool {
+    XHCI_NOOP_OK.load(Ordering::Relaxed)
+}
+
+/// Returns the USBSTS value captured at the first Enable Slot timeout, if any.
+pub fn xhci_usbsts_on_fail() -> Option<u32> {
+    let v = XHCI_USBSTS_ON_SLOT_FAIL.load(Ordering::Relaxed);
+    if v == u32::MAX { None } else { Some(v) }
 }
 
 /// Write `data` to the CDC-ACM USB serial adapter if one has been configured.
@@ -318,9 +333,11 @@ impl XhciDevice {
         let max_slots = (hcsparams1 & 0xff) as u8;
         let max_interrupters = ((hcsparams1 >> 8) & 0x7ff) as u16;
         let max_ports = (hcsparams1 >> 24) as u8;
-        // HCSPARAMS2 scratchpad count: hi[31:27] || lo[25:21] (§5.3.4).
+        // HCSPARAMS2 scratchpad count (§5.3.4):
+        //   Hi = bits[25:21], Lo = bits[31:27]; total = (Hi << 5) | Lo
+        // (FreeBSD/Linux both use this order; reversed is a common mistake.)
         let max_scratchpad =
-            (((hcsparams2 >> 27) & 0x1f) << 5) | ((hcsparams2 >> 21) & 0x1f);
+            (((hcsparams2 >> 21) & 0x1f) << 5) | ((hcsparams2 >> 27) & 0x1f);
         // CSZ bit (bit 2) of HCCPARAMS1: 0 = 32-byte contexts, 1 = 64-byte contexts.
         let ctx_size: usize = if hccparams1 & (1 << 2) != 0 { 64 } else { 32 };
 
@@ -990,6 +1007,28 @@ impl XhciDevice {
             }
         }
 
+        // Test command ring with a NOOP before touching any port.
+        // If NOOP times out, all Enable Slot attempts will also fail — report early.
+        self.send_noop_cmd();
+        match self.poll_cmd_completion(2_000_000) {
+            Some((code, _)) if code == 1 => {
+                XHCI_NOOP_OK.store(true, Ordering::Relaxed);
+                log::info!("xHCI: {}: NOOP command OK — command ring is alive", self.name);
+            }
+            Some((code, _)) => {
+                log::warn!("xHCI: {}: NOOP failed (code={})", self.name, code);
+            }
+            None => {
+                let usbsts = self.read_op(regs::op::USBSTS);
+                XHCI_USBSTS_ON_SLOT_FAIL.store(usbsts, Ordering::Relaxed);
+                log::error!(
+                    "xHCI: {}: NOOP timeout — command ring dead. USBSTS={:#010x}",
+                    self.name, usbsts,
+                );
+                return; // No point resetting ports if commands don't complete.
+            }
+        }
+
         // Wait up to ~500ms for VBUS stabilization and device connection.
         awkernel_lib::delay::wait_microsec(500_000);
         self.drain_events();
@@ -1041,7 +1080,12 @@ impl XhciDevice {
             let (code, slot) = match self.poll_cmd_completion(2_000_000) {
                 Some(r) => r,
                 None => {
-                    log::error!("xHCI: {}: Enable Slot timeout on port {}", self.name, port);
+                    let usbsts = self.read_op(regs::op::USBSTS);
+                    XHCI_USBSTS_ON_SLOT_FAIL.store(usbsts, Ordering::Relaxed);
+                    log::error!(
+                        "xHCI: {}: Enable Slot timeout port={} USBSTS={:#010x}",
+                        self.name, port, usbsts,
+                    );
                     continue;
                 }
             };
