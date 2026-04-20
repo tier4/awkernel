@@ -96,12 +96,7 @@ impl TamagawaImuParser {
     }
 
     pub fn parse_binary_data(&self, data: &[u8], timestamp: u64) -> Option<ImuMsg> {
-        if data.len() != 58
-            || data[5] != b'B'
-            || data[6] != b'I'
-            || data[7] != b'N'
-            || data[8] != b','
-        {
+        if data.len() != 58 || data[0..9] != *b"$TSC,BIN," {
             return None;
         }
 
@@ -265,6 +260,16 @@ mod tests {
         let mut data = [0u8; 58];
         data[0..5].copy_from_slice(b"$TSC,");
         data[5..9].copy_from_slice(b"XIN,");
+
+        assert!(parser.parse_binary_data(&data, 1).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_invalid_tsc_prefix() {
+        let parser = TamagawaImuParser::new("imu_link");
+        let mut data = [0u8; 58];
+        data[0..5].copy_from_slice(b"@TSC,");
+        data[5..9].copy_from_slice(b"BIN,");
 
         assert!(parser.parse_binary_data(&data, 1).is_none());
     }
