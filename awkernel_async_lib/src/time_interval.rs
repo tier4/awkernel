@@ -88,7 +88,7 @@ pub enum MissedTickBehavior {
 /// use crate::time_interval::interval;
 /// use core::time::Duration;
 ///
-/// let mut interval = interval(Duration::from_secs(1));
+/// let mut interval = interval(Duration::from_secs(1), 0);
 /// let mut ticks = 0;
 /// while ticks < 5 {
 ///     let tick_time = interval.tick().await;
