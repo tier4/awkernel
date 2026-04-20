@@ -27,7 +27,10 @@ pub fn init(
 ) -> Result<(), &'static str> {
     // Initialize timer before AML-driven power initialization can invoke
     // delay-backed Stall/Sleep handlers.
-    delay::init(acpi, page_table, page_allocator)?;
+    // HPET may be absent on some hardware; treat as non-fatal so boot continues.
+    if let Err(e) = delay::init(acpi, page_table, page_allocator) {
+        log::warn!("Timer init failed ({e}); delay functions will be inaccurate.");
+    }
 
     if let Err(err) = power::init(acpi) {
         log::warn!("Failed to initialize x86 power control. {err}");
