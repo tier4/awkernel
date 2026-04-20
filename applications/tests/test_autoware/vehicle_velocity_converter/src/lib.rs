@@ -122,7 +122,6 @@ impl VehicleVelocityConverter {
     }
 
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
-
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
