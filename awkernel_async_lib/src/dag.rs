@@ -1005,11 +1005,7 @@ where
                 if index != 0 {
                     // [start] cycle deviation index >= 1
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                    update_pre_send_outer_timestamp_at(
-                        index,
-                        release_time,
-                        dag_info.dag_id,
-                    );
+                    update_pre_send_outer_timestamp_at(index, release_time, dag_info.dag_id);
                 }
                 let results = f();
                 publishers
