@@ -1150,6 +1150,13 @@ impl PCIeInfo {
         Ok(self.unknown_device())
     }
 
+    pub fn enable_bus_master(&mut self) {
+        let reg = self.read_status_command();
+        self.write_status_command(
+            reg | registers::StatusCommand::BUS_MASTER | registers::StatusCommand::MEMORY_SPACE,
+        );
+    }
+
     pub fn disable_legacy_interrupt(&mut self) {
         let reg = self.read_status_command();
         self.write_status_command(reg | registers::StatusCommand::INTERRUPT_DISABLE);

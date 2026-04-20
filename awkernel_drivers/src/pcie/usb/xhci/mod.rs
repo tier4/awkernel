@@ -129,6 +129,12 @@ pub struct XhciDevice {
     evt_ring: EventRing,
     dcbaa: Dcbaa,
 
+    // Scratchpad buffers: HCSPARAMS2[31:27]||[25:21] pages, DCBAA[0] → array of phys ptrs.
+    // Must be allocated before R/S=1 on hardware that requires scratchpad (count > 0).
+    max_scratchpad: u32,
+    scratchpad_array: Option<DMAPool<[u8; 4096]>>,
+    scratchpad_bufs: alloc::vec::Vec<DMAPool<[u8; 4096]>>,
+
     // Context size: 32 bytes (CSZ=0) or 64 bytes (CSZ=1). Decoded from HCCPARAMS1.
     ctx_size: usize,
 
@@ -188,7 +194,7 @@ pub(super) fn attach(
 ) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     log::info!("xHCI: attaching {}", info);
 
-    // Map the MMIO region(s) declared in BARs and enable bus-master DMA.
+    // Map the MMIO region(s) declared in BARs.
     info.map_bar().map_err(|_| PCIeDeviceErr::PageTableFailure)?;
     info.read_capability();
     info.disable_legacy_interrupt();
@@ -220,7 +226,12 @@ pub(super) fn attach(
 
     // Phase 2: reset → program rings → MSI-X → start
     dev.reset_controller()?;
+    // Re-enable Bus Master after HCRST — some controllers clear it during reset,
+    // and UEFI may have cleared it at ExitBootServices.  Must be set before
+    // start_controller() so the controller can DMA to the event ring.
+    info.enable_bus_master();
     dev.program_rings();
+    dev.init_scratchpad().map_err(|_| PCIeDeviceErr::InitFailure)?;
 
     // Capture MMIO base values for the interrupt handler closure.
     let op_base_val = dev.op_base.as_usize();
@@ -307,6 +318,9 @@ impl XhciDevice {
         let max_slots = (hcsparams1 & 0xff) as u8;
         let max_interrupters = ((hcsparams1 >> 8) & 0x7ff) as u16;
         let max_ports = (hcsparams1 >> 24) as u8;
+        // HCSPARAMS2 scratchpad count: hi[31:27] || lo[25:21] (§5.3.4).
+        let max_scratchpad =
+            (((hcsparams2 >> 27) & 0x1f) << 5) | ((hcsparams2 >> 21) & 0x1f);
         // CSZ bit (bit 2) of HCCPARAMS1: 0 = 32-byte contexts, 1 = 64-byte contexts.
         let ctx_size: usize = if hccparams1 & (1 << 2) != 0 { 64 } else { 32 };
 
@@ -343,6 +357,9 @@ impl XhciDevice {
             cmd_ring,
             evt_ring,
             dcbaa,
+            max_scratchpad,
+            scratchpad_array: None,
+            scratchpad_bufs: alloc::vec::Vec::new(),
             ctx_size,
             dev_slot: None,
             ep0_ring: None,
@@ -480,6 +497,40 @@ impl XhciDevice {
             "xHCI: {}: dcbaa={:#018x} crcr={:#018x} erst={:#018x} erdp={:#018x}",
             self.name, dcbaa, crcr, erst, erdp,
         );
+    }
+
+    /// Allocate scratchpad pages and point DCBAA[0] to them (§4.20).
+    /// Must be called after program_rings() and before start_controller().
+    fn init_scratchpad(&mut self) -> Result<(), PCIeDeviceErr> {
+        let n = self.max_scratchpad as usize;
+        log::info!("xHCI: {}: scratchpad count={}", self.name, n);
+        if n == 0 {
+            return Ok(());
+        }
+
+        // Allocate the pointer array (up to 512 entries × 8 bytes fits in one 4 KiB page).
+        let mut array = DMAPool::<[u8; 4096]>::new(0, 1).ok_or(PCIeDeviceErr::InitFailure)?;
+        for b in array.as_mut().iter_mut() { *b = 0; }
+
+        // Allocate N scratchpad pages; store each physical address into the array.
+        let mut bufs: alloc::vec::Vec<DMAPool<[u8; 4096]>> = alloc::vec::Vec::new();
+        for i in 0..n {
+            let mut buf = DMAPool::<[u8; 4096]>::new(0, 1).ok_or(PCIeDeviceErr::InitFailure)?;
+            for b in buf.as_mut().iter_mut() { *b = 0; }
+            let phys = buf.get_phy_addr().as_usize() as u64;
+            let off = i * 8;
+            array.as_mut()[off..off + 8].copy_from_slice(&phys.to_le_bytes());
+            bufs.push(buf);
+        }
+
+        // Write array physical address into DCBAA[0].
+        let array_phys = array.get_phy_addr().as_usize() as u64;
+        self.dcbaa.mem.as_mut()[0] = array_phys;
+        log::info!("xHCI: {}: scratchpad array phys={:#018x}", self.name, array_phys);
+
+        self.scratchpad_array = Some(array);
+        self.scratchpad_bufs = bufs;
+        Ok(())
     }
 
     fn start_controller(&mut self, interrupt_enable: bool) -> Result<(), PCIeDeviceErr> {
@@ -922,6 +973,23 @@ impl XhciDevice {
     /// Scan all ports for a CDC-ACM or PL2303 device and enumerate the first match.
     /// Tries every port with CCS=1 in order; stops as soon as a serial adapter is found.
     pub fn boot_enumerate(&mut self) {
+        // Ensure port power (PP) is on before waiting for device connection.
+        // xHCI §4.19.1.1: if PPC=1 (power-controller present), software must set PP=1.
+        // Writing PR=1 on an unpowered port (PP=0) is silently ignored by hardware.
+        for p in 1..=self.max_ports as usize {
+            let portsc = self.read_portsc(p);
+            if portsc & regs::port::PP == 0 {
+                // Set PP=1; preserve RWS bits; clear any stale change bits (RW1CS).
+                self.write_portsc(
+                    p,
+                    (portsc & !(regs::port::PED | regs::port::PR))
+                        | (portsc & regs::port::CHANGE_BITS)
+                        | regs::port::PP,
+                );
+                log::info!("xHCI: {}: port {} PP was 0, powered on", self.name, p);
+            }
+        }
+
         // Wait up to ~500ms for VBUS stabilization and device connection.
         awkernel_lib::delay::wait_microsec(500_000);
         self.drain_events();
@@ -945,18 +1013,27 @@ impl XhciDevice {
             log::info!("xHCI: {}: device detected on port {}", self.name, port);
 
             // Issue port reset and wait for PRC (Port Reset Change).
+            // RW1CS rule: to clear change bits write 1; writing 0 has no effect.
+            // Pre-clear any stale change bits while setting PR; keep PP, avoid PED.
             let portsc = self.read_portsc(port);
             self.write_portsc(
                 port,
-                (portsc & !(regs::port::PED | regs::port::CHANGE_BITS)) | regs::port::PR,
+                (portsc & !regs::port::PED)
+                    | (portsc & regs::port::CHANGE_BITS)
+                    | regs::port::PR,
             );
             if !self.poll_portsc(port, regs::port::PRC, regs::port::PRC, 2_000_000) {
                 log::error!("xHCI: {}: port {} reset timeout", self.name, port);
                 continue;
             }
             XHCI_PORT_RESET_OK.fetch_add(1, Ordering::Relaxed);
+            // Clear PRC (and any other change bits) by writing 1 to them (RW1CS).
             let portsc = self.read_portsc(port);
-            self.write_portsc(port, portsc & !(regs::port::PED | regs::port::CHANGE_BITS));
+            self.write_portsc(
+                port,
+                (portsc & !(regs::port::PED | regs::port::PR))
+                    | (portsc & regs::port::CHANGE_BITS),
+            );
             self.drain_events();
 
             // Enable Slot — each port attempt gets its own slot number.
