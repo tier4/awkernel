@@ -49,10 +49,12 @@ static XHCI_PL2303_VID_SEEN: AtomicBool = AtomicBool::new(false);
 static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when Enable Slot command completes with code=1.
 static XHCI_SLOT_ENABLED: AtomicUsize = AtomicUsize::new(0);
-/// Set to true when the boot-time NOOP command test completes successfully.
-static XHCI_NOOP_OK: AtomicBool = AtomicBool::new(false);
-/// USBSTS value captured at the first Enable Slot timeout; u32::MAX = no timeout yet.
+/// 0=not attempted, 1=OK, 2=failed/timeout
+static XHCI_NOOP_RESULT: AtomicU32 = AtomicU32::new(0);
+/// USBSTS value captured at the first command timeout; u32::MAX = no timeout yet.
 static XHCI_USBSTS_ON_SLOT_FAIL: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Set to true if BUS_MASTER bit confirmed set after enable_bus_master().
+static XHCI_BUS_MASTER_OK: AtomicBool = AtomicBool::new(false);
 
 /// Returns true if a CDC-ACM or PL2303 device was found and registered.
 pub fn is_cdc_registered() -> bool {
@@ -89,9 +91,12 @@ pub fn xhci_pl2303_vid_seen() -> bool {
     XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed)
 }
 
-/// Returns true if the boot-time NOOP command completed successfully.
-pub fn xhci_noop_ok() -> bool {
-    XHCI_NOOP_OK.load(Ordering::Relaxed)
+/// 0 = not attempted, 1 = success, 2 = fail/timeout
+pub fn xhci_noop_result() -> u32 {
+    XHCI_NOOP_RESULT.load(Ordering::Relaxed)
+}
+pub fn xhci_bus_master_ok() -> bool {
+    XHCI_BUS_MASTER_OK.load(Ordering::Relaxed)
 }
 
 /// Returns the USBSTS value captured at the first Enable Slot timeout, if any.
@@ -245,6 +250,15 @@ pub(super) fn attach(
     // and UEFI may have cleared it at ExitBootServices.  Must be set before
     // start_controller() so the controller can DMA to the event ring.
     info.enable_bus_master();
+    // Read back to verify BUS_MASTER actually stuck (some controllers reset it on HCRST).
+    if info.read_status_command().contains(
+        super::super::registers::StatusCommand::BUS_MASTER,
+    ) {
+        XHCI_BUS_MASTER_OK.store(true, Ordering::Relaxed);
+        log::info!("xHCI: {}: BUS_MASTER confirmed set", dev.name);
+    } else {
+        log::error!("xHCI: {}: BUS_MASTER NOT set — DMA will fail!", dev.name);
+    }
     dev.program_rings();
     dev.init_scratchpad().map_err(|_| PCIeDeviceErr::InitFailure)?;
 
@@ -1012,13 +1026,18 @@ impl XhciDevice {
         self.send_noop_cmd();
         match self.poll_cmd_completion(2_000_000) {
             Some((code, _)) if code == 1 => {
-                XHCI_NOOP_OK.store(true, Ordering::Relaxed);
+                XHCI_NOOP_RESULT.store(1, Ordering::Relaxed);
                 log::info!("xHCI: {}: NOOP command OK — command ring is alive", self.name);
             }
             Some((code, _)) => {
-                log::warn!("xHCI: {}: NOOP failed (code={})", self.name, code);
+                XHCI_NOOP_RESULT.store(2, Ordering::Relaxed);
+                let usbsts = self.read_op(regs::op::USBSTS);
+                XHCI_USBSTS_ON_SLOT_FAIL.store(usbsts, Ordering::Relaxed);
+                log::warn!("xHCI: {}: NOOP failed (code={}) USBSTS={:#010x}", self.name, code, usbsts);
+                return;
             }
             None => {
+                XHCI_NOOP_RESULT.store(2, Ordering::Relaxed);
                 let usbsts = self.read_op(regs::op::USBSTS);
                 XHCI_USBSTS_ON_SLOT_FAIL.store(usbsts, Ordering::Relaxed);
                 log::error!(
