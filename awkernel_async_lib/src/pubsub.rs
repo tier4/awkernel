@@ -476,21 +476,20 @@ mod need_get_period_tests {
     }
 
     #[test]
-    fn tuple_recv_all_with_period_preserves_each_period() {
+    fn tuple_recv_all_with_period_returns_shared_period() {
         block_on(async {
             let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
             let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
 
-            publisher1.send_with_meta(10, 1, 3, 21).await;
-            publisher2.send_with_meta(20, 2, 5, 22).await;
+            publisher1.send_with_meta(10, 11, 3, 21).await;
+            publisher2.send_with_meta(20, 12, 3, 22).await;
 
-            let ((value1, period1), (value2, period2)) =
+            let ((value1, value2), period) =
                 (subscriber1, subscriber2).recv_all_with_period().await;
 
             assert_eq!(value1, 10);
-            assert_eq!(period1, 3);
             assert_eq!(value2, 20);
-            assert_eq!(period2, 5);
+            assert_eq!(period, 3);
         });
     }
 }
