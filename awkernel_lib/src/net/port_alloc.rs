@@ -1,61 +1,48 @@
-#[cfg(not(feature = "std"))]
+#![cfg(not(feature = "std"))]
+
 use alloc::collections::{
     btree_map::Entry,
     BTreeMap, BTreeSet,
 };
 
-#[cfg(not(feature = "std"))]
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
-#[cfg(not(feature = "std"))]
 use super::tcp::TcpPort;
 
-#[cfg(not(feature = "std"))]
 struct TcpPortsInner {
     map: BTreeMap<u16, u64>,
     cursor: u16,
 }
 
-#[cfg(not(feature = "std"))]
 struct UdpPortsInner {
     set: BTreeSet<u16>,
     cursor: u16,
 }
 
-#[allow(dead_code)]
 pub(super) struct PortAllocator {
-    #[cfg(not(feature = "std"))]
     tcp_ipv4: Mutex<TcpPortsInner>,
-    #[cfg(not(feature = "std"))]
     tcp_ipv6: Mutex<TcpPortsInner>,
-    #[cfg(not(feature = "std"))]
     udp_ipv4: Mutex<UdpPortsInner>,
-    #[cfg(not(feature = "std"))]
     udp_ipv6: Mutex<UdpPortsInner>,
 }
 
-#[allow(dead_code)]
 pub(super) static PORT_ALLOC: PortAllocator = PortAllocator::new();
 
 impl PortAllocator {
     pub(super) const fn new() -> Self {
         Self {
-            #[cfg(not(feature = "std"))]
             tcp_ipv4: Mutex::new(TcpPortsInner {
                 map: BTreeMap::new(),
                 cursor: u16::MAX >> 2,
             }),
-            #[cfg(not(feature = "std"))]
             tcp_ipv6: Mutex::new(TcpPortsInner {
                 map: BTreeMap::new(),
                 cursor: u16::MAX >> 2,
             }),
-            #[cfg(not(feature = "std"))]
             udp_ipv4: Mutex::new(UdpPortsInner {
                 set: BTreeSet::new(),
                 cursor: u16::MAX >> 2,
             }),
-            #[cfg(not(feature = "std"))]
             udp_ipv6: Mutex::new(UdpPortsInner {
                 set: BTreeSet::new(),
                 cursor: u16::MAX >> 2,
@@ -64,7 +51,6 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral TCP IPv4 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_tcp_ipv4(&self) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv4.lock(&mut node);
@@ -80,7 +66,6 @@ impl PortAllocator {
     }
 
     /// Claim a specific TCP IPv4 port. Returns `None` if the port is already in use.
-    #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_tcp_ipv4(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv4.lock(&mut node);
@@ -93,7 +78,6 @@ impl PortAllocator {
     }
 
     /// Increment the reference count for a TCP IPv4 port (used by `TcpListener::accept`).
-    #[cfg(not(feature = "std"))]
     pub(super) fn increment_ref_tcp_ipv4(&self, port: u16) -> TcpPort {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv4.lock(&mut node);
@@ -106,7 +90,6 @@ impl PortAllocator {
     }
 
     /// Decrement the reference count for a TCP IPv4 port, freeing it when it reaches zero.
-    #[cfg(not(feature = "std"))]
     pub(super) fn decrement_ref_tcp_ipv4(&self, port: u16) {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv4.lock(&mut node);
@@ -119,7 +102,6 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral TCP IPv6 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_tcp_ipv6(&self) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
@@ -135,7 +117,6 @@ impl PortAllocator {
     }
 
     /// Claim a specific TCP IPv6 port. Returns `None` if the port is already in use.
-    #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_tcp_ipv6(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
@@ -148,7 +129,6 @@ impl PortAllocator {
     }
 
     /// Increment the reference count for a TCP IPv6 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn increment_ref_tcp_ipv6(&self, port: u16) -> TcpPort {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
@@ -161,7 +141,6 @@ impl PortAllocator {
     }
 
     /// Decrement the reference count for a TCP IPv6 port, freeing it when it reaches zero.
-    #[cfg(not(feature = "std"))]
     pub(super) fn decrement_ref_tcp_ipv6(&self, port: u16) {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
@@ -174,7 +153,6 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral UDP IPv4 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_udp_ipv4(&self) -> Option<u16> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv4.lock(&mut node);
@@ -189,7 +167,6 @@ impl PortAllocator {
     }
 
     /// Claim a specific UDP IPv4 port. Returns `false` if the port is already in use.
-    #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_udp_ipv4(&self, port: u16) -> bool {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv4.lock(&mut node);
@@ -197,7 +174,6 @@ impl PortAllocator {
     }
 
     /// Free a UDP IPv4 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn free_udp_ipv4(&self, port: u16) {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv4.lock(&mut node);
@@ -205,7 +181,6 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral UDP IPv6 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_udp_ipv6(&self) -> Option<u16> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv6.lock(&mut node);
@@ -220,7 +195,6 @@ impl PortAllocator {
     }
 
     /// Claim a specific UDP IPv6 port. Returns `false` if the port is already in use.
-    #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_udp_ipv6(&self, port: u16) -> bool {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv6.lock(&mut node);
@@ -228,7 +202,6 @@ impl PortAllocator {
     }
 
     /// Free a UDP IPv6 port.
-    #[cfg(not(feature = "std"))]
     pub(super) fn free_udp_ipv6(&self, port: u16) {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv6.lock(&mut node);
