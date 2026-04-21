@@ -256,8 +256,6 @@ impl Igc {
 
         let mut inner = self.inner.read();
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
-        let should_poll_link = irq.is_none() && (igc_icr & igc_defines::IGC_ICR_LSC) == 0;
-
         if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
             // Link status change interrupt.
             drop(inner);
@@ -266,7 +264,7 @@ impl Igc {
                 inner.igc_intr_link()?;
             }
             inner = self.inner.read();
-        } else if should_poll_link {
+        } else if irq.is_none() {
             drop(inner);
             {
                 let mut inner = self.inner.write();
@@ -810,6 +808,10 @@ impl IgcInner {
         )
     }
 
+    /// Polls link status when called from a tick-driven path (i.e. `intr` is
+    /// invoked without a real IRQ).  Forces `get_link_status = true` so that
+    /// `igc_intr_link` re-checks the hardware even if a link-change interrupt
+    /// was not observed.
     #[inline(always)]
     fn igc_poll_link(&mut self) -> Result<(), IgcDriverErr> {
         self.hw.mac.get_link_status = true;

@@ -36,6 +36,10 @@ pub(super) const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
 const IGC_I225_PHPM_DIS_2500: u32 = 0x0800; // Disable 2.5G globally
 const IGC_I225_PHPM_DIS_2500_D3: u32 = 0x1000; // Disable 2.5G in D3
 
+/// Reads the PHY address from MDICNFG, falls back to `default_addr` if the
+/// field is zero, writes the resolved address back to MDICNFG, and stores it
+/// in `hw.phy.addr`.  The default value of 1 matches the hardware power-on
+/// default and is consistent with the BSD igc driver.
 pub(super) fn igc_sync_mdic_phy_addr(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
@@ -51,6 +55,7 @@ pub(super) fn igc_sync_mdic_phy_addr(
 
     let mdicnfg = (mdicnfg & !IGC_MDICNFG_PHY_MASK) | (phy_addr << IGC_MDICNFG_PHY_SHIFT);
     write_reg(info, IGC_MDICNFG, mdicnfg)?;
+    write_flush(info)?;
     hw.phy.addr = phy_addr;
 
     Ok(phy_addr)
@@ -358,7 +363,7 @@ pub(super) fn igc_phy_hw_reset_generic(
         }
 
         let status = read_reg(info, IGC_STATUS).unwrap_or(0);
-        log::debug!(
+        log::warn!(
             "Timeout expired after a phy reset: ctrl={ctrl:#010x}, status={status:#010x}, phpm={phpm:#010x}"
         );
 
