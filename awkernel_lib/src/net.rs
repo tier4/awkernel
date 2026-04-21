@@ -15,12 +15,6 @@ use self::{
 };
 
 #[cfg(not(feature = "std"))]
-use self::tcp::TcpPort;
-
-#[cfg(not(feature = "std"))]
-use alloc::collections::BTreeSet;
-
-#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
 use crate::sync::rwlock::RwLock;
@@ -34,6 +28,7 @@ pub mod ip_addr;
 pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
+pub(self) mod port_alloc;
 pub mod tcp;
 pub mod tcp_listener;
 pub mod tcp_stream;
@@ -132,30 +127,6 @@ impl Display for IfStatus {
 static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     interfaces: BTreeMap::new(),
     interface_id: 0,
-
-    #[cfg(not(feature = "std"))]
-    udp_ports_ipv4: BTreeSet::new(),
-
-    #[cfg(not(feature = "std"))]
-    udp_port_ipv4_ephemeral: u16::MAX >> 2,
-
-    #[cfg(not(feature = "std"))]
-    udp_ports_ipv6: BTreeSet::new(),
-
-    #[cfg(not(feature = "std"))]
-    udp_port_ipv6_ephemeral: u16::MAX >> 2,
-
-    #[cfg(not(feature = "std"))]
-    tcp_ports_ipv4: BTreeMap::new(),
-
-    #[cfg(not(feature = "std"))]
-    tcp_port_ipv4_ephemeral: u16::MAX >> 2,
-
-    #[cfg(not(feature = "std"))]
-    tcp_ports_ipv6: BTreeMap::new(),
-
-    #[cfg(not(feature = "std"))]
-    tcp_port_ipv6_ephemeral: u16::MAX >> 2,
 });
 
 static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
@@ -164,208 +135,6 @@ static POLL_WAKERS: Mutex<BTreeMap<u64, IRQWaker>> = Mutex::new(BTreeMap::new())
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
     interface_id: u64,
-
-    #[cfg(not(feature = "std"))]
-    udp_ports_ipv4: BTreeSet<u16>,
-
-    #[cfg(not(feature = "std"))]
-    udp_port_ipv4_ephemeral: u16,
-
-    #[cfg(not(feature = "std"))]
-    udp_ports_ipv6: BTreeSet<u16>,
-
-    #[cfg(not(feature = "std"))]
-    udp_port_ipv6_ephemeral: u16,
-
-    #[cfg(not(feature = "std"))]
-    tcp_ports_ipv4: BTreeMap<u16, u64>,
-
-    #[cfg(not(feature = "std"))]
-    tcp_port_ipv4_ephemeral: u16,
-
-    #[cfg(not(feature = "std"))]
-    tcp_ports_ipv6: BTreeMap<u16, u64>,
-
-    #[cfg(not(feature = "std"))]
-    tcp_port_ipv6_ephemeral: u16,
-}
-
-impl NetManager {
-    #[cfg(not(feature = "std"))]
-    fn get_ephemeral_port_udp_ipv4(&mut self) -> Option<u16> {
-        let mut ephemeral_port = None;
-        for i in 0..(u16::MAX >> 2) {
-            let port = self.udp_port_ipv4_ephemeral.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-            if !self.udp_ports_ipv4.contains(&port) {
-                self.udp_ports_ipv4.insert(port);
-                self.udp_port_ipv4_ephemeral = port;
-                ephemeral_port = Some(port);
-                break;
-            }
-        }
-
-        ephemeral_port
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn set_port_in_use_udp_ipv4(&mut self, port: u16) {
-        self.udp_ports_ipv4.insert(port);
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn is_port_in_use_udp_ipv4(&mut self, port: u16) -> bool {
-        self.udp_ports_ipv4.contains(&port)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn free_port_udp_ipv4(&mut self, port: u16) {
-        self.udp_ports_ipv4.remove(&port);
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn get_ephemeral_port_udp_ipv6(&mut self) -> Option<u16> {
-        let mut ephemeral_port = None;
-        for i in 0..(u16::MAX >> 2) {
-            let port = self.udp_port_ipv6_ephemeral.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-            if !self.udp_ports_ipv6.contains(&port) {
-                self.udp_ports_ipv6.insert(port);
-                self.udp_port_ipv4_ephemeral = port;
-                ephemeral_port = Some(port);
-                break;
-            }
-        }
-
-        ephemeral_port
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn set_port_in_use_udp_ipv6(&mut self, port: u16) {
-        self.udp_ports_ipv6.insert(port);
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn is_port_in_use_udp_ipv6(&mut self, port: u16) -> bool {
-        self.udp_ports_ipv6.contains(&port)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn free_port_udp_ipv6(&mut self, port: u16) {
-        self.udp_ports_ipv6.remove(&port);
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn get_ephemeral_port_tcp_ipv4(&mut self) -> Option<TcpPort> {
-        let mut ephemeral_port = None;
-        for i in 0..(u16::MAX >> 2) {
-            let port = self.tcp_port_ipv4_ephemeral.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-            let entry = self.tcp_ports_ipv4.entry(i);
-
-            match entry {
-                Entry::Occupied(_) => (),
-                Entry::Vacant(e) => {
-                    e.insert(1);
-                    ephemeral_port = Some(TcpPort::new(port, true));
-                    self.tcp_port_ipv4_ephemeral = port;
-                    break;
-                }
-            }
-        }
-
-        ephemeral_port
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn is_port_in_use_tcp_ipv4(&mut self, port: u16) -> bool {
-        self.tcp_ports_ipv4.contains_key(&port)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn port_in_use_tcp_ipv4(&mut self, port: u16) -> TcpPort {
-        if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
-            *e += 1;
-        } else {
-            self.tcp_ports_ipv4.insert(port, 1);
-        }
-
-        TcpPort::new(port, true)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn decrement_port_in_use_tcp_ipv4(&mut self, port: u16) {
-        if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
-            *e -= 1;
-            if *e == 0 {
-                self.tcp_ports_ipv4.remove(&port);
-            }
-        }
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn get_ephemeral_port_tcp_ipv6(&mut self) -> Option<TcpPort> {
-        let mut ephemeral_port = None;
-        for i in 0..(u16::MAX >> 2) {
-            let port = self.tcp_port_ipv6_ephemeral.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-            let entry = self.tcp_ports_ipv6.entry(i);
-
-            match entry {
-                Entry::Occupied(_) => (),
-                Entry::Vacant(e) => {
-                    e.insert(1);
-                    ephemeral_port = Some(TcpPort::new(port, false));
-                    self.tcp_port_ipv6_ephemeral = port;
-                    break;
-                }
-            }
-        }
-
-        ephemeral_port
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn is_port_in_use_tcp_ipv6(&mut self, port: u16) -> bool {
-        self.tcp_ports_ipv6.contains_key(&port)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn port_in_use_tcp_ipv6(&mut self, port: u16) -> TcpPort {
-        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
-            *e += 1;
-        } else {
-            self.tcp_ports_ipv6.insert(port, 1);
-        }
-
-        TcpPort::new(port, true)
-    }
-
-    #[cfg(not(feature = "std"))]
-    #[inline(always)]
-    fn decrement_port_in_use_tcp_ipv6(&mut self, port: u16) {
-        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
-            *e -= 1;
-            if *e == 0 {
-                self.tcp_ports_ipv6.remove(&port);
-            }
-        }
-    }
 }
 
 pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {

@@ -810,3 +810,98 @@ wait
 | SPIN モデル検証 (`make run` in specification/) | ポーリングアルゴリズムの正しさ | Phase 4.2 実装前後 |
 | `make qemu-x86_64-net` + `scripts/udp.py` | 基本 UDP/TCP 疎通 | 各フェーズの動作確認 |
 | VM テスト (本セクション) | 多数コネクション負荷・スループット計測 | フェーズ前後のベースライン比較 |
+
+---
+
+## 9. 進捗状況
+
+### 凡例
+
+| 記号 | 意味 |
+|---|---|
+| ✅ | 実装・検証済み |
+| 🔲 | 未着手 |
+
+### フェーズ別完了状態
+
+| フェーズ | 状態 | 完了日 |
+|---|---|---|
+| **Pre-Phase** バグ修正 | ✅ | 2026-04-21 |
+| **Phase 1.1** PortAllocator 分離 | ✅ | 2026-04-21 |
+| **Phase 1.2** NET_MANAGER 読み取り専用化確認 | 🔲 | — |
+| **Phase 2.1** IfNetInner 分割（IfNetCore + IfNetMulticast） | 🔲 | — |
+| **Phase 3.1** connect() 二重ロック解消 | 🔲 | — |
+| **Phase 3.2** Drop キュー導入 | 🔲 | — |
+| **Phase 4.1** per-iface PortAllocator | 🔲 | — |
+| **Phase 4.2** 2 フェーズポーリング | 🔲 | — |
+
+---
+
+### Pre-Phase — 実施内容（✅ 完了）
+
+**計画:**
+- `get_ephemeral_port_tcp_ipv4/v6` の `entry(i)` → `entry(port)` バグ修正
+
+**実際に行ったこと:**
+- `get_ephemeral_port_tcp_ipv4` / `get_ephemeral_port_tcp_ipv6` の `entry(i)` → `entry(port)` 修正
+- 追加発見バグ: `get_ephemeral_port_udp_ipv6` で `self.udp_port_ipv4_ephemeral = port` と
+  なっていた（IPv6 カーソルではなく IPv4 カーソルを更新していた）。これも同時に修正
+
+**計画との差異:** なし（1 箇所追加修正あり）
+
+---
+
+### Phase 1.1 — 実施内容（✅ 完了）
+
+**計画:**
+- `awkernel_lib/src/net/port_alloc.rs` を新規作成
+- `PortAllocator` 構造体（4 プロトコル × 独立 Mutex + AtomicU16 カーソル）
+- 全呼び出し元を `PORT_ALLOC` 経由に変更
+
+**実際に行ったこと:**
+
+新規作成:
+- `awkernel_lib/src/net/port_alloc.rs`
+  - `PortAllocator` 構造体: TCP IPv4/IPv6 は `Mutex<BTreeMap<u16, u64>>`、
+    UDP IPv4/IPv6 は `Mutex<BTreeSet<u16>>`、各エフェメラルカーソルは `AtomicU16`
+  - 公開 API: `get_ephemeral_tcp_ipv4/v6`、`try_claim_tcp_ipv4/v6`、
+    `increment_ref_tcp_ipv4/v6`、`decrement_ref_tcp_ipv4/v6`、
+    `get_ephemeral_udp_ipv4/v6`、`try_claim_udp_ipv4/v6`、`free_udp_ipv4/v6`
+  - `static PORT_ALLOC: PortAllocator = PortAllocator::new()` を定義
+
+変更ファイル:
+- `awkernel_lib/src/net.rs`: `NetManager` からポートフィールド 8 個・ポートメソッド 16 個を削除。
+  `mod port_alloc;` 追加。`#[cfg(not(feature = "std"))]` の `TcpPort` / `BTreeSet` インポート削除
+- `awkernel_lib/src/net/tcp.rs`: `TcpPort::drop` の `NET_MANAGER.write()` → `PORT_ALLOC`
+- `awkernel_lib/src/net/tcp_stream/tcp_stream_no_std.rs`:
+  `connect()` の `NET_MANAGER.write()` → `PORT_ALLOC` + `NET_MANAGER.read()`
+- `awkernel_lib/src/net/tcp_listener/tcp_listener_no_std.rs`:
+  `bind_on_interface()` + `accept()` 2 箇所の `NET_MANAGER.write()` → `PORT_ALLOC`
+- `awkernel_lib/src/net/udp_socket/udp_socket_no_std.rs`:
+  `bind_on_interface()` + `Drop` の `NET_MANAGER.write()` → `PORT_ALLOC`
+
+ビルド・テスト確認:
+- `make x86_64 RELEASE=1` 成功
+- `make aarch64 BSP=aarch64_virt RELEASE=1` 成功（コンパイル部分）
+- `make test` 全テスト通過（371 テスト、0 失敗）
+
+**計画との差異:**
+
+| 項目 | 計画 | 実際 | 理由 |
+|---|---|---|---|
+| UDP ポートチェック API | `is_in_use_udp_*` + `set_in_use_udp_*` を別メソッドで提供 | `try_claim_udp_*` に統合（1 メソッド） | check-and-insert を Mutex 内でアトミックに行い TOCTOU を排除するため |
+| `udp_socket::bind_on_interface` のロック順序 | 計画に記載なし | インターフェース参照取得（`NET_MANAGER.read()`）を port 操作の **前** に変更 | 元コードではポート確保後にインターフェース検索失敗した場合にポートがリークする設計だったため修正 |
+
+---
+
+### 次フェーズ
+
+**Phase 1.2**（NET_MANAGER 読み取り専用化確認）が次の着手対象。
+`NET_MANAGER.write()` の残存箇所を `grep` で確認し、
+`add_interface`（起動時初期化パス）以外に書き込みロックがないことを検証する。
+
+```bash
+grep -n 'NET_MANAGER\.write' awkernel_lib/src/net/*.rs awkernel_lib/src/net/**/*.rs
+```
+
+確認後、Phase 2.1（`IfNetInner` 分割）に進む。

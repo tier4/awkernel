@@ -41,11 +41,10 @@ impl Drop for TcpPort {
     fn drop(&mut self) {
         #[cfg(not(feature = "std"))]
         {
-            let mut net_manager = super::NET_MANAGER.write();
             if self.is_ipv4 {
-                net_manager.decrement_port_in_use_tcp_ipv4(self.port);
+                super::port_alloc::PORT_ALLOC.decrement_ref_tcp_ipv4(self.port);
             } else {
-                net_manager.decrement_port_in_use_tcp_ipv6(self.port);
+                super::port_alloc::PORT_ALLOC.decrement_ref_tcp_ipv6(self.port);
             }
         }
     }

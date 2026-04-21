@@ -1,6 +1,6 @@
 use core::net::Ipv4Addr;
 
-use crate::net::{ip_addr::IpAddr, NET_MANAGER};
+use crate::net::{ip_addr::IpAddr, port_alloc::PORT_ALLOC, NET_MANAGER};
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{NetManagerError, SockUdp};
@@ -32,7 +32,15 @@ impl super::SockUdp for UdpSocket {
         rx_buffer_size: usize,
         tx_buffer_size: usize,
     ) -> Result<Self, NetManagerError> {
-        let mut net_manager = NET_MANAGER.write();
+        // Find the interface that has the specified address.
+        let if_net = {
+            let net_manager = NET_MANAGER.read();
+            net_manager
+                .interfaces
+                .get(&interface_id)
+                .ok_or(NetManagerError::InvalidInterfaceID)?
+                .clone()
+        };
 
         let is_ipv4;
         let port = if let Some(port) = port {
@@ -40,47 +48,34 @@ impl super::SockUdp for UdpSocket {
                 return Err(NetManagerError::InvalidPort);
             }
 
-            // Check if the specified port is available.
+            // Check if the specified port is available and claim it atomically.
             if addr.is_ipv4() {
-                if net_manager.is_port_in_use_udp_ipv4(port) {
+                if !PORT_ALLOC.try_claim_udp_ipv4(port) {
                     return Err(NetManagerError::PortInUse);
                 }
-
                 is_ipv4 = true;
-                net_manager.set_port_in_use_udp_ipv4(port);
                 port
             } else {
-                if net_manager.is_port_in_use_udp_ipv6(port) {
+                if !PORT_ALLOC.try_claim_udp_ipv6(port) {
                     return Err(NetManagerError::PortInUse);
                 }
-
                 is_ipv4 = false;
-                net_manager.set_port_in_use_udp_ipv6(port);
                 port
             }
         } else {
             // Find an ephemeral port.
             if addr.is_ipv4() {
                 is_ipv4 = true;
-                net_manager
-                    .get_ephemeral_port_udp_ipv4()
+                PORT_ALLOC
+                    .get_ephemeral_udp_ipv4()
                     .ok_or(NetManagerError::PortInUse)?
             } else {
                 is_ipv4 = false;
-                net_manager
-                    .get_ephemeral_port_udp_ipv6()
+                PORT_ALLOC
+                    .get_ephemeral_udp_ipv6()
                     .ok_or(NetManagerError::PortInUse)?
             }
         };
-
-        // Find the interface that has the specified address.
-        let if_net = net_manager
-            .interfaces
-            .get(&interface_id)
-            .ok_or(NetManagerError::InvalidInterfaceID)?
-            .clone();
-
-        drop(net_manager);
 
         // Create a UDP socket.
         use smoltcp::socket::udp;
@@ -331,14 +326,13 @@ impl Drop for UdpSocket {
             }
         }
 
-        let mut net_manager = NET_MANAGER.write();
-
         if self.is_ipv4 {
-            net_manager.free_port_udp_ipv4(self.port);
+            PORT_ALLOC.free_udp_ipv4(self.port);
         } else {
-            net_manager.free_port_udp_ipv6(self.port);
+            PORT_ALLOC.free_udp_ipv6(self.port);
         }
 
+        let net_manager = NET_MANAGER.read();
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
             if_net.socket_set.write().remove(self.handle);
         }
