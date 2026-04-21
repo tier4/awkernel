@@ -3,8 +3,6 @@ use alloc::collections::{
     btree_map::Entry,
     BTreeMap, BTreeSet,
 };
-#[cfg(not(feature = "std"))]
-use core::sync::atomic::{AtomicU16, Ordering};
 
 #[cfg(not(feature = "std"))]
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
@@ -12,24 +10,28 @@ use crate::sync::{mcs::MCSNode, mutex::Mutex};
 #[cfg(not(feature = "std"))]
 use super::tcp::TcpPort;
 
+#[cfg(not(feature = "std"))]
+struct TcpPortsInner {
+    map: BTreeMap<u16, u64>,
+    cursor: u16,
+}
+
+#[cfg(not(feature = "std"))]
+struct UdpPortsInner {
+    set: BTreeSet<u16>,
+    cursor: u16,
+}
+
 #[allow(dead_code)]
 pub(super) struct PortAllocator {
     #[cfg(not(feature = "std"))]
-    tcp_ipv4: Mutex<BTreeMap<u16, u64>>,
+    tcp_ipv4: Mutex<TcpPortsInner>,
     #[cfg(not(feature = "std"))]
-    tcp_ipv4_ephemeral: AtomicU16,
+    tcp_ipv6: Mutex<TcpPortsInner>,
     #[cfg(not(feature = "std"))]
-    tcp_ipv6: Mutex<BTreeMap<u16, u64>>,
+    udp_ipv4: Mutex<UdpPortsInner>,
     #[cfg(not(feature = "std"))]
-    tcp_ipv6_ephemeral: AtomicU16,
-    #[cfg(not(feature = "std"))]
-    udp_ipv4: Mutex<BTreeSet<u16>>,
-    #[cfg(not(feature = "std"))]
-    udp_ipv4_ephemeral: AtomicU16,
-    #[cfg(not(feature = "std"))]
-    udp_ipv6: Mutex<BTreeSet<u16>>,
-    #[cfg(not(feature = "std"))]
-    udp_ipv6_ephemeral: AtomicU16,
+    udp_ipv6: Mutex<UdpPortsInner>,
 }
 
 #[allow(dead_code)]
@@ -39,36 +41,38 @@ impl PortAllocator {
     pub(super) const fn new() -> Self {
         Self {
             #[cfg(not(feature = "std"))]
-            tcp_ipv4: Mutex::new(BTreeMap::new()),
+            tcp_ipv4: Mutex::new(TcpPortsInner {
+                map: BTreeMap::new(),
+                cursor: u16::MAX >> 2,
+            }),
             #[cfg(not(feature = "std"))]
-            tcp_ipv4_ephemeral: AtomicU16::new(u16::MAX >> 2),
+            tcp_ipv6: Mutex::new(TcpPortsInner {
+                map: BTreeMap::new(),
+                cursor: u16::MAX >> 2,
+            }),
             #[cfg(not(feature = "std"))]
-            tcp_ipv6: Mutex::new(BTreeMap::new()),
+            udp_ipv4: Mutex::new(UdpPortsInner {
+                set: BTreeSet::new(),
+                cursor: u16::MAX >> 2,
+            }),
             #[cfg(not(feature = "std"))]
-            tcp_ipv6_ephemeral: AtomicU16::new(u16::MAX >> 2),
-            #[cfg(not(feature = "std"))]
-            udp_ipv4: Mutex::new(BTreeSet::new()),
-            #[cfg(not(feature = "std"))]
-            udp_ipv4_ephemeral: AtomicU16::new(u16::MAX >> 2),
-            #[cfg(not(feature = "std"))]
-            udp_ipv6: Mutex::new(BTreeSet::new()),
-            #[cfg(not(feature = "std"))]
-            udp_ipv6_ephemeral: AtomicU16::new(u16::MAX >> 2),
+            udp_ipv6: Mutex::new(UdpPortsInner {
+                set: BTreeSet::new(),
+                cursor: u16::MAX >> 2,
+            }),
         }
     }
 
     /// Allocate an ephemeral TCP IPv4 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_tcp_ipv4(&self) -> Option<TcpPort> {
-        let cursor = self.tcp_ipv4_ephemeral.load(Ordering::Relaxed);
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv4.lock(&mut node);
-        for i in 0..(u16::MAX >> 2) {
-            let port = cursor.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-            if let Entry::Vacant(e) = map.entry(port) {
+        let mut ports = self.tcp_ipv4.lock(&mut node);
+        for _ in 0..(u16::MAX >> 2) {
+            ports.cursor = ports.cursor.wrapping_add(1);
+            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            if let Entry::Vacant(e) = ports.map.entry(port) {
                 e.insert(1);
-                self.tcp_ipv4_ephemeral.store(port, Ordering::Relaxed);
                 return Some(TcpPort::new(port, true));
             }
         }
@@ -79,11 +83,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_tcp_ipv4(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv4.lock(&mut node);
-        if map.contains_key(&port) {
+        let mut ports = self.tcp_ipv4.lock(&mut node);
+        if ports.map.contains_key(&port) {
             None
         } else {
-            map.insert(port, 1);
+            ports.map.insert(port, 1);
             Some(TcpPort::new(port, true))
         }
     }
@@ -92,11 +96,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn increment_ref_tcp_ipv4(&self, port: u16) -> TcpPort {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv4.lock(&mut node);
-        if let Some(e) = map.get_mut(&port) {
+        let mut ports = self.tcp_ipv4.lock(&mut node);
+        if let Some(e) = ports.map.get_mut(&port) {
             *e += 1;
         } else {
-            map.insert(port, 1);
+            ports.map.insert(port, 1);
         }
         TcpPort::new(port, true)
     }
@@ -105,11 +109,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn decrement_ref_tcp_ipv4(&self, port: u16) {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv4.lock(&mut node);
-        if let Some(e) = map.get_mut(&port) {
+        let mut ports = self.tcp_ipv4.lock(&mut node);
+        if let Some(e) = ports.map.get_mut(&port) {
             *e -= 1;
             if *e == 0 {
-                map.remove(&port);
+                ports.map.remove(&port);
             }
         }
     }
@@ -117,15 +121,13 @@ impl PortAllocator {
     /// Allocate an ephemeral TCP IPv6 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_tcp_ipv6(&self) -> Option<TcpPort> {
-        let cursor = self.tcp_ipv6_ephemeral.load(Ordering::Relaxed);
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv6.lock(&mut node);
-        for i in 0..(u16::MAX >> 2) {
-            let port = cursor.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-            if let Entry::Vacant(e) = map.entry(port) {
+        let mut ports = self.tcp_ipv6.lock(&mut node);
+        for _ in 0..(u16::MAX >> 2) {
+            ports.cursor = ports.cursor.wrapping_add(1);
+            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            if let Entry::Vacant(e) = ports.map.entry(port) {
                 e.insert(1);
-                self.tcp_ipv6_ephemeral.store(port, Ordering::Relaxed);
                 return Some(TcpPort::new(port, false));
             }
         }
@@ -136,11 +138,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_tcp_ipv6(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv6.lock(&mut node);
-        if map.contains_key(&port) {
+        let mut ports = self.tcp_ipv6.lock(&mut node);
+        if ports.map.contains_key(&port) {
             None
         } else {
-            map.insert(port, 1);
+            ports.map.insert(port, 1);
             Some(TcpPort::new(port, false))
         }
     }
@@ -149,11 +151,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn increment_ref_tcp_ipv6(&self, port: u16) -> TcpPort {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv6.lock(&mut node);
-        if let Some(e) = map.get_mut(&port) {
+        let mut ports = self.tcp_ipv6.lock(&mut node);
+        if let Some(e) = ports.map.get_mut(&port) {
             *e += 1;
         } else {
-            map.insert(port, 1);
+            ports.map.insert(port, 1);
         }
         TcpPort::new(port, false)
     }
@@ -162,11 +164,11 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn decrement_ref_tcp_ipv6(&self, port: u16) {
         let mut node = MCSNode::new();
-        let mut map = self.tcp_ipv6.lock(&mut node);
-        if let Some(e) = map.get_mut(&port) {
+        let mut ports = self.tcp_ipv6.lock(&mut node);
+        if let Some(e) = ports.map.get_mut(&port) {
             *e -= 1;
             if *e == 0 {
-                map.remove(&port);
+                ports.map.remove(&port);
             }
         }
     }
@@ -174,14 +176,12 @@ impl PortAllocator {
     /// Allocate an ephemeral UDP IPv4 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_udp_ipv4(&self) -> Option<u16> {
-        let cursor = self.udp_ipv4_ephemeral.load(Ordering::Relaxed);
         let mut node = MCSNode::new();
-        let mut set = self.udp_ipv4.lock(&mut node);
-        for i in 0..(u16::MAX >> 2) {
-            let port = cursor.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-            if set.insert(port) {
-                self.udp_ipv4_ephemeral.store(port, Ordering::Relaxed);
+        let mut ports = self.udp_ipv4.lock(&mut node);
+        for _ in 0..(u16::MAX >> 2) {
+            ports.cursor = ports.cursor.wrapping_add(1);
+            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            if ports.set.insert(port) {
                 return Some(port);
             }
         }
@@ -192,28 +192,27 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_udp_ipv4(&self, port: u16) -> bool {
         let mut node = MCSNode::new();
-        let result = self.udp_ipv4.lock(&mut node).insert(port);
-        result
+        let mut ports = self.udp_ipv4.lock(&mut node);
+        ports.set.insert(port)
     }
 
     /// Free a UDP IPv4 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn free_udp_ipv4(&self, port: u16) {
         let mut node = MCSNode::new();
-        self.udp_ipv4.lock(&mut node).remove(&port);
+        let mut ports = self.udp_ipv4.lock(&mut node);
+        ports.set.remove(&port);
     }
 
     /// Allocate an ephemeral UDP IPv6 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn get_ephemeral_udp_ipv6(&self) -> Option<u16> {
-        let cursor = self.udp_ipv6_ephemeral.load(Ordering::Relaxed);
         let mut node = MCSNode::new();
-        let mut set = self.udp_ipv6.lock(&mut node);
-        for i in 0..(u16::MAX >> 2) {
-            let port = cursor.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-            if set.insert(port) {
-                self.udp_ipv6_ephemeral.store(port, Ordering::Relaxed);
+        let mut ports = self.udp_ipv6.lock(&mut node);
+        for _ in 0..(u16::MAX >> 2) {
+            ports.cursor = ports.cursor.wrapping_add(1);
+            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            if ports.set.insert(port) {
                 return Some(port);
             }
         }
@@ -224,14 +223,15 @@ impl PortAllocator {
     #[cfg(not(feature = "std"))]
     pub(super) fn try_claim_udp_ipv6(&self, port: u16) -> bool {
         let mut node = MCSNode::new();
-        let result = self.udp_ipv6.lock(&mut node).insert(port);
-        result
+        let mut ports = self.udp_ipv6.lock(&mut node);
+        ports.set.insert(port)
     }
 
     /// Free a UDP IPv6 port.
     #[cfg(not(feature = "std"))]
     pub(super) fn free_udp_ipv6(&self, port: u16) {
         let mut node = MCSNode::new();
-        self.udp_ipv6.lock(&mut node).remove(&port);
+        let mut ports = self.udp_ipv6.lock(&mut node);
+        ports.set.remove(&port);
     }
 }

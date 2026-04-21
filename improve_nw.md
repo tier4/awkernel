@@ -862,8 +862,10 @@ wait
 
 新規作成:
 - `awkernel_lib/src/net/port_alloc.rs`
-  - `PortAllocator` 構造体: TCP IPv4/IPv6 は `Mutex<BTreeMap<u16, u64>>`、
-    UDP IPv4/IPv6 は `Mutex<BTreeSet<u16>>`、各エフェメラルカーソルは `AtomicU16`
+  - `TcpPortsInner` 構造体（`map: BTreeMap<u16, u64>` + `cursor: u16`）
+  - `UdpPortsInner` 構造体（`set: BTreeSet<u16>` + `cursor: u16`）
+  - `PortAllocator` 構造体: TCP IPv4/IPv6 は `Mutex<TcpPortsInner>`、
+    UDP IPv4/IPv6 は `Mutex<UdpPortsInner>`。カーソルは各 Inner 内の `u16`（AtomicU16 ではない）
   - 公開 API: `get_ephemeral_tcp_ipv4/v6`、`try_claim_tcp_ipv4/v6`、
     `increment_ref_tcp_ipv4/v6`、`decrement_ref_tcp_ipv4/v6`、
     `get_ephemeral_udp_ipv4/v6`、`try_claim_udp_ipv4/v6`、`free_udp_ipv4/v6`
@@ -883,7 +885,7 @@ wait
 ビルド・テスト確認:
 - `make x86_64 RELEASE=1` 成功
 - `make aarch64 BSP=aarch64_virt RELEASE=1` 成功（コンパイル部分）
-- `make test` 全テスト通過（371 テスト、0 失敗）
+- `make test` 全テスト通過（367 テスト、0 失敗）
 
 **計画との差異:**
 
@@ -891,6 +893,8 @@ wait
 |---|---|---|---|
 | UDP ポートチェック API | `is_in_use_udp_*` + `set_in_use_udp_*` を別メソッドで提供 | `try_claim_udp_*` に統合（1 メソッド） | check-and-insert を Mutex 内でアトミックに行い TOCTOU を排除するため |
 | `udp_socket::bind_on_interface` のロック順序 | 計画に記載なし | インターフェース参照取得（`NET_MANAGER.read()`）を port 操作の **前** に変更 | 元コードではポート確保後にインターフェース検索失敗した場合にポートがリークする設計だったため修正 |
+| エフェメラルカーソルの型 | `AtomicU16`（計画: `fetch_add` でロックフリー更新） | `u16`（Mutex 内の `Inner` 構造体に埋め込み） | `AtomicU16` をロック外 load・ロック内 store するパターンは aarch64 弱順序モデルでカーソルが陳腐化する可能性があり、かつ i=0 始まりの `wrapping_add(i)` により毎回 1 イテレーション無駄になるバグがあったため修正 |
+| 探索アルゴリズム | `cursor.wrapping_add(i)`（i=0 始まり） | advancing cursor（ループ先頭で `cursor += 1`） | i=0 始まりは直前に割り当てたポートを毎回最初に試し、必ず 1 イテレーション空振りするため |
 
 ---
 
