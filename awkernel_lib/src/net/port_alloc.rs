@@ -1,9 +1,6 @@
 #![cfg(not(feature = "std"))]
 
-use alloc::collections::{
-    btree_map::Entry,
-    BTreeMap, BTreeSet,
-};
+use alloc::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
@@ -56,7 +53,11 @@ impl PortAllocator {
         let mut ports = self.tcp_ipv4.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
             ports.cursor = ports.cursor.wrapping_add(1);
-            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            let port = if ports.cursor == 0 {
+                u16::MAX >> 2
+            } else {
+                ports.cursor
+            };
             if let Entry::Vacant(e) = ports.map.entry(port) {
                 e.insert(1);
                 return Some(TcpPort::new(port, true));
@@ -107,7 +108,11 @@ impl PortAllocator {
         let mut ports = self.tcp_ipv6.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
             ports.cursor = ports.cursor.wrapping_add(1);
-            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            let port = if ports.cursor == 0 {
+                u16::MAX >> 2
+            } else {
+                ports.cursor
+            };
             if let Entry::Vacant(e) = ports.map.entry(port) {
                 e.insert(1);
                 return Some(TcpPort::new(port, false));
@@ -158,7 +163,11 @@ impl PortAllocator {
         let mut ports = self.udp_ipv4.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
             ports.cursor = ports.cursor.wrapping_add(1);
-            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            let port = if ports.cursor == 0 {
+                u16::MAX >> 2
+            } else {
+                ports.cursor
+            };
             if ports.set.insert(port) {
                 return Some(port);
             }
@@ -186,7 +195,11 @@ impl PortAllocator {
         let mut ports = self.udp_ipv6.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
             ports.cursor = ports.cursor.wrapping_add(1);
-            let port = if ports.cursor == 0 { u16::MAX >> 2 } else { ports.cursor };
+            let port = if ports.cursor == 0 {
+                u16::MAX >> 2
+            } else {
+                ports.cursor
+            };
             if ports.set.insert(port) {
                 return Some(port);
             }

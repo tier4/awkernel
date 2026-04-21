@@ -6,8 +6,8 @@ use crate::sync::mcs::MCSNode;
 use alloc::{vec, vec::Vec};
 
 use crate::net::{
-    ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, tcp_stream::TcpStream,
-    NetManagerError, NET_MANAGER,
+    ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, tcp_stream::TcpStream, NetManagerError,
+    NET_MANAGER,
 };
 
 use super::SockTcpListener;

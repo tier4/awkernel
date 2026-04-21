@@ -1,4 +1,6 @@
-use crate::net::{ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, NetManagerError, NET_MANAGER};
+use crate::net::{
+    ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, NetManagerError, NET_MANAGER,
+};
 
 use super::{SockTcpStream, TcpResult};
 
