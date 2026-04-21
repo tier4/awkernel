@@ -70,11 +70,11 @@ impl PortAllocator {
     pub(super) fn try_claim_tcp_ipv4(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv4.lock(&mut node);
-        if ports.map.contains_key(&port) {
-            None
-        } else {
-            ports.map.insert(port, 1);
+        if let Entry::Vacant(e) = ports.map.entry(port) {
+            e.insert(1);
             Some(TcpPort::new(port, true))
+        } else {
+            None
         }
     }
 
@@ -125,11 +125,11 @@ impl PortAllocator {
     pub(super) fn try_claim_tcp_ipv6(&self, port: u16) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
-        if ports.map.contains_key(&port) {
-            None
-        } else {
-            ports.map.insert(port, 1);
+        if let Entry::Vacant(e) = ports.map.entry(port) {
+            e.insert(1);
             Some(TcpPort::new(port, false))
+        } else {
+            None
         }
     }
 
