@@ -487,3 +487,326 @@ Phase 3.1               Phase 3.2
 
 - **no_std 制約:** 全フェーズで `std` API に依存しない。追加する構造体は
   `Mutex`、`AtomicU16`、`BTreeMap`、`VecDeque` など no_std 互換の型のみ使用する。
+
+---
+
+## 8. テスト手法
+
+### 8.1 テスト環境の構成
+
+現状のプロジェクトは `make qemu-x86_64-net` で QEMU を直接起動し、
+ホスト↔ゲスト間の通信のみをテストしている。ここでは **VM 間通信** と
+**多数コネクション負荷テスト** を可能にするため、libvirt/KVM を用いた
+2-VM 構成を追加する。
+
+```
+Host Machine (libvirt / KVM)
+├── virbr-awk  (NAT bridge, 192.168.100.0/24)  ← virsh net-define
+├── VM: awkernel   (awkernel カーネル, QEMU/KVM, OVMF)
+│   ├── vnet0: e1000e,  192.168.100.10
+│   └── vnet1: virtio,  192.168.100.11
+└── VM: counterpart  (Fedora/Ubuntu, iperf3 / netperf サーバ)
+    └── vnet0: 192.168.100.2
+```
+
+`awkernel` 側のネットワーク設定は既存の QEMU 引数と同じ
+（e1000e + virtio-net-pci、MAC アドレスは Makefile の値を維持）。
+
+---
+
+### 8.2 環境セットアップ
+
+#### 8.2.1 仮想ネットワーク定義
+
+```xml
+<!-- awkernel-net.xml -->
+<network>
+  <name>virbr-awk</name>
+  <forward mode='nat'/>
+  <bridge name='virbr-awk' stp='on' delay='0'/>
+  <ip address='192.168.100.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.100.2' end='192.168.100.254'/>
+    </dhcp>
+  </ip>
+</network>
+```
+
+```bash
+virsh net-define awkernel-net.xml
+virsh net-start  virbr-awk
+virsh net-autostart virbr-awk
+virsh net-list --all          # 起動確認
+```
+
+#### 8.2.2 カウンタパート VM の作成
+
+```bash
+# Fedora/Ubuntu など標準 Linux を 1 台用意する
+virt-install \
+  --name counterpart \
+  --memory 2048 --vcpus 2 \
+  --os-variant fedora40 \
+  --network network=virbr-awk,model=virtio \
+  --disk path=/var/lib/libvirt/images/counterpart.qcow2,size=20,format=qcow2 \
+  --location /path/to/fedora.iso \
+  --extra-args 'console=ttyS0' \
+  --nographics --noautoconsole
+
+virsh start   counterpart
+virsh console counterpart    # インストール後にログイン
+# インストール完了後
+sudo dnf install -y iperf3 netperf nc   # または apt install
+```
+
+#### 8.2.3 awkernel VM の定義
+
+Makefile の QEMU 引数を virsh の `<domain>` XML に変換して登録する。
+NIC を既存の QEMU usermode ネットワークから `virbr-awk` ブリッジに切り替える。
+
+```xml
+<!-- awkernel-vm.xml (x86_64 UEFI の場合の骨子) -->
+<domain type='kvm'>
+  <name>awkernel</name>
+  <memory unit='GiB'>4</memory>
+  <vcpu>16</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <nvram>/var/lib/libvirt/qemu/nvram/awkernel_VARS.fd</nvram>
+  </os>
+  <cpu mode='host-passthrough'/>
+  <devices>
+    <!-- awkernel イメージ -->
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='/path/to/x86_64_uefi.img'/>
+      <target dev='sda' bus='sata'/>
+    </disk>
+    <!-- NIC 1: e1000e (net0) -->
+    <interface type='network'>
+      <source network='virbr-awk'/>
+      <model type='e1000e'/>
+      <mac address='12:34:56:11:22:33'/>
+    </interface>
+    <!-- NIC 2: virtio (net1) -->
+    <interface type='network'>
+      <source network='virbr-awk'/>
+      <model type='virtio'/>
+      <mac address='12:34:56:11:22:34'/>
+    </interface>
+    <serial type='pty'><target port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+  </devices>
+</domain>
+```
+
+```bash
+virsh define  awkernel-vm.xml
+virsh start   awkernel
+virsh console awkernel          # シリアルコンソールでカーネルログ確認
+```
+
+#### 8.2.4 VM の停止・削除
+
+```bash
+virsh destroy   awkernel        # 強制停止
+virsh destroy   counterpart
+virsh undefine  awkernel        # 定義削除
+virsh undefine  counterpart
+virsh net-destroy   virbr-awk
+virsh net-undefine  virbr-awk
+```
+
+---
+
+### 8.3 テスト項目
+
+| # | テスト名 | 目的 | ツール | 計測値 |
+|---|---|---|---|---|
+| T1 | 基本疎通確認 | TCP/UDP が到達すること | nc, ping | 成功/失敗 |
+| T2 | UDP スループット | NET_MANAGER 改善前後の比較 | iperf3 -u | Gbps |
+| T3 | TCP スループット | socket_set 競合改善の確認 | iperf3 | Gbps |
+| T4 | 並列 TCP 接続 | 多数コネクション時スケーリング | iperf3 -P N | Gbps, CPU% |
+| T5 | 接続確立レート | Phase 1 前後の比較 | netperf TCP_CRR | conn/s |
+| T6 | リクエスト/レスポンス RTT | Phase 3 前後の比較 | netperf TCP_RR | μs |
+| T7 | パケットキャプチャ解析 | ロスト・再送の確認 | tcpdump, tshark | ロス率% |
+| T8 | PCAP ベースの手動確認 | awkernel 側パケット検査 | 既存 filter-dump | - |
+
+---
+
+### 8.4 テストコマンド詳細
+
+#### 基本疎通 (T1)
+
+```bash
+# counterpart VM 上
+nc -l -p 9000                               # TCP リスナー
+nc -u -l -p 9001                            # UDP リスナー
+
+# ホストから awkernel を経由した疎通確認（awkernel がエコーを返す場合）
+nc 192.168.100.10 26099
+echo "hello" | nc -u 192.168.100.10 26099
+```
+
+#### UDP スループット (T2)
+
+```bash
+# counterpart VM でサーバ起動
+iperf3 -s
+
+# ホストまたは counterpart から awkernel 向けに送信
+iperf3 -c 192.168.100.10 -u -b 0 -t 30 -l 1400   # 帯域無制限, 30 秒
+iperf3 -c 192.168.100.10 -u -b 0 -t 30 -P 32     # 32 並列ストリーム
+```
+
+#### TCP スループット・並列接続 (T3, T4)
+
+```bash
+# counterpart VM でサーバ起動
+iperf3 -s -p 5201
+
+# N 並列 TCP ストリーム
+for N in 1 4 8 16 32 64 128; do
+  echo "=== -P $N ==="
+  iperf3 -c 192.168.100.10 -p 5201 -P $N -t 30 -J \
+    | tee result_tcp_P${N}.json
+done
+```
+
+#### 接続確立レート (T5) — Phase 1 比較に重要
+
+```bash
+# counterpart VM で netperf サーバ起動
+netserver -p 12865
+
+# TCP 接続生成レートの計測（30 秒間）
+netperf -H 192.168.100.10 -p 12865 -t TCP_CRR -l 30 -- -r 1,1
+```
+
+期待値: Phase 1 適用後は Phase 0 比 **2〜4 倍**の接続/秒を記録する。
+
+#### RTT レイテンシ (T6) — Phase 3 比較に重要
+
+```bash
+netperf -H 192.168.100.10 -p 12865 -t TCP_RR -l 30 -- -r 64,64
+```
+
+#### パケットキャプチャ (T7, T8)
+
+```bash
+# awkernel VM は QEMU filter-dump で自動キャプチャ済み
+# counterpart 側で補足する場合
+virsh domifstat counterpart vnet0   # パケット統計
+virsh qemu-monitor-command awkernel --hmp \
+  'info network'                    # QEMU ネットワーク状態確認
+
+# キャプチャ解析
+tcpdump -vvv -XXnr packets_net0.pcap | head -100
+tshark -r packets_net0.pcap -z io,stat,1 "tcp"   # 1 秒ごとの TCP 統計
+```
+
+---
+
+### 8.5 ベースライン取得手順
+
+各フェーズの実装前に必ずベースラインを記録する。
+
+```bash
+#!/bin/bash
+# baseline.sh — 変更前に実行してベースライン保存
+DATE=$(date +%Y%m%d_%H%M%S)
+DIR="bench_baseline_${DATE}"
+mkdir -p $DIR
+
+# T3: TCP スループット
+iperf3 -c 192.168.100.10 -p 5201 -t 30 -J > $DIR/tcp_single.json
+
+# T4: 並列 TCP
+for N in 4 16 64; do
+  iperf3 -c 192.168.100.10 -p 5201 -P $N -t 30 -J > $DIR/tcp_P${N}.json
+done
+
+# T5: 接続確立レート
+netperf -H 192.168.100.10 -p 12865 -t TCP_CRR -l 30 -- -r 1,1 \
+  > $DIR/tcp_crr.txt
+
+# T6: RTT
+netperf -H 192.168.100.10 -p 12865 -t TCP_RR -l 30 -- -r 64,64 \
+  > $DIR/tcp_rr.txt
+
+echo "Baseline saved to $DIR"
+```
+
+フェーズ実装後に同スクリプトを `bench_after_phaseN_${DATE}` として再実行し、
+数値を比較する。
+
+---
+
+### 8.6 フェーズ別テスト手順
+
+#### Pre-Phase（バグ修正）後
+
+```bash
+# ポート割り当てが正しく動作することを確認
+# 1. 64 並列 TCP 接続を確立し、全て成功することを確認
+iperf3 -c 192.168.100.10 -p 5201 -P 64 -t 10
+# 2. エフェメラルポート番号が想定範囲内かシリアルコンソールで確認
+virsh console awkernel
+```
+
+#### Phase 1（PortAllocator 分離）後
+
+```bash
+# T5: 接続確立レートがベースライン比 2 倍以上であることを確認
+netperf -H 192.168.100.10 -p 12865 -t TCP_CRR -l 30 -- -r 1,1
+# T4: 64 並列接続でのスループットがベースライン比 1.5 倍以上
+iperf3 -c 192.168.100.10 -p 5201 -P 64 -t 30 -J
+```
+
+#### Phase 2（IfNetInner 分割）後
+
+```bash
+# マルチキャスト join/leave 中にデータ転送が止まらないことを確認
+# 別ターミナルで転送継続
+iperf3 -c 192.168.100.10 -p 5201 -t 60 &
+# awkernel コンソールでマルチキャスト join/leave を繰り返す
+virsh console awkernel
+# iperf3 のスループットが join/leave 中も維持されていることを確認
+```
+
+#### Phase 3（二重ロック解消・Drop キュー）後
+
+```bash
+# T6: RTT がベースライン比 改善していることを確認
+netperf -H 192.168.100.10 -p 12865 -t TCP_RR -l 30 -- -r 64,64
+# 接続破棄集中テスト: 短命コネクションを高レートで生成
+for i in $(seq 1 1000); do
+  nc -z 192.168.100.10 26099 &
+done
+wait
+# iperf3 の転送が阻害されていないことを並行確認
+```
+
+#### Phase 4（per-iface スケールアウト）後
+
+```bash
+# 複数インターフェース経由の並列転送
+iperf3 -c 192.168.100.10 -p 5201 -P 32 -t 30 -J &  # net0 経由
+iperf3 -c 192.168.100.11 -p 5201 -P 32 -t 30 -J &  # net1 経由
+wait
+# 合算スループットが単独 NIC の 2 倍近いことを確認
+```
+
+---
+
+### 8.7 既存テストとの併用
+
+上記 VM テストは既存のテスト体系を置き換えるものではなく、補完する。
+
+| テスト種別 | 用途 | 実行タイミング |
+|---|---|---|
+| `make test` | 単体テスト（ロック・データ構造） | 毎コミット (CI) |
+| SPIN モデル検証 (`make run` in specification/) | ポーリングアルゴリズムの正しさ | Phase 4.2 実装前後 |
+| `make qemu-x86_64-net` + `scripts/udp.py` | 基本 UDP/TCP 疎通 | 各フェーズの動作確認 |
+| VM テスト (本セクション) | 多数コネクション負荷・スループット計測 | フェーズ前後のベースライン比較 |
