@@ -326,15 +326,17 @@ impl Drop for UdpSocket {
             }
         }
 
+        {
+            let net_manager = NET_MANAGER.read();
+            if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
+                if_net.socket_set.write().remove(self.handle);
+            }
+        }
+
         if self.is_ipv4 {
             PORT_ALLOC.free_udp_ipv4(self.port);
         } else {
             PORT_ALLOC.free_udp_ipv6(self.port);
-        }
-
-        let net_manager = NET_MANAGER.read();
-        if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
-            if_net.socket_set.write().remove(self.handle);
         }
     }
 }
