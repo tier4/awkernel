@@ -885,12 +885,20 @@ impl IgcInner {
         que_id: usize,
         ether_frame: net_device::EtherFrameRef,
     ) -> Result<(), IgcDriverErr> {
-        if que_id != 0 || !self.link_info.link_active || ether_frame.data.len() > TX_BUFFER_SIZE {
+        if que_id != 0 {
+            return Err(IgcDriverErr::Param);
+        }
+
+        if !self.link_info.link_active {
             return Ok(());
         }
 
+        if ether_frame.data.len() > TX_BUFFER_SIZE {
+            return Err(IgcDriverErr::Param);
+        }
+
         if ether_frame.vlan.is_some() {
-            return Ok(());
+            return Err(IgcDriverErr::Param);
         }
 
         let mut node = MCSNode::new();
@@ -953,10 +961,10 @@ impl IgcInner {
         let idx = rx.next_to_check;
         let (status_error, length, vlan) = {
             let desc = &rx.rx_desc_ring.as_ref()[idx];
-            let status_error = unsafe { desc.wb.upper.status_error };
-            let length = unsafe { desc.wb.upper.length as usize };
+            let status_error = u32::from_le(unsafe { desc.wb.upper.status_error });
+            let length = u16::from_le(unsafe { desc.wb.upper.length }) as usize;
             let vlan = if status_error & IGC_RXD_STAT_VP != 0 {
-                Some(unsafe { desc.wb.upper.vlan })
+                Some(u16::from_le(unsafe { desc.wb.upper.vlan }))
             } else {
                 None
             };
@@ -1225,7 +1233,8 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
 
     let nmsix = nmsix - 1; // Give one vector to events.
 
-    let nqueues = core::cmp::min(nmsix, IGC_MAX_VECTORS.min(1));
+    // Limit the driver to a single Rx/Tx queue for now.
+    let nqueues = core::cmp::min(nmsix, 1);
 
     // Initialize the IRQs for the Rx/Tx queues.
     let mut irqs_queues = Vec::with_capacity(nqueues as usize);
