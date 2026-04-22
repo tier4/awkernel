@@ -961,19 +961,16 @@ impl XhciDevice {
         // Ring EP0 doorbell: endpoint_id=1 (EP0 / default control pipe).
         self.write_slot_doorbell(slot, 1);
 
-        // Wait for the Status Stage TRANSFER_EVENT (completion code 1 = Success).
-        // Two TRANSFER_EVENTs may arrive (Data + Status); we accept the first Success.
-        for _ in 0..2 {
+        // Drain TRANSFER_EVENTs until Status Stage success (code=1).
+        // code=13 (Short Packet) fires on the Data Stage for FS devices with
+        // MaxPacketSize0=8; continue past it to consume the Status Stage event.
+        for _ in 0..3 {
             let code = self.poll_xfer_completion(2_000_000)
                 .ok_or(PCIeDeviceErr::InitFailure)?;
-            // code 1=Success, 13=Short Packet (also acceptable for GET_DESCRIPTOR).
-            if code == 1 || code == 13 {
-                break;
-            }
-            if code != 1 && code != 13 {
-                log::error!("xHCI: {}: GET_DESCRIPTOR transfer error (code={})", self.name, code);
-                return Err(PCIeDeviceErr::InitFailure);
-            }
+            if code == 1 { break; }
+            if code == 13 { continue; }
+            log::error!("xHCI: {}: GET_DESCRIPTOR transfer error (code={})", self.name, code);
+            return Err(PCIeDeviceErr::InitFailure);
         }
 
         // Parse the Device Descriptor (18 bytes, §9.6.1 of USB 3.2 spec).
@@ -1201,17 +1198,18 @@ impl XhciDevice {
             });
         }
         self.write_slot_doorbell(slot, 1);
-        // Accept up to two TRANSFER_EVENTs (Data + Status may both fire with IOC).
-        for _ in 0..2 {
+        // Drain until Status Stage success (code=1).
+        // code=13 (Short Packet) fires on the Data Stage for FS devices; continue
+        // past it so we consume the Status Stage event before returning.
+        for _ in 0..3 {
             let code = self.poll_xfer_completion(2_000_000)
                 .ok_or(PCIeDeviceErr::InitFailure)?;
-            if code == 1 || code == 13 {
-                return Ok(());
-            }
+            if code == 1 { return Ok(()); }
+            if code == 13 { continue; }
             log::error!("xHCI: control_transfer_in: code={}", code);
             return Err(PCIeDeviceErr::InitFailure);
         }
-        Ok(())
+        Err(PCIeDeviceErr::InitFailure)
     }
 
     /// OUT control transfer with no data stage: Setup(TRT=0) + Status(DIR=IN, IOC).
@@ -1277,16 +1275,15 @@ impl XhciDevice {
             });
         }
         self.write_slot_doorbell(slot, 1);
-        for _ in 0..2 {
+        for _ in 0..3 {
             let code = self.poll_xfer_completion(2_000_000)
                 .ok_or(PCIeDeviceErr::InitFailure)?;
-            if code == 1 || code == 13 {
-                return Ok(());
-            }
+            if code == 1 { return Ok(()); }
+            if code == 13 { continue; }
             log::error!("xHCI: control_transfer_out_with_data: code={}", code);
             return Err(PCIeDeviceErr::InitFailure);
         }
-        Ok(())
+        Err(PCIeDeviceErr::InitFailure)
     }
 
     /// CDC SET_LINE_CODING (bRequest=0x20) — send a 7-byte Line Coding structure.

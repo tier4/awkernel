@@ -336,8 +336,8 @@ fn kernel_main2(
     // 15. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
 
-    // BAR 8 (white): all CPUs ready — about to init PCIe/xHCI.
-    draw_boot_bar(boot_info, 1, 100, 100, 100);
+    // Row 0: primary heap ready, about to init PCIe/xHCI.
+    draw_boot_bar(boot_info, 0, 100, 100, 100);
 
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
@@ -345,84 +345,87 @@ fn kernel_main2(
         awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
-    // BAR 13 (lime): PCIe/xHCI init returned.
-    // draw_boot_bar(boot_info, 13, 100, 100, 100);
+    // ── Boot progress bars (rows fill from top, no gaps) ─────────────────────
+    // Rows 0–6  (gray):  confirmed-working steps.
+    // Row  7:   NOOP test (green = OK, red = fail).
+    // Row  8:   enumerate_port OK (pink).
+    // Rows 9–13: PL2303 setup sub-steps (diagnostic colours).
+    // Row  14:  USB serial console (green = ready, red = not yet).
+    // Rows 15–20: USBSTS fault bits at first command timeout (absent = no timeout).
 
-    // BAR 16: bright green = PL2303/CDC found; dark red = not found.
-    if awkernel_drivers::pcie::usb::xhci::is_cdc_registered() {
-        draw_boot_bar(boot_info, 16, 0, 255, 0);   // bright green
-    } else {
-        draw_boot_bar(boot_info, 16, 160, 0, 0);   // dark red
+    // Row 1: PCI BUS_MASTER confirmed set.
+    if awkernel_drivers::pcie::usb::xhci::xhci_bus_master_ok() {
+        draw_boot_bar(boot_info, 1, 100, 100, 100);
     }
 
-    // BAR 17: bright yellow = at least 1 xHCI controller started.
+    // Row 2: xHCI controller started.
     if awkernel_drivers::pcie::usb::xhci::xhci_any_started() {
-        draw_boot_bar(boot_info, 17, 255, 255, 0);
+        draw_boot_bar(boot_info, 2, 100, 100, 100);
     }
 
-    // BAR 18: bright cyan = at least 1 USB device (CCS=1) seen.
+    // Row 3: USB device connected (CCS=1 seen).
     if awkernel_drivers::pcie::usb::xhci::xhci_any_device_seen() {
-        draw_boot_bar(boot_info, 18, 0, 255, 255);
+        draw_boot_bar(boot_info, 3, 100, 100, 100);
     }
 
-    // BAR 19 (pink): enumerate_port returned Ok for at least one device.
-    if awkernel_drivers::pcie::usb::xhci::xhci_any_enum_ok() {
-        draw_boot_bar(boot_info, 19, 255, 100, 180);
-    }
-
-    // BAR 20 (gold): PL2303 VID:PID (067b:23xx) was matched.
-    if awkernel_drivers::pcie::usb::xhci::xhci_pl2303_vid_seen() {
-        draw_boot_bar(boot_info, 20, 255, 200, 0);
-    }
-
-    // BAR 21 (teal): at least one port reset completed (PRC=1).
+    // Row 4: port reset completed (PRC=1).
     if awkernel_drivers::pcie::usb::xhci::xhci_any_port_reset_ok() {
-        draw_boot_bar(boot_info, 21, 0, 180, 180);
+        draw_boot_bar(boot_info, 4, 100, 100, 100);
     }
 
-    // BAR 22 (orange): at least one Enable Slot completed successfully.
+    // Row 5: Enable Slot succeeded.
     if awkernel_drivers::pcie::usb::xhci::xhci_any_slot_enabled() {
-        draw_boot_bar(boot_info, 22, 255, 140, 0);
+        draw_boot_bar(boot_info, 5, 100, 100, 100);
     }
 
-    // BAR 23: green=NOOP OK, red=NOOP failed/timeout, absent=not attempted
+    // Row 6: PL2303 VID:PID (067b:23xx) matched.
+    if awkernel_drivers::pcie::usb::xhci::xhci_pl2303_vid_seen() {
+        draw_boot_bar(boot_info, 6, 100, 100, 100);
+    }
+
+    // Row 7: NOOP command ring test (green = OK, red = fail/timeout).
     {
         use awkernel_drivers::pcie::usb::xhci::xhci_noop_result;
         match xhci_noop_result() {
-            1 => draw_boot_bar(boot_info, 23, 0, 200, 100),   // green: success
-            2 => draw_boot_bar(boot_info, 23, 200, 0, 0),     // red: timeout/fail
+            1 => draw_boot_bar(boot_info, 7,   0, 200, 100),
+            2 => draw_boot_bar(boot_info, 7, 200,   0,   0),
             _ => {}
         }
     }
 
-    // BAR 30: green = BUS_MASTER confirmed set after enable_bus_master()
-    if awkernel_drivers::pcie::usb::xhci::xhci_bus_master_ok() {
-        draw_boot_bar(boot_info, 30, 0, 180, 60);
+    // Row 8: enumerate_port returned Ok (device addressed + described).
+    if awkernel_drivers::pcie::usb::xhci::xhci_any_enum_ok() {
+        draw_boot_bar(boot_info, 8, 255, 100, 180);
     }
 
-    // BARs 31-35: PL2303 setup sub-steps (only relevant when bar 20 is gold).
-    // 31=got_config_desc  32=got_bulk_eps  33=set_configuration  34=configure_ep  35=init_seq
+    // Rows 9–13: PL2303 setup sub-steps.
     {
         use awkernel_drivers::pcie::usb::xhci::{
             xhci_pl2303_got_cfg, xhci_pl2303_got_eps, xhci_pl2303_set_cfg,
             xhci_pl2303_cfg_eps, xhci_pl2303_init_seq,
         };
-        if xhci_pl2303_got_cfg()  { draw_boot_bar(boot_info, 31, 100, 150, 255); } // steel-blue
-        if xhci_pl2303_got_eps()  { draw_boot_bar(boot_info, 32, 0,   220,  80); } // spring-green
-        if xhci_pl2303_set_cfg()  { draw_boot_bar(boot_info, 33, 160,  0,  200); } // purple
-        if xhci_pl2303_cfg_eps()  { draw_boot_bar(boot_info, 34, 255, 100,  60); } // coral
-        if xhci_pl2303_init_seq() { draw_boot_bar(boot_info, 35, 180, 255,   0); } // yellow-green
+        if xhci_pl2303_got_cfg()  { draw_boot_bar(boot_info,  9, 100, 150, 255); } // steel-blue
+        if xhci_pl2303_got_eps()  { draw_boot_bar(boot_info, 10,   0, 220,  80); } // spring-green
+        if xhci_pl2303_set_cfg()  { draw_boot_bar(boot_info, 11, 160,   0, 200); } // purple
+        if xhci_pl2303_cfg_eps()  { draw_boot_bar(boot_info, 12, 255, 100,  60); } // coral
+        if xhci_pl2303_init_seq() { draw_boot_bar(boot_info, 13, 180, 255,   0); } // yellow-green
     }
 
-    // BARs 24-29: USBSTS bits captured at first command timeout (drawn only when bits are set).
-    // 24=HCH(0) 25=HSE(2) 26=EINT(3) 27=PCD(4) 28=CNR(11) 29=HCE(12)
+    // Row 14: USB serial console registered (green = ready, red = not yet).
+    if awkernel_drivers::pcie::usb::xhci::is_cdc_registered() {
+        draw_boot_bar(boot_info, 14, 0, 255, 0);
+    } else {
+        draw_boot_bar(boot_info, 14, 160, 0, 0);
+    }
+
+    // Rows 15–20: USBSTS fault bits captured at first command timeout.
     if let Some(usbsts) = awkernel_drivers::pcie::usb::xhci::xhci_usbsts_on_fail() {
-        if usbsts & (1 << 0)  != 0 { draw_boot_bar(boot_info, 24, 200, 0,   0); }   // HCH red
-        if usbsts & (1 << 2)  != 0 { draw_boot_bar(boot_info, 25, 200, 0,   0); }   // HSE red
-        if usbsts & (1 << 3)  != 0 { draw_boot_bar(boot_info, 26, 255, 255, 0); }   // EINT yellow
-        if usbsts & (1 << 4)  != 0 { draw_boot_bar(boot_info, 27, 0,   200, 200); } // PCD cyan
-        if usbsts & (1 << 11) != 0 { draw_boot_bar(boot_info, 28, 255, 140, 0); }   // CNR orange
-        if usbsts & (1 << 12) != 0 { draw_boot_bar(boot_info, 29, 200, 0,   0); }   // HCE red
+        if usbsts & (1 <<  0) != 0 { draw_boot_bar(boot_info, 15, 200,   0,   0); } // HCH
+        if usbsts & (1 <<  2) != 0 { draw_boot_bar(boot_info, 16, 200,   0,   0); } // HSE
+        if usbsts & (1 <<  3) != 0 { draw_boot_bar(boot_info, 17, 255, 255,   0); } // EINT
+        if usbsts & (1 <<  4) != 0 { draw_boot_bar(boot_info, 18,   0, 200, 200); } // PCD
+        if usbsts & (1 << 11) != 0 { draw_boot_bar(boot_info, 19, 255, 140,   0); } // CNR
+        if usbsts & (1 << 12) != 0 { draw_boot_bar(boot_info, 20, 200,   0,   0); } // HCE
     }
 
     // 17. Initialize interrupt handlers.
@@ -434,14 +437,14 @@ fn kernel_main2(
         core::hint::spin_loop();
     }
 
-    // BAR 14 (orange-red): all APs done, about to sync TSC.
-    draw_boot_bar(boot_info, 14, 100, 100, 100);
+    // Row 21: all APs done, about to sync TSC.
+    draw_boot_bar(boot_info, 21, 100, 100, 100);
 
     // 18. Synchronize TSC.
     unsafe { synchronize_tsc(non_primary_cpus.len() + 1) };
 
-    // BAR 15 (violet): TSC sync done, about to call main().
-    draw_boot_bar(boot_info, 15, 100, 100, 100);
+    // Row 22: TSC sync done, about to call main().
+    draw_boot_bar(boot_info, 22, 100, 100, 100);
 
     log::info!("All CPUs are ready.");
 
