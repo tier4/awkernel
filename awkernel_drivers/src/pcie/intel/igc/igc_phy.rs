@@ -22,6 +22,8 @@ const IGP01IGC_PHY_PAGE_SELECT: u32 = 0x1F; // Page Select
 const BM_PHY_PAGE_SELECT: u32 = 22; // Page Select for BM
 const IGP_PAGE_SHIFT: u32 = 5;
 const PHY_REG_MASK: u32 = 0x1F;
+const IGC_MDICNFG_PHY_MASK: u32 = 0x03E00000;
+const IGC_MDICNFG_PHY_SHIFT: u32 = 21;
 pub(super) const IGC_I225_PHPM: usize = 0x0E14; // I225 PHY Power Management
 const IGC_I225_PHPM_DIS_1000_D3: u32 = 0x0008; // Disable 1G in D3
 const IGC_I225_PHPM_LINK_ENERGY: u32 = 0x0010; // Link Energy Detect
@@ -30,9 +32,34 @@ const IGC_I225_PHPM_DIS_1000: u32 = 0x0040; // Disable 1G globally
 const IGC_I225_PHPM_SPD_B2B_EN: u32 = 0x0080; // Smart Power Down Back2Back
 const IGC_I225_PHPM_RST_COMPL: u32 = 0x0100; // PHY Reset Completed
 const IGC_I225_PHPM_DIS_100_D3: u32 = 0x0200; // Disable 100M in D3
-const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
+pub(super) const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
 const IGC_I225_PHPM_DIS_2500: u32 = 0x0800; // Disable 2.5G globally
 const IGC_I225_PHPM_DIS_2500_D3: u32 = 0x1000; // Disable 2.5G in D3
+
+/// Reads the PHY address from MDICNFG, falls back to `default_addr` if the
+/// field is zero, writes the resolved address back to MDICNFG, and stores it
+/// in `hw.phy.addr`.  The default value of 1 matches the hardware power-on
+/// default and is consistent with the BSD igc driver.
+pub(super) fn igc_sync_mdic_phy_addr(
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    default_addr: u32,
+) -> Result<u32, IgcDriverErr> {
+    let mdicnfg = read_reg(info, IGC_MDICNFG)?;
+    let phy_addr = (mdicnfg & IGC_MDICNFG_PHY_MASK) >> IGC_MDICNFG_PHY_SHIFT;
+    let phy_addr = if phy_addr == 0 {
+        default_addr
+    } else {
+        phy_addr
+    };
+
+    let mdicnfg = (mdicnfg & !IGC_MDICNFG_PHY_MASK) | (phy_addr << IGC_MDICNFG_PHY_SHIFT);
+    write_reg(info, IGC_MDICNFG, mdicnfg)?;
+    write_flush(info)?;
+    hw.phy.addr = phy_addr;
+
+    Ok(phy_addr)
+}
 
 /// Reads the MDI control register in the PHY at offset and stores the
 /// information read to data.
@@ -250,7 +277,7 @@ fn acquire_phy<F, R>(
     f: F,
 ) -> Result<R, IgcDriverErr>
 where
-    F: Fn(&dyn IgcPhyOperations, &mut PCIeInfo, &IgcHw) -> Result<R, IgcDriverErr>,
+    F: Fn(&dyn IgcPhyOperations, &mut PCIeInfo, &mut IgcHw) -> Result<R, IgcDriverErr>,
 {
     IgcPhyOperations::acquire(ops, info, hw)?;
     let result = f(ops, info, hw);
@@ -267,6 +294,9 @@ pub(super) fn igc_phy_hw_reset_generic(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
+    const PHY_RESET_POLL_TIGHT_LOOPS: usize = 150;
+    const PHY_RESET_POLL_BACKOFF_MSEC: usize = 100;
+
     match ops.check_reset_block(info) {
         Err(IgcDriverErr::BlkPhyReset) => {
             return Ok(());
@@ -277,29 +307,65 @@ pub(super) fn igc_phy_hw_reset_generic(
         _ => (),
     }
 
-    acquire_phy(ops, info, hw, |_, info, hw| {
-        let _phpm = read_reg(info, IGC_I225_PHPM)?;
-
+    acquire_phy(ops, info, hw, |_ops, info, hw| {
         let ctrl = read_reg(info, IGC_CTRL)?;
-        write_reg(info, IGC_CTRL, ctrl | IGC_CTRL_PHY_RST)?;
-        write_flush(info)?;
+        let mut phpm = read_reg(info, IGC_I225_PHPM)?;
 
-        wait_microsec(hw.phy.reset_delay_us as u64);
+        for attempt in 0..2 {
+            // Firmware can leave the PHY in go-link-down or ULP state, which
+            // prevents the reset-complete bit from asserting reliably.
+            phpm &= !(IGC_I225_PHPM_GO_LINKD | IGC_I225_PHPM_ULP);
+            write_reg(info, IGC_I225_PHPM, phpm)?;
+            write_flush(info)?;
 
-        write_reg(info, IGC_CTRL, ctrl)?;
-        write_flush(info)?;
+            write_reg(info, IGC_CTRL, ctrl | IGC_CTRL_PHY_RST)?;
+            write_flush(info)?;
 
-        wait_microsec(150);
+            wait_microsec(hw.phy.reset_delay_us as u64);
 
-        for _ in 0..10000 {
-            let phpm = read_reg(info, IGC_I225_PHPM)?;
-            wait_microsec(1);
-            if phpm & IGC_I225_PHPM_RST_COMPL != 0 {
-                return Ok(());
+            write_reg(info, IGC_CTRL, ctrl)?;
+            write_flush(info)?;
+
+            wait_microsec(150);
+
+            // Some firmware leaves RST_COMPL deasserted even when the PHY is
+            // already responsive over MDIC. Keep a short tight poll for the
+            // fast-success case, then fall back to millisecond backoff to
+            // avoid burning CPU during bring-up.
+            for _ in 0..PHY_RESET_POLL_TIGHT_LOOPS {
+                phpm = read_reg(info, IGC_I225_PHPM)?;
+                if phpm & IGC_I225_PHPM_RST_COMPL != 0 {
+                    return Ok(());
+                }
+                wait_microsec(1);
+            }
+
+            for _ in 0..PHY_RESET_POLL_BACKOFF_MSEC {
+                phpm = read_reg(info, IGC_I225_PHPM)?;
+                if phpm & IGC_I225_PHPM_RST_COMPL != 0 {
+                    return Ok(());
+                }
+                wait_millisec(1);
+            }
+
+            if attempt == 0 {
+                wait_millisec(1);
             }
         }
 
-        log::debug!("Timeout expired after a phy reset");
+        if igc_read_phy_reg_mdic(info, hw, PHY_ID1).is_ok()
+            && igc_read_phy_reg_mdic(info, hw, PHY_ID2).is_ok()
+        {
+            log::debug!(
+                "PHY reset completion bit did not assert, but PHY responded: ctrl={ctrl:#010x}, phpm={phpm:#010x}"
+            );
+            return Ok(());
+        }
+
+        let status = read_reg(info, IGC_STATUS).unwrap_or(0);
+        log::warn!(
+            "Timeout expired after a phy reset: ctrl={ctrl:#010x}, status={status:#010x}, phpm={phpm:#010x}"
+        );
 
         Ok(())
     })
