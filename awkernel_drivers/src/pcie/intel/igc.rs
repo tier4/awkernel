@@ -341,7 +341,7 @@ impl NetDevice for Igc {
 
         let mut node = MCSNode::new();
         let mut tx = inner.queue_info.que[0].tx.lock(&mut node);
-        inner.igc_txeof(0, &mut tx).is_ok() && tx.igc_desc_unused() > 0
+        inner.igc_txeof(&mut tx).is_ok() && tx.igc_desc_unused() > 0
     }
 
     fn capabilities(&self) -> net_device::NetCapabilities {
@@ -861,13 +861,18 @@ impl IgcInner {
         Ok(())
     }
 
-    fn igc_txeof(&self, que_id: usize, tx: &mut Tx) -> Result<(), IgcDriverErr> {
+    fn igc_txeof(&self, tx: &mut Tx) -> Result<(), IgcDriverErr> {
         membar_sync();
-        let reg_tdh = read_reg(&self.info, igc_regs::IGC_TDH(que_id))? as usize;
 
-        while tx.next_to_clean != reg_tdh {
+        loop {
             let desc = &mut tx.tx_desc_ring.as_mut()[tx.next_to_clean];
+            let done = u32::from_le(unsafe { desc.wb.status }) & IGC_TXD_STAT_DD != 0;
+            if !done {
+                break;
+            }
+
             let read = unsafe { &mut desc.read };
+            read.buffer_addr = 0;
             read.cmd_type_len = 0;
             read.olinfo_status = 0;
 
@@ -903,13 +908,18 @@ impl IgcInner {
 
         let mut node = MCSNode::new();
         let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
-        self.igc_txeof(que_id, &mut tx)?;
+        self.igc_txeof(&mut tx)?;
 
         if tx.igc_desc_unused() == 0 {
             return Ok(());
         }
 
         let idx = tx.next_avail_desc;
+        let next_idx = if idx + 1 == tx.tx_desc_ring.as_ref().len() {
+            0
+        } else {
+            idx + 1
+        };
         let buffer_addr = {
             let write_buf = tx.write_buf.as_mut().ok_or(IgcDriverErr::DmaPoolAlloc)?;
             let dst = &mut write_buf.as_mut()[idx];
@@ -930,18 +940,10 @@ impl IgcInner {
         );
         read.olinfo_status = u32::to_le((ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT);
 
-        tx.next_avail_desc += 1;
-        if tx.next_avail_desc == tx.tx_desc_ring.as_ref().len() {
-            tx.next_avail_desc = 0;
-        }
-
         membar_sync();
-        write_reg(
-            &self.info,
-            igc_regs::IGC_TDT(que_id),
-            tx.next_avail_desc as u32,
-        )?;
+        write_reg(&self.info, igc_regs::IGC_TDT(que_id), next_idx as u32)?;
         bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
+        tx.next_avail_desc = next_idx;
 
         Ok(())
     }
