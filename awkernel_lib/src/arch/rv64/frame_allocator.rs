@@ -1,4 +1,4 @@
-use super::address::{PhysPageNum, MEMORY_END};
+use super::address::PhysPageNum;
 use crate::addr::{phy_addr::PhyAddr, Addr};
 use crate::sync::mcs::MCSNode;
 use alloc::vec::Vec;
@@ -33,10 +33,9 @@ pub fn frame_dealloc(ppn: PhysPageNum) {
     }
 }
 
-pub fn init_page_allocator() {
-    extern "C" {
-        fn ekernel();
-    }
+/// Initialize the frame allocator over `[start, end)`.
+/// This range must not overlap with the heap region.
+pub fn init_page_allocator(start: usize, end: usize) {
     let mut node = MCSNode::new();
     let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
     if allocator.is_none() {
@@ -44,8 +43,8 @@ pub fn init_page_allocator() {
     }
     if let Some(allocator_ref) = allocator.as_mut() {
         allocator_ref.init(
-            PhyAddr::from_usize(ekernel as *const () as usize).ceil(),
-            PhyAddr::from_usize(MEMORY_END as usize).floor(),
+            PhyAddr::from_usize(start).ceil(),
+            PhyAddr::from_usize(end).floor(),
         );
     } else {
         panic!("[Error] Failed to initialize FrameAllocator!");
