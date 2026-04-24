@@ -126,56 +126,55 @@ unsafe fn init_uart() {
     let _ = port.write_str("UART driver initialized\r\n");
 }
 
-/// Initialize memory management including page allocator and virtual memory.
+/// Initialise memory management with non-overlapping frame allocator and heap.
+///
+/// Physical layout after ekernel:
+///   [ekernel, ekernel + pt_frames_size)  — frame allocator (page table nodes)
+///   [ekernel + pt_frames_size, memory_end) — heap (backup + primary)
+///
+/// pt_frames_size is 10% of available RAM, clamped to [4 MiB, 256 MiB].
 ///
 /// # Safety
 ///
-/// Must be called after heap initialization on the primary hart.
-unsafe fn init_memory_management() {
-    uart_debug_puts("Initializing page allocator...\r\n");
-    awkernel_lib::arch::rv64::init_page_allocator();
+/// Must be called on the primary hart during early boot.
+unsafe fn init_memory(memory_end: usize) {
+    extern "C" {
+        fn ekernel();
+    }
+    let kernel_end = (ekernel as *const () as usize + 0xfff) & !0xfff;
 
+    // 10% of available RAM, floored at 4 MiB (tiny systems) and capped at
+    // 256 MiB (large automotive SoCs like Orin). Page-aligned.
+    let available = memory_end.saturating_sub(kernel_end);
+    let pt_frames_size =
+        ((available / 10).clamp(4 * 1024 * 1024, 256 * 1024 * 1024) + 0xfff) & !0xfff;
+
+    let pt_start = kernel_end;
+    let pt_end = kernel_end + pt_frames_size;
+    let heap_start = pt_end;
+
+    // 1. Frame allocator over [pt_start, pt_end) — no heap needed yet.
+    uart_debug_puts("Initializing frame allocator (PT frames: 0x");
+    awkernel_lib::console::unsafe_print_hex_u64(pt_frames_size as u64);
+    uart_debug_puts(" bytes)\r\n");
+    awkernel_lib::arch::rv64::init_page_allocator(pt_start, pt_end);
+
+    // 2. Heap over [heap_start, memory_end) — no overlap with frame allocator.
+    uart_debug_puts("Initializing heap...\r\n");
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_size = memory_end - heap_start - backup_size;
+    heap::init_backup(heap_start, backup_size);
+    heap::init_primary(heap_start + backup_size, primary_size);
+    heap::TALLOC.use_primary_then_backup();
+
+    // 3. Build kernel page table (uses heap for Vec, frame allocator for PT nodes).
     uart_debug_puts("Initializing kernel space...\r\n");
-    awkernel_lib::arch::rv64::init_kernel_space();
+    awkernel_lib::arch::rv64::init_kernel_space(heap_start, memory_end);
 
     uart_debug_puts("Activating kernel space...\r\n");
     awkernel_lib::arch::rv64::activate_kernel_space();
 
-    uart_debug_puts("Virtual memory system initialized\r\n");
-}
-
-/// Setup dynamic heap allocation based on available memory.
-///
-/// # Safety
-///
-/// Must be called before memory management initialization on the primary hart.
-unsafe fn init_heap_allocation() {
-    uart_debug_puts("Setting up heap allocation...\r\n");
-
-    extern "C" {
-        fn ekernel();
-    }
-
-    let heap_start = (ekernel as usize + 0xfff) & !0xfff; // Align to 4K
-    let backup_size = BACKUP_HEAP_SIZE;
-    let total_heap_size = awkernel_lib::arch::rv64::get_heap_size();
-
-    if total_heap_size <= backup_size {
-        // Use minimal heap if not enough memory
-        uart_debug_puts("Using minimal heap configuration\r\n");
-        let primary_size = 64 * 1024 * 1024; // 64MB minimum
-        heap::init_primary(heap_start + backup_size, primary_size);
-        heap::init_backup(heap_start, backup_size);
-    } else {
-        // Use dynamic calculation
-        uart_debug_puts("Using dynamic heap configuration\r\n");
-        let primary_size = total_heap_size - backup_size;
-        heap::init_primary(heap_start + backup_size, primary_size);
-        heap::init_backup(heap_start, backup_size);
-    }
-
-    heap::TALLOC.use_primary_then_backup();
-    uart_debug_puts("Heap allocation complete\r\n");
+    uart_debug_puts("Memory initialized\r\n");
 }
 
 /// Initialize timer and interrupt controller for RV64.
@@ -241,11 +240,11 @@ unsafe fn primary_hart(hartid: usize) {
     // 1. Initialize UART for early debugging
     init_uart();
 
-    // 2. Setup heap allocation FIRST - page tables need this!
-    init_heap_allocation();
+    // 2. Detect physical memory end from DTB
+    let memory_end = awkernel_lib::arch::rv64::get_memory_end() as usize;
 
-    // 3. Initialize memory management (now that heap exists)
-    init_memory_management();
+    // 3. Frame allocator + heap + page tables with non-overlapping regions
+    init_memory(memory_end);
 
     // 4. Initialize architecture-specific features
     awkernel_lib::arch::rv64::init_primary();
