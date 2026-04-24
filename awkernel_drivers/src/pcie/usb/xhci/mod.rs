@@ -55,6 +55,18 @@ static XHCI_PL2303_SET_CFG:   AtomicBool = AtomicBool::new(false);
 static XHCI_PL2303_CFG_EPS:   AtomicBool = AtomicBool::new(false);
 /// Set after pl2303_init_seq() completes successfully.
 static XHCI_PL2303_INIT_SEQ:  AtomicBool = AtomicBool::new(false);
+/// Set after the first 9-byte control_transfer_in in get_config_descriptor succeeds
+/// (only meaningful when called from try_setup_pl2303; MSC/CDC calls are skipped for PL2303).
+static XHCI_PL2303_CFG_P1_OK:    AtomicBool = AtomicBool::new(false);
+/// Set if wTotalLength parsed from the first-pass config descriptor is non-zero
+/// (indicates DMA buffer was actually written; not a cache-coherency ghost).
+static XHCI_PL2303_CFG_TOTAL_OK: AtomicBool = AtomicBool::new(false);
+/// Last control_transfer_in failure code: 0=no failure yet, 0xFFFF=timeout,
+/// 0xFFFE=exhausted SP retries, else the raw xHCI completion code (e.g. 6=STALL).
+static XHCI_CTRL_FAIL_CODE: AtomicU32 = AtomicU32::new(0);
+/// wTotalLength (capped to 255) read from the first-pass config descriptor.
+/// 0 = not yet set (get_config_descriptor not yet called or first pass failed).
+static XHCI_CFG_FETCH: AtomicU8 = AtomicU8::new(0);
 /// Incremented when port reset (PRC polling) succeeds.
 static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when Enable Slot command completes with code=1.
@@ -97,12 +109,18 @@ pub fn xhci_any_enum_ok() -> bool {
 }
 
 /// Returns true if PL2303 VID:PID (067b:23xx) was matched during setup.
-pub fn xhci_pl2303_vid_seen() -> bool { XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed) }
-pub fn xhci_pl2303_got_cfg()  -> bool { XHCI_PL2303_GOT_CFG.load(Ordering::Relaxed) }
-pub fn xhci_pl2303_got_eps()  -> bool { XHCI_PL2303_GOT_EPS.load(Ordering::Relaxed) }
-pub fn xhci_pl2303_set_cfg()  -> bool { XHCI_PL2303_SET_CFG.load(Ordering::Relaxed) }
-pub fn xhci_pl2303_cfg_eps()  -> bool { XHCI_PL2303_CFG_EPS.load(Ordering::Relaxed) }
-pub fn xhci_pl2303_init_seq() -> bool { XHCI_PL2303_INIT_SEQ.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_vid_seen()     -> bool { XHCI_PL2303_VID_SEEN.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_cfg_p1_ok()    -> bool { XHCI_PL2303_CFG_P1_OK.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_cfg_total_ok() -> bool { XHCI_PL2303_CFG_TOTAL_OK.load(Ordering::Relaxed) }
+/// 0 = no failure, 0xFFFF = timeout, 0xFFFE = SP-retry exhausted, else xHCI completion code.
+pub fn xhci_ctrl_fail_code() -> u32 { XHCI_CTRL_FAIL_CODE.load(Ordering::Relaxed) }
+/// wTotalLength (capped to 255) from first-pass config descriptor; 0 = not set yet.
+pub fn xhci_cfg_fetch() -> u8 { XHCI_CFG_FETCH.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_got_cfg()      -> bool { XHCI_PL2303_GOT_CFG.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_got_eps()      -> bool { XHCI_PL2303_GOT_EPS.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_set_cfg()      -> bool { XHCI_PL2303_SET_CFG.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_cfg_eps()      -> bool { XHCI_PL2303_CFG_EPS.load(Ordering::Relaxed) }
+pub fn xhci_pl2303_init_seq()     -> bool { XHCI_PL2303_INIT_SEQ.load(Ordering::Relaxed) }
 
 /// 0 = not attempted, 1 = success, 2 = fail/timeout
 pub fn xhci_noop_result() -> u32 {
@@ -892,13 +910,21 @@ impl XhciDevice {
         // Retrieve Device Descriptor via GET_DESCRIPTOR control transfer.
         self.get_device_descriptor(slot)?;
 
-        // Phase 4: attempt MSC bulk endpoint setup (silently skip if not MSC).
-        if let Err(e) = self.try_setup_msc(slot) {
-            log::warn!("xHCI: {}: MSC setup skipped: {:?}", self.name, e);
+        // Skip MSC and CDC-ACM probing entirely for known PL2303 devices.
+        // Those paths each call get_config_descriptor (= 2 EP0 control transfers) and
+        // leave EP0 in an unknown state on some FS devices.  PL2303 is never MSC or
+        // CDC-ACM, so the probes only waste time and transfers.
+        let is_pl2303 = pl2303::is_pl2303(self.dev_vid, self.dev_pid);
+
+        // Phase 4: attempt MSC bulk endpoint setup (silently skip if not MSC / not PL2303).
+        if !is_pl2303 {
+            if let Err(e) = self.try_setup_msc(slot) {
+                log::warn!("xHCI: {}: MSC setup skipped: {:?}", self.name, e);
+            }
         }
 
         // Phase 6: attempt CDC-ACM setup only if MSC did not claim the bulk endpoints.
-        if self.bulk_in_ring.is_none() {
+        if self.bulk_in_ring.is_none() && !is_pl2303 {
             if let Err(e) = self.try_setup_cdcacm(slot) {
                 log::warn!("xHCI: {}: CDC-ACM setup skipped: {:?}", self.name, e);
             }
@@ -1202,13 +1228,17 @@ impl XhciDevice {
         // code=13 (Short Packet) fires on the Data Stage for FS devices; continue
         // past it so we consume the Status Stage event before returning.
         for _ in 0..3 {
-            let code = self.poll_xfer_completion(2_000_000)
-                .ok_or(PCIeDeviceErr::InitFailure)?;
+            let Some(code) = self.poll_xfer_completion(2_000_000) else {
+                XHCI_CTRL_FAIL_CODE.store(0xFFFF, Ordering::Relaxed);
+                return Err(PCIeDeviceErr::InitFailure);
+            };
             if code == 1 { return Ok(()); }
             if code == 13 { continue; }
             log::error!("xHCI: control_transfer_in: code={}", code);
+            XHCI_CTRL_FAIL_CODE.store(code as u32, Ordering::Relaxed);
             return Err(PCIeDeviceErr::InitFailure);
         }
+        XHCI_CTRL_FAIL_CODE.store(0xFFFE, Ordering::Relaxed); // exhausted SP retries
         Err(PCIeDeviceErr::InitFailure)
     }
 
@@ -1529,9 +1559,25 @@ impl XhciDevice {
         // First pass: 9 bytes to learn wTotalLength.
         let setup9: u64 = 0x80u64 | (6u64 << 8) | (0x0200u64 << 16) | (9u64 << 48);
         self.control_transfer_in(slot, setup9, phys, 9)?;
+        // Diagnostic: first pass succeeded — DMA and EP0 are functional up to here.
+        XHCI_PL2303_CFG_P1_OK.store(true, Ordering::Relaxed);
 
         let total = u16::from_le_bytes([buf.as_mut()[2], buf.as_mut()[3]]) as usize;
         let fetch = total.min(255);
+        log::info!("xHCI: {}: get_config_descriptor: wTotalLength={} fetch={}", self.name, total, fetch);
+        if total > 0 {
+            // Diagnostic: DMA buffer was actually written (not a cache/coherency ghost of zeros).
+            XHCI_PL2303_CFG_TOTAL_OK.store(true, Ordering::Relaxed);
+        }
+
+        // Guard: if fetch==0 the device sent a malformed/empty config descriptor; bail now
+        // rather than issuing a GET_DESCRIPTOR with wLength=0 which most devices STALL.
+        if fetch == 0 {
+            log::error!("xHCI: {}: get_config_descriptor: wTotalLength=0 (DMA not updated?)", self.name);
+            return Err(PCIeDeviceErr::InitFailure);
+        }
+        // Record fetch before the second transfer so it's visible even if the transfer fails.
+        XHCI_CFG_FETCH.store(fetch as u8, Ordering::Relaxed);
 
         // Second pass: full descriptor.
         for b in buf.as_mut().iter_mut() { *b = 0; }
