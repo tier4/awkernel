@@ -43,6 +43,10 @@ static XHCI_STARTED: AtomicUsize = AtomicUsize::new(0);
 static XHCI_CCS_SEEN: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when enumerate_port() returns Ok (device was addressed + described).
 static XHCI_ENUM_OK: AtomicUsize = AtomicUsize::new(0);
+/// VID of the last device whose Device Descriptor was successfully read.
+static XHCI_LAST_VID: AtomicU32 = AtomicU32::new(0);
+/// PID of the last device whose Device Descriptor was successfully read.
+static XHCI_LAST_PID: AtomicU32 = AtomicU32::new(0);
 /// Set when try_setup_pl2303() sees VID:PID 067b:23xx (PL2303 chip identified).
 static XHCI_PL2303_VID_SEEN:  AtomicBool = AtomicBool::new(false);
 /// Set after get_config_descriptor() succeeds inside try_setup_pl2303().
@@ -71,6 +75,14 @@ static XHCI_CFG_FETCH: AtomicU8 = AtomicU8::new(0);
 static XHCI_PORT_RESET_OK: AtomicUsize = AtomicUsize::new(0);
 /// Incremented when Enable Slot command completes with code=1.
 static XHCI_SLOT_ENABLED: AtomicUsize = AtomicUsize::new(0);
+/// Incremented when Address Device command completes with code=1 inside enumerate_port.
+static XHCI_ADDR_DEV_OK: AtomicUsize = AtomicUsize::new(0);
+/// Failure code from the last failed Address Device: 0=none, 0xFFFF=timeout, else xHCI code.
+static XHCI_ADDR_DEV_FAIL: AtomicU32 = AtomicU32::new(0);
+/// Number of successful get_device_descriptor() calls (incremented after VID/PID stored).
+static XHCI_GDESC_OK: AtomicUsize = AtomicUsize::new(0);
+/// Failure code from last failed get_device_descriptor: 0=none, 0xFFFF=timeout, else xHCI code.
+static XHCI_GDESC_FAIL_CODE: AtomicU32 = AtomicU32::new(0);
 /// 0=not attempted, 1=OK, 2=failed/timeout
 static XHCI_NOOP_RESULT: AtomicU32 = AtomicU32::new(0);
 /// USBSTS value captured at the first command timeout; u32::MAX = no timeout yet.
@@ -92,6 +104,26 @@ pub fn xhci_any_started() -> bool {
 pub fn xhci_any_device_seen() -> bool {
     XHCI_CCS_SEEN.load(Ordering::Relaxed) > 0
 }
+/// Total number of ports with CCS=1 seen at boot.
+pub fn xhci_ccs_count() -> usize { XHCI_CCS_SEEN.load(Ordering::Relaxed) }
+/// Total number of successful port resets.
+pub fn xhci_port_reset_count() -> usize { XHCI_PORT_RESET_OK.load(Ordering::Relaxed) }
+/// Total number of Enable Slot successes.
+pub fn xhci_slot_count() -> usize { XHCI_SLOT_ENABLED.load(Ordering::Relaxed) }
+/// Total number of successful Address Device commands inside enumerate_port.
+pub fn xhci_addr_dev_ok() -> usize { XHCI_ADDR_DEV_OK.load(Ordering::Relaxed) }
+/// Failure code from last failed Address Device (0=none, 0xFFFF=timeout, else xHCI code).
+pub fn xhci_addr_dev_fail() -> u32 { XHCI_ADDR_DEV_FAIL.load(Ordering::Relaxed) }
+/// Total number of successful get_device_descriptor() calls.
+pub fn xhci_gdesc_ok() -> usize { XHCI_GDESC_OK.load(Ordering::Relaxed) }
+/// Failure code from last failed get_device_descriptor (0=none, 0xFFFF=timeout, else xHCI).
+pub fn xhci_gdesc_fail_code() -> u32 { XHCI_GDESC_FAIL_CODE.load(Ordering::Relaxed) }
+/// Total number of successful enumerate_port() calls.
+pub fn xhci_enum_count() -> usize { XHCI_ENUM_OK.load(Ordering::Relaxed) }
+/// VID of the last device whose Device Descriptor was successfully read (0 = none yet).
+pub fn xhci_last_vid() -> u16 { XHCI_LAST_VID.load(Ordering::Relaxed) as u16 }
+/// PID of the last device whose Device Descriptor was successfully read (0 = none yet).
+pub fn xhci_last_pid() -> u16 { XHCI_LAST_PID.load(Ordering::Relaxed) as u16 }
 
 /// Returns true if at least one port reset completed (PRC=1 seen).
 pub fn xhci_any_port_reset_ok() -> bool {
@@ -875,9 +907,15 @@ impl XhciDevice {
         // EP1 (EP0) Context (at offset ctx*2): EPType=4, ErrorCount=3, MaxPacketSize, TR ptr.
         let ep0_ctx = ctx * 2;
         let max_pkt: u32 = match speed {
-            3 => 64,       // High Speed
+            2 => 8,        // Low Speed — EP0 MaxPacketSize0 is always 8
+            3 => 64,       // High Speed — EP0 MaxPacketSize0 is always 64
             4 | 5 => 512,  // SuperSpeed / SuperSpeed Plus
-            _ => 8,        // Full Speed / Low Speed (safe initial value)
+            // Full Speed (1) or unknown: USB spec allows 8/16/32/64 for FS EP0.
+            // Using 64 avoids Babble Detected (code=3) on FS devices whose actual
+            // MaxPacketSize0 is 64 (e.g. PL2303HX/HXN, many HS-capable devices).
+            // xHCI accepts ≤64-byte packets regardless, so using 64 is safe even
+            // when the device's actual MaxPacketSize0 is smaller (e.g. 8).
+            _ => 64,
         };
         // DW1: ErrorCount[2:1]=3, EPType[5:3]=4 (Control), MaxPacketSize[31:16]
         ctx_write32(input_bytes, ep0_ctx + 4, (3 << 1) | (4 << 3) | (max_pkt << 16));
@@ -891,18 +929,33 @@ impl XhciDevice {
 
         // Send Address Device (BSR=false → hardware sends SET_ADDRESS).
         self.send_address_device(slot, input_ctx_phys, false);
-        let (code, _) = self.poll_cmd_completion(2_000_000)
-            .ok_or(PCIeDeviceErr::InitFailure)?;
-        if code != 1 {
-            log::error!("xHCI: {}: Address Device failed (code={})", self.name, code);
-            return Err(PCIeDeviceErr::InitFailure);
+        match self.poll_cmd_completion(2_000_000) {
+            None => {
+                XHCI_ADDR_DEV_FAIL.store(0xFFFF, Ordering::Relaxed);
+                log::error!("xHCI: {}: Address Device timeout (slot={})", self.name, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some((code, _)) if code != 1 => {
+                XHCI_ADDR_DEV_FAIL.store(code as u32, Ordering::Relaxed);
+                log::error!("xHCI: {}: Address Device failed (code={} slot={})", self.name, code, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some(_) => {}
         }
+        XHCI_ADDR_DEV_OK.fetch_add(1, Ordering::Relaxed);
         // input_ctx no longer needed after Address Device completes.
         drop(input_ctx);
 
         log::info!("xHCI: {}: slot {} addressed (USB addr assigned)", self.name, slot);
 
         // Persist EP0 ring and Device Context.
+        // IMPORTANT: leak the previous slot's DMA buffers rather than dropping them.
+        // - ep0_ring: xHCI's internal EP1 context still holds the TR dequeue pointer;
+        //   freeing it would cause xHCI to read freed memory on any future EP0 transfer.
+        // - dev_ctx: DCBAA[prev_slot] still points to it; freeing it is a UAF.
+        // Each leaked buffer is 4 KiB (one DMA page); ~5 leaks at boot = ~20 KiB total.
+        if let Some(old) = self.ep0_ring.take() { core::mem::forget(old); }
+        if let Some(old) = self.dev_ctx.take()  { core::mem::forget(old); }
         self.ep0_ring = Some(ep0_ring);
         self.dev_ctx = Some(dev_ctx);
         self.dev_slot = Some(slot);
@@ -910,31 +963,24 @@ impl XhciDevice {
         // Retrieve Device Descriptor via GET_DESCRIPTOR control transfer.
         self.get_device_descriptor(slot)?;
 
-        // Skip MSC and CDC-ACM probing entirely for known PL2303 devices.
-        // Those paths each call get_config_descriptor (= 2 EP0 control transfers) and
-        // leave EP0 in an unknown state on some FS devices.  PL2303 is never MSC or
-        // CDC-ACM, so the probes only waste time and transfers.
         let is_pl2303 = pl2303::is_pl2303(self.dev_vid, self.dev_pid);
 
-        // Phase 4: attempt MSC bulk endpoint setup (silently skip if not MSC / not PL2303).
-        if !is_pl2303 {
-            if let Err(e) = self.try_setup_msc(slot) {
-                log::warn!("xHCI: {}: MSC setup skipped: {:?}", self.name, e);
-            }
-        }
-
-        // Phase 6: attempt CDC-ACM setup only if MSC did not claim the bulk endpoints.
-        if self.bulk_in_ring.is_none() && !is_pl2303 {
-            if let Err(e) = self.try_setup_cdcacm(slot) {
-                log::warn!("xHCI: {}: CDC-ACM setup skipped: {:?}", self.name, e);
-            }
-        }
-
-        // PL2303: attempt setup only if neither MSC nor CDC-ACM claimed the endpoints.
-        if self.bulk_in_ring.is_none() {
+        if is_pl2303 {
+            // PL2303: always run PL2303 setup regardless of bulk_in_ring state.
+            // If a previous port (e.g. Kioxia MSC) already claimed bulk_in_ring,
+            // overwrite it — serial console takes priority over mass storage.
             if let Err(e) = self.try_setup_pl2303(slot) {
-                log::warn!("xHCI: {}: PL2303 setup skipped: {:?}", self.name, e);
+                log::warn!("xHCI: {}: PL2303 setup failed: {:?}", self.name, e);
             }
+        } else {
+            // Non-PL2303: skip all protocol probes.
+            // MSC probes issue EP0 control transfers that may time out, leaving
+            // stale TRANSFER_EVENTs in the Event Ring that corrupt the next
+            // device's enumeration.  We only care about PL2303 here.
+            log::info!(
+                "xHCI: {}: non-PL2303 {:04x}:{:04x}, skipping MSC/CDC probe",
+                self.name, self.dev_vid, self.dev_pid,
+            );
         }
 
         // Diagnostic: immediately write a test string via bulk OUT to confirm the
@@ -988,14 +1034,20 @@ impl XhciDevice {
         self.write_slot_doorbell(slot, 1);
 
         // Drain TRANSFER_EVENTs until Status Stage success (code=1).
-        // code=13 (Short Packet) fires on the Data Stage for FS devices with
-        // MaxPacketSize0=8; continue past it to consume the Status Stage event.
+        // code=13 (Short Packet) on the Data Stage (ISP fired); continue to Status Stage.
         for _ in 0..3 {
-            let code = self.poll_xfer_completion(2_000_000)
-                .ok_or(PCIeDeviceErr::InitFailure)?;
+            let code = match self.poll_xfer_completion(2_000_000) {
+                Some(c) => c,
+                None => {
+                    XHCI_GDESC_FAIL_CODE.store(0xFFFF, Ordering::Relaxed);
+                    log::error!("xHCI: {}: GET_DESCRIPTOR timeout (slot={})", self.name, slot);
+                    return Err(PCIeDeviceErr::InitFailure);
+                }
+            };
             if code == 1 { break; }
             if code == 13 { continue; }
-            log::error!("xHCI: {}: GET_DESCRIPTOR transfer error (code={})", self.name, code);
+            XHCI_GDESC_FAIL_CODE.store(code as u32, Ordering::Relaxed);
+            log::error!("xHCI: {}: GET_DESCRIPTOR error code={} slot={}", self.name, code, slot);
             return Err(PCIeDeviceErr::InitFailure);
         }
 
@@ -1013,6 +1065,9 @@ impl XhciDevice {
         // Cache fields needed by try_setup_pl2303() later.
         self.dev_vid      = id_vendor;
         self.dev_pid      = id_product;
+        XHCI_LAST_VID.store(id_vendor as u32, Ordering::Relaxed);
+        XHCI_LAST_PID.store(id_product as u32, Ordering::Relaxed);
+        XHCI_GDESC_OK.fetch_add(1, Ordering::Relaxed);
         self.dev_bcd      = bcd_dev;
         self.dev_class    = dev_class;
         self.dev_max_pkt0 = max_pkt0;
@@ -1153,6 +1208,9 @@ impl XhciDevice {
 
             if let Err(e) = self.enumerate_port(port, slot) {
                 log::error!("xHCI: {}: port {} enumerate_port failed: {:?}", self.name, port, e);
+                // Drain any stale TRANSFER_EVENTs left by failed control transfers
+                // before attempting the next port.
+                self.drain_events();
                 self.abandon_dev_state();
                 continue;
             }
@@ -1162,8 +1220,9 @@ impl XhciDevice {
                 return; // Found our serial adapter — done.
             }
 
-            // Device found but not a serial adapter; leak its DMA state (hardware still
-            // holds a reference through DCBAA) and try the next port.
+            // Device found but not a serial adapter; drain stale events and leak its
+            // DMA state (hardware still holds a reference through DCBAA).
+            self.drain_events();
             self.abandon_dev_state();
         }
     }

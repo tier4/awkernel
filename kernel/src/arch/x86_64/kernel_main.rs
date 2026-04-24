@@ -364,28 +364,83 @@ fn kernel_main2(
         draw_boot_text(boot_info, 2, "XHCI START", 255, 255, 255);
     }
 
-    // Row 3: USB device connected (CCS=1 seen).
-    if awkernel_drivers::pcie::usb::xhci::xhci_any_device_seen() {
-        draw_boot_bar(boot_info, 3, 100, 100, 100);
-        draw_boot_text(boot_info, 3, "CCS SEEN", 255, 255, 255);
+    // Rows 3–5: USB enumeration pipeline counts.
+    // Text shows "CCS=N RST=M SLT=K" so we can tell how many devices
+    // made it through each stage (e.g. CCS=2 but RST=1 means one port
+    // reset timed out).
+    {
+        use awkernel_drivers::pcie::usb::xhci::{
+            xhci_ccs_count, xhci_port_reset_count, xhci_slot_count,
+        };
+        let ccs = xhci_ccs_count();
+        let rst = xhci_port_reset_count();
+        let slt = xhci_slot_count();
+
+        // Row 3: CCS seen
+        if ccs > 0 {
+            draw_boot_bar(boot_info, 3, 100, 100, 100);
+            let mut label = [b' '; 7]; // "CCS=N  "
+            label[..4].copy_from_slice(b"CCS=");
+            let mut tmp = [0u8; 3];
+            let w = u32_to_decimal(ccs as u32, &mut tmp).len();
+            label[4..4+w].copy_from_slice(&tmp[..w]);
+            draw_boot_text(boot_info, 3,
+                unsafe { core::str::from_utf8_unchecked(&label[..4+w]) },
+                255, 255, 255);
+        }
+
+        // Row 4: port resets OK
+        if rst > 0 {
+            draw_boot_bar(boot_info, 4, 100, 100, 100);
+            let mut label = [b' '; 7]; // "RST=N  "
+            label[..4].copy_from_slice(b"RST=");
+            let mut tmp = [0u8; 3];
+            let w = u32_to_decimal(rst as u32, &mut tmp).len();
+            label[4..4+w].copy_from_slice(&tmp[..w]);
+            draw_boot_text(boot_info, 4,
+                unsafe { core::str::from_utf8_unchecked(&label[..4+w]) },
+                255, 255, 255);
+        }
+
+        // Row 5: slots enabled
+        if slt > 0 {
+            draw_boot_bar(boot_info, 5, 100, 100, 100);
+            let mut label = [b' '; 7]; // "SLT=N  "
+            label[..4].copy_from_slice(b"SLT=");
+            let mut tmp = [0u8; 3];
+            let w = u32_to_decimal(slt as u32, &mut tmp).len();
+            label[4..4+w].copy_from_slice(&tmp[..w]);
+            draw_boot_text(boot_info, 5,
+                unsafe { core::str::from_utf8_unchecked(&label[..4+w]) },
+                255, 255, 255);
+        }
     }
 
-    // Row 4: port reset completed (PRC=1).
-    if awkernel_drivers::pcie::usb::xhci::xhci_any_port_reset_ok() {
-        draw_boot_bar(boot_info, 4, 100, 100, 100);
-        draw_boot_text(boot_info, 4, "PORT RESET", 255, 255, 255);
-    }
-
-    // Row 5: Enable Slot succeeded.
-    if awkernel_drivers::pcie::usb::xhci::xhci_any_slot_enabled() {
-        draw_boot_bar(boot_info, 5, 100, 100, 100);
-        draw_boot_text(boot_info, 5, "SLOT ENAB", 255, 255, 255);
-    }
-
-    // Row 6: PL2303 VID:PID (067b:23xx) matched.
-    if awkernel_drivers::pcie::usb::xhci::xhci_pl2303_vid_seen() {
-        draw_boot_bar(boot_info, 6, 100, 100, 100);
-        draw_boot_text(boot_info, 6, "VID MATCH", 255, 255, 255);
+    // Row 6: Address Device pipeline — "ADDR=N" count + last failure code.
+    // ADDR=0 means enumerate_port fails before any device descriptor is read.
+    {
+        use awkernel_drivers::pcie::usb::xhci::{xhci_addr_dev_ok, xhci_addr_dev_fail};
+        let addr = xhci_addr_dev_ok();
+        let fail = xhci_addr_dev_fail();
+        if addr > 0 || fail != 0 {
+            let (r, g, b) = if addr > 0 { (100u8, 200u8, 100u8) } else { (200u8, 80u8, 0u8) };
+            draw_boot_bar(boot_info, 6, r, g, b);
+            // "ADDR=N FAIL=XXXX"
+            let mut label = [b' '; 16];
+            label[..5].copy_from_slice(b"ADDR=");
+            let mut tmp = [0u8; 3];
+            let aw = u32_to_decimal(addr as u32, &mut tmp).len();
+            label[5..5+aw].copy_from_slice(&tmp[..aw]);
+            let off = 5 + aw + 1;
+            label[off..off+5].copy_from_slice(b"FAIL=");
+            let mut h4 = [0u8; 4];
+            u32_to_hex4(fail, &mut h4);
+            label[off+5..off+9].copy_from_slice(&h4);
+            let end = off + 9;
+            draw_boot_text(boot_info, 6,
+                unsafe { core::str::from_utf8_unchecked(&label[..end]) },
+                0, 0, 0);
+        }
     }
 
     // Row 7: NOOP command ring test (green = OK, red = fail/timeout).
@@ -404,10 +459,45 @@ fn kernel_main2(
         }
     }
 
-    // Row 8: enumerate_port returned Ok (device addressed + described).
-    if awkernel_drivers::pcie::usb::xhci::xhci_any_enum_ok() {
-        draw_boot_bar(boot_info, 8, 255, 100, 180);
-        draw_boot_text(boot_info, 8, "ENUM OK", 0, 0, 0);
+    // Row 8: GET_DESCRIPTOR pipeline — GDESC=N (success count) + last failure code,
+    // then VID:PID of the last successfully described device.
+    {
+        use awkernel_drivers::pcie::usb::xhci::{
+            xhci_gdesc_ok, xhci_gdesc_fail_code, xhci_last_vid, xhci_last_pid,
+        };
+        let gok  = xhci_gdesc_ok();
+        let gfail = xhci_gdesc_fail_code();
+        let vid  = xhci_last_vid();
+        let pid  = xhci_last_pid();
+        if gok > 0 || gfail != 0 {
+            let (r, g, b) = if gok > 0 { (255u8, 100u8, 180u8) } else { (200u8, 60u8, 0u8) };
+            draw_boot_bar(boot_info, 8, r, g, b);
+            // "GD=N FAIL=XXXX VID=XXXX PID=XXXX"
+            let mut label = [b' '; 32];
+            label[..3].copy_from_slice(b"GD=");
+            let mut tmp = [0u8; 3];
+            let gw = u32_to_decimal(gok as u32, &mut tmp).len();
+            label[3..3+gw].copy_from_slice(&tmp[..gw]);
+            let mut off = 3 + gw + 1;
+            label[off..off+5].copy_from_slice(b"FAIL=");
+            let mut h4 = [0u8; 4];
+            u32_to_hex4(gfail, &mut h4);
+            label[off+5..off+9].copy_from_slice(&h4);
+            off += 10;
+            if gok > 0 {
+                label[off..off+4].copy_from_slice(b"VID=");
+                u32_to_hex4(vid as u32, &mut h4);
+                label[off+4..off+8].copy_from_slice(&h4);
+                label[off+8] = b' ';
+                label[off+9..off+13].copy_from_slice(b"PID=");
+                u32_to_hex4(pid as u32, &mut h4);
+                label[off+13..off+17].copy_from_slice(&h4);
+                off += 17;
+            }
+            draw_boot_text(boot_info, 8,
+                unsafe { core::str::from_utf8_unchecked(&label[..off]) },
+                0, 0, 0);
+        }
     }
 
     // Row 9:  first GET_DESCRIPTOR(Config, 9 bytes) completed.
