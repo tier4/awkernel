@@ -6,7 +6,8 @@ use crate::sync::mcs::MCSNode;
 use alloc::{vec, vec::Vec};
 
 use crate::net::{
-    ip_addr::IpAddr, tcp::TcpPort, tcp_stream::TcpStream, NetManagerError, NET_MANAGER,
+    ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, tcp_stream::TcpStream, NetManagerError,
+    NET_MANAGER,
 };
 
 use super::SockTcpListener;
@@ -30,14 +31,15 @@ impl SockTcpListener<TcpStream> for TcpListener {
         tx_buffer_size: usize,
         backlogs: usize,
     ) -> Result<TcpListener, NetManagerError> {
-        let mut net_manager = NET_MANAGER.write();
-
         // Find the interface that has the specified address.
-        let if_net = net_manager
-            .interfaces
-            .get(&interface_id)
-            .ok_or(NetManagerError::InvalidInterfaceID)?
-            .clone();
+        let if_net = {
+            let net_manager = NET_MANAGER.read();
+            net_manager
+                .interfaces
+                .get(&interface_id)
+                .ok_or(NetManagerError::InvalidInterfaceID)?
+                .clone()
+        };
 
         let port = if let Some(port) = port {
             if port == 0 {
@@ -45,33 +47,25 @@ impl SockTcpListener<TcpStream> for TcpListener {
             }
 
             if addr.is_ipv4() {
-                // Check if the specified port is available.
-                if net_manager.is_port_in_use_tcp_ipv4(port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-
-                net_manager.port_in_use_tcp_ipv4(port)
+                PORT_ALLOC
+                    .try_claim_tcp_ipv4(port)
+                    .ok_or(NetManagerError::PortInUse)?
             } else {
-                // Check if the specified port is available.
-                if net_manager.is_port_in_use_tcp_ipv6(port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-
-                net_manager.port_in_use_tcp_ipv6(port)
+                PORT_ALLOC
+                    .try_claim_tcp_ipv6(port)
+                    .ok_or(NetManagerError::PortInUse)?
             }
         } else if addr.is_ipv4() {
             // Find an ephemeral port.
-            net_manager
-                .get_ephemeral_port_tcp_ipv4()
+            PORT_ALLOC
+                .get_ephemeral_tcp_ipv4()
                 .ok_or(NetManagerError::NoAvailablePort)?
         } else {
             // Find an ephemeral port.
-            net_manager
-                .get_ephemeral_port_tcp_ipv6()
+            PORT_ALLOC
+                .get_ephemeral_tcp_ipv6()
                 .ok_or(NetManagerError::NoAvailablePort)?
         };
-
-        drop(net_manager);
 
         let mut handles = Vec::new();
 
@@ -98,13 +92,10 @@ impl SockTcpListener<TcpStream> for TcpListener {
     fn accept(&mut self, waker: &core::task::Waker) -> Result<Option<TcpStream>, NetManagerError> {
         // If there is a connected socket, return it.
         if let Some(handle) = self.connected_sockets.pop_front() {
-            let port = {
-                let mut net_manager = NET_MANAGER.write();
-                if self.addr.is_ipv4() {
-                    net_manager.port_in_use_tcp_ipv4(self.port.port())
-                } else {
-                    net_manager.port_in_use_tcp_ipv6(self.port.port())
-                }
+            let port = if self.addr.is_ipv4() {
+                PORT_ALLOC.increment_ref_tcp_ipv4(self.port.port())
+            } else {
+                PORT_ALLOC.increment_ref_tcp_ipv6(self.port.port())
             };
             return Ok(Some(TcpStream {
                 handle,
@@ -171,13 +162,10 @@ impl SockTcpListener<TcpStream> for TcpListener {
 
         // If there is a connected socket, return it.
         if let Some(handle) = self.connected_sockets.pop_front() {
-            let port = {
-                let mut net_manager = NET_MANAGER.write();
-                if self.addr.is_ipv4() {
-                    net_manager.port_in_use_tcp_ipv4(self.port.port())
-                } else {
-                    net_manager.port_in_use_tcp_ipv6(self.port.port())
-                }
+            let port = if self.addr.is_ipv4() {
+                PORT_ALLOC.increment_ref_tcp_ipv4(self.port.port())
+            } else {
+                PORT_ALLOC.increment_ref_tcp_ipv6(self.port.port())
             };
 
             if_net.poll_tx_only(crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1));
