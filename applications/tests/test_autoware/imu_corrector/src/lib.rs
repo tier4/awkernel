@@ -190,10 +190,8 @@ impl<T: TransformListener> ImuCorrector<T> {
     fn transform_vector3(&self, vec: &Vector3, transform: &Transform) -> Vector3 {
         let nalgebra_vec = self.to_nalgebra_vector3(vec);
         let nalgebra_quat = self.to_nalgebra_quaternion(&transform.rotation);
-        let nalgebra_trans = self.to_nalgebra_vector3(&transform.translation);
         let rotated = nalgebra_quat * nalgebra_vec;
-        let result = rotated + nalgebra_trans;
-        self.to_imu_vector3(&result)
+        self.to_imu_vector3(&rotated)
     }
 
     fn transform_covariance(&self, cov: &[f64; 9]) -> [f64; 9] {
@@ -300,6 +298,10 @@ pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_almost_eq(actual: f64, expected: f64) {
+        assert!((actual - expected).abs() < 1e-10);
+    }
 
     fn sample_imu_msg() -> ImuMsg {
         ImuMsg {
@@ -426,19 +428,19 @@ mod tests {
             rotation: Quaternion {
                 x: 0.0,
                 y: 0.0,
-                z: 0.0,
-                w: 1.0,
+                z: 0.7071067811865475,
+                w: 0.7071067811865476,
             },
         };
 
         let corrected_with_cov = corrector.correct_imu_with_covariance(&imu_msg, Some(&transform));
         assert_eq!(corrected_with_cov.header.frame_id, "base_link");
-        assert_eq!(corrected_with_cov.linear_acceleration.x, 10.8);
-        assert_eq!(corrected_with_cov.linear_acceleration.y, 2.0);
-        assert_eq!(corrected_with_cov.linear_acceleration.z, 3.0);
-        assert_eq!(corrected_with_cov.angular_velocity.x, 1.1);
-        assert_eq!(corrected_with_cov.angular_velocity.y, 2.2);
-        assert_eq!(corrected_with_cov.angular_velocity.z, 3.3);
+        assert_almost_eq(corrected_with_cov.linear_acceleration.x, 0.0);
+        assert_almost_eq(corrected_with_cov.linear_acceleration.y, 9.8);
+        assert_almost_eq(corrected_with_cov.linear_acceleration.z, 0.0);
+        assert_almost_eq(corrected_with_cov.angular_velocity.x, -0.2);
+        assert_almost_eq(corrected_with_cov.angular_velocity.y, 0.1);
+        assert_almost_eq(corrected_with_cov.angular_velocity.z, 0.3);
     }
 
     #[test]
@@ -463,7 +465,9 @@ mod tests {
 
         let corrected_msg = corrected_msg.unwrap();
         assert_eq!(corrected_msg.header.frame_id, "base_link");
-        assert_eq!(corrected_msg.linear_acceleration.x, 10.8);
+        assert_eq!(corrected_msg.linear_acceleration.x, 9.8);
+        assert_eq!(corrected_msg.linear_acceleration.y, 0.0);
+        assert_eq!(corrected_msg.linear_acceleration.z, 0.0);
     }
 
     #[test]
