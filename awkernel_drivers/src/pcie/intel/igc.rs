@@ -3,6 +3,7 @@
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
+    barrier::{bus_space_barrier, membar_sync, BUS_SPACE_BARRIER_WRITE},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -74,6 +75,7 @@ const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
 const MAX_FRAME_SIZE: u32 = 9234;
 const RX_BUFFER_SIZE: usize = 4096 * 3;
+const TX_BUFFER_SIZE: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -95,6 +97,7 @@ type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
 type TxRing = [IgcAdvTxDesc; IGC_DEFAULT_TXD];
 
 type RxBuffer = [[u8; RX_BUFFER_SIZE]; IGC_DEFAULT_RXD];
+type TxBuffer = [[u8; TX_BUFFER_SIZE]; IGC_DEFAULT_TXD];
 
 struct Rx {
     next_to_check: usize,
@@ -112,6 +115,7 @@ struct Tx {
     next_avail_desc: usize,
     next_to_clean: usize,
     tx_desc_ring: DMAPool<TxRing>,
+    write_buf: Option<DMAPool<TxBuffer>>,
 }
 
 struct Queue {
@@ -330,13 +334,18 @@ impl NetDevice for Igc {
     }
 
     fn can_send(&self) -> bool {
-        // TODO
-        false
+        let inner = self.inner.read();
+        if !inner.if_flags.contains(NetFlags::RUNNING) || !inner.link_info.link_active {
+            return false;
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = inner.queue_info.que[0].tx.lock(&mut node);
+        inner.igc_txeof(&mut tx).is_ok() && tx.igc_desc_unused() > 0
     }
 
     fn capabilities(&self) -> net_device::NetCapabilities {
-        // TODO
-        net_device::NetCapabilities::empty()
+        self.inner.read().capabilities
     }
 
     fn device_short_name(&self) -> Cow<'static, str> {
@@ -395,19 +404,23 @@ impl NetDevice for Igc {
 
     fn recv(
         &self,
-        _que_id: usize,
+        que_id: usize,
     ) -> Result<Option<net_device::EtherFrameBuf>, net_device::NetDevError> {
-        // TODO
-        Ok(None)
+        let inner = self.inner.read();
+        inner
+            .igc_recv(que_id)
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn send(
         &self,
-        _data: net_device::EtherFrameRef,
-        _que_id: usize,
+        data: net_device::EtherFrameRef,
+        que_id: usize,
     ) -> Result<(), net_device::NetDevError> {
-        // TODO
-        Ok(())
+        let inner = self.inner.read();
+        inner
+            .igc_send(que_id, data)
+            .or(Err(net_device::NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), net_device::NetDevError> {
@@ -685,13 +698,7 @@ impl IgcInner {
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
             queue_info,
-            capabilities: NetCapabilities::CSUM_IPv4
-                | NetCapabilities::CSUM_TCPv4
-                | NetCapabilities::CSUM_UDPv4
-                | NetCapabilities::CSUM_TCPv6
-                | NetCapabilities::CSUM_UDPv6
-                | NetCapabilities::VLAN_MTU
-                | NetCapabilities::VLAN_HWTAGGING,
+            capabilities: NetCapabilities::VLAN_MTU,
         }
     }
 
@@ -854,6 +861,162 @@ impl IgcInner {
         Ok(())
     }
 
+    fn igc_txeof(&self, tx: &mut Tx) -> Result<(), IgcDriverErr> {
+        membar_sync();
+
+        loop {
+            let desc = &mut tx.tx_desc_ring.as_mut()[tx.next_to_clean];
+            let done = u32::from_le(unsafe { desc.wb.status }) & IGC_TXD_STAT_DD != 0;
+            if !done {
+                break;
+            }
+
+            let read = unsafe { &mut desc.read };
+            read.buffer_addr = 0;
+            read.cmd_type_len = 0;
+            read.olinfo_status = 0;
+
+            tx.next_to_clean += 1;
+            if tx.next_to_clean == tx.tx_desc_ring.as_ref().len() {
+                tx.next_to_clean = 0;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn igc_send(
+        &self,
+        que_id: usize,
+        ether_frame: net_device::EtherFrameRef,
+    ) -> Result<(), IgcDriverErr> {
+        if que_id != 0 {
+            return Err(IgcDriverErr::Param);
+        }
+
+        if !self.link_info.link_active {
+            return Ok(());
+        }
+
+        if ether_frame.data.len() > TX_BUFFER_SIZE {
+            return Err(IgcDriverErr::Param);
+        }
+
+        if ether_frame.vlan.is_some() {
+            return Err(IgcDriverErr::Param);
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
+        self.igc_txeof(&mut tx)?;
+
+        if tx.igc_desc_unused() == 0 {
+            return Ok(());
+        }
+
+        let idx = tx.next_avail_desc;
+        let next_idx = if idx + 1 == tx.tx_desc_ring.as_ref().len() {
+            0
+        } else {
+            idx + 1
+        };
+        let buffer_addr = {
+            let write_buf = tx.write_buf.as_mut().ok_or(IgcDriverErr::DmaPoolAlloc)?;
+            let dst = &mut write_buf.as_mut()[idx];
+            dst[..ether_frame.data.len()].copy_from_slice(ether_frame.data);
+            (write_buf.get_phy_addr().as_usize() + idx * TX_BUFFER_SIZE) as u64
+        };
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[idx];
+        let read = unsafe { &mut desc.read };
+        read.buffer_addr = u64::to_le(buffer_addr);
+        read.cmd_type_len = u32::to_le(
+            (ether_frame.data.len() as u32)
+                | IGC_ADVTXD_DTYP_DATA
+                | IGC_TXD_CMD_DEXT
+                | IGC_TXD_CMD_EOP
+                | IGC_TXD_CMD_IFCS
+                | IGC_TXD_CMD_RS,
+        );
+        read.olinfo_status = u32::to_le((ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT);
+
+        membar_sync();
+        write_reg(&self.info, igc_regs::IGC_TDT(que_id), next_idx as u32)?;
+        bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
+        tx.next_avail_desc = next_idx;
+
+        Ok(())
+    }
+
+    fn igc_recv(&self, que_id: usize) -> Result<Option<net_device::EtherFrameBuf>, IgcDriverErr> {
+        if que_id != 0 {
+            return Ok(None);
+        }
+
+        let mut node = MCSNode::new();
+        let mut rx = self.queue_info.que[que_id].rx.lock(&mut node);
+        if rx.read_buf.is_none() {
+            return Ok(None);
+        }
+
+        membar_sync();
+        let idx = rx.next_to_check;
+        let (status_error, length, vlan) = {
+            let desc = &rx.rx_desc_ring.as_ref()[idx];
+            let status_error = u32::from_le(unsafe { desc.wb.upper.status_error });
+            let length = u16::from_le(unsafe { desc.wb.upper.length }) as usize;
+            let vlan = if status_error & IGC_RXD_STAT_VP != 0 {
+                Some(u16::from_le(unsafe { desc.wb.upper.vlan }))
+            } else {
+                None
+            };
+            (status_error, length, vlan)
+        };
+
+        if status_error & IGC_RXD_STAT_DD == 0 {
+            return Ok(None);
+        }
+
+        let packet = if status_error & IGC_RXD_STAT_EOP == 0
+            || length == 0
+            || status_error
+                & (IGC_RXDEXT_STATERR_L4E | IGC_RXDEXT_STATERR_IPE | IGC_RXDEXT_STATERR_RXE)
+                != 0
+        {
+            rx.dropped_pkts += 1;
+            None
+        } else {
+            let data = rx.read_buf.as_ref().unwrap().as_ref()[idx][..length].to_vec();
+            Some(net_device::EtherFrameBuf { data, vlan })
+        };
+
+        {
+            let desc = &mut rx.rx_desc_ring.as_mut()[idx];
+            let upper = unsafe { &mut desc.wb.upper };
+            upper.status_error = 0;
+            upper.length = 0;
+            upper.vlan = 0;
+        }
+
+        rx.slots += 1;
+        rx.next_to_check += 1;
+        if rx.next_to_check == rx.rx_desc_ring.as_ref().len() {
+            rx.next_to_check = 0;
+        }
+
+        if rx.igc_rxfill()? {
+            membar_sync();
+            write_reg(
+                &self.info,
+                igc_regs::IGC_RDT(que_id),
+                rx.last_desc_filled as u32,
+            )?;
+            bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
+        }
+
+        Ok(packet)
+    }
+
     /// This routine disables all traffic on the adapter by issuing a
     /// global reset on the MAC.
     fn igc_stop(&mut self) -> Result<(), IgcDriverErr> {
@@ -868,7 +1031,12 @@ impl IgcInner {
         self.ops.reset_hw(&mut self.info, &mut self.hw)?;
         write_reg(&self.info, IGC_WUC, 0)?;
 
-        // TODO: Free transmit structures.
+        // Free transmit structures.
+        for q in self.queue_info.que.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut tx = q.tx.lock(&mut node);
+            tx.write_buf = None;
+        }
 
         // Free receive structures.
         for q in self.queue_info.que.iter_mut() {
@@ -965,11 +1133,9 @@ impl IgcInner {
                 self.igc_stop()?;
                 return Err(e);
             }
-            write_reg(
-                &self.info,
-                IGC_RDT(i),
-                ((rx.last_desc_filled + 1) % rx.rx_desc_ring.as_ref().len()) as u32,
-            )?;
+            membar_sync();
+            write_reg(&self.info, IGC_RDT(i), rx.last_desc_filled as u32)?;
+            bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
         }
 
         igc_enable_intr(&mut self.info, msix_queuesmask, msix_linkmask)?;
@@ -1069,11 +1235,8 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
 
     let nmsix = nmsix - 1; // Give one vector to events.
 
-    let nqueues = if nmsix > IGC_MAX_VECTORS {
-        IGC_MAX_VECTORS
-    } else {
-        nmsix
-    };
+    // Limit the driver to a single Rx/Tx queue for now.
+    let nqueues = core::cmp::min(nmsix, 1);
 
     // Initialize the IRQs for the Rx/Tx queues.
     let mut irqs_queues = Vec::with_capacity(nqueues as usize);
@@ -1156,6 +1319,7 @@ fn igc_allocate_queues(
                 core::mem::size_of::<TxRing>() / PAGESIZE,
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
+            write_buf: None,
         });
 
         que.push(Queue { rx, tx, me: n });
@@ -1321,8 +1485,23 @@ impl Tx {
         // Reset indices
         self.next_avail_desc = 0;
         self.next_to_clean = 0;
+        self.write_buf = Some(
+            DMAPool::new(
+                self.tx_desc_ring.get_numa_id(),
+                core::mem::size_of::<TxBuffer>() / PAGESIZE,
+            )
+            .ok_or(IgcDriverErr::DmaPoolAlloc)?,
+        );
 
         Ok(())
+    }
+
+    fn igc_desc_unused(&self) -> usize {
+        if self.next_to_clean > self.next_avail_desc {
+            self.next_to_clean - self.next_avail_desc - 1
+        } else {
+            self.tx_desc_ring.as_ref().len() + self.next_to_clean - self.next_avail_desc - 1
+        }
     }
 }
 
@@ -1523,6 +1702,8 @@ fn igc_initialize_receive_unit(
 
     if queues.len() > 1 {
         igc_initialize_rss_mapping(info, queues.len())?;
+    } else {
+        write_reg(info, IGC_MRQC, 0)?;
     }
 
     let mut srrctl = 2048 >> IGC_SRRCTL_BSIZEPKT_SHIFT;
