@@ -9,7 +9,7 @@ use crate::{
         push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
     },
     task::{
-        get_task, get_task_running, set_current_task, set_need_preemption, DagInfo, State,
+        get_task, get_task_running, set_current_task, set_need_preemption, State,
         MAX_TASK_PRIORITY, NUM_PARTITIONED_TASKS_IN_QUEUE,
     },
 };
@@ -19,30 +19,30 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
 };
 
-pub struct PartitionedGEDFScheduler {
-    data: [Mutex<Option<GEDFData>>; NUM_MAX_CPU], // Run queue.
+pub struct PartitionedEDFScheduler {
+    data: [Mutex<Option<EDFData>>; NUM_MAX_CPU], // Run queue.
     priority: u8,
 }
 
-struct PartitionedGEDFTask {
+struct PartitionedEDFTask {
     task: Arc<Task>,
     absolute_deadline: u64,
     wake_time: u64,
 }
 
-impl PartialOrd for PartitionedGEDFTask {
+impl PartialOrd for PartitionedEDFTask {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for PartitionedGEDFTask {
+impl PartialEq for PartitionedEDFTask {
     fn eq(&self, other: &Self) -> bool {
         self.absolute_deadline == other.absolute_deadline && self.wake_time == other.wake_time
     }
 }
 
-impl Ord for PartitionedGEDFTask {
+impl Ord for PartitionedEDFTask {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match other.absolute_deadline.cmp(&self.absolute_deadline) {
             core::cmp::Ordering::Equal => other.wake_time.cmp(&self.wake_time),
@@ -51,13 +51,13 @@ impl Ord for PartitionedGEDFTask {
     }
 }
 
-impl Eq for PartitionedGEDFTask {}
+impl Eq for PartitionedEDFTask {}
 
-struct GEDFData {
-    queue: BinaryHeap<PartitionedGEDFTask>,
+struct EDFData {
+    queue: BinaryHeap<PartitionedEDFTask>,
 }
 
-impl GEDFData {
+impl EDFData {
     fn new() -> Self {
         Self {
             queue: BinaryHeap::new(),
@@ -65,14 +65,14 @@ impl GEDFData {
     }
 }
 
-impl Scheduler for PartitionedGEDFScheduler {
+impl Scheduler for PartitionedEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let (wake_time, absolute_deadline, partitioned_core) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             let dag_info = info.get_dag_info();
             match info.scheduler_type {
-                SchedulerType::PartitionedGEDF(relative_deadline, partitioned_core) => {
+                SchedulerType::PartitionedEDF(relative_deadline, partitioned_core) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
                         calculate_and_update_dag_deadline(dag_info, wake_time)
@@ -104,8 +104,8 @@ impl Scheduler for PartitionedGEDFScheduler {
 
             let mut node_inner = MCSNode::new();
             let mut data = self.data[partitioned_core].lock(&mut node_inner);
-            let internal_data = data.get_or_insert_with(GEDFData::new);
-            internal_data.queue.push(PartitionedGEDFTask {
+            let internal_data = data.get_or_insert_with(EDFData::new);
+            internal_data.queue.push(PartitionedEDFTask {
                 task: task.clone(),
                 absolute_deadline,
                 wake_time,
@@ -153,7 +153,7 @@ impl Scheduler for PartitionedGEDFScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::PartitionedGEDF(0, 0)
+        SchedulerType::PartitionedEDF(0, 0)
     }
 
     fn priority(&self) -> u8 {
@@ -161,12 +161,12 @@ impl Scheduler for PartitionedGEDFScheduler {
     }
 }
 
-pub static SCHEDULER: PartitionedGEDFScheduler = PartitionedGEDFScheduler {
+pub static SCHEDULER: PartitionedEDFScheduler = PartitionedEDFScheduler {
     data: array_macro::array! [ _ => Mutex::new(None); NUM_MAX_CPU ],
-    priority: get_priority(SchedulerType::PartitionedGEDF(0, 0)),
+    priority: get_priority(SchedulerType::PartitionedEDF(0, 0)),
 };
 
-impl PartitionedGEDFScheduler {
+impl PartitionedEDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         let cpu_id = task.partitioned_core.expect("Task has no partitioned core") as usize;
 

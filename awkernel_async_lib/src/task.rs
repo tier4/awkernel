@@ -17,7 +17,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    cpu::NUM_MAX_CPU,
+    cpu::{num_cpu, NUM_MAX_CPU},
     priority_queue::HIGHEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
@@ -53,8 +53,6 @@ pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priori
 #[cfg(target_pointer_width = "64")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
-pub(crate) static NUM_PARTITIONED_TASKS: [AtomicU32; NUM_MAX_CPU] =
-    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 pub(crate) static NUM_PARTITIONED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
     array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
@@ -79,17 +77,6 @@ impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
-    }
-}
-
-impl Drop for Task {
-    fn drop(&mut self) {
-        if let Some(core) = self.partitioned_core {
-            if core as usize >= NUM_PARTITIONED_TASKS.len() {
-                panic!("PartitionedGEDF core {core} exceeds max supported CPU count");
-            }
-            NUM_PARTITIONED_TASKS[core as usize].fetch_sub(1, Ordering::Relaxed);
-        }
     }
 }
 
@@ -320,11 +307,13 @@ impl Tasks {
 
                 let partitioned_core = scheduler_type.partitioned_core();
                 if let Some(i) = partitioned_core {
-                    if i as usize >= NUM_PARTITIONED_TASKS.len() {
-                        panic!("PartitionedGEDF core {i} exceeds max supported CPU count");
+                    if i > num_cpu() as u16 {
+                        log::warn!(
+                            "Partitioned core should be between 1 and {}. It is addressed as {}.",
+                            num_cpu() - 1,
+                            i
+                        );
                     }
-
-                    NUM_PARTITIONED_TASKS[i as usize].fetch_add(1, Ordering::Relaxed);
                 }
 
                 let task = Task {
@@ -1159,9 +1148,14 @@ impl Ord for PriorityInfo {
 
 /// Wake workers up.
 pub fn wake_workers() {
+    let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
 
-    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE.iter().enumerate().skip(1) {
+    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE[..num_cpus]
+        .iter()
+        .enumerate()
+        .skip(1)
+    {
         if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
             continue;
         }
@@ -1175,7 +1169,11 @@ pub fn wake_workers() {
         }
     }
 
-    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE.iter().enumerate().skip(1) {
+    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE[..num_cpus]
+        .iter()
+        .enumerate()
+        .skip(1)
+    {
         if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
             awkernel_lib::cpu::wake_cpu(i);
         }

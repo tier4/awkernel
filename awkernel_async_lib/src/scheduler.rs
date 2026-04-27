@@ -75,8 +75,8 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    GEDF(u64),                 // relative deadline
-    PartitionedGEDF(u64, u16), // relative deadline and partitioned core
+    GEDF(u64),                // relative deadline
+    PartitionedEDF(u64, u16), // relative deadline and partitioned core
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -88,8 +88,8 @@ impl SchedulerType {
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
                 | (
-                    SchedulerType::PartitionedGEDF(_, _),
-                    SchedulerType::PartitionedGEDF(_, _)
+                    SchedulerType::PartitionedEDF(_, _),
+                    SchedulerType::PartitionedEDF(_, _)
                 )
                 | (
                     SchedulerType::PrioritizedFIFO(_),
@@ -105,7 +105,7 @@ impl SchedulerType {
 
     pub const fn partitioned_core(&self) -> Option<u16> {
         match self {
-            SchedulerType::PartitionedGEDF(_, n) => Some(*n),
+            SchedulerType::PartitionedEDF(_, n) => Some(*n),
             _ => None,
         }
     }
@@ -116,7 +116,7 @@ impl SchedulerType {
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
 /// - The highest priority.
-///   - Partitioned GEDF scheduler.
+///   - Partitioned EDF scheduler.
 /// - The second highest priority.
 ///   - GEDF scheduler.
 /// - The third highest priority.
@@ -126,7 +126,7 @@ impl SchedulerType {
 /// - The lowest priority.
 ///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 5] = [
-    SchedulerType::PartitionedGEDF(0, 0),
+    SchedulerType::PartitionedEDF(0, 0),
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
@@ -161,7 +161,8 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
-    let num_partitioned_tasks = crate::task::NUM_PARTITIONED_TASKS[cpu_id].load(Ordering::Relaxed);
+    let num_partitioned_tasks =
+        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
 
     if num_partitioned_tasks > 0 {
         let task = PRIORITY_LIST[..NUM_PARTITIONED_SCHEDULER]
@@ -192,7 +193,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
-        SchedulerType::PartitionedGEDF(_, _) => &partitioned_edf::SCHEDULER,
+        SchedulerType::PartitionedEDF(_, _) => &partitioned_edf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
