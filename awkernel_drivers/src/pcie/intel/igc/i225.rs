@@ -5,7 +5,7 @@ use crate::pcie::{
         igc_mac::igc_config_fc_after_link_up_generic,
         igc_phy::{
             igc_check_downshift_generic, igc_phy_has_link_generic, igc_setup_copper_link_generic,
-            IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD,
+            IGC_I225_PHPM, IGC_I225_PHPM_GO_LINKD, IGC_I225_PHPM_ULP,
         },
         IgcMacType,
     },
@@ -30,7 +30,7 @@ use super::{
     igc_nvm::{acquire_nvm, igc_read_nvm_eerd, igc_validate_nvm_checksum_generic},
     igc_phy::{
         igc_get_phy_id, igc_phy_hw_reset_generic, igc_power_up_phy_copper, igc_read_phy_reg_gpy,
-        igc_write_phy_reg_gpy,
+        igc_sync_mdic_phy_addr, igc_write_phy_reg_gpy,
     },
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
@@ -341,7 +341,11 @@ fn igc_reset_hw_i225(
     let ctrl = read_reg(info, IGC_CTRL)?;
     write_reg(info, IGC_CTRL, ctrl | IGC_CTRL_DEV_RST)?;
 
-    igc_get_auto_rd_done_generic(info)?;
+    if let Err(e) = igc_get_auto_rd_done_generic(info) {
+        // Matching the BSD drivers here avoids failing bring-up on parts
+        // without usable NVM auto-read completion while still surfacing it.
+        log::debug!("igc: auto read done did not complete after MAC reset: {e:?}");
+    }
 
     // Clear any pending interrupt events.
     write_reg(info, IGC_IMC, 0xffffffff)?;
@@ -544,6 +548,13 @@ fn igc_init_phy_params_i225(
 
     phy.autoneg_mask = AUTONEG_ADVERTISE_SPEED_DEFAULT_2500;
     phy.reset_delay_us = 100;
+    let phy_addr = igc_sync_mdic_phy_addr(info, hw, 1)?;
+
+    let mut phpm = read_reg(info, IGC_I225_PHPM)?;
+    phpm &= !(IGC_I225_PHPM_GO_LINKD | IGC_I225_PHPM_ULP);
+    write_reg(info, IGC_I225_PHPM, phpm)?;
+
+    ops.power_up(info, hw)?;
 
     // Make sure the PHY is in a good state. Several people have reported
     // firmware leaving the PHY's page select register set to something
@@ -553,6 +564,7 @@ fn igc_init_phy_params_i225(
 
     igc_get_phy_id(ops, info, hw)?;
     hw.phy.phy_type = IgcPhyType::I225;
+    log::debug!("igc: initialized PHY address {phy_addr}");
 
     Ok(())
 }
