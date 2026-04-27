@@ -1,6 +1,6 @@
 //! A Partitioned EDF scheduler.
 
-use core::{cmp::max, sync::atomic::Ordering};
+use core::{cmp::max, num, sync::atomic::Ordering};
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
-    cpu::NUM_MAX_CPU,
+    cpu::{num_cpu, NUM_MAX_CPU},
     sync::mutex::{MCSNode, Mutex},
 };
 
@@ -92,14 +92,14 @@ impl Scheduler for PartitionedEDFScheduler {
             }
         };
 
+        let partitioned_core = partitioned_core as usize;
+        if partitioned_core >= num_cpu() || partitioned_core == 0 {
+            panic!("PartitionedEDF: core {partitioned_core} is out of range");
+        }
+
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
-            let partitioned_core = partitioned_core as usize;
-            if partitioned_core >= self.data.len() {
-                panic!("PartitionedEDF: core {partitioned_core} exceeds max supported CPU count");
-            }
-
             NUM_PARTITIONED_TASKS_IN_QUEUE[partitioned_core].fetch_add(1, Ordering::Relaxed);
 
             let mut node_inner = MCSNode::new();

@@ -305,16 +305,20 @@ impl Tasks {
                     _ => MAX_TASK_PRIORITY,
                 };
 
-                let partitioned_core = scheduler_type.partitioned_core();
-                if let Some(i) = partitioned_core {
+                let partitioned_core = if let Some(i) = scheduler_type.partitioned_core() {
                     if i == 0 || i >= num_cpu() as u16 {
                         log::warn!(
-                            "Partitioned core should be between 1 and {}. It is addressed as {}.",
+                            "Partitioned core should be between 1 and {}. Falling back to core 1. Given core: {}",
                             num_cpu() - 1,
                             i
                         );
+                        Some(1)
+                    } else {
+                        Some(i)
                     }
-                }
+                } else {
+                    None
+                };
 
                 let task = Task {
                     name,
