@@ -316,7 +316,8 @@ impl NetDevice for Igc {
     }
 
     fn debug_dump(&self) {
-        self.inner.read().dump();
+        let msg = self.inner.read().dump();
+        log::debug!("igc: dump:\r\n{msg}");
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
@@ -706,7 +707,7 @@ impl IgcInner {
         }
     }
 
-    fn dump(&self) {
+    fn dump(&self) -> alloc::string::String {
         let mut msg = alloc::string::String::new();
 
         msg = format!("BDF: {}\r\n", self.info.get_bdf());
@@ -806,7 +807,7 @@ impl IgcInner {
             msg = format!("{msg}TDBAL{i}: {tdbal:#08x}\r\n");
         }
 
-        log::debug!("igc: dump:\r\n{msg}");
+        msg
     }
 
     #[inline(always)]

@@ -221,7 +221,9 @@ pub trait NetDevice {
     }
 
     /// Dump device-specific debug state on demand.
-    fn debug_dump(&self) {}
+    fn debug_dump(&self) {
+        log::warn!("debug_dump not implemented for this device");
+    }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
