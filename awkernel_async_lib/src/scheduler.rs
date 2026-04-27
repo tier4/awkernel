@@ -133,11 +133,16 @@ static PRIORITY_LIST: [SchedulerType; 5] = [
 
 /// Return the number of partitioned schedulers in `PRIORITY_LIST`.
 /// Update this function if you add a new partitioned scheduler to `PRIORITY_LIST`.
-fn get_num_partitioned_schedulers() -> usize {
-    PRIORITY_LIST
-        .iter()
-        .take_while(|&&sched_type| matches!(sched_type, SchedulerType::PartitionedEDF(_, _)))
-        .count()
+const fn get_num_partitioned_schedulers() -> usize {
+    let mut count = 0;
+    while count < PRIORITY_LIST.len() {
+        if matches!(PRIORITY_LIST[count], SchedulerType::PartitionedEDF(_, _)) {
+            count += 1;
+        } else {
+            break;
+        }
+    }
+    count
 }
 
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
