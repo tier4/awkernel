@@ -16,6 +16,8 @@ use awkernel_async_lib::{
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::{embedded, runtime::FFI};
 use core::time::Duration;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 const SERVICE_NAME: &str = "[Awkernel] shell";
 
@@ -48,6 +50,7 @@ async fn console_handler() -> TaskResult {
         Box::new(TaskFfi),
         Box::new(InterruptFfi),
         Box::new(IfconfigFfi),
+        Box::new(NetdumpFfi),
         Box::new(RebootFfi),
         Box::new(ShutdownFfi),
     ];
@@ -169,6 +172,9 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
 
+(export netdump (interface_id) (IO (-> (Int) []))
+    (netdump_ffi interface_id))
+
 (export reboot () (IO (-> () []))
     (reboot_ffi))
 
@@ -192,6 +198,7 @@ fn help_ffi() {
     lines.push_str("(task)      ; print tasks\r\n");
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
+    lines.push_str("(netdump if); dump device registers\r\n");
     lines.push_str("(reboot)    ; reboot x86_64 systems\r\n");
     lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
 
@@ -244,6 +251,18 @@ fn ifconfig_ffi() {
     for netif in ifs.iter() {
         let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);
+    }
+}
+
+#[embedded]
+fn netdump_ffi(interface_id: BigInt) {
+    let Some(interface_id) = interface_id.to_u64() else {
+        console::print("netdump failed: interface_id must fit in u64\r\n");
+        return;
+    };
+
+    if let Err(e) = awkernel_lib::net::debug_dump_interface(interface_id) {
+        console::print(&format!("netdump failed: {e}\r\n"));
     }
 }
 

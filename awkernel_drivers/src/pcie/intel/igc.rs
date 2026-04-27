@@ -315,6 +315,10 @@ impl NetDevice for Igc {
             .or(Err(net_device::NetDevError::DeviceError))
     }
 
+    fn debug_dump(&self) {
+        self.inner.read().dump();
+    }
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
         let mut inner = self.inner.write();
         inner.multicast_addrs.add_addr(*addr);
