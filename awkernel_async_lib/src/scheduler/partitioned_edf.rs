@@ -4,7 +4,6 @@ use core::{cmp::max, sync::atomic::Ordering};
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
     scheduler::{
         gedf::calculate_and_update_dag_deadline, get_priority, peek_preemption_pending,
         push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
