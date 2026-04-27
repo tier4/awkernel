@@ -428,19 +428,6 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     Ok(if_status)
 }
 
-pub fn debug_dump_interface(interface_id: u64) -> Result<(), NetManagerError> {
-    let net_manager = NET_MANAGER.read();
-
-    let if_net = net_manager
-        .interfaces
-        .get(&interface_id)
-        .ok_or(NetManagerError::InvalidInterfaceID)?;
-
-    if_net.net_device.debug_dump();
-
-    Ok(())
-}
-
 pub fn get_all_interface() -> Vec<IfStatus> {
     let net_manager = NET_MANAGER.read();
 
