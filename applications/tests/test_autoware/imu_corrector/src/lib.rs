@@ -14,12 +14,12 @@ pub struct Transform {
 impl Transform {
     pub fn identity() -> Self {
         Self {
-            translation: imu_driver::Vector3::new(5.22444, 0.07615, 2.72762), // use aip_x2_gen2_description.
+            translation: imu_driver::Vector3::new(0.0, 0.0, 0.0),
             rotation: imu_driver::Quaternion {
-                x: 1.0,
+                x: 0.0,
                 y: 0.0,
                 z: 0.0,
-                w: 0.0,
+                w: 1.0,
             },
         }
     }
