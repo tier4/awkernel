@@ -1,6 +1,6 @@
 //! A Partitioned EDF scheduler.
 
-use core::{cmp::max, num, sync::atomic::Ordering};
+use core::{cmp::max, sync::atomic::Ordering};
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
