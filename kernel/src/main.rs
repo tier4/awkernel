@@ -74,7 +74,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Enable awkernel_lib::cpu::sleep_cpu() and awkernel_lib::cpu::wakeup_cpu().
         unsafe { awkernel_lib::cpu::init_sleep() };
 
+        #[cfg(feature = "need-get-period")]
+        let mut last_print = awkernel_lib::time::Time::now();
+
         loop {
+            #[cfg(feature = "need-get-period")]
+            if last_print.elapsed().as_secs() >= 30 {
+                awkernel_async_lib::task::perf::print_timestamp_table();
+                // awkernel_async_lib::task::perf::print_pubsub_table();
+
+                last_print = awkernel_lib::time::Time::now();
+            }
             // handle IRQs
             {
                 let _irq_enable = awkernel_lib::interrupt::InterruptEnable::new();

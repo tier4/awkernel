@@ -52,11 +52,16 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
+#[cfg(feature = "need-get-period")]
+use crate::task::perf::publish_timestamp_at;
+
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
     pub timestamp: awkernel_lib::time::Time,
     pub data: T,
+    #[cfg(feature = "need-get-period")]
+    pub index: u32,
 }
 
 /// Publisher.
@@ -260,6 +265,8 @@ struct Sender<'a, T: 'static + Send> {
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
     timestamp: awkernel_lib::time::Time,
+    #[cfg(feature = "need-get-period")]
+    index: u32,
 }
 
 enum SenderState {
@@ -276,7 +283,15 @@ impl<'a, T: Send> Sender<'a, T> {
             subscribers: Default::default(),
             state: SenderState::Start,
             timestamp: awkernel_lib::time::Time::now(),
+            #[cfg(feature = "need-get-period")]
+            index: 0,
         }
+    }
+
+    #[cfg(feature = "need-get-period")]
+    pub(super) fn with_period(mut self, index: u32) -> Self {
+        self.index = index;
+        self
     }
 }
 
@@ -309,6 +324,8 @@ where
                             if let Err(data) = guard.push(Data {
                                 timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
+                                #[cfg(feature = "need-get-period")]
+                                index: *this.index,
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
                                 guard.pop();
@@ -342,6 +359,8 @@ where
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
+                            #[cfg(feature = "need-get-period")]
+                            index: *this.index,
                         }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
@@ -386,8 +405,94 @@ where
         sender.await;
         r#yield().await;
     }
+
+    #[cfg(feature = "need-get-period")]
+    pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+        // [start] pubsub communication latency
+        let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+        publish_timestamp_at(index, start, pub_id, node_id);
+        let period = match u32::try_from(index) {
+            Ok(period) => period,
+            Err(_) => {
+                log::warn!(
+                    "Period index {} exceeds u32::MAX; saturating period metadata",
+                    index
+                );
+                u32::MAX
+            }
+        };
+        let sender = Sender::new(self, data).with_period(period);
+        sender.await;
+        r#yield().await;
+    }
 }
 
+#[cfg(all(test, feature = "need-get-period"))]
+mod need_get_period_tests {
+    use super::*;
+    use core::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    };
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn wake(_: *const ()) {}
+            fn wake_by_ref(_: *const ()) {}
+            fn drop(_: *const ()) {}
+
+            RawWaker::new(
+                core::ptr::null(),
+                &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
+            )
+        }
+
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut future = Box::pin(future);
+
+        loop {
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(&mut future).poll(&mut context) {
+                Poll::Ready(output) => return output,
+                Poll::Pending => {}
+            }
+        }
+    }
+
+    #[test]
+    fn send_with_meta_propagates_period_to_receiver() {
+        block_on(async {
+            let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
+            publisher.send_with_meta(42, 1, 7, 99).await;
+
+            let received = subscriber.recv().await;
+            assert_eq!(received.data, 42);
+            assert_eq!(received.index, 7);
+        });
+    }
+
+    #[test]
+    fn tuple_recv_all_with_period_returns_shared_period() {
+        block_on(async {
+            let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
+            let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
+
+            publisher1.send_with_meta(10, 11, 3, 21).await;
+            publisher2.send_with_meta(20, 12, 3, 22).await;
+
+            let ((value1, value2), period) =
+                (subscriber1, subscriber2).recv_all_with_period().await;
+
+            assert_eq!(value1, 10);
+            assert_eq!(value2, 20);
+            assert_eq!(period, 3);
+        });
+    }
+}
 /// Create an anonymous publisher and an anonymous subscriber.
 /// This channel works as a channel of multiple producers and multiple consumers.
 ///
@@ -756,12 +861,24 @@ pub trait MultipleReceiver {
     type Item;
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+
+    #[cfg(feature = "need-get-period")]
+    fn recv_all_with_period(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {
     type Item;
 
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+
+    #[cfg(feature = "need-get-period")]
+    fn send_all_with_meta(
+        &self,
+        item: Self::Item,
+        pub_id: u32,
+        index: usize,
+        node_id: u32,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
     type Publishers: MultipleSender;
@@ -834,12 +951,30 @@ macro_rules! impl_async_receiver_for_tuple {
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
                 Box::pin(async move{})
             }
+
+            #[cfg(feature = "need-get-period")]
+            fn recv_all_with_period(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                Box::pin(async move { ((), 0) })
+            }
         }
 
         impl MultipleSender for () {
             type Item = ();
 
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move{})
+            }
+
+            #[cfg(feature = "need-get-period")]
+            fn send_all_with_meta(
+                &self,
+                _item: Self::Item,
+                _pub_id: u32,
+                _index: usize,
+                _node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -854,6 +989,34 @@ macro_rules! impl_async_receiver_for_tuple {
                     ($($idx.recv().await.data,)+)
                 })
             }
+
+            #[cfg(feature = "need-get-period")]
+            fn recv_all_with_period(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                let ($($idx,)+) = self;
+                Box::pin(async move {
+                    let mut period: Option<u32> = None;
+                    $(
+                        let item = $idx.recv().await;
+                        match period {
+                            Some(expected) => {
+                                assert!(
+                                    expected == item.index,
+                                    "recv_all_with_period received mismatched periods: expected {}, got {}",
+                                    expected,
+                                    item.index
+                                );
+                            }
+                            None => {
+                                period = Some(item.index);
+                            }
+                        }
+                        let $idx2 = item.data;
+                    )+
+                    (($($idx2,)+), period.expect("recv_all_with_period requires at least one subscriber"))
+                })
+            }
         }
 
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
@@ -865,6 +1028,23 @@ macro_rules! impl_async_receiver_for_tuple {
                 Box::pin(async move {
                     $(
                         $idx.send($idx2).await;
+                    )+
+                })
+            }
+
+            #[cfg(feature = "need-get-period")]
+            fn send_all_with_meta(
+                &self,
+                item: Self::Item,
+                pub_id: u32,
+                index: usize,
+                node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)+) = self;
+                let ($($idx2,)+) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send_with_meta($idx2, pub_id, index, node_id).await;
                     )+
                 })
             }

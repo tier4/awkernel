@@ -29,6 +29,8 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
+#[cfg(feature = "need-get-period")]
+use crate::task::perf::{get_period_count, update_pre_send_outer_timestamp_at};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{
@@ -86,7 +88,7 @@ pub enum MissedTickBehavior {
 /// use crate::time_interval::interval;
 /// use core::time::Duration;
 ///
-/// let mut interval = interval(Duration::from_secs(1));
+/// let mut interval = interval(Duration::from_secs(1), 0);
 /// let mut ticks = 0;
 /// while ticks < 5 {
 ///     let tick_time = interval.tick().await;
@@ -95,13 +97,19 @@ pub enum MissedTickBehavior {
 /// }
 /// ```
 ///
-pub fn interval(period: Duration) -> Interval {
+pub fn interval(period: Duration, dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    interval_at(Time::now(), period)
+    interval_at(Time::now(), period, dag_id)
 }
 
-pub fn interval_at(start: Time, period: Duration) -> Interval {
+pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
+    #[cfg(feature = "need-get-period")]
+    {
+        let index = get_period_count(_dag_id) as usize;
+        // [start] cycle deviation index == 0 (basis of cycle deviation)
+        update_pre_send_outer_timestamp_at(index, start.uptime().as_nanos() as u64, _dag_id);
+    }
     Interval {
         delay: None,
         next_tick_target: start,

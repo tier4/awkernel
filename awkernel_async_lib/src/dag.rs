@@ -67,6 +67,13 @@ use crate::{
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+
+#[cfg(feature = "need-get-period")]
+use crate::task::perf::{
+    get_period_count, increment_period_count, subscribe_timestamp_at,
+    update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
+};
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -926,10 +933,31 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
-                subscribers.recv_all().await;
-            let results = f(args);
-            publishers.send_all(results).await;
+            #[cfg(feature = "need-get-period")]
+            {
+                let (args, count_st): (
+                    <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
+                    u32,
+                ) = subscribers.recv_all_with_period().await;
+
+                // [end] pubsub communication latency
+                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
+
+                let results = f(args);
+                publishers
+                    .send_all_with_meta(results, 1, count_st as usize, dag_info.node_id)
+                    .await;
+            }
+
+            #[cfg(not(feature = "need-get-period"))]
+            {
+                let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                    subscribers.recv_all().await;
+
+                let results = f(args);
+                publishers.send_all(results).await;
+            }
         }
     };
 
@@ -966,13 +994,31 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period);
+        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
         loop {
-            let results = f();
-            publishers.send_all(results).await;
+            #[cfg(feature = "need-get-period")]
+            {
+                let index = get_period_count(dag_info.dag_id) as usize;
+                if index != 0 {
+                    // [start] cycle deviation index >= 1
+                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    update_pre_send_outer_timestamp_at(index, release_time, dag_info.dag_id);
+                }
+                let results = f();
+                publishers
+                    .send_all_with_meta(results, 0, index, dag_info.node_id)
+                    .await;
+                increment_period_count(dag_info.dag_id);
+            }
+
+            #[cfg(not(feature = "need-get-period"))]
+            {
+                let results = f();
+                publishers.send_all(results).await;
+            }
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1006,8 +1052,29 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
-            f(args);
+            #[cfg(feature = "need-get-period")]
+            {
+                let (args, count_st): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
+                    subscribers.recv_all_with_period().await;
+
+                // [end] pubsub communication latency
+                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
+
+                let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                if count_st != 0 {
+                    update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+                }
+
+                f(args);
+            }
+
+            #[cfg(not(feature = "need-get-period"))]
+            {
+                let args: <Args::Subscribers as MultipleReceiver>::Item =
+                    subscribers.recv_all().await;
+                f(args);
+            }
         }
     };
 
