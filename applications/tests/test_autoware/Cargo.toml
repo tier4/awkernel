@@ -14,4 +14,5 @@ csv-core = "0.1"
 awkernel_async_lib = { path = "../../../awkernel_async_lib", default-features = false }
 awkernel_lib = { path = "../../../awkernel_lib", default-features = false }
 imu_driver = { path = "./imu_driver", default-features = false }
+imu_corrector = { path = "./imu_corrector", default-features = false }
 vehicle_velocity_converter = { path = "./vehicle_velocity_converter", default-features = false }
