@@ -428,6 +428,28 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     Ok(if_status)
 }
 
+/// Emit debug state for the interface identified by `interface_id` via `log::debug!`.
+///
+/// Returns [`NetManagerError::InvalidInterfaceID`] if no interface with that ID exists.
+/// The NET_MANAGER read lock is held only to look up and clone the device reference;
+/// the device dump runs outside that lock.
+pub fn debug_dump_interface(interface_id: u64) -> Result<(), NetManagerError> {
+    let net_device = {
+        let net_manager = NET_MANAGER.read();
+
+        let if_net = net_manager
+            .interfaces
+            .get(&interface_id)
+            .ok_or(NetManagerError::InvalidInterfaceID)?;
+
+        if_net.net_device.clone()
+    };
+
+    net_device.debug_dump();
+
+    Ok(())
+}
+
 pub fn get_all_interface() -> Vec<IfStatus> {
     let net_manager = NET_MANAGER.read();
 
