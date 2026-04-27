@@ -19,8 +19,11 @@ use alloc::boxed::Box;
 
 pub mod gedf;
 pub(super) mod panicked;
+mod partitioned_gedf;
 mod prioritized_fifo;
 mod prioritized_rr;
+
+static NUM_PARTITIONED_SCHEDULER: usize = 1;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
@@ -72,7 +75,8 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    GEDF(u64), // relative deadline
+    GEDF(u64),                 // relative deadline
+    PartitionedGEDF(u64, u16), // relative deadline and partitioned core
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -84,6 +88,10 @@ impl SchedulerType {
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
                 | (
+                    SchedulerType::PartitionedGEDF(_, _),
+                    SchedulerType::PartitionedGEDF(_, _)
+                )
+                | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
                 )
@@ -94,6 +102,13 @@ impl SchedulerType {
                 | (SchedulerType::Panicked, SchedulerType::Panicked)
         )
     }
+
+    pub const fn partitioned_core(&self) -> Option<u16> {
+        match self {
+            SchedulerType::PartitionedGEDF(_, n) => Some(*n),
+            _ => None,
+        }
+    }
 }
 
 /// # Priority
@@ -101,15 +116,17 @@ impl SchedulerType {
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
 /// - The highest priority.
-///   - GEDF scheduler.
+///   - Partitioned GEDF scheduler.
 /// - The second highest priority.
-///   - Prioritized FIFO scheduler.
+///   - GEDF scheduler.
 /// - The third highest priority.
-///   - Round-Robin scheduler.
-///   - Priority-based Round-Robin scheduler.
+///   - Prioritized FIFO scheduler.
+/// - The fourth highest priority.
+///   - Prioritized Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 4] = [
+static PRIORITY_LIST: [SchedulerType; 5] = [
+    SchedulerType::PartitionedGEDF(0, 0),
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
@@ -139,18 +156,35 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    let num_partitioned_tasks =
+        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
+
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
-    let task = PRIORITY_LIST
-        .iter()
-        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+    if num_partitioned_tasks > 0 {
+        let task = PRIORITY_LIST[..NUM_PARTITIONED_SCHEDULER]
+            .iter()
+            .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
-    if task.is_some() {
-        crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+        if task.is_some() {
+            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
+        }
+
+        task
+    } else {
+        let task = PRIORITY_LIST
+            .iter()
+            .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+
+        if task.is_some() {
+            crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+        }
+
+        task
     }
-
-    task
 }
 
 /// Get a scheduler.
@@ -159,6 +193,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
+        SchedulerType::PartitionedGEDF(_, _) => &partitioned_gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }

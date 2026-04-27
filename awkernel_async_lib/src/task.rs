@@ -51,7 +51,12 @@ static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 #[cfg(target_pointer_width = "64")]
-pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
+pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
+
+pub(crate) static NUM_PARTITIONED_TASKS: [AtomicU32; NUM_MAX_CPU] =
+    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
+pub(crate) static NUM_PARTITIONED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
+    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
 #[cfg(target_pointer_width = "32")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
@@ -67,12 +72,24 @@ pub struct Task {
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
     pub priority: PriorityInfo,
+    pub partitioned_core: Option<u16>, // The core to which the task is statically assigned in partitioned scheduling. None if not assigned.
 }
 
 impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
+    }
+}
+
+impl Drop for Task {
+    fn drop(&mut self) {
+        if let Some(core) = self.partitioned_core {
+            if core as usize >= NUM_PARTITIONED_TASKS.len() {
+                panic!("PartitionedGEDF core {core} exceeds max supported CPU count");
+            }
+            NUM_PARTITIONED_TASKS[core as usize].fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -134,7 +151,9 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
-        NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+        if self.partitioned_core.is_none() {
+            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+        }
 
         if panicked {
             scheduler::panicked::SCHEDULER.wake_task(self);
@@ -299,6 +318,15 @@ impl Tasks {
                     _ => MAX_TASK_PRIORITY,
                 };
 
+                let partitioned_core = scheduler_type.partitioned_core();
+                if let Some(i) = partitioned_core {
+                    if i as usize >= NUM_PARTITIONED_TASKS.len() {
+                        panic!("PartitionedGEDF core {i} exceeds max supported CPU count");
+                    }
+
+                    NUM_PARTITIONED_TASKS[i as usize].fetch_add(1, Ordering::Relaxed);
+                }
+
                 let task = Task {
                     name,
                     future: Mutex::new(future),
@@ -306,6 +334,7 @@ impl Tasks {
                     id,
                     info,
                     priority: PriorityInfo::new(scheduler.priority(), task_priority),
+                    partitioned_core,
                 };
 
                 e.insert(Arc::new(task));
@@ -952,6 +981,11 @@ pub fn get_tasks_running() -> Vec<RunningTask> {
     tasks
 }
 
+pub fn get_task_running(cpu_id: usize) -> RunningTask {
+    let task_id = RUNNING[cpu_id].load(Ordering::Relaxed);
+    RunningTask { cpu_id, task_id }
+}
+
 #[inline(always)]
 pub fn get_num_preemption() -> usize {
     #[cfg(not(feature = "no_preempt"))]
@@ -1126,15 +1160,24 @@ impl Ord for PriorityInfo {
 /// Wake workers up.
 pub fn wake_workers() {
     let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
-    let num_cpu = awkernel_lib::cpu::num_cpu();
 
-    for i in 1..num_cpu {
+    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE.iter().enumerate().skip(1) {
+        if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
+            continue;
+        }
+
         if num_tasks == 0 {
             break;
         }
 
         if awkernel_lib::cpu::wake_cpu(i) {
             num_tasks -= 1;
+        }
+    }
+
+    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE.iter().enumerate().skip(1) {
+        if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
+            awkernel_lib::cpu::wake_cpu(i);
         }
     }
 }
