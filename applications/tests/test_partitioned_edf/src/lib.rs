@@ -40,13 +40,9 @@ async fn test_core_pinning() {
                 for _ in 0..3 {
                     let actual = cpu_id();
                     if actual == core {
-                        log::info!(
-                            "core_pinning: task on core {core} ran on cpu {actual} [OK]"
-                        );
+                        log::info!("core_pinning: task on core {core} ran on cpu {actual} [OK]");
                     } else {
-                        log::error!(
-                            "core_pinning: task on core {core} ran on cpu {actual} [FAIL]"
-                        );
+                        log::error!("core_pinning: task on core {core} ran on cpu {actual} [FAIL]");
                     }
                     wait_microsec(100_000);
                     sleep(Duration::from_millis(200)).await;
