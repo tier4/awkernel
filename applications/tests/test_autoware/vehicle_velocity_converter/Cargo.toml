@@ -1,0 +1,6 @@
+[package]
+name = "vehicle_velocity_converter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
