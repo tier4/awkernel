@@ -217,6 +217,7 @@ pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT_2500: u16 = IGC_ALL_SPEED_DUPLE
 // Transmit Descriptor bit definitions
 pub(super) const IGC_TXD_DTYP_D: u32 = 0x00100000; // Data Descriptor
 pub(super) const IGC_TXD_DTYP_C: u32 = 0x00000000; // Context Descriptor
+pub(super) const IGC_ADVTXD_DTYP_DATA: u32 = 0x00300000; // Advanced Data Descriptor
 pub(super) const IGC_TXD_POPTS_IXSM: u32 = 0x01; // Insert IP checksum
 pub(super) const IGC_TXD_POPTS_TXSM: u32 = 0x02; // Insert TCP/UDP checksum
 pub(super) const IGC_TXD_CMD_EOP: u32 = 0x01000000; // End of Packet
@@ -232,6 +233,7 @@ pub(super) const IGC_TXD_CMD_TCP: u32 = 0x01000000; // TCP packet
 pub(super) const IGC_TXD_CMD_IP: u32 = 0x02000000; // IP packet
 pub(super) const IGC_TXD_CMD_TSE: u32 = 0x04000000; // TCP Seg enable
 pub(super) const IGC_TXD_EXTCMD_TSTAMP: u32 = 0x00000010; // IEEE1588 Timestamp packet
+pub(super) const IGC_ADVTXD_PAYLEN_SHIFT: u32 = 14; // Adv desc PAYLEN shift
 
 // Transmit Control
 pub(super) const IGC_TCTL_EN: u32 = 0x00000002; // enable Tx
