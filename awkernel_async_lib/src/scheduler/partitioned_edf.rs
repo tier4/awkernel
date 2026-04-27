@@ -9,8 +9,8 @@ use crate::{
         get_priority, peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
     },
     task::{
-        get_task_running, set_current_task, set_need_preemption, DagInfo, State, MAX_TASK_PRIORITY,
-        NUM_PARTITIONED_TASKS_IN_QUEUE,
+        get_task, get_task_running, set_current_task, set_need_preemption, DagInfo, State,
+        MAX_TASK_PRIORITY, NUM_PARTITIONED_TASKS_IN_QUEUE,
     },
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
@@ -135,6 +135,7 @@ impl Scheduler for PartitionedGEDFScheduler {
                 let mut task_info = task.task.info.lock(&mut node);
 
                 if matches!(task_info.state, State::Terminated | State::Panicked) {
+                    NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
                     continue;
                 }
 
@@ -176,19 +177,20 @@ impl PartitionedGEDFScheduler {
             return false;
         }
 
-        let target_task = peek_preemption_pending(cpu_id).unwrap_or(task.clone());
+        let task_running = get_task(task_running.task_id);
+        if let Some(target_task) = peek_preemption_pending(cpu_id).or(task_running) {
+            if task > target_task {
+                push_preemption_pending(cpu_id, task);
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                set_need_preemption(target_task.id, cpu_id);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
 
-        if task > target_task {
-            push_preemption_pending(cpu_id, task);
-            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-            set_need_preemption(target_task.id, cpu_id);
-            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+                // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
+                // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
+                // Therefore, a more sophisticated implementation will be considered in the future.
 
-            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
-            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
-            // Therefore, a more sophisticated implementation will be considered in the future.
-
-            return true;
+                return true;
+            }
         }
 
         false

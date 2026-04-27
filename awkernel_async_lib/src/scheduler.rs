@@ -19,7 +19,7 @@ use alloc::boxed::Box;
 
 pub mod gedf;
 pub(super) mod panicked;
-mod partitioned_gedf;
+mod partitioned_edf;
 mod prioritized_fifo;
 mod prioritized_rr;
 
@@ -158,11 +158,10 @@ pub(crate) trait Scheduler {
 pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
-    let num_partitioned_tasks =
-        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
-
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+
+    let num_partitioned_tasks = crate::task::NUM_PARTITIONED_TASKS[cpu_id].load(Ordering::Relaxed);
 
     if num_partitioned_tasks > 0 {
         let task = PRIORITY_LIST[..NUM_PARTITIONED_SCHEDULER]
@@ -193,7 +192,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
-        SchedulerType::PartitionedGEDF(_, _) => &partitioned_gedf::SCHEDULER,
+        SchedulerType::PartitionedGEDF(_, _) => &partitioned_edf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
