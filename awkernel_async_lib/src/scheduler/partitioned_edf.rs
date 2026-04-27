@@ -97,7 +97,7 @@ impl Scheduler for PartitionedEDFScheduler {
         if !self.invoke_preemption(task.clone()) {
             let partitioned_core = partitioned_core as usize;
             if partitioned_core >= self.data.len() {
-                panic!("PartitionedGEDF core {partitioned_core} exceeds max supported CPU count");
+                panic!("PartitionedEDF: core {partitioned_core} exceeds max supported CPU count");
             }
 
             NUM_PARTITIONED_TASKS_IN_QUEUE[partitioned_core].fetch_add(1, Ordering::Relaxed);

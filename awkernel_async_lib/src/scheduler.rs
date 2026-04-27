@@ -23,8 +23,6 @@ mod partitioned_edf;
 mod prioritized_fifo;
 mod prioritized_rr;
 
-static NUM_PARTITIONED_SCHEDULER: usize = 1;
-
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Tasks that request preemption by IPI. The key is the IPI destination CPU ID.
@@ -75,8 +73,8 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    GEDF(u64),                // relative deadline
     PartitionedEDF(u64, u16), // relative deadline and partitioned core
+    GEDF(u64),                // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -133,6 +131,15 @@ static PRIORITY_LIST: [SchedulerType; 5] = [
     SchedulerType::Panicked,
 ];
 
+/// Return the number of partitioned schedulers in `PRIORITY_LIST`.
+/// Update this function if you add a new partitioned scheduler to `PRIORITY_LIST`.
+fn get_num_partitioned_schedulers() -> usize {
+    PRIORITY_LIST
+        .iter()
+        .take_while(|&&sched_type| matches!(sched_type, SchedulerType::PartitionedEDF(_, _)))
+        .count()
+}
+
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
 /// In order to resolve priority inversion in multiple priority-based schedulers,
 /// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
@@ -165,7 +172,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
         crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
 
     if num_partitioned_tasks > 0 {
-        let task = PRIORITY_LIST[..NUM_PARTITIONED_SCHEDULER]
+        let task = PRIORITY_LIST[..get_num_partitioned_schedulers()]
             .iter()
             .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 

@@ -307,7 +307,7 @@ impl Tasks {
 
                 let partitioned_core = scheduler_type.partitioned_core();
                 if let Some(i) = partitioned_core {
-                    if i > num_cpu() as u16 {
+                    if i == 0 || i >= num_cpu() as u16 {
                         log::warn!(
                             "Partitioned core should be between 1 and {}. It is addressed as {}.",
                             num_cpu() - 1,
