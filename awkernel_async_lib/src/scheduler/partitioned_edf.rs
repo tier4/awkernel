@@ -1,16 +1,15 @@
 //! A Partitioned EDF scheduler.
 
-use core::{cmp::max, sync::atomic::Ordering};
+use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::{
         gedf::calculate_and_update_dag_deadline, get_priority, peek_preemption_pending,
-        push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
+        push_preemption_pending, PartitionedTask, GLOBAL_WAKE_GET_MUTEX,
     },
     task::{
-        get_task, get_task_running, set_current_task, set_need_preemption, State,
-        MAX_TASK_PRIORITY, NUM_PARTITIONED_TASKS_IN_QUEUE,
+        get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
     },
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
@@ -54,7 +53,7 @@ impl Ord for PartitionedEDFTask {
 impl Eq for PartitionedEDFTask {}
 
 struct EDFData {
-    queue: BinaryHeap<PartitionedEDFTask>,
+    queue: BinaryHeap<PartitionedTask<PartitionedEDFTask>>,
 }
 
 impl EDFData {
@@ -101,15 +100,16 @@ impl Scheduler for PartitionedEDFScheduler {
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
         if !self.invoke_preemption(task.clone()) {
-            NUM_PARTITIONED_TASKS_IN_QUEUE[partitioned_core].fetch_add(1, Ordering::Relaxed);
-
             let mut node_inner = MCSNode::new();
             let mut data = self.data[partitioned_core].lock(&mut node_inner);
-            data.queue.push(PartitionedEDFTask {
-                task: task.clone(),
-                absolute_deadline,
-                wake_time,
-            });
+            data.queue.push(PartitionedTask::new(
+                PartitionedEDFTask {
+                    task: task.clone(),
+                    absolute_deadline,
+                    wake_time,
+                },
+                partitioned_core,
+            ));
         }
     }
 
@@ -120,16 +120,18 @@ impl Scheduler for PartitionedEDFScheduler {
         let mut data = self.data[cpu_id].lock(&mut node);
 
         loop {
-            // Pop a task from the run queue.
-            let task = data.queue.pop()?;
+            // Pop an entry from the run queue.
+            // `entry` is a PartitionedTask<PartitionedEDFTask>: dropping it
+            // automatically decrements NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].
+            let entry = data.queue.pop()?;
 
             // Make the state of the task Running.
             {
                 let mut node = MCSNode::new();
-                let mut task_info = task.task.info.lock(&mut node);
+                let mut task_info = entry.task.info.lock(&mut node);
 
                 if matches!(task_info.state, State::Terminated | State::Panicked) {
-                    NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
+                    // entry drops here → Drop decrements the counter.
                     continue;
                 }
 
@@ -138,11 +140,13 @@ impl Scheduler for PartitionedEDFScheduler {
                 }
                 if execution_ensured {
                     task_info.state = State::Running;
-                    set_current_task(awkernel_lib::cpu::cpu_id(), task.task.id);
+                    set_current_task(awkernel_lib::cpu::cpu_id(), entry.task.id);
                 }
             }
 
-            return Some(task.task);
+            // Clone the Arc<Task> before entry drops; entry drops at end of
+            // this statement → Drop decrements the counter.
+            return Some(entry.task.clone());
         }
     }
 

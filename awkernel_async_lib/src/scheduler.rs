@@ -185,10 +185,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
             .iter()
             .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
-        if task.is_some() {
-            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
-        }
-
+        // Decrement is handled by PartitionedTask::Drop inside get_next().
         task
     } else {
         let task = PRIORITY_LIST
@@ -223,6 +220,56 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
         index += 1;
     }
     panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
+}
+
+/// RAII wrapper representing one slot in `NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id]`.
+///
+/// Constructing a `PartitionedTask` increments the counter for `cpu_id`;
+/// dropping it decrements the counter. This ensures the counter stays
+/// accurate even when tasks are discarded mid-queue (e.g. terminated).
+pub(crate) struct PartitionedTask<T> {
+    inner: T,
+    cpu_id: usize,
+}
+
+impl<T> PartitionedTask<T> {
+    pub(crate) fn new(inner: T, cpu_id: usize) -> Self {
+        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_add(1, Ordering::Relaxed);
+        Self { inner, cpu_id }
+    }
+}
+
+impl<T> Drop for PartitionedTask<T> {
+    fn drop(&mut self) {
+        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id].fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl<T> core::ops::Deref for PartitionedTask<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T: PartialEq> PartialEq for PartitionedTask<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<T: Eq> Eq for PartitionedTask<T> {}
+
+impl<T: PartialOrd> PartialOrd for PartitionedTask<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.inner.partial_cmp(&other.inner)
+    }
+}
+
+impl<T: Ord> Ord for PartitionedTask<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.inner.cmp(&other.inner)
+    }
 }
 
 /// Maintain sleeping tasks by a delta list.
