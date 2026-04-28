@@ -101,6 +101,10 @@ impl SchedulerType {
         )
     }
 
+    /// Return the partitioned core index if this is a [`SchedulerType::PartitionedEDF`] scheduler.
+    ///
+    /// Returns `Some(n)` where `n` is the CPU core index (`1..num_cpu()`) assigned to the
+    /// partitioned EDF scheduler. Returns `None` for all other scheduler variants.
     pub const fn partitioned_core(&self) -> Option<u16> {
         match self {
             SchedulerType::PartitionedEDF(_, n) => Some(*n),

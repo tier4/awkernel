@@ -977,6 +977,12 @@ pub fn get_tasks_running() -> Vec<RunningTask> {
     tasks
 }
 
+/// Get the running task for the given CPU.
+///
+/// `cpu_id` must be less than `awkernel_lib::cpu::num_cpu()`.
+/// The returned [`RunningTask::task_id`] is `0` when the CPU is idle.
+///
+/// To get the running tasks for all CPUs at once, use [`get_tasks_running`].
 pub fn get_task_running(cpu_id: usize) -> RunningTask {
     let task_id = RUNNING[cpu_id].load(Ordering::Relaxed);
     RunningTask { cpu_id, task_id }
