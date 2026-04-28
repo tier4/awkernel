@@ -120,17 +120,18 @@ impl Scheduler for PartitionedEDFScheduler {
         let mut data = self.data[cpu_id].lock(&mut node);
 
         loop {
-            // Pop an entry from the run queue.
-            // entry: PartitionedTask<PartitionedEDFTask>
             let mut entry = data.queue.pop()?;
 
-            // Make the state of the task Running.
+            // take() decrements the counter; entry then drops with inner == None.
+            let Some(edf_task) = entry.take() else {
+                continue;
+            };
+
             {
                 let mut node = MCSNode::new();
-                let mut task_info = entry.task.info.lock(&mut node);
+                let mut task_info = edf_task.task.info.lock(&mut node);
 
                 if matches!(task_info.state, State::Terminated | State::Panicked) {
-                    // entry drops here → inner is Some → Drop decrements the counter.
                     continue;
                 }
 
@@ -139,13 +140,11 @@ impl Scheduler for PartitionedEDFScheduler {
                 }
                 if execution_ensured {
                     task_info.state = State::Running;
-                    set_current_task(awkernel_lib::cpu::cpu_id(), entry.task.id);
+                    set_current_task(awkernel_lib::cpu::cpu_id(), edf_task.task.id);
                 }
             }
 
-            // take() transfers ownership and decrements the counter.
-            // entry then drops with inner == None → Drop is a no-op.
-            return Some(entry.take().unwrap().task);
+            return Some(edf_task.task);
         }
     }
 

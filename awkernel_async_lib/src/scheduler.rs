@@ -268,17 +268,9 @@ impl<T> Drop for PartitionedTask<T> {
     }
 }
 
-impl<T> core::ops::Deref for PartitionedTask<T> {
-    type Target = T;
-    /// Panics if `take` has already been called.
-    fn deref(&self) -> &T {
-        self.inner.as_ref().unwrap()
-    }
-}
-
 impl<T: PartialEq> PartialEq for PartitionedTask<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.as_ref().unwrap() == other.inner.as_ref().unwrap()
+        self.inner == other.inner
     }
 }
 
@@ -286,19 +278,13 @@ impl<T: Eq> Eq for PartitionedTask<T> {}
 
 impl<T: PartialOrd> PartialOrd for PartitionedTask<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.inner
-            .as_ref()
-            .unwrap()
-            .partial_cmp(other.inner.as_ref().unwrap())
+        self.inner.partial_cmp(&other.inner)
     }
 }
 
 impl<T: Ord> Ord for PartitionedTask<T> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.inner
-            .as_ref()
-            .unwrap()
-            .cmp(other.inner.as_ref().unwrap())
+        self.inner.cmp(&other.inner)
     }
 }
 
