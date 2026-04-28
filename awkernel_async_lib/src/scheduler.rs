@@ -224,37 +224,61 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
 
 /// RAII wrapper representing one slot in `NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id]`.
 ///
-/// Constructing a `PartitionedTask` increments the counter for `cpu_id`;
-/// dropping it decrements the counter. This ensures the counter stays
-/// accurate even when tasks are discarded mid-queue (e.g. terminated).
+/// Constructing a `PartitionedTask` increments the counter for `cpu_id`.
+/// The counter is decremented exactly once — either via [`take`] (explicit
+/// ownership transfer) or via `Drop` (e.g. when a terminated task is
+/// discarded). If `take` has already been called, `Drop` is a no-op.
+///
+/// [`take`]: PartitionedTask::take
 pub(crate) struct PartitionedTask<T> {
-    inner: T,
+    inner: Option<T>,
     cpu_id: usize,
 }
 
 impl<T> PartitionedTask<T> {
     pub(crate) fn new(inner: T, cpu_id: usize) -> Self {
         crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_add(1, Ordering::Relaxed);
-        Self { inner, cpu_id }
+        Self {
+            inner: Some(inner),
+            cpu_id,
+        }
+    }
+
+    /// Take the inner value and decrement the counter.
+    ///
+    /// Returns `None` if the value has already been taken.
+    /// After this call `Drop` will be a no-op.
+    pub(crate) fn take(&mut self) -> Option<T> {
+        let val = self.inner.take();
+        if val.is_some() {
+            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id]
+                .fetch_sub(1, Ordering::Relaxed);
+        }
+        val
     }
 }
 
 impl<T> Drop for PartitionedTask<T> {
     fn drop(&mut self) {
-        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id].fetch_sub(1, Ordering::Relaxed);
+        // Decrement only if take() has not been called yet.
+        if self.inner.is_some() {
+            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id]
+                .fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 
 impl<T> core::ops::Deref for PartitionedTask<T> {
     type Target = T;
+    /// Panics if `take` has already been called.
     fn deref(&self) -> &T {
-        &self.inner
+        self.inner.as_ref().unwrap()
     }
 }
 
 impl<T: PartialEq> PartialEq for PartitionedTask<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        self.inner.as_ref().unwrap() == other.inner.as_ref().unwrap()
     }
 }
 
@@ -262,13 +286,19 @@ impl<T: Eq> Eq for PartitionedTask<T> {}
 
 impl<T: PartialOrd> PartialOrd for PartitionedTask<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.inner.partial_cmp(&other.inner)
+        self.inner
+            .as_ref()
+            .unwrap()
+            .partial_cmp(other.inner.as_ref().unwrap())
     }
 }
 
 impl<T: Ord> Ord for PartitionedTask<T> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.inner.cmp(&other.inner)
+        self.inner
+            .as_ref()
+            .unwrap()
+            .cmp(other.inner.as_ref().unwrap())
     }
 }
 

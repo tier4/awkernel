@@ -121,9 +121,8 @@ impl Scheduler for PartitionedEDFScheduler {
 
         loop {
             // Pop an entry from the run queue.
-            // `entry` is a PartitionedTask<PartitionedEDFTask>: dropping it
-            // automatically decrements NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].
-            let entry = data.queue.pop()?;
+            // entry: PartitionedTask<PartitionedEDFTask>
+            let mut entry = data.queue.pop()?;
 
             // Make the state of the task Running.
             {
@@ -131,7 +130,7 @@ impl Scheduler for PartitionedEDFScheduler {
                 let mut task_info = entry.task.info.lock(&mut node);
 
                 if matches!(task_info.state, State::Terminated | State::Panicked) {
-                    // entry drops here → Drop decrements the counter.
+                    // entry drops here → inner is Some → Drop decrements the counter.
                     continue;
                 }
 
@@ -144,9 +143,9 @@ impl Scheduler for PartitionedEDFScheduler {
                 }
             }
 
-            // Clone the Arc<Task> before entry drops; entry drops at end of
-            // this statement → Drop decrements the counter.
-            return Some(entry.task.clone());
+            // take() transfers ownership and decrements the counter.
+            // entry then drops with inner == None → Drop is a no-op.
+            return Some(entry.take().unwrap().task);
         }
     }
 
