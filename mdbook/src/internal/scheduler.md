@@ -30,7 +30,8 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 
 ```rust
 pub enum SchedulerType {
-    GEDF(u64), // relative deadline
+    PartitionedEDF(u64, u16), // relative deadline and partitioned core
+    GEDF(u64),                // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -62,12 +63,22 @@ Some schedulers are implemented under the folder [awkernel_async_lib/src/schedul
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
-> gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+> gedf.rs  panicked.rs  partitioned_edf.rs  prioritized_fifo.rs  prioritized_rr.rs
 ```
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
 Each scheduler must be registered in the following three locations.
 `fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
+
+### PartitionedEDF Scheduler
+
+The Partitioned Earliest Deadline First (PartitionedEDF) scheduler is implemented in [partitioned_edf.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/partitioned_edf.rs). This scheduler is an EDF variant that pins each task to a specific CPU core (partition), maintaining a separate run queue per core.
+
+The scheduler holds a `[Mutex<Option<EDFData>>; NUM_MAX_CPU]` array, one slot per CPU. Each slot's `EDFData` contains a `BinaryHeap<PartitionedEDFTask>` ordered by absolute deadline (earliest deadline first), with wake time used as a tie-breaker when deadlines are equal.
+
+When a task is enqueued via `wake_task()`, the scheduler reads the `SchedulerType::PartitionedEDF(relative_deadline, partitioned_core)` attached to the task and calculates the absolute deadline as `uptime + relative_deadline`. If the task is part of a DAG, `calculate_and_update_dag_deadline()` (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then inserted into the run queue of the assigned `partitioned_core`. Preemption is handled via `invoke_preemption()`, which sends an IPI to the target core when a newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.
+
+`get_next()` pops the task with the earliest deadline from the run queue of the calling CPU, so each core only dequeues its own tasks. This guarantees strict CPU affinity.
 
 ### GEDF Scheduler
 
