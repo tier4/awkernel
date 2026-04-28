@@ -20,7 +20,7 @@ use awkernel_lib::{
 };
 
 pub struct PartitionedEDFScheduler {
-    data: [Mutex<Option<EDFData>>; NUM_MAX_CPU], // Run queue.
+    data: [Mutex<EDFData>; NUM_MAX_CPU], // Run queue.
     priority: u8,
 }
 
@@ -58,7 +58,7 @@ struct EDFData {
 }
 
 impl EDFData {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             queue: BinaryHeap::new(),
         }
@@ -67,12 +67,12 @@ impl EDFData {
 
 impl Scheduler for PartitionedEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let (wake_time, absolute_deadline, partitioned_core) = {
+        let (wake_time, absolute_deadline) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             let dag_info = info.get_dag_info();
             match info.scheduler_type {
-                SchedulerType::PartitionedEDF(relative_deadline, partitioned_core) => {
+                SchedulerType::PartitionedEDF(relative_deadline, _) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
                         calculate_and_update_dag_deadline(dag_info, wake_time)
@@ -86,13 +86,14 @@ impl Scheduler for PartitionedEDFScheduler {
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
 
-                    (wake_time, absolute_deadline, partitioned_core)
+                    (wake_time, absolute_deadline)
                 }
                 _ => unreachable!(),
             }
         };
 
-        let partitioned_core = partitioned_core as usize;
+        let partitioned_core =
+            task.partitioned_core.expect("Task has no partitioned core") as usize;
         if partitioned_core >= num_cpu() || partitioned_core == 0 {
             panic!("PartitionedEDF: core {partitioned_core} is out of range");
         }
@@ -104,8 +105,7 @@ impl Scheduler for PartitionedEDFScheduler {
 
             let mut node_inner = MCSNode::new();
             let mut data = self.data[partitioned_core].lock(&mut node_inner);
-            let internal_data = data.get_or_insert_with(EDFData::new);
-            internal_data.queue.push(PartitionedEDFTask {
+            data.queue.push(PartitionedEDFTask {
                 task: task.clone(),
                 absolute_deadline,
                 wake_time,
@@ -118,12 +118,6 @@ impl Scheduler for PartitionedEDFScheduler {
 
         let mut node = MCSNode::new();
         let mut data = self.data[cpu_id].lock(&mut node);
-
-        #[allow(clippy::question_mark)]
-        let data = match data.as_mut() {
-            Some(data) => data,
-            None => return None,
-        };
 
         loop {
             // Pop a task from the run queue.
@@ -162,7 +156,7 @@ impl Scheduler for PartitionedEDFScheduler {
 }
 
 pub static SCHEDULER: PartitionedEDFScheduler = PartitionedEDFScheduler {
-    data: array_macro::array! [ _ => Mutex::new(None); NUM_MAX_CPU ],
+    data: array_macro::array! [ _ => Mutex::new(EDFData::new()); NUM_MAX_CPU ],
     priority: get_priority(SchedulerType::PartitionedEDF(0, 0)),
 };
 

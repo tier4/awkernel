@@ -138,7 +138,10 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
-        if self.partitioned_core.is_none() {
+        if self.partitioned_core.is_some() {
+            NUM_PARTITIONED_TASKS_IN_QUEUE[self.partitioned_core.unwrap() as usize]
+                .fetch_add(1, Ordering::Release);
+        } else {
             NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
         }
 
@@ -1161,6 +1164,7 @@ pub fn wake_workers() {
         .skip(1)
     {
         if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
+            awkernel_lib::cpu::wake_cpu(i);
             continue;
         }
 
@@ -1170,16 +1174,6 @@ pub fn wake_workers() {
 
         if awkernel_lib::cpu::wake_cpu(i) {
             num_tasks -= 1;
-        }
-    }
-
-    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE[..num_cpus]
-        .iter()
-        .enumerate()
-        .skip(1)
-    {
-        if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
-            awkernel_lib::cpu::wake_cpu(i);
         }
     }
 }
