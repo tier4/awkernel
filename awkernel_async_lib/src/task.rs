@@ -138,10 +138,10 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
-        if self.partitioned_core.is_some() {
-            NUM_PARTITIONED_TASKS_IN_QUEUE[self.partitioned_core.unwrap() as usize]
-                .fetch_add(1, Ordering::Release);
-        } else {
+        // Panicked tasks go to the global panicked scheduler, so always use the global counter.
+        // Non-panicked partitioned tasks: counter is managed inside partitioned_edf::wake_task.
+        // Non-panicked non-partitioned tasks: increment the global counter here.
+        if panicked || self.partitioned_core.is_none() {
             NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
         }
 
@@ -274,7 +274,7 @@ impl Tasks {
         name: Cow<'static, str>,
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
-        scheduler_type: SchedulerType,
+        mut scheduler_type: SchedulerType,
         dag_info: Option<DagInfo>,
     ) -> u32 {
         let mut id = self.candidate_id;
@@ -285,6 +285,26 @@ impl Tasks {
 
             // Find an unused task ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
+                // Validate and normalise the partitioned core before creating TaskInfo so that
+                // info.scheduler_type and task.partitioned_core stay in sync.
+                let partitioned_core = if let SchedulerType::PartitionedEDF(deadline, core) =
+                    scheduler_type
+                {
+                    if core == 0 || core >= num_cpu() as u16 {
+                        log::warn!(
+                            "Partitioned core should be between 1 and {}. Falling back to core 1. Given core: {}",
+                            num_cpu() - 1,
+                            core
+                        );
+                        scheduler_type = SchedulerType::PartitionedEDF(deadline, 1);
+                        Some(1u16)
+                    } else {
+                        Some(core)
+                    }
+                } else {
+                    None
+                };
+
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
                     state: State::Initialized,
@@ -306,21 +326,6 @@ impl Tasks {
                     SchedulerType::PrioritizedFIFO(priority)
                     | SchedulerType::PrioritizedRR(priority) => priority as u64,
                     _ => MAX_TASK_PRIORITY,
-                };
-
-                let partitioned_core = if let Some(i) = scheduler_type.partitioned_core() {
-                    if i == 0 || i >= num_cpu() as u16 {
-                        log::warn!(
-                            "Partitioned core should be between 1 and {}. Falling back to core 1. Given core: {}",
-                            num_cpu() - 1,
-                            i
-                        );
-                        Some(1)
-                    } else {
-                        Some(i)
-                    }
-                } else {
-                    None
                 };
 
                 let task = Task {
