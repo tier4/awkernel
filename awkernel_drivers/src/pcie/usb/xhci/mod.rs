@@ -187,7 +187,14 @@ pub fn xhci_usb_serial_puts(data: &str) {
     // that lives for the kernel's entire lifetime.  CDC_LOCK prevents aliased &mut.
     let dev = unsafe { &mut *(ptr as *mut XhciDevice) };
     let slot = CDC_SLOT.load(Ordering::Relaxed);
-    let _ = dev.cdcacm_write(slot, data.as_bytes());
+    if dev.cdcacm_write(slot, data.as_bytes()).is_err() {
+        // A failed bulk OUT leaves a pending TRB in the ring that would desynchronise
+        // all future poll_xfer_completion calls.  Try to recover the ring; only
+        // invalidate the pointer if recovery itself fails.
+        if dev.reset_bulk_out_ep(slot).is_err() {
+            CDC_DEV_PTR.store(0, Ordering::Release);
+        }
+    }
 
     CDC_LOCK.store(false, Ordering::Release);
 }
@@ -1426,6 +1433,148 @@ impl XhciDevice {
     }
 
     // -------------------------------------------------------------------------
+    // EP0 STALL recovery
+    // -------------------------------------------------------------------------
+
+    /// Recover EP0 from HALTED state after a control-transfer STALL.
+    ///
+    /// When the device STALLs EP0 (xHCI completion code 6), the host-side EP0
+    /// context enters the HALTED state.  Any subsequent control transfer will
+    /// silently hang until the endpoint is reset.  Two commands are required:
+    ///
+    ///   1. RESET_EP  — moves EP0 from Halted → Stopped.
+    ///   2. SET_TR_DEQUEUE_POINTER — re-aligns xHC's internal dequeue pointer
+    ///      with the software enqueue position so the next TD is picked up
+    ///      cleanly (xHCI spec §4.6.8).
+    fn reset_ep0_after_stall(&mut self, slot: u8) -> Result<(), PCIeDeviceErr> {
+        // Step 1: RESET_EP for EP0 (DCI = 1).
+        let trb = Trb {
+            param:  0,
+            status: 0,
+            ctrl: (regs::trb_type::RESET_EP << regs::TRB_TYPE_SHIFT)
+                | (1u32 << 16)           // EPID = 1 (EP0)
+                | ((slot as u32) << 24),
+        };
+        if self.cmd_ring.enqueue(trb) {
+            self.ring_cmd_doorbell();
+        }
+        match self.poll_cmd_completion(2_000_000) {
+            None => {
+                log::error!("xHCI: {}: RESET_EP timeout (slot={})", self.name, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some((code, _)) if code != 1 => {
+                log::warn!("xHCI: {}: RESET_EP code={} (slot={})", self.name, code, slot);
+                // Non-fatal: attempt SET_TR_DEQUEUE_POINTER anyway.
+            }
+            Some(_) => {}
+        }
+
+        // Step 2: SET_TR_DEQUEUE_POINTER — point xHC at the current enqueue position.
+        let (deq_phys, dcs) = {
+            let r = self.ep0_ring.as_ref().ok_or(PCIeDeviceErr::InitFailure)?;
+            // Each TRB is 16 bytes (64-bit param + 32-bit status + 32-bit ctrl).
+            let addr = r.phys_base() + (r.enqueue_idx as u64) * 16;
+            (addr, r.cycle_bit)
+        };
+        let trb = Trb {
+            param:  deq_phys | (dcs as u64), // bit 0 = DCS (Dequeue Cycle State)
+            status: 0,
+            ctrl: (regs::trb_type::SET_TR_DEQUEUE_POINTER << regs::TRB_TYPE_SHIFT)
+                | (1u32 << 16)           // EPID = 1 (EP0)
+                | ((slot as u32) << 24),
+        };
+        if self.cmd_ring.enqueue(trb) {
+            self.ring_cmd_doorbell();
+        }
+        match self.poll_cmd_completion(2_000_000) {
+            None => {
+                log::error!("xHCI: {}: SET_TR_DEQUEUE_POINTER timeout (slot={})", self.name, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some((code, _)) if code != 1 => {
+                log::error!("xHCI: {}: SET_TR_DEQUEUE_POINTER code={} (slot={})", self.name, code, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some(_) => {}
+        }
+
+        log::info!("xHCI: {}: EP0 STALL cleared — ready for next transfer (slot={})", self.name, slot);
+        Ok(())
+    }
+
+    /// Recover a stalled or timed-out bulk OUT endpoint.
+    ///
+    /// When `poll_xfer_completion` times out on a bulk OUT transfer a pending TRB
+    /// remains in xHCI's ring, and the next poll call would consume the wrong
+    /// completion event.  Two commands are required to restore a clean state:
+    ///
+    ///   1. STOP_ENDPOINT  — stops ring processing; xHCI discards the in-flight TRB
+    ///      and generates a TRANSFER_EVENT (code STOPPED) followed by CMD_COMPLETION.
+    ///   2. SET_TR_DEQUEUE_POINTER — advances xHC's dequeue pointer past the stale TRB
+    ///      to the current software enqueue position.
+    ///
+    /// After this call the ring is ready for fresh transfers.
+    fn reset_bulk_out_ep(&mut self, slot: u8) -> Result<(), PCIeDeviceErr> {
+        let ep_dci = self.bulk_out_ep_id as u32;
+        if ep_dci == 0 {
+            return Err(PCIeDeviceErr::InitFailure);
+        }
+
+        // STOP_ENDPOINT: moves endpoint from Running → Stopped.
+        // Code 19 (Context State Error) is acceptable — endpoint was already Stopped.
+        let trb = Trb {
+            param:  0,
+            status: 0,
+            ctrl: (regs::trb_type::STOP_EP << regs::TRB_TYPE_SHIFT)
+                | (ep_dci << 16)
+                | ((slot as u32) << 24),
+        };
+        if self.cmd_ring.enqueue(trb) { self.ring_cmd_doorbell(); }
+        match self.poll_cmd_completion(2_000_000) {
+            None => {
+                log::warn!("xHCI: {}: bulk OUT STOP_EP timeout (slot={})", self.name, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some((code, _)) if code != 1 && code != 19 => {
+                log::warn!("xHCI: {}: bulk OUT STOP_EP code={} (slot={})", self.name, code, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some(_) => {}
+        }
+
+        // SET_TR_DEQUEUE_POINTER: advance xHC's dequeue pointer to the current
+        // software enqueue position, skipping any stale pending TRBs.
+        let (deq_phys, dcs) = {
+            let r = self.bulk_out_ring.as_ref().ok_or(PCIeDeviceErr::InitFailure)?;
+            let addr = r.phys_base() + (r.enqueue_idx as u64) * 16;
+            (addr, r.cycle_bit)
+        };
+        let trb = Trb {
+            param:  deq_phys | (dcs as u64),
+            status: 0,
+            ctrl: (regs::trb_type::SET_TR_DEQUEUE_POINTER << regs::TRB_TYPE_SHIFT)
+                | (ep_dci << 16)
+                | ((slot as u32) << 24),
+        };
+        if self.cmd_ring.enqueue(trb) { self.ring_cmd_doorbell(); }
+        match self.poll_cmd_completion(2_000_000) {
+            None => {
+                log::warn!("xHCI: {}: bulk OUT SET_TR_DEQ timeout (slot={})", self.name, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some((code, _)) if code != 1 => {
+                log::warn!("xHCI: {}: bulk OUT SET_TR_DEQ code={} (slot={})", self.name, code, slot);
+                return Err(PCIeDeviceErr::InitFailure);
+            }
+            Some(_) => {}
+        }
+
+        log::info!("xHCI: {}: bulk OUT ring recovered (slot={})", self.name, slot);
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
     // PL2303: vendor control transfer helpers (bRequest = 0x01)
     // -------------------------------------------------------------------------
 
@@ -1554,11 +1703,14 @@ impl XhciDevice {
             self.dev_bcd, self.dev_class, self.dev_max_pkt0,
         );
 
-        // Distinguish HX from HXN: reading register 0x8080 fails on HXN.
+        // Distinguish HX from HXN: reading register 0x8080 fails (STALL) on HXN.
+        // After a STALL, EP0 enters the HALTED state on the host side and must be
+        // reset before the next control transfer (set_configuration) can proceed.
         if chip_type == pl2303::ChipType::Hx {
             if self.pl2303_vendor_read(slot, 0x8080, info.data_iface_no as u16).is_err() {
                 chip_type = pl2303::ChipType::Hxn;
                 log::info!("xHCI: {}: slot {} — PL2303HXN confirmed", self.name, slot);
+                self.reset_ep0_after_stall(slot)?;
             }
         }
         info.chip_type = chip_type;

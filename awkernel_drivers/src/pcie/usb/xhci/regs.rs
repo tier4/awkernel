@@ -74,6 +74,7 @@ pub mod trb_type {
     pub const EVALUATE_CONTEXT: u32 = 13;
     pub const RESET_EP: u32 = 14;
     pub const STOP_EP: u32 = 15;
+    pub const SET_TR_DEQUEUE_POINTER: u32 = 16;
     pub const NOOP_CMD: u32 = 23;
     pub const TRANSFER_EVENT: u32 = 32;
     pub const CMD_COMPLETION: u32 = 33;
