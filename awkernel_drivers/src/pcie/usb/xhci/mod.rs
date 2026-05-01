@@ -1505,16 +1505,19 @@ impl XhciDevice {
 
     /// Recover a stalled or timed-out bulk OUT endpoint.
     ///
-    /// When `poll_xfer_completion` times out on a bulk OUT transfer a pending TRB
-    /// remains in xHCI's ring, and the next poll call would consume the wrong
-    /// completion event.  Two commands are required to restore a clean state:
+    /// Handles two failure modes:
     ///
-    ///   1. STOP_ENDPOINT  — stops ring processing; xHCI discards the in-flight TRB
-    ///      and generates a TRANSFER_EVENT (code STOPPED) followed by CMD_COMPLETION.
-    ///   2. SET_TR_DEQUEUE_POINTER — advances xHC's dequeue pointer past the stale TRB
-    ///      to the current software enqueue position.
+    /// **Timeout (endpoint Running, pending TRB)**: STOP_ENDPOINT (code 1) → Stopped,
+    /// then SET_TR_DEQUEUE_POINTER to skip the stale TRB.
     ///
-    /// After this call the ring is ready for fresh transfers.
+    /// **Halted (USB STALL or error, code 19 from STOP_EP)**: STOP_ENDPOINT returns
+    /// CSE because endpoint is not Running; RESET_ENDPOINT clears the Halted state
+    /// (Halted → Stopped); then SET_TR_DEQUEUE_POINTER syncs the ring.
+    /// A Halted endpoint ignores doorbell rings, so RESET_ENDPOINT is mandatory
+    /// before the next transfer can proceed.
+    ///
+    /// After this call the ring is synced and the endpoint is in Stopped state;
+    /// the next doorbell ring will restart it (Stopped → Running).
     fn reset_bulk_out_ep(&mut self, slot: u8) -> Result<(), PCIeDeviceErr> {
         let ep_dci = self.bulk_out_ep_id as u32;
         if ep_dci == 0 {
@@ -1522,7 +1525,7 @@ impl XhciDevice {
         }
 
         // STOP_ENDPOINT: moves endpoint from Running → Stopped.
-        // Code 19 (Context State Error) is acceptable — endpoint was already Stopped.
+        // Code 19 (Context State Error) means it was already Stopped or is Halted.
         let trb = Trb {
             param:  0,
             status: 0,
@@ -1531,7 +1534,7 @@ impl XhciDevice {
                 | ((slot as u32) << 24),
         };
         if self.cmd_ring.enqueue(trb) { self.ring_cmd_doorbell(); }
-        match self.poll_cmd_completion(2_000_000) {
+        let stop_code = match self.poll_cmd_completion(2_000_000) {
             None => {
                 log::warn!("xHCI: {}: bulk OUT STOP_EP timeout (slot={})", self.name, slot);
                 return Err(PCIeDeviceErr::InitFailure);
@@ -1540,7 +1543,34 @@ impl XhciDevice {
                 log::warn!("xHCI: {}: bulk OUT STOP_EP code={} (slot={})", self.name, code, slot);
                 return Err(PCIeDeviceErr::InitFailure);
             }
-            Some(_) => {}
+            Some((code, _)) => code,
+        };
+
+        // If STOP_EP returned code 19 the endpoint may be Halted (USB STALL or bus
+        // error).  A Halted endpoint ignores doorbell rings, so we must issue
+        // RESET_ENDPOINT (Halted → Stopped) before SET_TR_DEQUEUE_POINTER.
+        // Code 19 from RESET_EP is also OK — it means the endpoint was already
+        // Stopped (not Halted), which is fine.
+        if stop_code == 19 {
+            let trb = Trb {
+                param:  0,
+                status: 0,
+                ctrl: (regs::trb_type::RESET_EP << regs::TRB_TYPE_SHIFT)
+                    | (ep_dci << 16)
+                    | ((slot as u32) << 24),
+            };
+            if self.cmd_ring.enqueue(trb) { self.ring_cmd_doorbell(); }
+            match self.poll_cmd_completion(2_000_000) {
+                None => {
+                    log::warn!("xHCI: {}: bulk OUT RESET_EP timeout (slot={})", self.name, slot);
+                    return Err(PCIeDeviceErr::InitFailure);
+                }
+                Some((code, _)) if code != 1 && code != 19 => {
+                    log::warn!("xHCI: {}: bulk OUT RESET_EP code={} (slot={})", self.name, code, slot);
+                    return Err(PCIeDeviceErr::InitFailure);
+                }
+                Some(_) => {}
+            }
         }
 
         // SET_TR_DEQUEUE_POINTER: advance xHC's dequeue pointer to the current

@@ -176,11 +176,26 @@ pub(super) fn attach(
     // Map the memory regions of MMIO.
     if let Err(e) = info.map_bar() {
         log::warn!("NVMe: Failed to map the memory regions of MMIO: {e:?}");
-        return Err(PCIeDeviceErr::PageTableFailure);
+        return Ok(info.unknown_device());
     }
 
     // Read capabilities of PCIe.
     info.read_capability();
+
+    // Quick probe: try reading the version register to detect a valid MMIO response.
+    match read_reg(&info, NVME_VS) {
+        Ok(v) => {
+            if v == 0xffffffff {
+                let bdf = info.get_bdf();
+                log::warn!("NVMe: invalid MMIO response (0xffffffff) at {bdf}, skipping NVMe driver");
+                return Ok(info.unknown_device());
+            }
+        }
+        Err(e) => {
+            log::warn!("NVMe: cannot read version register: {e:?}, skipping NVMe driver");
+            return Ok(info.unknown_device());
+        }
+    }
 
     let nvme = Nvme::new(info)?;
 
@@ -207,8 +222,9 @@ impl NvmeInner {
     fn new(info: PCIeInfo) -> Result<Self, NvmeDriverErr> {
         let reg = read_reg(&info, NVME_VS)?;
         if reg == 0xffffffff {
-            log::error!("NVMe: Invalid register mapping");
-            return Err(NvmeDriverErr::InitFailure);
+            let bdf = info.get_bdf();
+            log::warn!("NVMe: register read returned 0xffffffff - skipping NVMe driver for {bdf}");
+            return Err(NvmeDriverErr::ReadFailure);
         }
 
         let cap =
@@ -1022,7 +1038,7 @@ enum PCIeInt {
 
 impl From<NvmeDriverErr> for PCIeDeviceErr {
     fn from(value: NvmeDriverErr) -> Self {
-        log::error!("nvme: {value:?}");
+        log::warn!("nvme: {value:?}");
         match value {
             NvmeDriverErr::InitFailure => PCIeDeviceErr::InitFailure,
             NvmeDriverErr::NoBar0 => PCIeDeviceErr::InitFailure,
