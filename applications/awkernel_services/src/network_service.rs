@@ -22,6 +22,7 @@ pub async fn run() {
         SchedulerType::PrioritizedFIFO(0),
     )
     .await;
+    log::info!("Network service: TCP garbage collector spawned");
 
     awkernel_async_lib::spawn(
         NETWORK_IF_POLLER_NAME.into(),
@@ -29,14 +30,19 @@ pub async fn run() {
         SchedulerType::PrioritizedFIFO(0),
     )
     .await;
+    log::info!("Network service: Network interface poller spawned");
 
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
     let mut ch_tick_handlers = BTreeMap::new();
+    log::info!("Network service: Getting all interfaces");
 
     for if_status in awkernel_lib::net::get_all_interface() {
+        let device_name = if_status.device_name.clone();
         log::info!("Waking {} up.", if_status.device_name);
+        log::debug!("Interface: id={}, name={}", if_status.interface_id, if_status.device_name);
         if awkernel_lib::net::up(if_status.interface_id).is_ok() {
+            log::info!("Network service: Interface {} brought up", device_name);
             spawn_handlers(
                 if_status,
                 &mut ch_irq_handlers,
@@ -44,6 +50,7 @@ pub async fn run() {
                 &mut ch_tick_handlers,
             )
             .await;
+            log::info!("Network service: Handlers for {} spawned", device_name);
         }
     }
 

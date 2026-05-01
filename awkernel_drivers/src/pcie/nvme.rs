@@ -139,7 +139,8 @@ impl Queue {
 
             let cid = cqe.cid;
             if cid as usize >= ccbs.len() {
-                log::error!("Invalid CCB ID: {cid}");
+                let bdf = info.get_bdf();
+                log::error!("NVMe {bdf}: Invalid CCB ID: {cid}");
                 return Err(NvmeDriverErr::InvalidCcbId);
             }
             let ccb = &mut ccbs[cid as usize];
@@ -813,7 +814,7 @@ impl NvmeInner {
                 0,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI-X handler: {e:?}");
+                log::error!("Failed to register MSI-X handler for {bdf}: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -856,7 +857,7 @@ impl NvmeInner {
                 awkernel_lib::cpu::raw_cpu_id() as u32,
             )
             .map_err(|e| {
-                log::error!("Failed to register MSI handler: {e:?}");
+                log::error!("Failed to register MSI handler for {bdf}: {e:?}");
                 NvmeDriverErr::InitFailure
             })?;
 
@@ -887,7 +888,7 @@ impl NvmeInner {
             sqe_io.slba = u64::to_le(lba);
             sqe_io.nlb = u16::to_le((blocks - 1) as u16);
         } else {
-            log::error!("io_fill called with non-IO cookie");
+            log::error!("NVMe: io_fill called with non-IO cookie");
             // TODO: Consider returning an error or handling this case more gracefully
         }
     }
@@ -897,7 +898,7 @@ impl NvmeInner {
         let status = _NVME_CQE_SC(flags);
 
         if status != _NVME_CQE_SC_SUCCESS {
-            log::error!("NVMe I/O failed with status: 0x{status:x}");
+            log::error!("NVMe I/O failed (ccb={}): status=0x{status:x}", ccb._id);
             // TODO: Handle error status codes properly
         }
 

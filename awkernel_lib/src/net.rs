@@ -431,10 +431,13 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 pub fn get_all_interface() -> Vec<IfStatus> {
     let net_manager = NET_MANAGER.read();
 
+    let ids: Vec<u64> = net_manager.interfaces.keys().copied().collect();
+    drop(net_manager);
+
     let mut result = Vec::new();
 
-    for id in net_manager.interfaces.keys() {
-        if let Ok(if_status) = get_interface(*id) {
+    for id in ids {
+        if let Ok(if_status) = get_interface(id) {
             result.push(if_status);
         }
     }

@@ -1,0 +1,317 @@
+[awkernel USB diag OK]
+[            0 INFO] xHCI: PL2303 console writer registered (slo)
+[            0 INFO] xHCI: attaching 0000:e1:00.4, Device ID = 1r
+[            0 DEBUG] awkernel_drivers/src/pcie/usb/xhci/mod.rs:0
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: HCIVERSION=0x0120 8
+[            0 INFO] xHCI: cmd_ring_phys=0x000000000f0f8000  evt0
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: reset complete
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: BUS_MASTER confirmt
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: dcbaa=0x000000000f0
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: scratchpad count=2
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: scratchpad array p0
+[            0 WARN] awkernel_drivers/src/pcie/usb/xhci/mod.rs:3t
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: controller running)
+[            0 DEBUG] awkernel_drivers/src/pcie/usb/xhci/mod.rs:d
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: NOOP command OK — e
+[            0 INFO] xHCI: 0000:e1:00.4 xHCI: no device found att
+[            0 INFO] PCIe: segment_group = 0000                  
+Bus #00                                                          
+    0000:00:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:00:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Classl
+    0000:00:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:01.1: Bridge, Bus #01, status = [Capabilities List],]
+        0000:01:00.0: Vendor ID = 10de, Device ID = 2b85, PCIe Cr
+        0000:01:00.1: Vendor ID = 10de, Device ID = 22e8, PCIe Cr
+    0000:00:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:00:07.1: Bridge, Bus #02, status = [Capabilities List],]
+        0000:02:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Cn
+    0000:00:14.0: Vendor ID = 1022, Device ID = 790b, PCIe Classr
+    0000:00:14.3: Vendor ID = 1022, Device ID = 790e, PCIe Class)
+    0000:00:18.0: Vendor ID = 1022, Device ID = 12c0, PCIe Class)
+    0000:00:18.1: Vendor ID = 1022, Device ID = 12c1, PCIe Class)
+    0000:00:18.2: Vendor ID = 1022, Device ID = 12c2, PCIe Class)
+    0000:00:18.3: Vendor ID = 1022, Device ID = 12c3, PCIe Class)
+    0000:00:18.4: Vendor ID = 1022, Device ID = 12c4, PCIe Class)
+    0000:00:18.5: Vendor ID = 1022, Device ID = 12c5, PCIe Class)
+    0000:00:18.6: Vendor ID = 1022, Device ID = 12c6, PCIe Class)
+    0000:00:18.7: Vendor ID = 1022, Device ID = 12c7, PCIe Class)
+Bus #20                                                          
+    0000:20:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:20:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:20:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+Bus #40                                                          
+    0000:40:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:40:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Classl
+    0000:40:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:40:07.1: Bridge, Bus #41, status = [Capabilities List],]
+        0000:41:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Cn
+        0000:41:00.4 xHCI                                        
+        0000:41:00.7: Vendor ID = 1022, Device ID = 14cc, PCIe Cr
+Bus #60                                                          
+    0000:60:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:60:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:60:01.2: Bridge, Bus #61, status = [Capabilities List],]
+        0000:61:00.0: Vendor ID = 1d6a, Device ID = 04c0, PCIe Cr
+    0000:60:01.3: Bridge, Bus #62, status = [Capabilities List],]
+    0000:60:01.4: Bridge, Bus #63, status = [Capabilities List],]
+        0000:63:00.0: Vendor ID = 14c3, Device ID = 7925, PCIe Cr
+    0000:60:01.5: Bridge, Bus #64, status = [Capabilities List],]
+        0000:64:00.0 xHCI                                        
+    0000:60:01.6: Bridge, Bus #65, status = [Capabilities List],]
+        0000:65:00.0: Bridge, Bus #66, status = [Capabilities Li]
+            0000:66:0c.0: Bridge, Bus #67, status = [Capabilitie]
+                0000:67:00.0 xHCI                                
+            0000:66:0d.0: Bridge, Bus #68, status = [Capabilitie]
+                0000:68:00.0: Vendor ID = 1022, Device ID = 43f6)
+    0000:60:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+Bus #80                                                          
+    0000:80:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:80:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:80:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+Bus #a0                                                          
+    0000:a0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:a0:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Classl
+    0000:a0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:03.1: Bridge, Bus #a1, status = [Capabilities List],]
+    0000:a0:03.2: Bridge, Bus #a2, status = [Capabilities List],]
+    0000:a0:03.3: Bridge, Bus #a3, status = [Capabilities List],]
+    0000:a0:03.4: Bridge, Bus #a4, status = [Capabilities List],]
+    0000:a0:03.5: Bridge, Bus #a5, status = [Capabilities List],]
+    0000:a0:03.6: Bridge, Bus #a6, status = [Capabilities List],]
+    0000:a0:03.7: Bridge, Bus #a7, status = [Capabilities List],]
+    0000:a0:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:04.1: Bridge, Bus #a8, status = [Capabilities List],]
+    0000:a0:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:a0:07.1: Bridge, Bus #a9, status = [Capabilities List],]
+        0000:a9:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Cn
+        0000:a9:00.5: Vendor ID = 1022, Device ID = 156e, PCIe Cr
+Bus #c0                                                          
+    0000:c0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:c0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:c0:01.1: Bridge, Bus #c1, status = [Capabilities List],]
+        0000:c1:00.0: Vendor ID = 144d, Device ID = a80c, PCIe C)
+    0000:c0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+Bus #e0                                                          
+    0000:e0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class)
+    0000:e0:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Classl
+    0000:e0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class)
+    0000:e0:07.1: Bridge, Bus #e1, status = [Capabilities List],]
+        0000:e1:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Cn
+        0000:e1:00.4 xHCI                                        
+                                                                 
+[            0 INFO] CPU#1 is starting.                          
+[            0 INFO] CPU#2 is starting.                          
+[            0 INFO] CPU#3 is starting.                          
+[            0 INFO] CPU#5 is starting.                          
+[            0 INFO] CPU#4 is starting.                          
+[            0 INFO] CPU#7 is starting.                          
+[            0 INFO] CPU#6 is starting.                          
+[            0 INFO] CPU#9 is starting.                          
+[            0 INFO] CPU#8 is starting.                          
+[            0 INFO] CPU#10 is starting.                         
+[            0 INFO] CPU#11 is starting.                         
+[            0 INFO] CPU#13 is starting.                         
+[            0 INFO] CPU#12 is starting.                         
+[            0 INFO] CPU#14 is starting.                         
+[            0 INFO] CPU#15 is starting.                         
+[            0 INFO] CPU#17 is starting.                         
+[            0 INFO] CPU#16 is starting.                         
+[            0 INFO] CPU#18 is starting.                         
+[            0 INFO] CPU#19 is starting.                         
+[            0 INFO] CPU#20 is starting.                         
+[            0 INFO] CPU#21 is starting.                         
+[            0 INFO] CPU#22 is starting.                         
+[            0 INFO] CPU#23 is starting.                         
+[            0 INFO] CPU#24 is starting.                         
+[            0 INFO] CPU#25 is starting.                         
+[            0 INFO] CPU#26 is starting.                         
+[            0 INFO] CPU#27 is starting.                         
+[            0 INFO] CPU#29 is starting.                         
+[            0 INFO] CPU#28 is starting.                         
+[            0 INFO] CPU#31 is starting.                         
+[            0 INFO] CPU#30 is starting.                         
+[            0 INFO] CPU#32 is starting.                         
+[            0 INFO] CPU#33 is starting.                         
+[            0 INFO] CPU#34 is starting.                         
+[            0 INFO] CPU#35 is starting.                         
+[            0 INFO] CPU#37 is starting.                         
+[            0 INFO] CPU#36 is starting.                         
+[            0 INFO] CPU#39 is starting.                         
+[            0 INFO] CPU#38 is starting.                         
+[            0 INFO] CPU#41 is starting.                         
+[            0 INFO] CPU#40 is starting.                         
+[            0 INFO] CPU#42 is starting.                         
+[            0 INFO] CPU#43 is starting.                         
+[            0 INFO] CPU#44 is starting.                         
+[            0 INFO] CPU#45 is starting.                         
+[            0 INFO] CPU#46 is starting.                         
+[            0 INFO] CPU#47 is starting.                         
+[            0 INFO] Synchronized TSCs.                          
+[            0 INFO] All CPUs are ready.                         
+[            0 INFO] RTC time: 2026-05-01 04:46:06               
+[            0 INFO] CPU#0 is starting.                          
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#0. 
+[            0 INFO] interrupt::INTERRUPT_CONTROLLER has been in.
+[            0 INFO] interrupt::PREEMPT_FN has been initialized. 
+[            0 INFO] timer::TIMER has been initialized.          
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#34.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#1. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#1. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#9. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#1. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#4. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#8. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#9. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#8. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#9. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#8. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#5. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#4. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#5. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#3. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#2. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#3. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#2. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#11.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#2. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#3. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#5. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#4. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#6. 
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#7. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#6. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#7. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#6. 
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#7. 
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#11.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#10.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#11.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#10.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#10.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#28.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#33.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#34.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#35.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#30.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#29.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#28.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#29.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#28.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#29.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#24.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#33.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#32.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#33.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#32.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#32.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#24.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#25.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#24.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#25.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#25.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#26.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#27.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#26.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#27.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#26.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#27.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#31.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#30.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#31.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#30.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#31.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#34.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#35.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#35.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#45.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#44.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#45.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#44.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#45.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#44.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#36.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#37.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#36.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#40.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#36.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#37.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#37.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#41.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#40.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#41.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#40.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#41.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#46.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#47.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#46.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#47.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#46.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#47.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#42.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#43.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#42.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#43.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#42.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#43.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#38.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#39.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#38.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#39.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#38.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#39.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#20.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#21.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#20.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#21.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#20.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#21.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#22.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#23.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#22.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#23.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#22.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#23.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#18.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#19.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#18.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#19.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#18.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#19.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#12.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#13.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#12.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#13.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#12.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#13.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#16.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#17.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#16.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#17.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#16.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#17.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#14.
+[            0 INFO] x2APIC: IRQ #255 has been enabled on CPU#15.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#14.
+[            0 INFO] x2APIC: IRQ #254 has been enabled on CPU#15.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#14.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#15.
+[            0 INFO] x2APIC: IRQ #253 has been enabled on CPU#0. 
+[            0 INFO] A local timer has been initialized.         
+[            0 INFO] Starting [Awkernel] network service. 

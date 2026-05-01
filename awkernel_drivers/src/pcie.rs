@@ -36,6 +36,7 @@ pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
+#[cfg(feature = "nvme")]
 pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;
@@ -1158,6 +1159,7 @@ impl PCIeInfo {
                 return virtio::attach(self);
             }
             _ => {
+                #[cfg(feature = "nvme")]
                 if let PCIeClass::MassStorageController(pcie_class::PCIeStorageSubClass::Nvm(
                     pcie_class::PCIeStorageNvmProgrammingInterface::NvmExpressIOController,
                 )) = self.get_class()

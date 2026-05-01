@@ -1131,7 +1131,7 @@ impl XhciDevice {
                 XHCI_NOOP_RESULT.store(2, Ordering::Relaxed);
                 let usbsts = self.read_op(regs::op::USBSTS);
                 XHCI_USBSTS_ON_SLOT_FAIL.store(usbsts, Ordering::Relaxed);
-                log::warn!("xHCI: {}: NOOP failed (code={}) USBSTS={:#010x}", self.name, code, usbsts);
+                log::debug!("xHCI: {}: NOOP failed (code={}) USBSTS={:#010x}", self.name, code, usbsts);
                 return;
             }
             None => {

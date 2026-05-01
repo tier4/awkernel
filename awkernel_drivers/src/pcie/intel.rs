@@ -17,23 +17,28 @@ pub mod e1000e_example;
 pub(super) fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     #[cfg(feature = "igb")]
     if igb::match_device(info.vendor, info.id) {
+        log::info!("Intel: attaching IGB driver for vendor={:#06x}, id={:#06x}", info.vendor, info.id);
         return igb::attach(info);
     }
 
     #[cfg(feature = "igc")]
     if igc::match_device(info.vendor, info.id) {
+        log::info!("Intel: attaching IGC driver for vendor={:#06x}, id={:#06x}", info.vendor, info.id);
         return igc::attach(info);
     }
 
     #[cfg(feature = "ixgbe")]
     if ixgbe::match_device(info.vendor, info.id) {
+        log::info!("Intel: attaching IXGBE driver for vendor={:#06x}, id={:#06x}", info.vendor, info.id);
         return ixgbe::attach(info);
     }
 
     // Example of the driver for Intel E1000e.
     if e1000e_example::match_device(info.vendor, info.id) {
+        log::info!("Intel: attaching E1000e example driver for vendor={:#06x}, id={:#06x}", info.vendor, info.id);
         return e1000e_example::attach(info);
     }
 
+    log::info!("Intel: no matching driver for vendor={:#06x}, id={:#06x}, returning unknown_device", info.vendor, info.id);
     Ok(info.unknown_device())
 }

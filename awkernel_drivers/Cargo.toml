@@ -108,3 +108,4 @@ bcm2712 = []                                                 # Broadcom BCM2712 
 virtio-net = []                                              # VirtIO Network Card
 virtio-blk = []                                              # VirtIO Block Device
 xhci = ["pcie"]                                              # xHCI USB host controller
+nvme = ["pcie"]                                              # NVMe Storage Controller
