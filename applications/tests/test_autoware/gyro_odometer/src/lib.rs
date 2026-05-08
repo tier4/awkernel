@@ -240,7 +240,8 @@ impl GyroOdometerCore {
         &mut self,
         current_time: u64,
     ) -> Option<TwistWithCovarianceStamped> {
-        self.concat_gyro_and_odometer(current_time).unwrap_or_default()
+        self.concat_gyro_and_odometer(current_time)
+            .unwrap_or_default()
     }
 
     pub fn get_queue_sizes(&self) -> (usize, usize) {
