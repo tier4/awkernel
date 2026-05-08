@@ -229,7 +229,6 @@ fn kernel_main2(
 
         // BAR 11 (pink): awkernel_lib init done.
         // draw_boot_bar(boot_info, 11, 100, 100, 100);
-        awkernel_lib::logger::arm_reboot_on_warn();
 
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(
@@ -341,6 +340,7 @@ fn kernel_main2(
     draw_boot_bar(boot_info, 0, 100, 100, 100);
 
     // 16. Initialize PCIe devices.
+    awkernel_lib::logger::arm_reboot_on_warn();
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
         // fallback
         awkernel_drivers::pcie::init_with_io(255, 32);
