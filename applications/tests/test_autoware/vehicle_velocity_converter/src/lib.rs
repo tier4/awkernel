@@ -14,18 +14,7 @@
 
 #![no_std]
 
-#[derive(Debug, Clone)]
-pub struct Header {
-    pub frame_id: &'static str,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Vector3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
+pub use common_types::{Header, Vector3};
 
 #[derive(Debug, Clone)]
 pub struct VelocityReport {

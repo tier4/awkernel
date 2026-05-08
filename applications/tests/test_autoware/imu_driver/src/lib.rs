@@ -4,6 +4,8 @@ extern crate alloc;
 use alloc::{format, string::String, vec, vec::Vec};
 use core::f64::consts::PI;
 
+pub use common_types::{Header, Vector3};
+
 #[derive(Clone, Debug)]
 pub struct ImuMsg {
     pub header: Header,
@@ -20,31 +22,12 @@ pub struct ImuCsvRow {
     pub linear_acceleration: Vector3,
 }
 
-#[derive(Clone, Debug)]
-pub struct Header {
-    pub frame_id: &'static str,
-    pub timestamp: u64,
-}
-
 #[derive(Debug, Clone)]
 pub struct Quaternion {
     pub x: f64,
     pub y: f64,
     pub z: f64,
     pub w: f64,
-}
-
-#[derive(Clone, Debug)]
-pub struct Vector3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
-
-impl Vector3 {
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
-        Self { x, y, z }
-    }
 }
 
 impl Default for ImuMsg {
