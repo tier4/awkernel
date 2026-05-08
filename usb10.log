@@ -1,0 +1,851 @@
+[awkernel USB diag OK]
+[        14118 INFO] xHCI: PL2303 console writer registered (slot=2)
+[        14136 INFO] xHCI: attaching 0000:e1:00.4, Device ID = 1557, PCIe Class = SerialBusController
+[        14162 DEBUG] awkernel_drivers/src/pcie/usb/xhci/mod.rs:428: xHCI: CAPLENGTH=0x20 HCSPARAMS1=0x04000840 HCSPARAMS2=0x140000f1 HCCPARAMS1=0x0118ffc5 DBOFF=0x00002000 RTSOFF=0x00001000
+[        14212 INFO] xHCI: 0000:e1:00.4 xHCI: HCIVERSION=0x0120 ports=4 slots=64 interrupters=8
+[        14237 INFO] xHCI: cmd_ring_phys=0x000000000f204000  evt_seg_phys=0x000000000f206000  erst_phys=0x000000000f208000
+[        14269 INFO] xHCI: 0000:e1:00.4 xHCI: reset complete
+[        14285 INFO] xHCI: 0000:e1:00.4 xHCI: BUS_MASTER confirmed set
+[        14304 INFO] xHCI: 0000:e1:00.4 xHCI: dcbaa=0x000000000f20a000 crcr=0x000000000f204000 erst=0x000000000f208000 erdp=0x000000000f206000
+[        14341 INFO] xHCI: 0000:e1:00.4 xHCI: scratchpad count=2
+[        14358 INFO] xHCI: 0000:e1:00.4 xHCI: scratchpad array phys=0x000000000f20c000
+[        14381 INFO] xHCI: 0000:e1:00.4 xHCI: MSI-X interrupt registered
+[        14400 INFO] x2APIC: IRQ #66 has been disabled on CPU#0.
+[        14417 INFO] xHCI: 0000:e1:00.4 xHCI: controller running (INTE=true)
+[        14437 DEBUG] awkernel_drivers/src/pcie/usb/xhci/mod.rs:764: xHCI: 0000:e1:00.4 xHCI: NOOP command enqueued
+[        14467 INFO] xHCI: 0000:e1:00.4 xHCI: NOOP command OK — command ring is alive
+[        14991 INFO] xHCI: 0000:e1:00.4 xHCI: no device found at boot
+[        15009 INFO] PCIe: segment_group = 0000
+Bus #00
+    0000:00:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Class = BaseSystemPeripheral
+    0000:00:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:01.1: Bridge, Bus #01, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:01:00.0: Vendor ID = 10de, Device ID = 2b85, PCIe Class = DisplayController
+        0000:01:00.1: Vendor ID = 10de, Device ID = 22e8, PCIe Class = MultimediaController
+    0000:00:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:07.1: Bridge, Bus #02, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:02:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Class = NonEssentialInstrumentation
+    0000:00:14.0: Vendor ID = 1022, Device ID = 790b, PCIe Class = SerialBusController
+    0000:00:14.3: Vendor ID = 1022, Device ID = 790e, PCIe Class = BridgeDevice(ISA)
+    0000:00:18.0: Vendor ID = 1022, Device ID = 12c0, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.1: Vendor ID = 1022, Device ID = 12c1, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.2: Vendor ID = 1022, Device ID = 12c2, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.3: Vendor ID = 1022, Device ID = 12c3, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.4: Vendor ID = 1022, Device ID = 12c4, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.5: Vendor ID = 1022, Device ID = 12c5, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.6: Vendor ID = 1022, Device ID = 12c6, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:18.7: Vendor ID = 1022, Device ID = 12c7, PCIe Class = BridgeDevice(HostBridge)
+Bus #20
+    0000:20:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:20:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:20:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+Bus #40
+    0000:40:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Class = BaseSystemPeripheral                                                                                                                          
+    0000:40:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:40:07.1: Bridge, Bus #41, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:41:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Class = NonEssentialInstrumentation
+        0000:41:00.4 xHCI
+        0000:41:00.7: Vendor ID = 1022, Device ID = 14cc, PCIe Class = MultimediaController
+Bus #60
+    0000:60:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:60:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:60:01.2: Bridge, Bus #61, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:61:00.0: Aquantia AQC Atlantic Ethernet Controller, status = [Capabilities List], command = [Bus Master, Memory Space]
+    0000:60:01.3: Bridge, Bus #62, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:62:00.0: Intel I225/I226 2.5 GbE, status = [Capabilities List], command = [Interrupt Disable, Bus Master, Memory Space]
+    0000:60:01.4: Bridge, Bus #63, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:63:00.0: Vendor ID = 14c3, Device ID = 7925, PCIe Class = NetworkController
+    0000:60:01.5: Bridge, Bus #64, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:64:00.0 xHCI
+    0000:60:01.6: Bridge, Bus #65, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:65:00.0: Bridge, Bus #66, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+            0000:66:0c.0: Bridge, Bus #67, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+                0000:67:00.0 xHCI
+            0000:66:0d.0: Bridge, Bus #68, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+                0000:68:00.0: Vendor ID = 1022, Device ID = 43f6, PCIe Class = MassStorageController(SerialAta)
+    0000:60:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+Bus #80
+    0000:80:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:80:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:80:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+Bus #a0
+    0000:a0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Class = BaseSystemPeripheral
+    0000:a0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:03.1: Bridge, Bus #a1, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.2: Bridge, Bus #a2, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.3: Bridge, Bus #a3, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.4: Bridge, Bus #a4, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.5: Bridge, Bus #a5, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.6: Bridge, Bus #a6, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:03.7: Bridge, Bus #a7, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:04.1: Bridge, Bus #a8, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+    0000:a0:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:a0:07.1: Bridge, Bus #a9, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:a9:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Class = NonEssentialInstrumentation
+        0000:a9:00.5: Vendor ID = 1022, Device ID = 156e, PCIe Class = EncryptionController
+Bus #c0
+    0000:c0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:c0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:c0:01.1: Bridge, Bus #c1, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:c1:00.0: Vendor ID = 144d, Device ID = a80c, PCIe Class = MassStorageController(Nvm(NvmExpressIOController))
+    0000:c0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+Bus #e0
+    0000:e0:00.0: Vendor ID = 1022, Device ID = 153a, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:00.2: Vendor ID = 1022, Device ID = 153b, PCIe Class = BaseSystemPeripheral
+    0000:e0:01.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:02.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:03.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:04.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:05.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:07.0: Vendor ID = 1022, Device ID = 153d, PCIe Class = BridgeDevice(HostBridge)
+    0000:e0:07.1: Bridge, Bus #e1, status = [Capabilities List], command = [Bus Master, Memory Space, IO Space]
+        0000:e1:00.0: Vendor ID = 1022, Device ID = 1556, PCIe Class = NonEssentialInstrumentation
+        0000:e1:00.4 xHCI
+
+[        18438 INFO] CPU#1 is starting.
+[        18448 INFO] CPU#3 is starting.
+[        18459 INFO] CPU#2 is starting.
+[        18469 INFO] CPU#5 is starting.
+[        18480 INFO] CPU#4 is starting.
+[        18490 INFO] CPU#7 is starting.
+[        18501 INFO] CPU#6 is starting.
+[        18512 INFO] CPU#8 is starting.
+[        18522 INFO] CPU#9 is starting.
+[        18533 INFO] CPU#10 is starting.
+[        18544 INFO] CPU#11 is starting.
+[        18554 INFO] CPU#13 is starting.
+[        18565 INFO] CPU#12 is starting.
+[        18576 INFO] CPU#15 is starting.
+[        18587 INFO] CPU#14 is starting.
+[        18598 INFO] CPU#16 is starting.
+[        18609 INFO] CPU#17 is starting.
+[        18620 INFO] CPU#19 is starting.
+[        18630 INFO] CPU#18 is starting.
+[        18641 INFO] CPU#20 is starting.
+[        18652 INFO] CPU#21 is starting.
+[        18663 INFO] CPU#22 is starting.
+[        18674 INFO] CPU#23 is starting.
+[        18685 INFO] CPU#24 is starting.
+[        18696 INFO] CPU#25 is starting.
+[        18706 INFO] CPU#27 is starting.
+[        18717 INFO] CPU#26 is starting.
+[        18728 INFO] CPU#29 is starting.
+[        18739 INFO] CPU#28 is starting.
+[        18750 INFO] CPU#30 is starting.
+[        18761 INFO] CPU#31 is starting.
+[        18772 INFO] CPU#33 is starting.
+[        18782 INFO] CPU#32 is starting.
+[        18793 INFO] CPU#34 is starting.
+[        18804 INFO] CPU#35 is starting.
+[        18815 INFO] CPU#37 is starting.
+[        18826 INFO] CPU#36 is starting.
+[        18837 INFO] CPU#39 is starting.
+[        18848 INFO] CPU#38 is starting.
+[        18858 INFO] CPU#40 is starting.
+[        18869 INFO] CPU#41 is starting.
+[        18880 INFO] CPU#43 is starting.
+[        18891 INFO] CPU#42 is starting.
+[        18902 INFO] CPU#45 is starting.
+[        18913 INFO] CPU#44 is starting.
+[        18924 INFO] CPU#46 is starting.
+[        18934 INFO] CPU#47 is starting.
+[        18945 INFO] Synchronized TSCs.
+[        18972 INFO] All CPUs are ready.
+[        18983 INFO] RTC time: 2026-05-08 13:41:36
+[        18996 INFO] CPU#0 is starting.
+[        19007 INFO] x2APIC: IRQ #254 has been enabled on CPU#0.
+[        19024 INFO] interrupt::INTERRUPT_CONTROLLER has been initialized.
+[        19044 INFO] interrupt::PREEMPT_FN has been initialized.
+[        19061 INFO] timer::TIMER has been initialized.
+[        19075 INFO] x2APIC: IRQ #255 has been enabled on CPU#6.
+[        19092 INFO] x2APIC: IRQ #255 has been enabled on CPU#1.
+[        19109 INFO] x2APIC: IRQ #254 has been enabled on CPU#1.
+[        19127 INFO] x2APIC: IRQ #255 has been enabled on CPU#9.
+[        19144 INFO] x2APIC: IRQ #253 has been enabled on CPU#1.
+[        19161 INFO] x2APIC: IRQ #255 has been enabled on CPU#7.
+[        19178 INFO] x2APIC: IRQ #254 has been enabled on CPU#6.
+[        19195 INFO] x2APIC: IRQ #254 has been enabled on CPU#9.
+[        19212 INFO] x2APIC: IRQ #255 has been enabled on CPU#2.
+[        19229 INFO] x2APIC: IRQ #255 has been enabled on CPU#11.
+[        19246 INFO] x2APIC: IRQ #255 has been enabled on CPU#3.
+[        19263 INFO] x2APIC: IRQ #254 has been enabled on CPU#2.
+[        19280 INFO] x2APIC: IRQ #254 has been enabled on CPU#3.
+[        19297 INFO] x2APIC: IRQ #253 has been enabled on CPU#2.
+[        19314 INFO] x2APIC: IRQ #253 has been enabled on CPU#3.
+[        19331 INFO] x2APIC: IRQ #253 has been enabled on CPU#6.
+[        19349 INFO] x2APIC: IRQ #254 has been enabled on CPU#7.
+[        19366 INFO] x2APIC: IRQ #253 has been enabled on CPU#7.
+[        19383 INFO] x2APIC: IRQ #255 has been enabled on CPU#4.
+[        19400 INFO] x2APIC: IRQ #255 has been enabled on CPU#5.
+[        19417 INFO] x2APIC: IRQ #254 has been enabled on CPU#4.
+[        19434 INFO] x2APIC: IRQ #254 has been enabled on CPU#5.
+[        19451 INFO] x2APIC: IRQ #253 has been enabled on CPU#4.
+[        19468 INFO] x2APIC: IRQ #253 has been enabled on CPU#5.
+[        19485 INFO] x2APIC: IRQ #254 has been enabled on CPU#11.
+[        19502 INFO] x2APIC: IRQ #255 has been enabled on CPU#10.
+[        19520 INFO] x2APIC: IRQ #253 has been enabled on CPU#11.
+[        19537 INFO] x2APIC: IRQ #254 has been enabled on CPU#10.
+[        19554 INFO] x2APIC: IRQ #253 has been enabled on CPU#10.
+[        19572 INFO] x2APIC: IRQ #253 has been enabled on CPU#9.
+[        19589 INFO] x2APIC: IRQ #255 has been enabled on CPU#8.
+[        19606 INFO] x2APIC: IRQ #254 has been enabled on CPU#8.
+[        19623 INFO] x2APIC: IRQ #253 has been enabled on CPU#8.
+[        19640 INFO] x2APIC: IRQ #255 has been enabled on CPU#39.
+[        19657 INFO] x2APIC: IRQ #255 has been enabled on CPU#38.
+[        19674 INFO] x2APIC: IRQ #254 has been enabled on CPU#39.
+[        19692 INFO] x2APIC: IRQ #254 has been enabled on CPU#38.
+[        19709 INFO] x2APIC: IRQ #255 has been enabled on CPU#40.
+[        19726 INFO] x2APIC: IRQ #253 has been enabled on CPU#38.
+[        19744 INFO] x2APIC: IRQ #254 has been enabled on CPU#40.
+[        19761 INFO] x2APIC: IRQ #253 has been enabled on CPU#39.
+[        19778 INFO] x2APIC: IRQ #255 has been enabled on CPU#41.
+[        19796 INFO] x2APIC: IRQ #253 has been enabled on CPU#40.
+[        19813 INFO] x2APIC: IRQ #254 has been enabled on CPU#41.
+[        19830 INFO] x2APIC: IRQ #253 has been enabled on CPU#41.
+[        19848 INFO] x2APIC: IRQ #255 has been enabled on CPU#36.
+[        19865 INFO] x2APIC: IRQ #255 has been enabled on CPU#37.
+[        19882 INFO] x2APIC: IRQ #254 has been enabled on CPU#36.
+[        19900 INFO] x2APIC: IRQ #254 has been enabled on CPU#37.
+[        19917 INFO] x2APIC: IRQ #253 has been enabled on CPU#36.
+[        19934 INFO] x2APIC: IRQ #253 has been enabled on CPU#37.
+[        19951 INFO] x2APIC: IRQ #255 has been enabled on CPU#43.
+[        19969 INFO] x2APIC: IRQ #255 has been enabled on CPU#42.
+[        19986 INFO] x2APIC: IRQ #254 has been enabled on CPU#43.
+[        20003 INFO] x2APIC: IRQ #254 has been enabled on CPU#42.
+[        20021 INFO] x2APIC: IRQ #253 has been enabled on CPU#43.
+[        20038 INFO] x2APIC: IRQ #255 has been enabled on CPU#26.
+[        20055 INFO] x2APIC: IRQ #253 has been enabled on CPU#42.
+[        20073 INFO] x2APIC: IRQ #255 has been enabled on CPU#47.
+[        20090 INFO] x2APIC: IRQ #255 has been enabled on CPU#46.
+[        20107 INFO] x2APIC: IRQ #254 has been enabled on CPU#47.
+[        20125 INFO] x2APIC: IRQ #254 has been enabled on CPU#46.
+[        20142 INFO] x2APIC: IRQ #253 has been enabled on CPU#47.
+[        20159 INFO] x2APIC: IRQ #254 has been enabled on CPU#26.
+[        20177 INFO] x2APIC: IRQ #253 has been enabled on CPU#46.
+[        20194 INFO] x2APIC: IRQ #255 has been enabled on CPU#44.
+[        20211 INFO] x2APIC: IRQ #255 has been enabled on CPU#45.
+[        20229 INFO] x2APIC: IRQ #254 has been enabled on CPU#44.
+[        20246 INFO] x2APIC: IRQ #254 has been enabled on CPU#45.
+[        20263 INFO] x2APIC: IRQ #253 has been enabled on CPU#44.
+[        20280 INFO] x2APIC: IRQ #253 has been enabled on CPU#45.
+[        20298 INFO] x2APIC: IRQ #255 has been enabled on CPU#27.
+[        20315 INFO] x2APIC: IRQ #255 has been enabled on CPU#29.
+[        20332 INFO] x2APIC: IRQ #253 has been enabled on CPU#26.
+[        20350 INFO] x2APIC: IRQ #255 has been enabled on CPU#28.
+[        20367 INFO] x2APIC: IRQ #254 has been enabled on CPU#27.
+[        20384 INFO] x2APIC: IRQ #253 has been enabled on CPU#27.
+[        20402 INFO] x2APIC: IRQ #255 has been enabled on CPU#25.
+[        20419 INFO] x2APIC: IRQ #254 has been enabled on CPU#28.
+[        20436 INFO] x2APIC: IRQ #254 has been enabled on CPU#25.
+[        20454 INFO] x2APIC: IRQ #255 has been enabled on CPU#30.
+[        20471 INFO] x2APIC: IRQ #255 has been enabled on CPU#24.
+[        20488 INFO] x2APIC: IRQ #254 has been enabled on CPU#30.
+[        20506 INFO] x2APIC: IRQ #255 has been enabled on CPU#31.
+[        20523 INFO] x2APIC: IRQ #254 has been enabled on CPU#24.
+[        20540 INFO] x2APIC: IRQ #253 has been enabled on CPU#25.
+[        20558 INFO] x2APIC: IRQ #253 has been enabled on CPU#24.
+[        20575 INFO] x2APIC: IRQ #253 has been enabled on CPU#30.
+[        20592 INFO] x2APIC: IRQ #254 has been enabled on CPU#31.
+[        20609 INFO] x2APIC: IRQ #253 has been enabled on CPU#31.
+[        20627 INFO] x2APIC: IRQ #254 has been enabled on CPU#29.
+[        20644 INFO] x2APIC: IRQ #253 has been enabled on CPU#28.
+[        20661 INFO] x2APIC: IRQ #253 has been enabled on CPU#29.
+[        20679 INFO] x2APIC: IRQ #255 has been enabled on CPU#34.
+[        20696 INFO] x2APIC: IRQ #255 has been enabled on CPU#35.
+[        20713 INFO] x2APIC: IRQ #254 has been enabled on CPU#34.
+[        20731 INFO] x2APIC: IRQ #254 has been enabled on CPU#35.
+[        20748 INFO] x2APIC: IRQ #253 has been enabled on CPU#34.
+[        20765 INFO] x2APIC: IRQ #253 has been enabled on CPU#35.
+[        20783 INFO] x2APIC: IRQ #255 has been enabled on CPU#33.
+[        20800 INFO] x2APIC: IRQ #255 has been enabled on CPU#32.
+[        20817 INFO] x2APIC: IRQ #254 has been enabled on CPU#33.
+[        20835 INFO] x2APIC: IRQ #254 has been enabled on CPU#32.
+[        20852 INFO] x2APIC: IRQ #253 has been enabled on CPU#33.
+[        20869 INFO] x2APIC: IRQ #253 has been enabled on CPU#32.
+[        20887 INFO] x2APIC: IRQ #255 has been enabled on CPU#14.
+[        20904 INFO] x2APIC: IRQ #255 has been enabled on CPU#15.
+[        20921 INFO] x2APIC: IRQ #254 has been enabled on CPU#14.
+[        20938 INFO] x2APIC: IRQ #254 has been enabled on CPU#15.
+[        20956 INFO] x2APIC: IRQ #253 has been enabled on CPU#14.
+[        20973 INFO] x2APIC: IRQ #255 has been enabled on CPU#12.
+[        20990 INFO] x2APIC: IRQ #255 has been enabled on CPU#13.
+[        21008 INFO] x2APIC: IRQ #255 has been enabled on CPU#16.
+[        21025 INFO] x2APIC: IRQ #254 has been enabled on CPU#12.
+[        21042 INFO] x2APIC: IRQ #255 has been enabled on CPU#17.
+[        21060 INFO] x2APIC: IRQ #254 has been enabled on CPU#13.
+[        21077 INFO] x2APIC: IRQ #254 has been enabled on CPU#17.
+[        21094 INFO] x2APIC: IRQ #253 has been enabled on CPU#13.
+[        21112 INFO] x2APIC: IRQ #255 has been enabled on CPU#18.
+[        21129 INFO] x2APIC: IRQ #253 has been enabled on CPU#15.
+[        21146 INFO] x2APIC: IRQ #254 has been enabled on CPU#18.
+[        21164 INFO] x2APIC: IRQ #253 has been enabled on CPU#12.
+[        21181 INFO] x2APIC: IRQ #253 has been enabled on CPU#18.
+[        21198 INFO] x2APIC: IRQ #255 has been enabled on CPU#19.
+[        21215 INFO] x2APIC: IRQ #254 has been enabled on CPU#19.
+[        21233 INFO] x2APIC: IRQ #253 has been enabled on CPU#19.
+[        21250 INFO] x2APIC: IRQ #254 has been enabled on CPU#16.
+[        21267 INFO] x2APIC: IRQ #253 has been enabled on CPU#17.
+[        21285 INFO] x2APIC: IRQ #253 has been enabled on CPU#16.
+[        21302 INFO] x2APIC: IRQ #255 has been enabled on CPU#23.
+[        21319 INFO] x2APIC: IRQ #255 has been enabled on CPU#22.
+[        21337 INFO] x2APIC: IRQ #254 has been enabled on CPU#23.
+[        21354 INFO] x2APIC: IRQ #254 has been enabled on CPU#22.
+[        21371 INFO] x2APIC: IRQ #255 has been enabled on CPU#20.
+[        21389 INFO] x2APIC: IRQ #255 has been enabled on CPU#21.
+[        21406 INFO] x2APIC: IRQ #254 has been enabled on CPU#20.
+[        21423 INFO] x2APIC: IRQ #254 has been enabled on CPU#21.
+[        21441 INFO] x2APIC: IRQ #253 has been enabled on CPU#20.
+[        21458 INFO] x2APIC: IRQ #253 has been enabled on CPU#21.
+[        21475 INFO] x2APIC: IRQ #253 has been enabled on CPU#22.
+[        21493 INFO] x2APIC: IRQ #253 has been enabled on CPU#23.
+[        21510 INFO] x2APIC: IRQ #253 has been enabled on CPU#0.
+[        21527 INFO] A local timer has been initialized.
+[        21542 INFO] Starting [Awkernel] network service.
+[        21542 INFO] Network service: TCP garbage collector spawned
+[        21542 INFO] Network service: Network interface poller spawned
+[        21542 INFO] Network service: Getting all interfaces
+[        21542 INFO] net::get_all_interface: start
+[        21542 INFO] net::get_all_interface: lock acquired
+[        21542 INFO] net::get_all_interface: ids collected = 2
+[        21542 INFO] Waking atl-0000:61:00.0 up.
+[        21542 DEBUG] /home/nokosan/wd/awkernel/applications/awkernel_services/src/network_service.rs:43: Interface: id=0, name=atl-0000:61:00.0
+[        21542 INFO] x2APIC: IRQ #66 has been enabled on CPU#4.
+[        21542 INFO] Network service: Interface atl-0000:61:00.0 brought up
+[        21542 INFO] Network service: Handlers for atl-0000:61:00.0 spawned
+[        21542 INFO] Waking igc up.
+[        21542 DEBUG] /home/nokosan/wd/awkernel/applications/awkernel_services/src/network_service.rs:43: Interface: id=1, name=igc
+[        21553 DEBUG] awkernel_drivers/src/pcie/intel/igc.rs:1349: igc: link up: speed=Speed1000, duplex=Full
+[        21553 INFO] igc: link status changed: Up (Full Duplex)
+[        21565 DEBUG] awkernel_drivers/src/pcie/intel/igc.rs:1362: igc: link down
+[        21565 INFO] igc: link status changed: Down
+[        21566 DEBUG] awkernel_drivers/src/pcie/intel/igc.rs:805: igc: dump:
+BDF: 0000:62:00.0
+PCI Status Command: status = [Capabilities List], command = [Interrupt Disable, Bus Master, Memory Space]
+MAC: a0:ad:9f:c8:c3:af
+GPIE: 0xc0000011
+EIMC: 0x000001
+EIMS: 0x000001
+IMS: 0x000004
+EIAC: 0x000003
+EIAM: 0x000003
+IVAR0: 0x008080
+IVAR1: 0x000000
+IVAR_MISC: 0x008100
+MSI-X Capability:
+    header: 0x8004a011
+    table offset: 0x000003
+    pending bit array offset: 0x002003
+MSI-X Table:
+    [0] addr: 0xfee00000, addr_upper: 0x000000, data: 0x000040, vector_control: 0x000000
+    [1] addr: 0xfee00000, addr_upper: 0x000000, data: 0x000041, vector_control: 0x000000
+    [2] addr: 0x000000, addr_upper: 0x000000, data: 0x000000, vector_control: 0x000001
+    [3] addr: 0x000000, addr_upper: 0x000000, data: 0x000000, vector_control: 0x000001
+    [4] addr: 0x000000, addr_upper: 0x000000, data: 0x000000, vector_control: 0x000001
+MSI-X Pending Bit Array:
+    [0] 0x00000000000000
+RCTL: 0x4408002
+RXDCTL0: 0x2040808
+RDH0: 0x000000
+RDT0: 0x0003ff
+RDLEN0: 0x004000
+RDBAH0: 0x000000
+RDBAL0: 0xf15c000
+TCTL: 0xa50400fa
+TXDCTL0: 0x201011f
+TDH0: 0x000000
+TDT0: 0x000000
+TDLEN0: 0x004000
+TDBAH0: 0x000000
+TDBAL0: 0xf161000
+
+[        21566 INFO] Network service: Interface igc brought up
+[        21566 INFO] Network service: Handlers for igc spawned
+[        22542 INFO] Start [Awkernel] shell.
+
+Welcome to Awkernel!
+
+You can use BLisp language as follows.
+https://ytakano.github.io/blisp/
+
+> (factorial 20)
+2432902008176640000
+> (+ 10 20)
+30
+
+Enjoy!
+
+> [        23542 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:18: period is 1000000000 [ns]
+[        23542 INFO] DAG created successfully
+[        23642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        23674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        23674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        23734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        23765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        24642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        24642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        24642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        24674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        24704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        24807 DEBUG] awkernel_drivers/src/pcie/intel/igc.rs:1349: igc: link up: speed=Speed1000, duplex=Full
+[        24807 INFO] igc: link status changed: Up (Full Duplex)
+[        25642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        25642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        25642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        25674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        25704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        26642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        26674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        26674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        26734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        26765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        27642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        27642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        27642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        27674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        27704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        28642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        28674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        28674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        28704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        28734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        29642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        29674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        29674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        29704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        29734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        30642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        30642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        30642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        30674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        30704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        31642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        31642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        31642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        31674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        31704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        32642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        32642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        32642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        32674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        32704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        33642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        33642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        33642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        33674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        33704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        34642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        34642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        34642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        34674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        34704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        35642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        35674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        35674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        35704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        35734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        36642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        36642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        36642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        36674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        36704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        37642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        37642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        37642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        37674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        37704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        38642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        38642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        38642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        38674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        38674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        39642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        39674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        39674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        39704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        39734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        40642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        40642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        40642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        40674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        40674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        41642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        41642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        41642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        41674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        41704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        42642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        42642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        42642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        42674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        42704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        43642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        43674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        43674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        43674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        43704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        44642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        44642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        44642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        44642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        44642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        45642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        45674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        45674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        45704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        45734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        46642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        46642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        46642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        46674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        46704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        47642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        47674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        47674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        47704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        47734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        48642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        48642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        48642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        48642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        48642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        49642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        49642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        49642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        49674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        49704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        50642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        50642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        50642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        50642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        50642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        51642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        51642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        51642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        51642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        51642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        52642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        52674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        52674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        52704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        52734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        53642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        53642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        53642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        53674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        53704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        54642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        54674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        54674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        54734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        54765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        55642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        55642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        55642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        55642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        55642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        56642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        56642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        56642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        56674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        56704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        57642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        57642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        57642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        57642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        57642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        58642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        58642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        58642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        58674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        58704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        59642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        59642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        59642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        59642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        59642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        60642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        60674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        60674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        60704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        60734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        61642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        61674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        61674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        61704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        61734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        62642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        62642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        62642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        62642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        62642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        63642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        63674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        63674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        63704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        63734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        64642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        64642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        64642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        64642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        64642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        65642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        65642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        65642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        65674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        65704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        66642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        66674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        66674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        66704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        66734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        67642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        67674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        67674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        67704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        67734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        68642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        68642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        68642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        68642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        68642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        69642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        69642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        69642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        69642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        69642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        70642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        70674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        70674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        70704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        70704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        71642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        71674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        71674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        71734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        71765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        72642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        72674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        72674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        72704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        72734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        73642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        73674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        73674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        73704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        73734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        74642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        74642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        74642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        74642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        74642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        75642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        75674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        75674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        75704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        75734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        76642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        76674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        76674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        76704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        76734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        77642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        77642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        77642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        77674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        77704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        78642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        78642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        78642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        78642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        78642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        79642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        79642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        79642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        79642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        79642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        80642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        80674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        80674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        80704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        80734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        81642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        81674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        81674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        81704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        81734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        82642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        82642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        82642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        82642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        82642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        83642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        83642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        83642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        83674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        83704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        84642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        84642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        84642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        84674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        84704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        85642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        85674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        85674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        85704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        85734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        86642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        86674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        86674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        86704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        86734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        87642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        87674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        87674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        87704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        87734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        88642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        88642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        88642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        88674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        88704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        89642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        89674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        89674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        89704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        89734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        90642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        90674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        90674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        90734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        90734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        91642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        91674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        91674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        91704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        91734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        92642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        92674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        92674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        92704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        92734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        93642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        93674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        93674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        93704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        93734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        94642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        94674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        94674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        94704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        94734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        95642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        95674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        95674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        95704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        95734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        96642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        96674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        96674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        96734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        96734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        97642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        97642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        97642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        97642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        97642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        98642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        98642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        98642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        98674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        98704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[        99642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[        99674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[        99674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[        99704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[        99734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       100642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       100642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       100642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       100642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       100642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       101642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       101642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       101642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       101642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       101642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       102642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       102674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       102674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       102734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       102765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       103642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       103642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       103642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       103642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       103642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       104642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       104674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       104674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       104704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       104704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       105642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       105642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       105642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       105642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       105642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       106642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       106674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       106674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       106734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       106765 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       107642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       107674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       107674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       107704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       107734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       108642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       108642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       108642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       108642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       108642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       109642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       109674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       109674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       109704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       109734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       110642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       110674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       110674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       110704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       110734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       111642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       111674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       111674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       111704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       111734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       112642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       112674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       112674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       112704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       112734 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
+[       113642 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:28: value=1 in reactor_source_node
+[       113674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:43: value=2 in reactor_node1
+[       113674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:59: value=4 in reactor_node2
+[       113674 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:74: value=9 in reactor_node3
+[       113704 DEBUG] /home/nokosan/wd/awkernel/applications/tests/test_dag/src/lib.rs:89: value=13 in reactor_node4
