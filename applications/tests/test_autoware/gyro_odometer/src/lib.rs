@@ -96,7 +96,7 @@ impl GyroOdometerCore {
         }
 
         let tf = self.get_transform(
-            &self.gyro_queue.front().unwrap().header.frame_id,
+            self.gyro_queue.front().unwrap().header.frame_id,
             &self.output_frame,
         )?;
 
@@ -112,7 +112,7 @@ impl GyroOdometerCore {
 
         for vehicle_twist in &self.vehicle_twist_queue {
             vx_mean += vehicle_twist.twist.twist.linear.x;
-            vx_covariance_original += vehicle_twist.twist.covariance[0 * 6 + 0];
+            vx_covariance_original += vehicle_twist.twist.covariance[0];
         }
         vx_mean /= self.vehicle_twist_queue.len() as f64;
         vx_covariance_original /= self.vehicle_twist_queue.len() as f64;
@@ -177,7 +177,7 @@ impl GyroOdometerCore {
         dt.abs() > timeout_sec
     }
     pub fn get_transform(&self, from_frame: &str, to_frame: &str) -> Result<Transform> {
-        if from_frame == to_frame || from_frame == "" || to_frame == "" {
+        if from_frame == to_frame || from_frame.is_empty() || to_frame.is_empty() {
             Ok(Transform::identity())
         } else {
             Ok(Transform::identity())
@@ -240,10 +240,7 @@ impl GyroOdometerCore {
         &mut self,
         current_time: u64,
     ) -> Option<TwistWithCovarianceStamped> {
-        match self.concat_gyro_and_odometer(current_time) {
-            Ok(result) => result,
-            Err(_) => None,
-        }
+        self.concat_gyro_and_odometer(current_time).unwrap_or_default()
     }
 
     pub fn get_queue_sizes(&self) -> (usize, usize) {
