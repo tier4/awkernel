@@ -9,19 +9,19 @@ use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::net::Ipv4Addr;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::time::Duration;
 use csv_core::{ReadRecordResult, Reader};
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub use common_types::Header;
+use ekf_localizer::{
+    get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
+};
 use imu_corrector::{ImuCorrector, ImuWithCovariance};
 use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
 use vehicle_velocity_converter::{
     build_velocity_report_from_csv_row, reactor_helpers, Twist, TwistWithCovariance,
     TwistWithCovarianceStamped, VehicleVelocityConverter, VelocityCsvRow,
-};
-use ekf_localizer::{
-    get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
 };
 
 const LOG_ENABLE: bool = false;
@@ -57,9 +57,7 @@ pub async fn run() {
 
     dag.register_periodic_reactor::<_, (i32, i32, i32)>(
         "start_dummy_data".into(),
-        move || -> (i32, i32, i32) {
-            (1, 2, 3)
-        },
+        move || -> (i32, i32, i32) { (1, 2, 3) },
         vec![
             Cow::from("start_imu"),
             Cow::from("start_vel"),
@@ -282,8 +280,16 @@ pub async fn run() {
                 },
                 twist: TwistWithCovariance {
                     twist: Twist {
-                        linear: common_types::Vector3::new(ekf_twist.linear.x, ekf_twist.linear.y, ekf_twist.linear.z),
-                        angular: common_types::Vector3::new(ekf_twist.angular.x, ekf_twist.angular.y, ekf_twist.angular.z),
+                        linear: common_types::Vector3::new(
+                            ekf_twist.linear.x,
+                            ekf_twist.linear.y,
+                            ekf_twist.linear.z,
+                        ),
+                        angular: common_types::Vector3::new(
+                            ekf_twist.angular.x,
+                            ekf_twist.angular.y,
+                            ekf_twist.angular.z,
+                        ),
                     },
                     covariance: twist_covariance,
                 },

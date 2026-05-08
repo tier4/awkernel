@@ -2,9 +2,9 @@
 extern crate alloc;
 
 use alloc::{collections::VecDeque, string::String};
-use core::time::Duration;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
+use core::time::Duration;
 
 pub use imu_corrector::{transform_covariance, ImuWithCovariance, Transform};
 pub use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
@@ -395,7 +395,8 @@ mod tests {
         let odometry = Odometry {
             velocity: sample_twist.twist.twist.linear.x,
         };
-        let twist = core.convert_vehicle_velocity_to_twist(&odometry, sample_twist.header.timestamp);
+        let twist =
+            core.convert_vehicle_velocity_to_twist(&odometry, sample_twist.header.timestamp);
 
         assert_eq!(twist.header.frame_id, sample_twist.header.frame_id);
         assert_eq!(twist.header.timestamp, 123456789);
@@ -413,8 +414,17 @@ mod tests {
         let mut imu_with_cov = ImuWithCovariance::from_imu_msg(&imu_msg);
         imu_with_cov.angular_velocity_covariance =
             [0.0009, 0.0, 0.0, 0.0, 0.0009, 0.0, 0.0, 0.0, 0.0009];
-        imu_with_cov.linear_acceleration_covariance =
-            [100000000.0, 0.0, 0.0, 0.0, 100000000.0, 0.0, 0.0, 0.0, 100000000.0];
+        imu_with_cov.linear_acceleration_covariance = [
+            100000000.0,
+            0.0,
+            0.0,
+            0.0,
+            100000000.0,
+            0.0,
+            0.0,
+            0.0,
+            100000000.0,
+        ];
 
         let result = core.process_imu_with_covariance(imu_with_cov);
         assert!(result.is_ok());
@@ -448,9 +458,7 @@ pub fn get_or_initialize() -> Result<&'static mut GyroOdometerCore> {
         AtomicOrdering::Acquire,
         AtomicOrdering::Relaxed,
     ) {
-        Ok(_) => {
-            Ok(unsafe { &mut *new_ptr })
-        }
+        Ok(_) => Ok(unsafe { &mut *new_ptr }),
         Err(existing_ptr) => {
             unsafe {
                 let _ = alloc::boxed::Box::from_raw(new_ptr);
