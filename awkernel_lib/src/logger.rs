@@ -102,6 +102,8 @@ impl Log for Logger {
             && REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst)
             && !REBOOTING.swap(true, Ordering::SeqCst)
         {
+            self.flush();
+            crate::delay::wait_millisec(500);
             crate::arch::x86_64::power::reboot();
         }
     }
