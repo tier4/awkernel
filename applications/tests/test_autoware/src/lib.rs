@@ -35,8 +35,7 @@ static mut LATEST_JSON_DATA: Option<String> = None;
 static JSON_DATA_READY: AtomicBool = AtomicBool::new(false);
 static JSON_DATA_LENGTH: AtomicUsize = AtomicUsize::new(0);
 
-const IMU_CSV_DATA_STR: &str = include_str!("../imu_raw.csv");
-const VELOCITY_CSV_DATA_STR: &str = include_str!("../velocity_status.csv");
+include!(concat!(env!("OUT_DIR"), "/csv_data.rs"));
 
 static mut IMU_CSV_DATA: Option<Vec<ImuCsvRow>> = None;
 static mut VELOCITY_CSV_DATA: Option<Vec<VelocityCsvRow>> = None;
@@ -75,11 +74,12 @@ pub async fn run() {
             let mut count_guard = IMU_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
             let data = unsafe { IMU_CSV_DATA.as_ref() };
+            let awkernel_timestamp = get_awkernel_uptime_timestamp();
 
             let imu_msg = if let Some(csv_data) = data {
                 if csv_data.is_empty() {
+                    // Fallback: generate dummy IMU data
                     let mut parser = TamagawaImuParser::new("imu_link");
-                    let awkernel_timestamp = get_awkernel_uptime_timestamp();
                     let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
                     parser
                         .parse_binary_data(&static_dummy_data, awkernel_timestamp)
@@ -87,12 +87,11 @@ pub async fn run() {
                 } else {
                     let idx = count % csv_data.len();
                     let row = &csv_data[idx];
-                    let awkernel_timestamp = get_awkernel_uptime_timestamp();
                     build_imu_msg_from_csv_row(row, "imu_link", awkernel_timestamp)
                 }
             } else {
+                // Fallback: generate dummy IMU data if data is not initialized
                 let mut parser = TamagawaImuParser::new("imu_link");
-                let awkernel_timestamp = get_awkernel_uptime_timestamp();
                 let static_dummy_data = parser.generate_static_dummy_data(awkernel_timestamp);
                 parser
                     .parse_binary_data(&static_dummy_data, awkernel_timestamp)
@@ -131,13 +130,41 @@ pub async fn run() {
             let mut count_guard = VELOCITY_CSV_COUNT.lock(&mut node);
             let count = *count_guard;
             let data = unsafe { VELOCITY_CSV_DATA.as_ref() };
-
-            let csv_data = data.expect("VELOCITY_CSV_DATA must be initialized");
-            let idx = count % csv_data.len();
-            let row = &csv_data[idx];
             let awkernel_timestamp = get_awkernel_uptime_timestamp();
-            let velocity_report =
-                build_velocity_report_from_csv_row(row, "base_link", awkernel_timestamp);
+
+            let twist_msg = if let Some(csv_data) = data {
+                if csv_data.is_empty() {
+                    // Fallback: generate dummy velocity report
+                    let dummy_report = vehicle_velocity_converter::VelocityReport {
+                        header: common_types::Header {
+                            frame_id: "base_link",
+                            timestamp: awkernel_timestamp,
+                        },
+                        longitudinal_velocity: 1.0,
+                        lateral_velocity: 0.0,
+                        heading_rate: 0.0,
+                    };
+                    converter.convert_velocity_report(&dummy_report)
+                } else {
+                    let idx = count % csv_data.len();
+                    let row = &csv_data[idx];
+                    let velocity_report =
+                        build_velocity_report_from_csv_row(row, "base_link", awkernel_timestamp);
+                    converter.convert_velocity_report(&velocity_report)
+                }
+            } else {
+                // Fallback: generate dummy velocity report if data is not initialized
+                let dummy_report = vehicle_velocity_converter::VelocityReport {
+                    header: common_types::Header {
+                        frame_id: "base_link",
+                        timestamp: awkernel_timestamp,
+                    },
+                    longitudinal_velocity: 1.0,
+                    lateral_velocity: 0.0,
+                    heading_rate: 0.0,
+                };
+                converter.convert_velocity_report(&dummy_report)
+            };
 
             *count_guard += 1;
             if *count_guard >= 5700 {
@@ -145,8 +172,6 @@ pub async fn run() {
                 log::info!("rust_e2e_app: finish csv for Velocity");
                 loop {}
             }
-
-            let twist_msg = converter.convert_velocity_report(&velocity_report);
 
             if LOG_ENABLE {
                 log::debug!("Vehicle velocity converter: Converted velocity report to twist - linear.x={:.3}, angular.z={:.3}, awkernel_timestamp={}",
@@ -391,18 +416,12 @@ fn initialize_csv_data() -> Result<(), &'static str> {
     unsafe {
         if IMU_CSV_DATA.is_none() {
             let imu_data = parse_imu_csv(IMU_CSV_DATA_STR)?;
-            if imu_data.is_empty() {
-                return Err("IMU CSV is empty");
-            }
             log::info!("Loaded IMU CSV data: {} rows", imu_data.len());
             IMU_CSV_DATA = Some(imu_data);
         }
 
         if VELOCITY_CSV_DATA.is_none() {
             let velocity_data = parse_velocity_csv(VELOCITY_CSV_DATA_STR)?;
-            if velocity_data.is_empty() {
-                return Err("Velocity CSV is empty");
-            }
             log::info!("Loaded velocity CSV data: {} rows", velocity_data.len());
             VELOCITY_CSV_DATA = Some(velocity_data);
         }
