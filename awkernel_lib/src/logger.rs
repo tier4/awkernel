@@ -22,6 +22,7 @@ static REBOOT_ON_WARN_ARMED: AtomicBool = AtomicBool::new(false);
 /// reboot on Warn/Error log messages.
 pub fn arm_reboot_on_warn() {
     REBOOT_ON_WARN_ARMED.store(true, Ordering::SeqCst);
+    log::info!("reboot-on-warn armed");
 }
 
 #[cfg(not(feature = "std"))]
@@ -98,11 +99,15 @@ impl Log for Logger {
         }
 
         #[cfg(target_arch = "x86_64")]
-        if matches!(record.level(), Level::Warn | Level::Error)
-            && REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst)
-            && !REBOOTING.swap(true, Ordering::SeqCst)
-        {
-            crate::arch::x86_64::power::reboot();
+        if matches!(record.level(), Level::Warn | Level::Error) {
+            if REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst) {
+                if !REBOOTING.swap(true, Ordering::SeqCst) {
+                    log::info!("reboot triggered by {:?}", record.level());
+                    crate::arch::x86_64::power::reboot();
+                }
+            } else {
+                log::info!("warn/error before arm, skipping reboot");
+            }
         }
     }
 
