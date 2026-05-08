@@ -429,10 +429,13 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 }
 
 pub fn get_all_interface() -> Vec<IfStatus> {
+    log::info!("net::get_all_interface: start");
     let net_manager = NET_MANAGER.read();
+    log::info!("net::get_all_interface: lock acquired");
 
     let ids: Vec<u64> = net_manager.interfaces.keys().copied().collect();
     drop(net_manager);
+    log::info!("net::get_all_interface: ids collected = {}", ids.len());
 
     let mut result = Vec::new();
 
