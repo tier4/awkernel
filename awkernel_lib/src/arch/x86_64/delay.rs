@@ -100,7 +100,12 @@ pub(super) fn init(
     if pvclock::init().is_ok() {
         log::info!("Pvclock is used for uptime().");
     } else {
-        init_hpet(acpi, page_table, page_allocator)?;
+        if init_hpet(acpi, page_table, page_allocator).is_err() {
+            log::warn!("HPET unavailable, falling back to PIT-based TSC calibration");
+            let hz = pit_calibrate_tsc()?;
+            log::info!("TSC Frequency (PIT) = {hz} Hz");
+            unsafe { TSC_FREQ = hz };
+        }
 
         // Initialize TSC counter.
         let counter = read_tsc();
@@ -108,6 +113,53 @@ pub(super) fn init(
     }
 
     Ok(())
+}
+
+/// Calibrate TSC frequency using the legacy 8254 PIT.
+///
+/// Uses PIT channel 2 (speaker timer) so the system timer (channel 0) is not disturbed.
+/// Mode 0: interrupt on terminal count. After loading the count, the OUT pin (bit 5 of
+/// port 0x61) goes high once the counter reaches zero.
+fn pit_calibrate_tsc() -> Result<u128, &'static str> {
+    use x86_64::instructions::port::{Port, PortWriteOnly};
+
+    const PIT_FREQ_HZ: u64 = 1_193_182;
+    const CALIBRATE_MS: u64 = 50;
+    const LATCH: u16 = ((PIT_FREQ_HZ * CALIBRATE_MS) / 1000) as u16;
+
+    let mut pit_cmd: PortWriteOnly<u8> = PortWriteOnly::new(0x43);
+    let mut pit_ch2: Port<u8> = Port::new(0x42);
+    let mut speaker: Port<u8> = Port::new(0x61);
+
+    unsafe {
+        // Enable channel 2 gate, disable speaker output.
+        let v = speaker.read();
+        speaker.write((v & 0xFC) | 0x01);
+
+        // Channel 2, lobyte/hibyte, mode 0, binary.
+        pit_cmd.write(0xB0);
+        pit_ch2.write(LATCH as u8);
+        pit_ch2.write((LATCH >> 8) as u8);
+
+        let tsc_start = read_tsc();
+
+        let mut timeout: u64 = 1_000_000_000;
+        while speaker.read() & 0x20 == 0 {
+            timeout -= 1;
+            if timeout == 0 {
+                return Err("PIT calibration timed out");
+            }
+        }
+
+        let tsc_end = read_tsc();
+
+        if tsc_end <= tsc_start {
+            return Err("TSC did not advance during PIT calibration");
+        }
+
+        let diff = (tsc_end - tsc_start) as u128;
+        Ok(diff * 1000 / CALIBRATE_MS as u128)
+    }
 }
 
 fn init_hpet(

@@ -33,6 +33,6 @@ pub async fn run() {
     )
     .await;
 
-    // awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+    awkernel_async_lib::sleep(Duration::from_secs(1)).await;
     awkernel_shell::init();
 }
