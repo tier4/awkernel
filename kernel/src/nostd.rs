@@ -163,6 +163,9 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         log::error!("panic: {info}");
     }
 
+    #[cfg(target_arch = "x86_64")]
+    awkernel_lib::logger::reboot_if_pending();
+
     awkernel_async_lib::task::panicking();
     stack_trace();
     unwinding::panic::begin_panic(Box::new(()));
