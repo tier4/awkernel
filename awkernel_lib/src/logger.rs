@@ -98,7 +98,7 @@ impl Log for Logger {
         }
 
         #[cfg(target_arch = "x86_64")]
-        if matches!(record.level(), Level::Warn | Level::Error)
+        if matches!(record.level(), Level::Error)
             && REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst)
             && !REBOOTING.swap(true, Ordering::SeqCst)
         {
