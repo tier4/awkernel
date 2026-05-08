@@ -177,11 +177,8 @@ impl GyroOdometerCore {
         dt.abs() > timeout_sec
     }
     pub fn get_transform(&self, from_frame: &str, to_frame: &str) -> Result<Transform> {
-        if from_frame == to_frame || from_frame.is_empty() || to_frame.is_empty() {
-            Ok(Transform::identity())
-        } else {
-            Ok(Transform::identity())
-        }
+        let _ = (from_frame, to_frame);
+        Ok(Transform::identity())
     }
 
     pub fn process_result(
