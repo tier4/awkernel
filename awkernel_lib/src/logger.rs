@@ -103,7 +103,7 @@ impl Log for Logger {
             && !REBOOTING.swap(true, Ordering::SeqCst)
         {
             self.flush();
-            crate::delay::wait_millisec(30000);
+            crate::delay::wait_millisec(60000);
             crate::arch::x86_64::power::reboot();
         }
     }
