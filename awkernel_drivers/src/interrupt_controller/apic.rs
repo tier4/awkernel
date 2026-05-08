@@ -537,35 +537,45 @@ impl InterruptController for X2Apic {
     ) -> Result<IRQ, &'static str> {
         assert!(irq < 256);
 
-        let remap_info = interrupt_remap::allocate_remapping_entry(
+        if let Some(remap_info) = interrupt_remap::allocate_remapping_entry(
             segment_number,
             target,
             irq as u8,
             false,
             false,
-        )
-        .ok_or("Failed to allocate an Interrupt Remapping Table Entry.")?;
+        ) {
+            // Intel VT-d interrupt remapping (Remappable Format).
+            // See Intel VT-d Architecture Specification Rev. 4.1, Figure 5-4.
+            let interrupt_index = remap_info.get_entry_id() as u32;
 
-        // See
-        // Intel® Virtualization Technology for Directed I/O Architecture Specification, Rev. 4.1
-        // Figure 5-4. MSI-X Programming
+            let val_lower = 0xfee << 20
+                | 1 << 4 // Interrupt Remappable Format
+                | (interrupt_index & 0b0111_1111_1111_1111) << 5
+                | (interrupt_index & 0b1000_0000_0000_0000) << 2;
 
-        let interrupt_index = remap_info.get_entry_id() as u32;
-
-        let val_lower = 0xfee << 20
-            | 1 << 4 // Interrupt Remappable Format
-            | (interrupt_index & 0b0111_1111_1111_1111) << 5
-            | (interrupt_index & 0b1000_0000_0000_0000) << 2;
-
-        unsafe {
-            write_volatile(message_data, 0);
-            write_volatile(message_address, val_lower);
-            if let Some(addr_upper) = message_address_upper {
-                write_volatile(addr_upper, 0);
+            unsafe {
+                write_volatile(message_data, 0);
+                write_volatile(message_address, val_lower);
+                if let Some(addr_upper) = message_address_upper {
+                    write_volatile(addr_upper, 0);
+                }
             }
-        }
 
-        Ok(IRQ::X86InterruptRemap { irq, remap_info })
+            Ok(IRQ::X86InterruptRemap { irq, remap_info })
+        } else {
+            // Compatibility Format fallback for systems without interrupt remapping
+            // (e.g. AMD with no VT-d/AMD-Vi support initialized).
+            // Only works for APIC IDs < 256; edge-triggered, fixed delivery.
+            unsafe {
+                write_volatile(message_data, irq as u32);
+                write_volatile(message_address, 0xfee0_0000 | ((target & 0xFF) << 12));
+                if let Some(addr_upper) = message_address_upper {
+                    write_volatile(addr_upper, 0);
+                }
+            }
+
+            Ok(IRQ::Basic(irq))
+        }
     }
 }
 
