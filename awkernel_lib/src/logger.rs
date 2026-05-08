@@ -12,7 +12,17 @@
 //! ```
 
 use crate::{console::Console, delay};
+use core::sync::atomic::{AtomicBool, Ordering};
 use log::{Level, Log};
+
+static REBOOTING: AtomicBool = AtomicBool::new(false);
+static REBOOT_ON_WARN_ARMED: AtomicBool = AtomicBool::new(false);
+
+/// Call this after system initialization is complete to enable automatic
+/// reboot on Warn/Error log messages.
+pub fn arm_reboot_on_warn() {
+    REBOOT_ON_WARN_ARMED.store(true, Ordering::SeqCst);
+}
 
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
@@ -85,6 +95,14 @@ impl Log for Logger {
             log.log(record);
         } else if let Some(log) = self.raw_console {
             log.log(record);
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        if matches!(record.level(), Level::Warn | Level::Error)
+            && REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst)
+            && !REBOOTING.swap(true, Ordering::SeqCst)
+        {
+            crate::arch::x86_64::power::reboot();
         }
     }
 

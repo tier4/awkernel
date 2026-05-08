@@ -229,6 +229,7 @@ fn kernel_main2(
 
         // BAR 11 (pink): awkernel_lib init done.
         // draw_boot_bar(boot_info, 11, 100, 100, 100);
+        awkernel_lib::logger::arm_reboot_on_warn();
 
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(

@@ -496,7 +496,7 @@ impl AtlInner {
                     return Ok(());
                 }
                 Err(_) => {
-                    log::warn!("atl {bdf}: MSI-X allocation failed, trying MSI");
+                    log::error!("atl {bdf}: MSI-X allocation failed, trying MSI");
                 }
             }
         }
