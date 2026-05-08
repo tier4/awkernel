@@ -29,6 +29,7 @@ pub fn arm_reboot_on_warn() {
 #[cfg(target_arch = "x86_64")]
 pub fn reboot_if_pending() {
     if REBOOT_PENDING.load(Ordering::SeqCst) && !REBOOTING.swap(true, Ordering::SeqCst) {
+        crate::delay::wait_millisec(30000);
         crate::arch::x86_64::power::reboot();
     }
 }
