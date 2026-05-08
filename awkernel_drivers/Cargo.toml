@@ -99,7 +99,7 @@ genet = ["mii"] # Broadcom GENET for Raspberry Pi
 
 ## PCIe
 pcie = []
-all_pcie = ["pcie", "igb", "ixgbe", "igc", "rp1", "bcm2712", "virtio-net", "virtio-blk"]
+all_pcie = ["pcie", "igb", "ixgbe", "igc", "rp1", "bcm2712", "virtio-net", "virtio-blk", "aquantia"]
 igb = ["dep:memoffset"]                                      # Intel Gigabit Ethernet
 igc = []                                                     # Intel 2.5 Gigabit Ethernet
 ixgbe = ["dep:rand"]                                         # Intel 10 Gigabit Ethernet
@@ -107,5 +107,6 @@ rp1 = []                                                     # RP1 of Raspberry 
 bcm2712 = []                                                 # Broadcom BCM2712 for Raspberry Pi 5
 virtio-net = []                                              # VirtIO Network Card
 virtio-blk = []                                              # VirtIO Block Device
+aquantia = []                                                # Aquantia Atlantic Ethernet
 xhci = ["pcie"]                                              # xHCI USB host controller
 nvme = ["pcie"]                                              # NVMe Storage Controller

@@ -32,6 +32,7 @@ use self::{
 pub mod pcie_device_tree;
 
 mod base_address;
+pub mod aquantia;
 pub mod broadcom;
 mod capability;
 mod config_space;
@@ -1157,6 +1158,10 @@ impl PCIeInfo {
             }
             pcie_id::VIRTIO_VENDOR_ID => {
                 return virtio::attach(self);
+            }
+            pcie_id::AQUANTIA_VENDOR_ID => {
+                #[cfg(feature = "aquantia")]
+                return aquantia::attach(self);
             }
             _ => {
                 #[cfg(feature = "nvme")]
