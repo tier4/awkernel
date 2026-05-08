@@ -54,6 +54,9 @@ pub async fn run() {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
+    awkernel_lib::logger::reboot_if_pending();
+
     let subscriber = pubsub::create_subscriber::<(&'static str, u64)>(
         NETWORK_SERVICE_RENDEZVOUS.into(),
         pubsub::Attribute {

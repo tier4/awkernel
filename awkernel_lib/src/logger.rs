@@ -17,11 +17,20 @@ use log::{Level, Log};
 
 static REBOOTING: AtomicBool = AtomicBool::new(false);
 static REBOOT_ON_WARN_ARMED: AtomicBool = AtomicBool::new(false);
+static REBOOT_PENDING: AtomicBool = AtomicBool::new(false);
 
-/// Call this after system initialization is complete to enable automatic
-/// reboot on Warn/Error log messages.
+/// Start recording warn/error occurrences for deferred reboot.
 pub fn arm_reboot_on_warn() {
     REBOOT_ON_WARN_ARMED.store(true, Ordering::SeqCst);
+}
+
+/// Reboot immediately if any warn/error was logged since arm_reboot_on_warn().
+/// Call this at the point in boot where you want reboot to actually happen.
+#[cfg(target_arch = "x86_64")]
+pub fn reboot_if_pending() {
+    if REBOOT_PENDING.load(Ordering::SeqCst) && !REBOOTING.swap(true, Ordering::SeqCst) {
+        crate::arch::x86_64::power::reboot();
+    }
 }
 
 #[cfg(not(feature = "std"))]
@@ -98,13 +107,10 @@ impl Log for Logger {
         }
 
         #[cfg(target_arch = "x86_64")]
-        if matches!(record.level(), Level::Error)
+        if matches!(record.level(), Level::Warn | Level::Error)
             && REBOOT_ON_WARN_ARMED.load(Ordering::SeqCst)
-            && !REBOOTING.swap(true, Ordering::SeqCst)
         {
-            self.flush();
-            crate::delay::wait_millisec(60000);
-            crate::arch::x86_64::power::reboot();
+            REBOOT_PENDING.store(true, Ordering::SeqCst);
         }
     }
 
