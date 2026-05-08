@@ -78,6 +78,12 @@ pub struct VehicleVelocityConverter {
     speed_scale_factor: f64,
 }
 
+impl Default for VehicleVelocityConverter {
+    fn default() -> Self {
+        Self::new("base_link", 0.2, 0.1, 1.0)
+    }
+}
+
 impl VehicleVelocityConverter {
     pub fn new(
         frame_id: &'static str,
@@ -106,10 +112,6 @@ impl VehicleVelocityConverter {
         Self::new(frame_id, stddev_vx, stddev_wz, speed_scale_factor)
     }
 
-    pub fn default() -> Self {
-        Self::new("base_link", 0.2, 0.1, 1.0)
-    }
-
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
@@ -133,12 +135,12 @@ impl VehicleVelocityConverter {
 
     fn create_covariance_matrix(&self) -> [f64; 36] {
         let mut covariance = [0.0; 36];
-        covariance[0 + 0 * 6] = self.stddev_vx * self.stddev_vx;
-        covariance[1 + 1 * 6] = 10000.0;
-        covariance[2 + 2 * 6] = 10000.0;
-        covariance[3 + 3 * 6] = 10000.0;
-        covariance[4 + 4 * 6] = 10000.0;
-        covariance[5 + 5 * 6] = self.stddev_wz * self.stddev_wz;
+        covariance[0] = self.stddev_vx * self.stddev_vx;
+        covariance[7] = 10000.0;
+        covariance[14] = 10000.0;
+        covariance[21] = 10000.0;
+        covariance[28] = 10000.0;
+        covariance[35] = self.stddev_wz * self.stddev_wz;
 
         covariance
     }
