@@ -14,6 +14,7 @@ use core::time::Duration;
 use csv_core::{ReadRecordResult, Reader};
 
 pub use common_types::Header;
+use core::slice;
 use ekf_localizer::{
     get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
 };
@@ -102,7 +103,9 @@ pub async fn run() {
             if *count_guard >= 5700 {
                 *count_guard = 0;
                 log::info!("rust_e2e_app: finish csv for IMU");
-                loop {}
+                loop {
+                    wait_microsec(1000);
+                }
             }
 
             if LOG_ENABLE {
@@ -170,7 +173,9 @@ pub async fn run() {
             if *count_guard >= 5700 {
                 *count_guard = 0;
                 log::info!("rust_e2e_app: finish csv for Velocity");
-                loop {}
+                loop {
+                    wait_microsec(1000);
+                }
             }
 
             if LOG_ENABLE {
@@ -269,7 +274,7 @@ pub async fn run() {
             static mut INITIALIZED: bool = false;
             unsafe {
                 if !INITIALIZED {
-                    ekf.initialize(pose.clone());
+                    ekf.initialize(pose);
                     INITIALIZED = true;
                 }
             }
@@ -300,7 +305,7 @@ pub async fn run() {
                 },
                 child_frame_id: "base_link",
                 pose: PoseWithCovariance {
-                    pose: ekf_pose.clone(),
+                    pose: ekf_pose,
                     covariance: pose_covariance,
                 },
                 twist: TwistWithCovariance {
@@ -362,7 +367,7 @@ pub async fn run() {
     )
     .await;
 
-    let result = finish_create_dags(&[dag.clone()]).await;
+    let result = finish_create_dags(slice::from_ref(&dag)).await;
 
     match result {
         Ok(_) => {
@@ -521,8 +526,7 @@ where
 
         let mut fields: Vec<&str> = Vec::with_capacity(num_fields);
         let mut start = 0usize;
-        for i in 0..num_fields {
-            let end = ends[i];
+        for &end in ends.iter().take(num_fields) {
             let slice = &output[start..end];
             let field = core::str::from_utf8(slice).map_err(|_| "Failed to decode CSV UTF-8")?;
             fields.push(field);
@@ -613,7 +617,7 @@ async fn periodic_udp_sender_task() {
             continue;
         }
 
-        let json_data = unsafe { LATEST_JSON_DATA.as_ref().map(|s| s.clone()) };
+        let json_data = unsafe { LATEST_JSON_DATA.clone() };
 
         if let Some(data) = json_data {
             match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
