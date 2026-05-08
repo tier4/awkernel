@@ -61,6 +61,12 @@ pub struct MockTransformListener {
     transforms: alloc::collections::BTreeMap<String, Transform>,
 }
 
+impl Default for MockTransformListener {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockTransformListener {
     pub fn new() -> Self {
         Self {
@@ -151,6 +157,12 @@ impl Default for ImuCorrectorConfig {
 pub struct ImuCorrector<T: TransformListener> {
     config: ImuCorrectorConfig,
     transform_listener: T,
+}
+
+impl Default for ImuCorrector<MockTransformListener> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ImuCorrector<MockTransformListener> {
@@ -247,7 +259,7 @@ impl<T: TransformListener> ImuCorrector<T> {
     pub fn correct_imu_with_dynamic_tf(&self, imu_msg: &ImuMsg) -> Option<ImuMsg> {
         let transform = self
             .transform_listener
-            .get_latest_transform(&imu_msg.header.frame_id, self.config.output_frame)?;
+            .get_latest_transform(imu_msg.header.frame_id, self.config.output_frame)?;
 
         let corrected_with_cov = self.correct_imu_with_covariance(imu_msg, Some(&transform));
         Some(corrected_with_cov.to_imu_msg())
@@ -259,7 +271,7 @@ impl<T: TransformListener> ImuCorrector<T> {
     ) -> Option<ImuWithCovariance> {
         let transform = self
             .transform_listener
-            .get_latest_transform(&imu_msg.header.frame_id, self.config.output_frame)?;
+            .get_latest_transform(imu_msg.header.frame_id, self.config.output_frame)?;
 
         Some(self.correct_imu_with_covariance(imu_msg, Some(&transform)))
     }
