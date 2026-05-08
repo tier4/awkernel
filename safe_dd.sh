@@ -4,7 +4,7 @@
 # 書き込みたいイメージファイル
 IMAGE="x86_64_uefi.img"
 # ターゲットデバイス (例: /dev/sdb)
-TARGET="/dev/sdb"
+TARGET="/dev/sda"
 # USBメモリの最大想定サイズ (GB)。これより大きい場合はSSDとみなして停止。
 MAX_SIZE_GB=65
 # ----------------
