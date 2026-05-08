@@ -102,6 +102,12 @@ pub struct Simple1DFilter {
     proc_var_x_c: f64,
 }
 
+impl Default for Simple1DFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Simple1DFilter {
     pub fn new() -> Self {
         Self {
@@ -125,11 +131,11 @@ impl Simple1DFilter {
         }
 
         let proc_var_x_d = self.proc_var_x_c * dt * dt;
-        self.var = self.var + proc_var_x_d;
+        self.var += proc_var_x_d;
 
         let kalman_gain = self.var / (self.var + obs_var);
-        self.x = self.x + kalman_gain * (obs - self.x);
-        self.var = (1.0 - kalman_gain) * self.var;
+        self.x += kalman_gain * (obs - self.x);
+        self.var *= 1.0 - kalman_gain;
     }
 
     pub fn set_proc_var(&mut self, proc_var: f64) {
@@ -211,7 +217,7 @@ impl EKFModule {
     }
 
     fn predict_next_state(&self, dt: f64) -> StateVector {
-        let mut x_next = self.state.clone();
+        let mut x_next = self.state;
         let x = self.state[StateIndex::X as usize];
         let y = self.state[StateIndex::Y as usize];
         let yaw = self.state[StateIndex::Yaw as usize];
