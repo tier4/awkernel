@@ -1,3 +1,9 @@
+// Ported from the following versions of the original C++ code:
+// core/autoware_core:
+// type: git
+// url: https://github.com/autowarefoundation/autoware_core.git
+// version: 1.8.0
+
 #![no_std]
 #![allow(non_snake_case)]
 
