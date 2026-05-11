@@ -1,3 +1,9 @@
+// Ported from the following versions of the original C++ code:
+// tamagawa_imu_driver
+// type: git
+// url: https://github.com/tier4/tamagawa_imu_driver
+// version: 0.1.0
+
 #![no_std]
 extern crate alloc;
 
