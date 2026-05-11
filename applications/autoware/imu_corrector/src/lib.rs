@@ -1,3 +1,9 @@
+// Ported from the following versions of the original C++ code:
+// universe/autoware_universe:
+// type: git
+// url: https://github.com/autowarefoundation/autoware_universe.git
+// version: 0.51.0
+
 #![no_std]
 extern crate alloc;
 
