@@ -1,5 +1,5 @@
 [package]
-name = "test_autoware"
+name = "autoware"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,7 +11,7 @@ crate-type = ["rlib"]
 log = "0.4"
 libm = "0.2"
 csv-core = "0.1"
-awkernel_async_lib = { path = "../../../awkernel_async_lib", default-features = false }
-awkernel_lib = { path = "../../../awkernel_lib", default-features = false }
+awkernel_async_lib = { path = "../../awkernel_async_lib", default-features = false }
+awkernel_lib = { path = "../../awkernel_lib", default-features = false }
 imu_driver = { path = "./imu_driver", default-features = false }
 vehicle_velocity_converter = { path = "./vehicle_velocity_converter", default-features = false }
