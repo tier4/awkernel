@@ -137,3 +137,4 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
+test_partitioned_edf = ["userland/test_partitioned_edf"]
