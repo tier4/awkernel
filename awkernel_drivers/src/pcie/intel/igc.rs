@@ -265,16 +265,21 @@ impl Igc {
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
         let irq_queue = irq.and_then(|irq| inner.queue_info.irqs_to_queues.get(&irq).copied());
 
-        if let Some(que_id) = irq_queue {
-            {
+        let que_result = if let Some(que_id) = irq_queue {
+            let rx_result = {
                 let mut node = MCSNode::new();
                 let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
-                inner.igc_rx_recv(que_id, &mut rx)?;
-            }
-            let mut node = MCSNode::new();
-            let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
-            inner.igc_txeof(&mut tx)?;
-        }
+                inner.igc_rx_recv(que_id, &mut rx)
+            };
+            let tx_result = {
+                let mut node = MCSNode::new();
+                let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+                inner.igc_txeof(&mut tx)
+            };
+            rx_result.and(tx_result)
+        } else {
+            Ok(())
+        };
 
         if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
             // Link status change interrupt.
@@ -300,7 +305,7 @@ impl Igc {
             1 << inner.queue_info.que.len(),
         )?;
 
-        Ok(())
+        que_result
     }
 }
 
@@ -428,24 +433,18 @@ impl NetDevice for Igc {
         que_id: usize,
     ) -> Result<Option<net_device::EtherFrameBuf>, net_device::NetDevError> {
         let inner = self.inner.read();
-        {
-            let mut node = MCSNode::new();
-            let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
-            let data = rx.read_queue.pop();
-            if data.is_some() {
-                return Ok(data);
-            }
+        let mut node = MCSNode::new();
+        let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
+
+        if let Some(data) = rx.read_queue.pop() {
+            return Ok(Some(data));
         }
 
-        {
-            let mut node = MCSNode::new();
-            let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
-            inner
-                .igc_rx_recv(que_id, &mut rx)
-                .or(Err(net_device::NetDevError::DeviceError))?;
+        inner
+            .igc_rx_recv(que_id, &mut rx)
+            .or(Err(net_device::NetDevError::DeviceError))?;
 
-            Ok(rx.read_queue.pop())
-        }
+        Ok(rx.read_queue.pop())
     }
 
     fn send(
@@ -985,13 +984,15 @@ impl IgcInner {
     }
 
     fn igc_rx_recv(&self, que_id: usize, rx: &mut Rx) -> Result<(), IgcDriverErr> {
+        debug_assert_eq!(que_id, 0, "multi-queue not yet supported (planned for PR5)");
+
         if rx.read_buf.is_none() {
             return Ok(());
         }
 
+        // Pair with the device's DMA write-back before consuming descriptor state.
+        membar_sync();
         while !rx.read_queue.is_full() {
-            // Pair with the device's DMA write-back before consuming descriptor state.
-            membar_sync();
             let idx = rx.next_to_check;
             let (status_error, length, vlan) = {
                 let desc = &rx.rx_desc_ring.as_ref()[idx];
