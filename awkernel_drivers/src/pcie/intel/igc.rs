@@ -1037,7 +1037,9 @@ impl IgcInner {
             }
 
             if let Some(packet) = packet {
-                let _ = rx.read_queue.push(packet);
+                if rx.read_queue.push(packet).is_err() {
+                    rx.dropped_pkts += 1;
+                }
             }
         }
 
@@ -1180,7 +1182,7 @@ impl IgcInner {
 
         self.if_flags.insert(NetFlags::RUNNING);
 
-        self.dump();
+        log::debug!("igc: {}", self.dump());
 
         Ok(())
     }
