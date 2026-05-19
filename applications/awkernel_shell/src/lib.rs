@@ -198,7 +198,7 @@ fn help_ffi() {
     lines.push_str("(task)      ; print tasks\r\n");
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
-    lines.push_str("(netdump if); dump device registers\r\n");
+    lines.push_str("(netdump id); dump device registers\r\n");
     lines.push_str("(reboot)    ; reboot x86_64 systems\r\n");
     lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
 
