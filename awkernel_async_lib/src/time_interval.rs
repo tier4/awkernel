@@ -97,9 +97,9 @@ pub enum MissedTickBehavior {
 /// }
 /// ```
 ///
-pub fn interval(period: Duration, dag_id: u32) -> Interval {
+pub fn interval(period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    interval_at(Time::now(), period, dag_id)
+    interval_at(Time::now(), period, _dag_id)
 }
 
 pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {

@@ -70,7 +70,7 @@ use crate::{
 
 #[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{
-    get_period_count, increment_period_count, record_subscribe_timestamp,
+    get_period_index, increment_period_index, record_subscribe_timestamp,
     update_cycle_end_timestamp, update_cycle_start_timestamp,
 };
 
@@ -938,7 +938,7 @@ where
                 let (args, period_index): (
                     <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
                     u32,
-                ) = subscribers.recv_all_with_period().await;
+                ) = subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -1055,7 +1055,7 @@ where
             #[cfg(feature = "period-index-propagation")]
             {
                 let (args, period_index): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
-                    subscribers.recv_all_with_period().await;
+                    subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
