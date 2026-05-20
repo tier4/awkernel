@@ -189,10 +189,7 @@ impl TamagawaImuParser {
         if data.len() != 2 {
             return 0;
         }
-        let high_byte = (data[0] as i32) << 8;
-        let low_byte = data[1] as i32;
-        let result = (high_byte & 0xFFFFFF00u32 as i32) | (low_byte & 0x000000FF);
-        result as i16
+        i16::from_be_bytes([data[0], data[1]])
     }
 
     fn convert_angular_velocity(&self, raw_data: i16) -> f64 {

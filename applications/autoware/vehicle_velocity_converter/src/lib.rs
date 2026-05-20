@@ -109,10 +109,6 @@ impl VehicleVelocityConverter {
         Self::new(frame_id, stddev_vx, stddev_wz, speed_scale_factor)
     }
 
-    pub fn default() -> Self {
-        Self::new("base_link", 0.2, 0.1, 1.0)
-    }
-
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
@@ -160,6 +156,16 @@ impl VehicleVelocityConverter {
 
     pub fn get_speed_scale_factor(&self) -> f64 {
         self.speed_scale_factor
+    }
+
+    pub fn default() -> Self {
+        Default::default()
+    }
+}
+
+impl Default for VehicleVelocityConverter {
+    fn default() -> Self {
+        Self::new("base_link", 0.2, 0.1, 1.0)
     }
 }
 
