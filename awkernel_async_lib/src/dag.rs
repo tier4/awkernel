@@ -1063,7 +1063,11 @@ where
 
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
-                    update_fin_recv_outer_timestamp_at(period_index as usize, timenow, dag_info.dag_id);
+                    update_fin_recv_outer_timestamp_at(
+                        period_index as usize,
+                        timenow,
+                        dag_info.dag_id,
+                    );
                 }
 
                 f(args);
