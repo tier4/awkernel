@@ -946,7 +946,7 @@ where
 
                 let results = f(args);
                 publishers
-                    .send_all_with_meta(results, 1, period_index as usize, dag_info.node_id)
+                    .send_all_with_period_index(results, 1, period_index as usize, dag_info.node_id)
                     .await;
             }
 
@@ -1001,7 +1001,7 @@ where
         loop {
             #[cfg(feature = "period-index-propagation")]
             {
-                let index = get_period_count(dag_info.dag_id) as usize;
+                let index = get_period_index(dag_info.dag_id) as usize;
                 if index != 0 {
                     // [start] cycle deviation index >= 1
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -1009,9 +1009,9 @@ where
                 }
                 let results = f();
                 publishers
-                    .send_all_with_meta(results, 0, index, dag_info.node_id)
+                    .send_all_with_period_index(results, 0, index, dag_info.node_id)
                     .await;
-                increment_period_count(dag_info.dag_id);
+                increment_period_index(dag_info.dag_id);
             }
 
             #[cfg(not(feature = "period-index-propagation"))]
