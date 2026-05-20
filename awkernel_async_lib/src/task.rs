@@ -690,7 +690,14 @@ pub mod perf {
         node_id: u32,
     ) {
         let log_index = to_ring_buffer_index(period_index);
-        assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
+        if (pub_id as usize) >= MAX_PUBSUB {
+            log::warn!(
+                "Publish ID out of bounds: {} (max {})",
+                pub_id as usize,
+                MAX_PUBSUB
+            );
+            return;
+        }
 
         let node_id_usize = node_id as usize;
         if node_id_usize >= MAX_NODES {
@@ -721,7 +728,14 @@ pub mod perf {
         node_id: u32,
     ) {
         let log_index = to_ring_buffer_index(period_index);
-        assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
+        if (sub_id as usize) >= MAX_PUBSUB {
+            log::warn!(
+                "Subscribe ID out of bounds: {} (max {})",
+                sub_id as usize,
+                MAX_PUBSUB
+            );
+            return;
+        }
 
         let node_id_usize = node_id as usize;
         if node_id_usize >= MAX_NODES {
@@ -833,7 +847,7 @@ pub mod perf {
             "Relative Deadline"
         );
 
-        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------|--------------------|--------------------");
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------");
 
         for (i, dag_id, pre_send_outer, fin_recv_outer, absolute_deadline, relative_deadline) in
             rows
