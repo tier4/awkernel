@@ -428,7 +428,7 @@ where
 }
 
 #[cfg(all(test, feature = "period-index-propagation"))]
-mod need_get_period_tests {
+mod period_index_propagation_tests {
     use super::*;
     use core::{
         future::Future,

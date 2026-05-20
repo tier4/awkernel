@@ -93,6 +93,7 @@ x86 = [
     "awkernel_drivers/uart_16550",
 ]
 rv32 = [
+    # TODO: Remove once a way to pass tests without `perf` is found
     "perf",
     "no_std_unwinding",
     "awkernel_lib/rv32",
@@ -100,6 +101,7 @@ rv32 = [
     "awkernel_drivers/rv32",
 ]
 rv64 = [
+    # TODO: Remove once a way to pass tests without `perf` is found
     "perf",
     "no_std_unwinding",
     "awkernel_lib/rv64",

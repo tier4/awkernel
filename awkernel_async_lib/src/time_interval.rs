@@ -97,12 +97,12 @@ pub enum MissedTickBehavior {
 /// }
 /// ```
 ///
-pub fn interval(period: Duration, _dag_id: u32) -> Interval {
+pub(crate) fn interval(period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
     interval_at(Time::now(), period, _dag_id)
 }
 
-pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
+pub(crate) fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
     #[cfg(feature = "period-index-propagation")]
     {
