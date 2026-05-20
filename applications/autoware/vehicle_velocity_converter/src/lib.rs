@@ -105,6 +105,12 @@ impl VehicleVelocityConverter {
     }
 
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
+        assert_eq!(
+            msg.header.frame_id, self.frame_id,
+            "frame_id mismatch: expected '{}', got '{}'",
+            self.frame_id, msg.header.frame_id
+        );
+        
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
@@ -260,6 +266,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "frame_id mismatch")]
     fn different_frame_id() {
         let converter = VehicleVelocityConverter::from_params_array(
             Some(0.2),
@@ -278,22 +285,7 @@ mod tests {
             heading_rate: 0.3,
         };
 
-        let twist_msg = converter.convert_velocity_report(&velocity_report);
-
-        // As in the original C++ test, conversion still succeeds even with a different frame_id.
-        assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
-        assert_eq!(
-            twist_msg.twist.twist.linear.x,
-            velocity_report.longitudinal_velocity
-        );
-        assert_eq!(
-            twist_msg.twist.twist.linear.y,
-            velocity_report.lateral_velocity
-        );
-        assert_eq!(
-            twist_msg.twist.twist.angular.z,
-            velocity_report.heading_rate
-        );
+        let _ = converter.convert_velocity_report(&velocity_report);
     }
 
     #[test]
