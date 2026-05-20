@@ -1007,12 +1007,13 @@ macro_rules! impl_async_receiver_for_tuple {
                         let item = $idx.recv().await;
                         match period_index {
                             Some(expected) => {
-                                assert!(
-                                    expected == item.period_index,
-                                    "recv_all_with_period_index received mismatched periods: expected {}, got {}",
-                                    expected,
-                                    item.period_index
-                                );
+                                if expected != item.period_index {
+                                    log::warn!(
+                                        "recv_all_with_period_index received mismatched periods: expected {}, got {}",
+                                        expected,
+                                        item.period_index
+                                    );
+                                }
                             }
                             None => {
                                 period_index = Some(item.period_index);
