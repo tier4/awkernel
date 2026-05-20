@@ -484,7 +484,6 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
-    use crate::task::{self};
     use alloc::boxed::Box;
     use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
