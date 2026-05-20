@@ -175,10 +175,6 @@ impl VehicleVelocityConverter {
     pub fn get_speed_scale_factor(&self) -> f64 {
         self.speed_scale_factor
     }
-
-    pub fn default() -> Self {
-        Default::default()
-    }
 }
 
 impl Default for VehicleVelocityConverter {
