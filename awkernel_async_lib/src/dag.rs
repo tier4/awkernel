@@ -70,8 +70,8 @@ use crate::{
 
 #[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{
-    get_period_count, increment_period_count, subscribe_timestamp_at,
-    update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
+    get_period_count, increment_period_count, record_subscribe_timestamp,
+    update_cycle_end_timestamp, update_cycle_start_timestamp,
 };
 
 use alloc::{
@@ -942,7 +942,7 @@ where
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                subscribe_timestamp_at(period_index as usize, end, 1, dag_info.node_id.clone());
+                record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
 
                 let results = f(args);
                 publishers
@@ -1005,7 +1005,7 @@ where
                 if index != 0 {
                     // [start] cycle deviation index >= 1
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                    update_pre_send_outer_timestamp_at(index, release_time, dag_info.dag_id);
+                    update_cycle_start_timestamp(index, release_time, dag_info.dag_id);
                 }
                 let results = f();
                 publishers
@@ -1059,15 +1059,11 @@ where
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                subscribe_timestamp_at(period_index as usize, end, 2, dag_info.node_id.clone());
+                record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
 
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
-                    update_fin_recv_outer_timestamp_at(
-                        period_index as usize,
-                        timenow,
-                        dag_info.dag_id,
-                    );
+                    update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }
 
                 f(args);

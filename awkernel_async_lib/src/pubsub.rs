@@ -53,7 +53,7 @@ use futures::Future;
 use pin_project::pin_project;
 
 #[cfg(feature = "period-index-propagation")]
-use crate::task::perf::publish_timestamp_at;
+use crate::task::perf::record_publish_timestamp;
 
 /// Data and timestamp.
 #[derive(Clone)]
@@ -410,7 +410,7 @@ where
     pub async fn send_with_period_index(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
         // [start] pubsub communication latency
         let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-        publish_timestamp_at(index, start, pub_id, node_id);
+        record_publish_timestamp(index, start, pub_id, node_id);
         let period_index = match u32::try_from(index) {
             Ok(period_index) => period_index,
             Err(_) => {
@@ -484,8 +484,9 @@ mod need_get_period_tests {
             publisher1.send_with_period_index(10, 11, 3, 21).await;
             publisher2.send_with_period_index(20, 12, 3, 22).await;
 
-            let ((value1, value2), period_index) =
-                (subscriber1, subscriber2).recv_all_with_period_index().await;
+            let ((value1, value2), period_index) = (subscriber1, subscriber2)
+                .recv_all_with_period_index()
+                .await;
 
             assert_eq!(value1, 10);
             assert_eq!(value2, 20);
@@ -863,7 +864,9 @@ pub trait MultipleReceiver {
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 
     #[cfg(feature = "period-index-propagation")]
-    fn recv_all_with_period_index(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
+    fn recv_all_with_period_index(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {

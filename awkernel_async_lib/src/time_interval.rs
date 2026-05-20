@@ -30,7 +30,7 @@
 
 use crate::sleep_task::Sleep;
 #[cfg(feature = "period-index-propagation")]
-use crate::task::perf::{get_period_count, update_pre_send_outer_timestamp_at};
+use crate::task::perf::{get_period_count, update_cycle_start_timestamp};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
 use core::{
@@ -108,7 +108,7 @@ pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
     {
         let index = get_period_count(_dag_id) as usize;
         // [start] cycle deviation index == 0 (basis of cycle deviation)
-        update_pre_send_outer_timestamp_at(index, start.uptime().as_nanos() as u64, _dag_id);
+        update_cycle_start_timestamp(index, start.uptime().as_nanos() as u64, _dag_id);
     }
     Interval {
         delay: None,

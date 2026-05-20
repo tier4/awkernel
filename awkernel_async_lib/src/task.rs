@@ -558,11 +558,11 @@ pub mod perf {
     static ABSOLUTE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
     static RELATIVE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
 
-    pub static PERIOD_COUNT: Mutex<BTreeMap<u32, AtomicU32>> = Mutex::new(BTreeMap::new());
+    pub static PERIOD_INDEX: Mutex<BTreeMap<u32, AtomicU32>> = Mutex::new(BTreeMap::new());
 
-    pub fn get_period_count(dag_id: u32) -> u32 {
+    pub fn get_period_index(dag_id: u32) -> u32 {
         let mut node = MCSNode::new();
-        let period_count = PERIOD_COUNT.lock(&mut node);
+        let period_count = PERIOD_INDEX.lock(&mut node);
         period_count
             .get(&dag_id)
             .map(|count| count.load(core::sync::atomic::Ordering::Relaxed))
@@ -571,7 +571,7 @@ pub mod perf {
 
     pub fn increment_period_index(dag_id: u32) -> u32 {
         let mut node = MCSNode::new();
-        let mut period_count = PERIOD_COUNT.lock(&mut node);
+        let mut period_count = PERIOD_INDEX.lock(&mut node);
         let count = period_count
             .entry(dag_id)
             .or_insert_with(|| AtomicU32::new(0));
@@ -622,12 +622,12 @@ pub mod perf {
     static SUBSCRIBE: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
 
     #[inline(always)]
-    fn normalize_log_index(index: usize) -> usize {
-        index % MAX_LOGS
+    fn to_ring_buffer_index(period_index: usize) -> usize {
+        period_index % MAX_LOGS
     }
 
-    pub fn update_pre_send_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn update_cycle_start_timestamp(index: usize, new_timestamp: u64, dag_id: u32) {
+        let index = to_ring_buffer_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
@@ -640,8 +640,8 @@ pub mod perf {
         }
     }
 
-    pub fn update_fin_recv_outer_timestamp_at(index: usize, new_timestamp: u64, dag_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn update_cycle_end_timestamp(index: usize, new_timestamp: u64, dag_id: u32) {
+        let index = to_ring_buffer_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
@@ -652,8 +652,8 @@ pub mod perf {
         recorder[index].insert(dag_id, new_timestamp);
     }
 
-    pub fn update_absolute_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn update_absolute_deadline_timestamp(index: usize, deadline: u64, dag_id: u32) {
+        let index = to_ring_buffer_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
@@ -666,8 +666,8 @@ pub mod perf {
         }
     }
 
-    pub fn update_relative_deadline_timestamp_at(index: usize, deadline: u64, dag_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn update_relative_deadline_timestamp(index: usize, deadline: u64, dag_id: u32) {
+        let index = to_ring_buffer_index(index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
@@ -680,8 +680,8 @@ pub mod perf {
         }
     }
 
-    pub fn publish_timestamp_at(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn record_publish_timestamp(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
+        let index = to_ring_buffer_index(index);
         assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
 
         let node_id_usize = node_id as usize;
@@ -706,8 +706,8 @@ pub mod perf {
         }
     }
 
-    pub fn subscribe_timestamp_at(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
-        let index = normalize_log_index(index);
+    pub fn record_subscribe_timestamp(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
+        let index = to_ring_buffer_index(index);
         assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
 
         let node_id_usize = node_id as usize;
