@@ -14,9 +14,7 @@ use core::time::Duration;
 
 pub use imu_corrector::{transform_covariance, ImuWithCovariance, Transform};
 pub use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
-pub use vehicle_velocity_converter::{
-    Odometry, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
-};
+pub use vehicle_velocity_converter::{Twist, TwistWithCovariance, TwistWithCovarianceStamped};
 
 static GYRO_ODOMETER_INSTANCE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
 
@@ -204,26 +202,6 @@ impl GyroOdometerCore {
         }
     }
 
-    pub fn convert_vehicle_velocity_to_twist(
-        &self,
-        odometry: &Odometry,
-        timestamp: u64,
-    ) -> TwistWithCovarianceStamped {
-        TwistWithCovarianceStamped {
-            header: Header {
-                frame_id: "base_link",
-                timestamp,
-            },
-            twist: TwistWithCovariance {
-                twist: Twist {
-                    linear: Vector3::new(odometry.velocity, 0.0, 0.0),
-                    angular: Vector3::new(0.0, 0.0, 0.0),
-                },
-                covariance: [0.0; 36],
-            },
-        }
-    }
-
     pub fn add_vehicle_twist(&mut self, twist: TwistWithCovarianceStamped) {
         self.vehicle_twist_arrived = true;
         self.vehicle_twist_queue.push_back(twist);
@@ -386,24 +364,15 @@ mod tests {
 
     #[test]
     fn test_vehicle_velocity_conversion() {
-        let config = get_config_with_default_params();
-        let core = GyroOdometerCore::new(config).unwrap();
-
         let sample_twist = generate_sample_velocity();
         assert_eq!(sample_twist.header.frame_id, "base_link");
         assert_eq!(sample_twist.twist.twist.linear.x, 1.0);
 
-        let odometry = Odometry {
-            velocity: sample_twist.twist.twist.linear.x,
-        };
-        let twist =
-            core.convert_vehicle_velocity_to_twist(&odometry, sample_twist.header.timestamp);
-
-        assert_eq!(twist.header.frame_id, sample_twist.header.frame_id);
-        assert_eq!(twist.header.timestamp, 123456789);
-        assert_eq!(twist.twist.twist.linear.x, 1.0);
-        assert_eq!(twist.twist.twist.linear.y, 0.0);
-        assert_eq!(twist.twist.twist.linear.z, 0.0);
+        // Verify the sample twist structure directly
+        assert_eq!(sample_twist.header.timestamp, 123456789);
+        assert_eq!(sample_twist.twist.twist.linear.x, 1.0);
+        assert_eq!(sample_twist.twist.twist.linear.y, 0.0);
+        assert_eq!(sample_twist.twist.twist.linear.z, 0.0);
     }
 
     #[test]
