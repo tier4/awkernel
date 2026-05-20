@@ -626,8 +626,8 @@ pub mod perf {
         period_index % MAX_LOGS
     }
 
-    pub fn update_cycle_start_timestamp(index: usize, new_timestamp: u64, dag_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn update_cycle_start_timestamp(period_index: usize, new_timestamp: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
@@ -635,13 +635,13 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
-            recorder[index].insert(dag_id, new_timestamp);
+        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[log_index].insert(dag_id, new_timestamp);
         }
     }
 
-    pub fn update_cycle_end_timestamp(index: usize, new_timestamp: u64, dag_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn update_cycle_end_timestamp(period_index: usize, new_timestamp: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
@@ -649,11 +649,11 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        recorder[index].insert(dag_id, new_timestamp);
+        recorder[log_index].insert(dag_id, new_timestamp);
     }
 
-    pub fn update_absolute_deadline_timestamp(index: usize, deadline: u64, dag_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn update_absolute_deadline_timestamp(period_index: usize, deadline: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
@@ -661,13 +661,13 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
-            recorder[index].insert(dag_id, deadline);
+        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[log_index].insert(dag_id, deadline);
         }
     }
 
-    pub fn update_relative_deadline_timestamp(index: usize, deadline: u64, dag_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn update_relative_deadline_timestamp(period_index: usize, deadline: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
 
         let mut node = MCSNode::new();
         let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
@@ -675,13 +675,18 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[index].get(&dag_id).copied().unwrap_or(0) == 0 {
-            recorder[index].insert(dag_id, deadline);
+        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+            recorder[log_index].insert(dag_id, deadline);
         }
     }
 
-    pub fn record_publish_timestamp(index: usize, new_timestamp: u64, pub_id: u32, node_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn record_publish_timestamp(
+        period_index: usize,
+        new_timestamp: u64,
+        pub_id: u32,
+        node_id: u32,
+    ) {
+        let log_index = to_ring_buffer_index(period_index);
         assert!((pub_id as usize) < MAX_PUBSUB, "Publish ID out of bounds");
 
         let node_id_usize = node_id as usize;
@@ -700,14 +705,19 @@ pub mod perf {
         let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
         let pub_id = pub_id as usize;
 
-        if recorder.timestamps[index][pub_id][node_id_usize] == 0 {
-            recorder.timestamps[index][pub_id][node_id_usize] = new_timestamp;
-            recorder.mark_used(index, pub_id, node_id_usize);
+        if recorder.timestamps[log_index][pub_id][node_id_usize] == 0 {
+            recorder.timestamps[log_index][pub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(log_index, pub_id, node_id_usize);
         }
     }
 
-    pub fn record_subscribe_timestamp(index: usize, new_timestamp: u64, sub_id: u32, node_id: u32) {
-        let index = to_ring_buffer_index(index);
+    pub fn record_subscribe_timestamp(
+        period_index: usize,
+        new_timestamp: u64,
+        sub_id: u32,
+        node_id: u32,
+    ) {
+        let log_index = to_ring_buffer_index(period_index);
         assert!((sub_id as usize) < MAX_PUBSUB, "Subscribe ID out of bounds");
 
         let node_id_usize = node_id as usize;
@@ -726,9 +736,9 @@ pub mod perf {
         let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
         let sub_id = sub_id as usize;
 
-        if recorder.timestamps[index][sub_id][node_id_usize] == 0 {
-            recorder.timestamps[index][sub_id][node_id_usize] = new_timestamp;
-            recorder.mark_used(index, sub_id, node_id_usize);
+        if recorder.timestamps[log_index][sub_id][node_id_usize] == 0 {
+            recorder.timestamps[log_index][sub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(log_index, sub_id, node_id_usize);
         }
     }
 
@@ -1041,7 +1051,6 @@ pub mod perf {
                     write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Interrupt => unsafe {
-                    // log::info!("PreemptionTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
                     write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
                     let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
@@ -1050,7 +1059,6 @@ pub mod perf {
                     write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::ContextSwitch => unsafe {
-                    // log::info!("ContextSwitchTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
                     let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
@@ -1059,7 +1067,6 @@ pub mod perf {
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::ContextSwitchMain => unsafe {
-                    // log::info!("ContextSwitchMainTime CPU:{} Diff:{}", cpu_id, diff);
                     let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
                     let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
