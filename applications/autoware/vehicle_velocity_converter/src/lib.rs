@@ -110,7 +110,7 @@ impl VehicleVelocityConverter {
             "frame_id mismatch: expected '{}', got '{}'",
             self.frame_id, msg.header.frame_id
         );
-        
+
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
