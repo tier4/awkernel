@@ -53,7 +53,6 @@
 // original file path: src/tag_serial_driver.cpp
 // test code: Created in-house for I/O verification
 // version: 0.1.0
-// version: 0.1.0
 
 #![no_std]
 extern crate alloc;
