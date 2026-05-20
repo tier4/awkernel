@@ -582,7 +582,7 @@ pub mod perf {
     const MAX_PUBSUB: usize = 3;
     // This value indicates the maximum number of nodes in the DAG
     // and can be adjusted based on the structure of the DAG used for evaluation.
-    const MAX_NODES: usize = 20;
+    const MAX_NODES: usize = 5;
     #[derive(Clone)]
     struct PubSubTable {
         timestamps: [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
