@@ -61,7 +61,7 @@ pub struct Data<T> {
     pub timestamp: awkernel_lib::time::Time,
     pub data: T,
     #[cfg(feature = "need-get-period")]
-    pub index: u32,
+    pub period_index: u32,
 }
 
 /// Publisher.
@@ -266,7 +266,7 @@ struct Sender<'a, T: 'static + Send> {
     state: SenderState,
     timestamp: awkernel_lib::time::Time,
     #[cfg(feature = "need-get-period")]
-    index: u32,
+    period_index: u32,
 }
 
 enum SenderState {
@@ -284,13 +284,13 @@ impl<'a, T: Send> Sender<'a, T> {
             state: SenderState::Start,
             timestamp: awkernel_lib::time::Time::now(),
             #[cfg(feature = "need-get-period")]
-            index: 0,
+            period_index: 0,
         }
     }
 
     #[cfg(feature = "need-get-period")]
-    pub(super) fn with_period(mut self, index: u32) -> Self {
-        self.index = index;
+    pub(super) fn with_period_index(mut self, index: u32) -> Self {
+        self.period_index = index;
         self
     }
 }
@@ -325,7 +325,7 @@ where
                                 timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
                                 #[cfg(feature = "need-get-period")]
-                                index: *this.index,
+                                period_index: *this.period_index,
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
                                 guard.pop();
@@ -360,7 +360,7 @@ where
                             timestamp: *this.timestamp,
                             data: data.clone(),
                             #[cfg(feature = "need-get-period")]
-                            index: *this.index,
+                            period_index: *this.period_index,
                         }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
@@ -407,21 +407,21 @@ where
     }
 
     #[cfg(feature = "need-get-period")]
-    pub async fn send_with_meta(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+    pub async fn send_with_period_index(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
         // [start] pubsub communication latency
         let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
         publish_timestamp_at(index, start, pub_id, node_id);
-        let period = match u32::try_from(index) {
-            Ok(period) => period,
+        let period_index = match u32::try_from(index) {
+            Ok(period_index) => period_index,
             Err(_) => {
                 log::warn!(
-                    "Period index {} exceeds u32::MAX; saturating period metadata",
+                    "Period index {} exceeds u32::MAX; saturating period index",
                     index
                 );
                 u32::MAX
             }
         };
-        let sender = Sender::new(self, data).with_period(period);
+        let sender = Sender::new(self, data).with_period_index(period_index);
         sender.await;
         r#yield().await;
     }
@@ -464,14 +464,14 @@ mod need_get_period_tests {
     }
 
     #[test]
-    fn send_with_meta_propagates_period_to_receiver() {
+    fn send_with_period_index_propagates_period_index_to_receiver() {
         block_on(async {
             let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
-            publisher.send_with_meta(42, 1, 7, 99).await;
+            publisher.send_with_period_index(42, 1, 7, 99).await;
 
             let received = subscriber.recv().await;
             assert_eq!(received.data, 42);
-            assert_eq!(received.index, 7);
+            assert_eq!(received.period_index, 7);
         });
     }
 
@@ -481,8 +481,8 @@ mod need_get_period_tests {
             let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
             let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
 
-            publisher1.send_with_meta(10, 11, 3, 21).await;
-            publisher2.send_with_meta(20, 12, 3, 22).await;
+            publisher1.send_with_period_index(10, 11, 3, 21).await;
+            publisher2.send_with_period_index(20, 12, 3, 22).await;
 
             let ((value1, value2), period) =
                 (subscriber1, subscriber2).recv_all_with_period().await;
@@ -872,7 +872,7 @@ pub trait MultipleSender {
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 
     #[cfg(feature = "need-get-period")]
-    fn send_all_with_meta(
+    fn send_all_with_period_index(
         &self,
         item: Self::Item,
         pub_id: u32,
@@ -968,7 +968,7 @@ macro_rules! impl_async_receiver_for_tuple {
             }
 
             #[cfg(feature = "need-get-period")]
-            fn send_all_with_meta(
+            fn send_all_with_period_index(
                 &self,
                 _item: Self::Item,
                 _pub_id: u32,
@@ -1033,7 +1033,7 @@ macro_rules! impl_async_receiver_for_tuple {
             }
 
             #[cfg(feature = "need-get-period")]
-            fn send_all_with_meta(
+            fn send_all_with_period_index(
                 &self,
                 item: Self::Item,
                 pub_id: u32,
@@ -1044,7 +1044,7 @@ macro_rules! impl_async_receiver_for_tuple {
                 let ($($idx2,)+) = item;
                 Box::pin(async move {
                     $(
-                        $idx.send_with_meta($idx2, pub_id, index, node_id).await;
+                        $idx.send_with_period_index($idx2, pub_id, index, node_id).await;
                     )+
                 })
             }

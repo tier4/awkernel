@@ -935,18 +935,18 @@ where
         loop {
             #[cfg(feature = "need-get-period")]
             {
-                let (args, count_st): (
+                let (args, period_index): (
                     <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
                     u32,
                 ) = subscribers.recv_all_with_period().await;
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                subscribe_timestamp_at(count_st as usize, end, 1, dag_info.node_id.clone());
+                subscribe_timestamp_at(period_index as usize, end, 1, dag_info.node_id.clone());
 
                 let results = f(args);
                 publishers
-                    .send_all_with_meta(results, 1, count_st as usize, dag_info.node_id)
+                    .send_all_with_meta(results, 1, period_index as usize, dag_info.node_id)
                     .await;
             }
 
@@ -1054,16 +1054,16 @@ where
         loop {
             #[cfg(feature = "need-get-period")]
             {
-                let (args, count_st): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
+                let (args, period_index): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
                     subscribers.recv_all_with_period().await;
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                subscribe_timestamp_at(count_st as usize, end, 2, dag_info.node_id.clone());
+                subscribe_timestamp_at(period_index as usize, end, 2, dag_info.node_id.clone());
 
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                if count_st != 0 {
-                    update_fin_recv_outer_timestamp_at(count_st as usize, timenow, dag_info.dag_id);
+                if period_index != 0 {
+                    update_fin_recv_outer_timestamp_at(period_index as usize, timenow, dag_info.dag_id);
                 }
 
                 f(args);

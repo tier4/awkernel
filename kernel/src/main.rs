@@ -81,7 +81,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(feature = "need-get-period")]
             if last_print.elapsed().as_secs() >= 30 {
                 awkernel_async_lib::task::perf::print_timestamp_table();
-                // awkernel_async_lib::task::perf::print_pubsub_table();
 
                 last_print = awkernel_lib::time::Time::now();
             }
