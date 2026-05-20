@@ -69,11 +69,6 @@ pub struct Twist {
     pub angular: Vector3,
 }
 
-#[repr(C)]
-pub struct Odometry {
-    pub velocity: f64,
-}
-
 pub struct VehicleVelocityConverter {
     frame_id: &'static str,
     stddev_vx: f64,
