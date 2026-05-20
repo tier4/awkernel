@@ -498,6 +498,7 @@ pub mod perf {
         Kernel,
         Task,
         ContextSwitch,
+        ContextSwitchMain,
         Interrupt,
         Idle,
     }
@@ -509,8 +510,9 @@ pub mod perf {
                 1 => Self::Kernel,
                 2 => Self::Task,
                 3 => Self::ContextSwitch,
-                4 => Self::Interrupt,
-                5 => Self::Idle,
+                4 => Self::ContextSwitchMain,
+                5 => Self::Interrupt,
+                6 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
         }
@@ -524,6 +526,7 @@ pub mod perf {
     static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -531,6 +534,7 @@ pub mod perf {
     static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -538,6 +542,7 @@ pub mod perf {
     static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -1144,6 +1149,7 @@ pub mod perf {
             PerfState::Kernel => start_kernel(),
             PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
+            PerfState::ContextSwitchMain => start_context_switch_main(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
