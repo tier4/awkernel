@@ -1118,27 +1118,7 @@ pub mod perf {
     pub fn start_interrupt() -> PerfState {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let previous: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
-
-        // Check the current task
-        if let Some(task_id) = task::get_current_task(cpu_id) {
-            if let Some(task) = task::get_task(task_id) {
-                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
-                if dag_info.is_some() {
-                    // DAG task-specific handling
-                    update_time_and_state_for_dag(PerfState::Interrupt);
-                } else {
-                    // Normal task-specific handling
-                    update_time_and_state(PerfState::Interrupt);
-                }
-            } else {
-                // Default handling if the current task cannot be resolved
-                update_time_and_state(PerfState::Interrupt);
-            }
-        } else {
-            // Default handling if no task is running
-            update_time_and_state(PerfState::Interrupt);
-        }
-
+        update_time_and_state(PerfState::Interrupt);
         previous
     }
 
@@ -1159,50 +1139,12 @@ pub mod perf {
 
     #[inline(always)]
     pub(crate) fn start_context_switch() {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        if let Some(task_id) = task::get_current_task(cpu_id) {
-            if let Some(task) = task::get_task(task_id) {
-                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
-                if dag_info.is_some() {
-                    // DAG task-specific handling
-                    update_time_and_state_for_dag(PerfState::ContextSwitch);
-                } else {
-                    // Normal task-specific handling
-                    update_time_and_state(PerfState::ContextSwitch);
-                }
-            } else {
-                // Default handling if the current task cannot be resolved
-                update_time_and_state(PerfState::ContextSwitch);
-            }
-        } else {
-            // Default handling if no task is running
-            update_time_and_state(PerfState::ContextSwitch);
-        }
+        update_time_and_state(PerfState::ContextSwitch);
     }
 
     #[inline(always)]
     pub(crate) fn start_context_switch_main() {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        if let Some(task_id) = task::get_current_task(cpu_id) {
-            if let Some(task) = task::get_task(task_id) {
-                let dag_info = task.info.lock(&mut task::MCSNode::new()).get_dag_info();
-                if dag_info.is_some() {
-                    // DAG task-specific handling
-                    update_time_and_state_for_dag(PerfState::ContextSwitchMain);
-                } else {
-                    // Normal task-specific handling
-                    update_time_and_state(PerfState::ContextSwitchMain);
-                }
-            } else {
-                // Fallback handling if the current task ID cannot be resolved
-                update_time_and_state(PerfState::ContextSwitchMain);
-            }
-        } else {
-            // Default handling if no task is running
-            update_time_and_state(PerfState::ContextSwitchMain);
-        }
+        update_time_and_state(PerfState::ContextSwitchMain);
     }
 
     #[inline(always)]
