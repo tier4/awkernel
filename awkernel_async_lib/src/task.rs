@@ -569,7 +569,7 @@ pub mod perf {
             .unwrap_or(0)
     }
 
-    pub fn increment_period_count(dag_id: u32) -> u32 {
+    pub fn increment_period_index(dag_id: u32) -> u32 {
         let mut node = MCSNode::new();
         let mut period_count = PERIOD_COUNT.lock(&mut node);
         let count = period_count

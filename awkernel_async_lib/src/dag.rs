@@ -68,7 +68,7 @@ use crate::{
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 
-#[cfg(feature = "need-get-period")]
+#[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{
     get_period_count, increment_period_count, subscribe_timestamp_at,
     update_fin_recv_outer_timestamp_at, update_pre_send_outer_timestamp_at,
@@ -933,7 +933,7 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             {
                 let (args, period_index): (
                     <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
@@ -950,7 +950,7 @@ where
                     .await;
             }
 
-            #[cfg(not(feature = "need-get-period"))]
+            #[cfg(not(feature = "period-index-propagation"))]
             {
                 let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;
@@ -999,7 +999,7 @@ where
         interval.tick().await;
 
         loop {
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             {
                 let index = get_period_count(dag_info.dag_id) as usize;
                 if index != 0 {
@@ -1014,7 +1014,7 @@ where
                 increment_period_count(dag_info.dag_id);
             }
 
-            #[cfg(not(feature = "need-get-period"))]
+            #[cfg(not(feature = "period-index-propagation"))]
             {
                 let results = f();
                 publishers.send_all(results).await;
@@ -1052,7 +1052,7 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             {
                 let (args, period_index): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
                     subscribers.recv_all_with_period().await;
@@ -1073,7 +1073,7 @@ where
                 f(args);
             }
 
-            #[cfg(not(feature = "need-get-period"))]
+            #[cfg(not(feature = "period-index-propagation"))]
             {
                 let args: <Args::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;

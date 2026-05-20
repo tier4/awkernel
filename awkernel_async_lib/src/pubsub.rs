@@ -52,7 +52,7 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
-#[cfg(feature = "need-get-period")]
+#[cfg(feature = "period-index-propagation")]
 use crate::task::perf::publish_timestamp_at;
 
 /// Data and timestamp.
@@ -60,7 +60,7 @@ use crate::task::perf::publish_timestamp_at;
 pub struct Data<T> {
     pub timestamp: awkernel_lib::time::Time,
     pub data: T,
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     pub period_index: u32,
 }
 
@@ -265,7 +265,7 @@ struct Sender<'a, T: 'static + Send> {
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
     timestamp: awkernel_lib::time::Time,
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     period_index: u32,
 }
 
@@ -283,12 +283,12 @@ impl<'a, T: Send> Sender<'a, T> {
             subscribers: Default::default(),
             state: SenderState::Start,
             timestamp: awkernel_lib::time::Time::now(),
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             period_index: 0,
         }
     }
 
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     pub(super) fn with_period_index(mut self, index: u32) -> Self {
         self.period_index = index;
         self
@@ -324,7 +324,7 @@ where
                             if let Err(data) = guard.push(Data {
                                 timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
-                                #[cfg(feature = "need-get-period")]
+                                #[cfg(feature = "period-index-propagation")]
                                 period_index: *this.period_index,
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
@@ -359,7 +359,7 @@ where
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
-                            #[cfg(feature = "need-get-period")]
+                            #[cfg(feature = "period-index-propagation")]
                             period_index: *this.period_index,
                         }) {
                             Ok(_) => {
@@ -406,7 +406,7 @@ where
         r#yield().await;
     }
 
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     pub async fn send_with_period_index(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
         // [start] pubsub communication latency
         let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -427,7 +427,7 @@ where
     }
 }
 
-#[cfg(all(test, feature = "need-get-period"))]
+#[cfg(all(test, feature = "period-index-propagation"))]
 mod need_get_period_tests {
     use super::*;
     use core::{
@@ -476,7 +476,7 @@ mod need_get_period_tests {
     }
 
     #[test]
-    fn tuple_recv_all_with_period_returns_shared_period() {
+    fn tuple_recv_all_with_period_index_returns_shared_period_index() {
         block_on(async {
             let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
             let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
@@ -484,12 +484,12 @@ mod need_get_period_tests {
             publisher1.send_with_period_index(10, 11, 3, 21).await;
             publisher2.send_with_period_index(20, 12, 3, 22).await;
 
-            let ((value1, value2), period) =
-                (subscriber1, subscriber2).recv_all_with_period().await;
+            let ((value1, value2), period_index) =
+                (subscriber1, subscriber2).recv_all_with_period_index().await;
 
             assert_eq!(value1, 10);
             assert_eq!(value2, 20);
-            assert_eq!(period, 3);
+            assert_eq!(period_index, 3);
         });
     }
 }
@@ -862,8 +862,8 @@ pub trait MultipleReceiver {
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 
-    #[cfg(feature = "need-get-period")]
-    fn recv_all_with_period(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
+    #[cfg(feature = "period-index-propagation")]
+    fn recv_all_with_period_index(&self) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {
@@ -871,7 +871,7 @@ pub trait MultipleSender {
 
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     fn send_all_with_period_index(
         &self,
         item: Self::Item,
@@ -952,8 +952,8 @@ macro_rules! impl_async_receiver_for_tuple {
                 Box::pin(async move{})
             }
 
-            #[cfg(feature = "need-get-period")]
-            fn recv_all_with_period(
+            #[cfg(feature = "period-index-propagation")]
+            fn recv_all_with_period_index(
                 &self,
             ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
                 Box::pin(async move { ((), 0) })
@@ -967,7 +967,7 @@ macro_rules! impl_async_receiver_for_tuple {
                 Box::pin(async move{})
             }
 
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             fn send_all_with_period_index(
                 &self,
                 _item: Self::Item,
@@ -990,31 +990,31 @@ macro_rules! impl_async_receiver_for_tuple {
                 })
             }
 
-            #[cfg(feature = "need-get-period")]
-            fn recv_all_with_period(
+            #[cfg(feature = "period-index-propagation")]
+            fn recv_all_with_period_index(
                 &self,
             ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
                 let ($($idx,)+) = self;
                 Box::pin(async move {
-                    let mut period: Option<u32> = None;
+                    let mut period_index: Option<u32> = None;
                     $(
                         let item = $idx.recv().await;
-                        match period {
+                        match period_index {
                             Some(expected) => {
                                 assert!(
-                                    expected == item.index,
-                                    "recv_all_with_period received mismatched periods: expected {}, got {}",
+                                    expected == item.period_index,
+                                    "recv_all_with_period_index received mismatched periods: expected {}, got {}",
                                     expected,
-                                    item.index
+                                    item.period_index
                                 );
                             }
                             None => {
-                                period = Some(item.index);
+                                period_index = Some(item.period_index);
                             }
                         }
                         let $idx2 = item.data;
                     )+
-                    (($($idx2,)+), period.expect("recv_all_with_period requires at least one subscriber"))
+                    (($($idx2,)+), period_index.expect("recv_all_with_period_index requires at least one subscriber"))
                 })
             }
         }
@@ -1032,7 +1032,7 @@ macro_rules! impl_async_receiver_for_tuple {
                 })
             }
 
-            #[cfg(feature = "need-get-period")]
+            #[cfg(feature = "period-index-propagation")]
             fn send_all_with_period_index(
                 &self,
                 item: Self::Item,

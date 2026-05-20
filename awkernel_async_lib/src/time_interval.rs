@@ -29,7 +29,7 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
-#[cfg(feature = "need-get-period")]
+#[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{get_period_count, update_pre_send_outer_timestamp_at};
 use alloc::boxed::Box;
 use awkernel_lib::time::Time;
@@ -104,7 +104,7 @@ pub fn interval(period: Duration, dag_id: u32) -> Interval {
 
 pub fn interval_at(start: Time, period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    #[cfg(feature = "need-get-period")]
+    #[cfg(feature = "period-index-propagation")]
     {
         let index = get_period_count(_dag_id) as usize;
         // [start] cycle deviation index == 0 (basis of cycle deviation)
