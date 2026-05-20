@@ -994,7 +994,7 @@ where
             Attribute::default(),
         );
 
-    let mut interval = interval(period, dag_info.dag_id);
+        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
