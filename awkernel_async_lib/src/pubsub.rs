@@ -454,6 +454,9 @@ mod period_index_propagation_tests {
         let waker = unsafe { Waker::from_raw(raw_waker()) };
         let mut future = Box::pin(future);
 
+        // Since `wake` is an operation that does nothing, returning `Poll::Pending` would normally cause a deadlock.
+        // However, this test runs in a single thread and follows the “send → receive” order (where `send` always completes before `recv`).
+        // In practice, it should not hang.
         loop {
             let mut context = Context::from_waker(&waker);
             match Pin::as_mut(&mut future).poll(&mut context) {
