@@ -547,7 +547,8 @@ pub mod perf {
 
     use alloc::{collections::BTreeMap, vec::Vec};
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    const MAX_LOGS: usize = 8192;
+    // When logging evaluation results, this value can be adjusted based on awkernel's execution time.
+    const MAX_LOGS: usize = 2048;
 
     type DagTimestampMap = BTreeMap<u32, u64>;
     type DagTimestampTable = [DagTimestampMap; MAX_LOGS];
@@ -576,8 +577,11 @@ pub mod perf {
             .or_insert_with(|| AtomicU32::new(0));
         count.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
     }
-    //pubsub
+    // This value represents the type of pubsub (publish only, subscribe only, or both publish and subscribe)
+    // and is a fixed value.
     const MAX_PUBSUB: usize = 3;
+    // This value indicates the maximum number of nodes in the DAG
+    // and can be adjusted based on the structure of the DAG used for evaluation.
     const MAX_NODES: usize = 20;
     #[derive(Clone)]
     struct PubSubTable {
