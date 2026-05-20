@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Ported from the following versions of the original C++ code:
+// Partially ported from the following versions of the original C++ code (See the TODO comment in ImuCorrectorConfig):
 // universe/autoware_universe:
 // type: git
 // url: https://github.com/autowarefoundation/autoware_universe.git
@@ -144,6 +144,11 @@ impl ImuWithCovariance {
     }
 }
 
+// TODO: The `gyro_bias` and `gyro_scale` functions have not been implemented.
+// Since this application is currently running on the MRM redundant system and for evaluation purposes,
+// the absence of these functions does not cause any apparent issues at this time.
+// However, since their behavior may change when processing data from
+// “long-duration operations” or “high-precision real-world driving,” they will need to be added in the future.
 pub struct ImuCorrectorConfig {
     pub angular_velocity_offset_x: f64,
     pub angular_velocity_offset_y: f64,
