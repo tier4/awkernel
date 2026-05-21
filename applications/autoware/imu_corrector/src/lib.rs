@@ -236,11 +236,11 @@ impl<T: TransformListener> ImuCorrector<T> {
     // type constraints: all reactors must return their OutputTuple, and omitting output
     // would cause downstream reactors (e.g. gyro_odometer) to block indefinitely.
     //
-    // Currently, the process continues even if `None` is passed, and the value does not  
+    // Currently, the process continues even if `None` is passed, and the value does not
     // change after the transform. However, This was not caught during evaluation
     // because the TF used in testing had an identity rotation (translation only, no effect on vector values).
     // However, the actual vehicle TF would produce incorrect results if skipped.
-    // TODO: To be implemented in a subsequent PR: 
+    // TODO: To be implemented in a subsequent PR:
     // Fix by hardcoding a fixed tf value to prevent None from being passed by the caller.
     //
     // If dynamic TF support is added in the future, the recommended fallback is to
@@ -266,7 +266,6 @@ impl<T: TransformListener> ImuCorrector<T> {
         corrected_imu.linear_acceleration_covariance[0] = accel_var;
         corrected_imu.linear_acceleration_covariance[4] = accel_var;
         corrected_imu.linear_acceleration_covariance[8] = accel_var;
-
 
         if let Some(tf) = transform {
             corrected_imu.linear_acceleration =
