@@ -232,7 +232,7 @@ impl<T: TransformListener> ImuCorrector<T> {
         self.to_imu_vector3(&rotated)
     }
 
-    fn transform_covariance(&self, cov: &[f64; 9]) -> [f64; 9] {
+    fn transform_covariance_impl(cov: &[f64; 9]) -> [f64; 9] {
         let max_cov = cov[0].max(cov[4]).max(cov[8]);
         let mut cov_transformed = [0.0; 9];
         cov_transformed[0] = max_cov;
@@ -282,11 +282,11 @@ impl<T: TransformListener> ImuCorrector<T> {
             corrected_imu.linear_acceleration =
                 self.transform_vector3(&corrected_imu.linear_acceleration, tf);
             corrected_imu.linear_acceleration_covariance =
-                self.transform_covariance(&corrected_imu.linear_acceleration_covariance);
+                Self::transform_covariance_impl(&corrected_imu.linear_acceleration_covariance);
             corrected_imu.angular_velocity =
                 self.transform_vector3(&corrected_imu.angular_velocity, tf);
             corrected_imu.angular_velocity_covariance =
-                self.transform_covariance(&corrected_imu.angular_velocity_covariance);
+                Self::transform_covariance_impl(&corrected_imu.angular_velocity_covariance);
             corrected_imu.header.frame_id = self.config.output_frame;
         }
 
@@ -341,12 +341,7 @@ impl<T: TransformListener> ImuCorrector<T> {
 }
 
 pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
-    let max_cov = cov[0].max(cov[4]).max(cov[8]);
-    let mut cov_transformed = [0.0; 9];
-    cov_transformed[0] = max_cov;
-    cov_transformed[4] = max_cov;
-    cov_transformed[8] = max_cov;
-    cov_transformed
+    ImuCorrector::<MockTransformListener>::transform_covariance_impl(cov)
 }
 
 #[cfg(test)]
@@ -442,9 +437,9 @@ mod tests {
 
     #[test]
     fn covariance_transform_uses_max_diagonal() {
-        let corrector = ImuCorrector::new();
         let input_cov = [1.0, 0.5, 0.3, 0.5, 2.0, 0.4, 0.3, 0.4, 3.0];
-        let transformed_cov = corrector.transform_covariance(&input_cov);
+        let transformed_cov =
+            ImuCorrector::<MockTransformListener>::transform_covariance_impl(&input_cov);
 
         assert_eq!(transformed_cov[0], 3.0);
         assert_eq!(transformed_cov[4], 3.0);
