@@ -438,23 +438,6 @@ mod tests {
     #[test]
     fn covariance_transform_uses_max_diagonal() {
         let input_cov = [1.0, 0.5, 0.3, 0.5, 2.0, 0.4, 0.3, 0.4, 3.0];
-        let transformed_cov =
-            ImuCorrector::<MockTransformListener>::transform_covariance_impl(&input_cov);
-
-        assert_eq!(transformed_cov[0], 3.0);
-        assert_eq!(transformed_cov[4], 3.0);
-        assert_eq!(transformed_cov[8], 3.0);
-        assert_eq!(transformed_cov[1], 0.0);
-        assert_eq!(transformed_cov[2], 0.0);
-        assert_eq!(transformed_cov[3], 0.0);
-        assert_eq!(transformed_cov[5], 0.0);
-        assert_eq!(transformed_cov[6], 0.0);
-        assert_eq!(transformed_cov[7], 0.0);
-    }
-
-    #[test]
-    fn public_covariance_transform_uses_max_diagonal() {
-        let input_cov = [1.0, 0.5, 0.3, 0.5, 2.0, 0.4, 0.3, 0.4, 3.0];
         let transformed_cov = transform_covariance(&input_cov);
         assert_eq!(transformed_cov[0], 3.0);
         assert_eq!(transformed_cov[4], 3.0);
