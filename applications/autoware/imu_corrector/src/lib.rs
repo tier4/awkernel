@@ -137,6 +137,16 @@ impl ImuWithCovariance {
     pub fn to_imu_msg(&self) -> ImuMsg {
         ImuMsg {
             header: self.header.clone(),
+            // NOTE: Unlike the original C++ implementation, which intentionally omits
+            // orientation from the output message (imu_msg_base_link has no orientation
+            // assignment), this Rust implementation copies orientation from the input.
+            // This is a side effect of the clone-based approach rather than an intentional
+            // design choice.
+            //
+            // In the current MRM pipeline, downstream nodes (gyro_odometer, ekf_localizer)
+            // do not use orientation, so this difference has no functional impact.
+            // If a consumer of orientation is added in the future, this should be revisited
+            // to align with the C++ behavior (i.e., leave orientation as default/zero).
             orientation: self.orientation.clone(),
             angular_velocity: self.angular_velocity.clone(),
             linear_acceleration: self.linear_acceleration.clone(),
