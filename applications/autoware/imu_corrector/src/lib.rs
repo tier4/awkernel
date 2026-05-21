@@ -59,6 +59,7 @@ impl Transform {
         UnitQuaternion::from_quaternion(n_quat)
     }
 
+    // This code is used as part of the `gyro_odometer` function processing.
     pub fn apply_to_vector(&self, vec: Vector3) -> Vector3 {
         let nalgebra_vec = self.to_nalgebra_vector3(&vec);
         let nalgebra_quat = self.to_nalgebra_quaternion(&self.rotation);
