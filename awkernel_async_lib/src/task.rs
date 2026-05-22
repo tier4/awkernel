@@ -547,7 +547,8 @@ pub mod perf {
 
     use alloc::{collections::BTreeMap, vec::Vec};
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-    // When logging evaluation results, this value can be adjusted based on awkernel's execution time.
+    // NOTE: When logging evaluation results, this value can be adjusted based on awkernel's execution time.
+    // This value matches the one actually used in the awkernel evaluation branch, and it is a ring buffer.
     const MAX_LOGS: usize = 2048;
 
     type DagTimestampMap = BTreeMap<u32, u64>;
