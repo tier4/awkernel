@@ -29,6 +29,8 @@ mod nostd;
 
 static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
 static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
+#[cfg(feature = "period-index-propagation")]
+const PERF_PRINT_INTERVAL_SECS: u64 = 30;
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.
@@ -79,7 +81,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         loop {
             #[cfg(feature = "period-index-propagation")]
-            if last_print.elapsed().as_secs() >= 30 {
+            if last_print.elapsed().as_secs() >= PERF_PRINT_INTERVAL_SECS {
                 awkernel_async_lib::task::perf::print_timestamp_table();
 
                 last_print = awkernel_lib::time::Time::now();
