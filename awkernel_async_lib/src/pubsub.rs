@@ -1006,6 +1006,11 @@ macro_rules! impl_async_receiver_for_tuple {
                     $(
                         let item = $idx.recv().await;
                         match period_index {
+                            // Multiple upstream nodes may not produce the same period_index
+                            // at the same time because of startup skew, delayed or dropped
+                            // messages, or DAG branches with different path lengths.
+                            // Treating this as a panic would be too disruptive here, so we
+                            // keep the first period_index and only warn on mismatches.
                             Some(expected) => {
                                 if expected != item.period_index {
                                     log::warn!(
