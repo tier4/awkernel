@@ -639,9 +639,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if !recorder[log_index].contains_key(&dag_id) {
-            recorder[log_index].insert(dag_id, new_timestamp);
-        }
+        recorder[log_index].entry(dag_id).or_insert(new_timestamp);
     }
 
     pub fn update_cycle_end_timestamp(period_index: usize, new_timestamp: u64, dag_id: u32) {
@@ -665,9 +663,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if !recorder[log_index].contains_key(&dag_id) {
-            recorder[log_index].insert(dag_id, deadline);
-        }
+        recorder[log_index].entry(dag_id).or_insert(deadline);
     }
 
     pub fn update_relative_deadline_timestamp(period_index: usize, deadline: u64, dag_id: u32) {
@@ -679,9 +675,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if !recorder[log_index].contains_key(&dag_id) {
-            recorder[log_index].insert(dag_id, deadline);
-        }
+        recorder[log_index].entry(dag_id).or_insert(deadline);
     }
 
     pub fn record_publish_timestamp(
