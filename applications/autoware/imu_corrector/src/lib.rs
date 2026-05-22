@@ -84,6 +84,12 @@ impl MockTransformListener {
     }
 }
 
+impl Default for MockTransformListener {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransformListener for MockTransformListener {
     fn get_latest_transform(&self, from_frame: &str, to_frame: &str) -> Option<Transform> {
         let key = format!("{}_to_{}", from_frame, to_frame);
@@ -178,6 +184,12 @@ impl ImuCorrector<MockTransformListener> {
             config: ImuCorrectorConfig::default(),
             transform_listener,
         }
+    }
+}
+
+impl Default for ImuCorrector<MockTransformListener> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
