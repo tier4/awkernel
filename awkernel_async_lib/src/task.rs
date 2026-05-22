@@ -639,7 +639,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+        if !recorder[log_index].contains_key(&dag_id) {
             recorder[log_index].insert(dag_id, new_timestamp);
         }
     }
@@ -665,7 +665,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+        if !recorder[log_index].contains_key(&dag_id) {
             recorder[log_index].insert(dag_id, deadline);
         }
     }
@@ -679,7 +679,7 @@ pub mod perf {
         let recorder =
             recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
 
-        if recorder[log_index].get(&dag_id).copied().unwrap_or(0) == 0 {
+        if !recorder[log_index].contains_key(&dag_id) {
             recorder[log_index].insert(dag_id, deadline);
         }
     }
