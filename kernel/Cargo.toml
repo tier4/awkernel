@@ -94,6 +94,7 @@ x86 = [
 ]
 rv32 = [
     # TODO: Remove once a way to pass tests without `perf` is found
+    # Issue link: https://github.com/tier4/awkernel/issues/692
     "perf",
     "no_std_unwinding",
     "awkernel_lib/rv32",
@@ -102,6 +103,7 @@ rv32 = [
 ]
 rv64 = [
     # TODO: Remove once a way to pass tests without `perf` is found
+    # Issue link: https://github.com/tier4/awkernel/issues/692
     "perf",
     "no_std_unwinding",
     "awkernel_lib/rv64",
