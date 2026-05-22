@@ -46,27 +46,14 @@ impl Transform {
         }
     }
 
-    fn to_nalgebra_vector3(&self, vec: &Vector3) -> NVector3<f64> {
-        NVector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_imu_vector3(&self, vec: &NVector3<f64>) -> Vector3 {
-        Vector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_nalgebra_quaternion(&self, quat: &Quaternion) -> UnitQuaternion<f64> {
-        let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-        UnitQuaternion::from_quaternion(n_quat)
-    }
-
     // This code is used as part of the `gyro_odometer` function processing.
     pub fn apply_to_vector(&self, vec: Vector3) -> Vector3 {
-        let nalgebra_vec = self.to_nalgebra_vector3(&vec);
-        let nalgebra_quat = self.to_nalgebra_quaternion(&self.rotation);
-        let nalgebra_trans = self.to_nalgebra_vector3(&self.translation);
+        let nalgebra_vec = to_nalgebra_vector3(&vec);
+        let nalgebra_quat = to_nalgebra_quaternion(&self.rotation);
+        let nalgebra_trans = to_nalgebra_vector3(&self.translation);
         let rotated = nalgebra_quat * nalgebra_vec;
         let result = rotated + nalgebra_trans;
-        self.to_imu_vector3(&result)
+        to_imu_vector3(&result)
     }
 }
 
@@ -199,24 +186,11 @@ impl<T: TransformListener> ImuCorrector<T> {
         self.config = config;
     }
 
-    fn to_nalgebra_vector3(&self, vec: &Vector3) -> NVector3<f64> {
-        NVector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_imu_vector3(&self, vec: &NVector3<f64>) -> Vector3 {
-        Vector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_nalgebra_quaternion(&self, quat: &Quaternion) -> UnitQuaternion<f64> {
-        let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-        UnitQuaternion::from_quaternion(n_quat)
-    }
-
     fn transform_vector3(&self, vec: &Vector3, transform: &Transform) -> Vector3 {
-        let nalgebra_vec = self.to_nalgebra_vector3(vec);
-        let nalgebra_quat = self.to_nalgebra_quaternion(&transform.rotation);
+        let nalgebra_vec = to_nalgebra_vector3(vec);
+        let nalgebra_quat = to_nalgebra_quaternion(&transform.rotation);
         let rotated = nalgebra_quat * nalgebra_vec;
-        self.to_imu_vector3(&rotated)
+        to_imu_vector3(&rotated)
     }
 
     fn transform_covariance_impl(cov: &[f64; 9]) -> [f64; 9] {
@@ -325,6 +299,19 @@ impl<T: TransformListener> ImuCorrector<T> {
             self.config.acceleration_stddev,
         )
     }
+}
+
+fn to_nalgebra_vector3(vec: &Vector3) -> NVector3<f64> {
+    NVector3::new(vec.x, vec.y, vec.z)
+}
+
+fn to_imu_vector3(vec: &NVector3<f64>) -> Vector3 {
+    Vector3::new(vec.x, vec.y, vec.z)
+}
+
+fn to_nalgebra_quaternion(quat: &Quaternion) -> UnitQuaternion<f64> {
+    let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
+    UnitQuaternion::from_quaternion(n_quat)
 }
 
 pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
