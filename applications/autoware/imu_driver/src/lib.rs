@@ -63,7 +63,6 @@ use core::f64::consts::PI;
 #[derive(Clone, Debug)]
 pub struct ImuMsg {
     pub header: Header,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub linear_acceleration: Vector3,
 }
@@ -71,7 +70,6 @@ pub struct ImuMsg {
 #[derive(Clone, Debug)]
 pub struct ImuCsvRow {
     pub timestamp: u64,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub linear_acceleration: Vector3,
 }
@@ -110,12 +108,6 @@ impl Default for ImuMsg {
                 frame_id: "imu",
                 timestamp: 0,
             },
-            orientation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             linear_acceleration: Vector3::new(0.0, 0.0, 0.0),
         }
@@ -132,7 +124,6 @@ pub fn build_imu_msg_from_csv_row(
             frame_id,
             timestamp,
         },
-        orientation: row.orientation.clone(),
         angular_velocity: row.angular_velocity.clone(),
         linear_acceleration: row.linear_acceleration.clone(),
     }

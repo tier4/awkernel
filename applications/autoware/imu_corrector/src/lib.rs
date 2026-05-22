@@ -116,7 +116,6 @@ impl TransformListener for MockTransformListener {
 #[derive(Clone, Debug)]
 pub struct ImuWithCovariance {
     pub header: Header,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub angular_velocity_covariance: [f64; 9],
     pub linear_acceleration: Vector3,
@@ -127,7 +126,6 @@ impl ImuWithCovariance {
     pub fn from_imu_msg(imu_msg: &ImuMsg) -> Self {
         Self {
             header: imu_msg.header.clone(),
-            orientation: imu_msg.orientation.clone(),
             angular_velocity: imu_msg.angular_velocity.clone(),
             angular_velocity_covariance: [0.0; 9],
             linear_acceleration: imu_msg.linear_acceleration.clone(),
@@ -138,17 +136,6 @@ impl ImuWithCovariance {
     pub fn to_imu_msg(&self) -> ImuMsg {
         ImuMsg {
             header: self.header.clone(),
-            // NOTE: Unlike the original C++ implementation, which intentionally omits
-            // orientation from the output message (imu_msg_base_link has no orientation
-            // assignment), this Rust implementation copies orientation from the input.
-            // This is a side effect of the clone-based approach rather than an intentional
-            // design choice.
-            //
-            // In the current MRM pipeline, downstream nodes (gyro_odometer, ekf_localizer)
-            // do not use orientation, so this difference has no functional impact.
-            // If a consumer of orientation is added in the future, this should be revisited
-            // to align with the C++ behavior (i.e., leave orientation as default/zero).
-            orientation: self.orientation.clone(),
             angular_velocity: self.angular_velocity.clone(),
             linear_acceleration: self.linear_acceleration.clone(),
         }
@@ -357,12 +344,6 @@ mod tests {
             header: Header {
                 frame_id: "imu_link",
                 timestamp: 0,
-            },
-            orientation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
             },
             angular_velocity: Vector3::new(0.1, 0.2, 0.3),
             linear_acceleration: Vector3::new(9.8, 0.0, 0.0),
