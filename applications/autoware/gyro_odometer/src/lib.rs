@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// 
+//
 // Ported from the following versions of the original C++ code:
 // core/autoware_core:
 // type: git
@@ -24,15 +24,13 @@
 extern crate alloc;
 
 use alloc::{collections::VecDeque, string::String};
-use core::time::Duration;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
+use core::time::Duration;
 
 pub use imu_corrector::{transform_covariance, ImuWithCovariance, Transform};
-pub use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
-pub use vehicle_velocity_converter::{
-    Odometry, Twist, TwistWithCovariance, TwistWithCovarianceStamped,
-};
+pub use imu_driver::{Header, ImuMsg, Vector3};
+pub use vehicle_velocity_converter::{Twist, TwistWithCovariance, TwistWithCovarianceStamped};
 
 static GYRO_ODOMETER_INSTANCE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
 
@@ -223,26 +221,6 @@ impl GyroOdometerCore {
         }
     }
 
-    pub fn convert_vehicle_velocity_to_twist(
-        &self,
-        odometry: &Odometry,
-        timestamp: u64,
-    ) -> TwistWithCovarianceStamped {
-        TwistWithCovarianceStamped {
-            header: Header {
-                frame_id: "base_link",
-                timestamp,
-            },
-            twist: TwistWithCovariance {
-                twist: Twist {
-                    linear: Vector3::new(odometry.velocity, 0.0, 0.0),
-                    angular: Vector3::new(0.0, 0.0, 0.0),
-                },
-                covariance: [0.0; 36],
-            },
-        }
-    }
-
     pub fn add_vehicle_twist(&mut self, twist: TwistWithCovarianceStamped) {
         self.vehicle_twist_arrived = true;
         self.vehicle_twist_queue.push_back(twist);
@@ -340,12 +318,6 @@ mod tests {
                 frame_id: "base_link",
                 timestamp: 123456789,
             },
-            orientation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
             angular_velocity: Vector3::new(0.1, 0.2, 0.3),
             linear_acceleration: Vector3::new(9.8, 0.0, 0.0),
         }
@@ -406,24 +378,24 @@ mod tests {
     }
 
     #[test]
-    fn test_vehicle_velocity_conversion() {
+    fn test_add_vehicle_twist() {
         let config = get_config_with_default_params();
-        let core = GyroOdometerCore::new(config).unwrap();
+        let mut core = GyroOdometerCore::new(config).unwrap();
 
         let sample_twist = generate_sample_velocity();
         assert_eq!(sample_twist.header.frame_id, "base_link");
         assert_eq!(sample_twist.twist.twist.linear.x, 1.0);
 
-        let odometry = Odometry {
-            velocity: sample_twist.twist.twist.linear.x,
-        };
-        let twist = core.convert_vehicle_velocity_to_twist(&odometry, sample_twist.header.timestamp);
+        core.add_vehicle_twist(sample_twist.clone());
 
-        assert_eq!(twist.header.frame_id, sample_twist.header.frame_id);
-        assert_eq!(twist.header.timestamp, 123456789);
-        assert_eq!(twist.twist.twist.linear.x, 1.0);
-        assert_eq!(twist.twist.twist.linear.y, 0.0);
-        assert_eq!(twist.twist.twist.linear.z, 0.0);
+        assert_eq!(core.get_queue_sizes(), (1, 0));
+        assert!(core.vehicle_twist_arrived);
+        let queued_twist = core.vehicle_twist_queue.front().unwrap();
+        assert_eq!(queued_twist.header.frame_id, sample_twist.header.frame_id);
+        assert_eq!(queued_twist.header.timestamp, sample_twist.header.timestamp);
+        assert_eq!(queued_twist.twist.twist.linear.x, 1.0);
+        assert_eq!(queued_twist.twist.twist.linear.y, 0.0);
+        assert_eq!(queued_twist.twist.twist.linear.z, 0.0);
     }
 
     #[test]
@@ -435,8 +407,17 @@ mod tests {
         let mut imu_with_cov = ImuWithCovariance::from_imu_msg(&imu_msg);
         imu_with_cov.angular_velocity_covariance =
             [0.0009, 0.0, 0.0, 0.0, 0.0009, 0.0, 0.0, 0.0, 0.0009];
-        imu_with_cov.linear_acceleration_covariance =
-            [100000000.0, 0.0, 0.0, 0.0, 100000000.0, 0.0, 0.0, 0.0, 100000000.0];
+        imu_with_cov.linear_acceleration_covariance = [
+            100000000.0,
+            0.0,
+            0.0,
+            0.0,
+            100000000.0,
+            0.0,
+            0.0,
+            0.0,
+            100000000.0,
+        ];
 
         let result = core.process_imu_with_covariance(imu_with_cov);
         assert!(result.is_ok());
@@ -470,9 +451,7 @@ pub fn get_or_initialize() -> Result<&'static mut GyroOdometerCore> {
         AtomicOrdering::Acquire,
         AtomicOrdering::Relaxed,
     ) {
-        Ok(_) => {
-            Ok(unsafe { &mut *new_ptr })
-        }
+        Ok(_) => Ok(unsafe { &mut *new_ptr }),
         Err(existing_ptr) => {
             unsafe {
                 let _ = alloc::boxed::Box::from_raw(new_ptr);
