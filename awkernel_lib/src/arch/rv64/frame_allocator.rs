@@ -108,7 +108,7 @@ impl FrameAllocator for PageAllocator {
     }
 
     fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>> {
-        if self.current + pages >= self.end {
+        if self.current + pages > self.end {
             None
         } else {
             self.current += pages;

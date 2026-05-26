@@ -11,11 +11,7 @@ _start:
   csrr a0, mhartid
   mv tp, a0    # save hartid to thread pointer for later use
 
-  # Preserve DTB pointer that QEMU/firmware passes in a1
-  la t0, dtb_ptr
-  sd a1, 0(t0)
-
-  # set up a simple trap handler for M-mode
+  # set up a simple trap handler for M-mode (all harts)
   la t0, early_trap_handler
   csrw mtvec, t0
 
@@ -29,13 +25,28 @@ _start:
   addi t1, t1, 1
   mul t0, t0, t1
   add sp, sp, t0
-  # clear the BSS
+
+  # Only hart 0 saves the DTB pointer and clears BSS.
+  # Secondary harts skip straight to kernel_main and spin on
+  # PRIMARY_INITIALIZED until hart 0 has finished boot setup.
+  bnez a0, .Lskip_primary_init
+
+  # Preserve DTB pointer that QEMU/firmware passes in a1 (hart 0 only)
+  la t0, dtb_ptr
+  sd a1, 0(t0)
+
+  # clear the BSS (hart 0 only — avoids racing with PRIMARY_INITIALIZED)
   la t0, __bss_start
   la t1, __bss_end
 1:
   sd zero, 0(t0)
   addi t0, t0, 8
   bltu t0, t1, 1b
+
+  # Ensure BSS writes are visible before secondary harts read them
+  fence w, rw
+
+.Lskip_primary_init:
   # jump to kernel_main
   jal ra, kernel_main
 2:

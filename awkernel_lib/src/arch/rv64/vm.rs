@@ -257,8 +257,11 @@ impl MemorySet {
     pub fn activate(&self) {
         let satp = self.page_table.token();
         unsafe {
-            asm!("csrw satp, {}", in(reg) satp);
-            asm!("sfence.vma");
+            asm!(
+                "csrw satp, {satp}",
+                "sfence.vma",
+                satp = in(reg) satp,
+            );
         }
     }
 

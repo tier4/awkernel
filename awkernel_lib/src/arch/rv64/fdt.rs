@@ -127,7 +127,9 @@ pub unsafe fn probe_memory_size() -> Option<u64> {
     }
 
     if last_valid > DRAM_BASE {
-        Some((last_valid - DRAM_BASE) as u64)
+        // `last_valid` is the start of the last successfully probed PROBE_STEP block,
+        // so the detected RAM end is last_valid + PROBE_STEP.
+        Some((last_valid + PROBE_STEP - DRAM_BASE) as u64)
     } else {
         None
     }

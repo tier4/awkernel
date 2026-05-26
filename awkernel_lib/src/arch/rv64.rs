@@ -90,7 +90,7 @@ pub fn detect_memory_size() -> Option<u64> {
         if let Some(dtb_addr) = boot_dtb_ptr() {
             if let Some(region) = fdt::detect_memory_from_dtb(dtb_addr) {
                 unsafe_puts("Memory detected from boot DTB pointer at 0x");
-                crate::console::unsafe_print_hex_u32((dtb_addr >> 16) as u32);
+                crate::console::unsafe_print_hex_u32((dtb_addr >> 32) as u32);
                 crate::console::unsafe_print_hex_u32(dtb_addr as u32);
                 unsafe_puts("\r\n");
                 return Some(region.size);
@@ -103,7 +103,7 @@ pub fn detect_memory_size() -> Option<u64> {
         if let Some(dtb_addr) = fdt::probe_dtb_locations() {
             if let Some(region) = fdt::detect_memory_from_dtb(dtb_addr) {
                 unsafe_puts("Memory detected from DTB at 0x");
-                crate::console::unsafe_print_hex_u32((dtb_addr >> 16) as u32);
+                crate::console::unsafe_print_hex_u32((dtb_addr >> 32) as u32);
                 crate::console::unsafe_print_hex_u32(dtb_addr as u32);
                 unsafe_puts("\r\n");
                 return Some(region.size);

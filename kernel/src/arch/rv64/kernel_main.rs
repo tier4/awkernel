@@ -161,8 +161,21 @@ unsafe fn init_memory(memory_end: usize) {
 
     // 2. Heap over [heap_start, memory_end) — no overlap with frame allocator.
     uart_debug_puts("Initializing heap...\r\n");
-    let backup_size = BACKUP_HEAP_SIZE;
-    let primary_size = memory_end - heap_start - backup_size;
+    let heap_available = match memory_end.checked_sub(heap_start) {
+        Some(n) => n,
+        None => {
+            uart_debug_puts("Insufficient RAM for heap region\r\n");
+            return;
+        }
+    };
+    let backup_size = BACKUP_HEAP_SIZE.min(heap_available);
+    let primary_size = match heap_available.checked_sub(backup_size) {
+        Some(n) if n > 0 => n,
+        _ => {
+            uart_debug_puts("Insufficient RAM for primary heap after reserving backup\r\n");
+            return;
+        }
+    };
     heap::init_backup(heap_start, backup_size);
     heap::init_primary(heap_start + backup_size, primary_size);
     heap::TALLOC.use_primary_then_backup();
@@ -257,7 +270,7 @@ unsafe fn primary_hart(hartid: usize) {
 
     // Enable software interrupts for IPIs on primary hart
     unsafe {
-        core::arch::asm!("csrrs t0, mie, {}", in(reg) 1 << 3);
+        core::arch::asm!("csrrs {tmp}, mie, {val}", tmp = lateout(reg) _, val = in(reg) (1usize << 3));
     }
 
     log::info!("AWkernel RV64 primary CPU initialization complete");

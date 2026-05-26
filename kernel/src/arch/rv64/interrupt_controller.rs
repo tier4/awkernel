@@ -92,10 +92,10 @@ impl RiscvPlic {
         hart_id
     }
 
-    /// Get supervisor mode context for current hart
-    fn get_supervisor_context(&self) -> usize {
-        // Typically supervisor mode context = hartid * 2 + 1
-        self.get_hart_id() * 2 + 1
+    /// Get machine mode PLIC context for current hart (hartid * 2).
+    /// S-mode context would be hartid * 2 + 1, but this kernel runs in M-mode.
+    fn get_machine_context(&self) -> usize {
+        self.get_hart_id() * 2
     }
 
     /// Send software interrupt (IPI) to a specific hart
@@ -110,8 +110,7 @@ impl RiscvPlic {
     /// Enable machine software interrupts
     fn enable_software_interrupts(&self) {
         unsafe {
-            // Set MIE.MSIE (Machine Software Interrupt Enable) bit (bit 3)
-            core::arch::asm!("csrrs t0, mie, {}", in(reg) 1 << 3);
+            core::arch::asm!("csrrs {tmp}, mie, {val}", tmp = lateout(reg) _, val = in(reg) (1usize << 3));
         }
     }
 }
@@ -121,19 +120,18 @@ impl InterruptController for RiscvPlic {
         // Set a reasonable priority for the interrupt
         self.set_priority(irq, 1);
 
-        // Enable for supervisor mode (we're running in supervisor mode)
-        let context = self.get_supervisor_context();
+        let context = self.get_machine_context();
         self.enable_interrupt(context, irq);
     }
 
     fn disable_irq(&mut self, irq: u16) {
-        let context = self.get_supervisor_context();
+        let context = self.get_machine_context();
         self.disable_interrupt(context, irq);
     }
 
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>> {
         // Check pending interrupts by claiming them
-        let context = self.get_supervisor_context();
+        let context = self.get_machine_context();
         let claim_reg = self.claim_reg(context);
 
         let mut pending = alloc::vec::Vec::new();
@@ -176,7 +174,7 @@ impl InterruptController for RiscvPlic {
 
     fn init_non_primary(&mut self) {
         // Set threshold to 0 to accept all interrupts
-        let context = self.get_supervisor_context();
+        let context = self.get_machine_context();
         let threshold_reg = self.threshold_reg(context);
         unsafe { write_volatile(threshold_reg, 0) };
 

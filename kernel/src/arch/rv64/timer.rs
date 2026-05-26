@@ -44,16 +44,14 @@ impl RiscvTimer {
     /// Enable machine timer interrupt
     fn enable_mti(&self) {
         unsafe {
-            // Set MIE.MTIE (Machine Timer Interrupt Enable) bit
-            core::arch::asm!("csrrs t0, mie, {}", in(reg) 1 << 7);
+            core::arch::asm!("csrrs {tmp}, mie, {val}", tmp = lateout(reg) _, val = in(reg) (1usize << 7));
         }
     }
 
     /// Disable machine timer interrupt
     fn disable_mti(&self) {
         unsafe {
-            // Clear MIE.MTIE (Machine Timer Interrupt Enable) bit
-            core::arch::asm!("csrrc t0, mie, {}", in(reg) 1 << 7);
+            core::arch::asm!("csrrc {tmp}, mie, {val}", tmp = lateout(reg) _, val = in(reg) (1usize << 7));
         }
     }
 }
