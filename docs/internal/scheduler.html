@@ -204,7 +204,8 @@
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum SchedulerType {
-    GEDF(u64), // relative deadline
+    PartitionedEDF(u64, u16), // relative deadline and partitioned core
+    GEDF(u64),                // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -229,11 +230,16 @@
 <h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
 <p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
 <pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
-&gt; gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+&gt; gedf.rs  panicked.rs  partitioned_edf.rs  prioritized_fifo.rs  prioritized_rr.rs
 </code></pre>
 <p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
 Each scheduler must be registered in the following three locations.
 <code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
+<h3 id="partitionededf-scheduler"><a class="header" href="#partitionededf-scheduler">PartitionedEDF Scheduler</a></h3>
+<p>The Partitioned Earliest Deadline First (PartitionedEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/partitioned_edf.rs">partitioned_edf.rs</a>. This scheduler is an EDF variant that pins each task to a specific CPU core (partition), maintaining a separate run queue per core.</p>
+<p>The scheduler holds a <code>[Mutex&lt;Option&lt;EDFData&gt;&gt;; NUM_MAX_CPU]</code> array, one slot per CPU. Each slot's <code>EDFData</code> contains a <code>BinaryHeap&lt;PartitionedEDFTask&gt;</code> ordered by absolute deadline (earliest deadline first), with wake time used as a tie-breaker when deadlines are equal.</p>
+<p>When a task is enqueued via <code>wake_task()</code>, the scheduler reads the <code>SchedulerType::PartitionedEDF(relative_deadline, partitioned_core)</code> attached to the task and calculates the absolute deadline as <code>uptime + relative_deadline</code>. If the task is part of a DAG, <code>calculate_and_update_dag_deadline()</code> (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then inserted into the run queue of the assigned <code>partitioned_core</code>. Preemption is handled via <code>invoke_preemption()</code>, which sends an IPI to the target core when a newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.</p>
+<p><code>get_next()</code> pops the task with the earliest deadline from the run queue of the calling CPU, so each core only dequeues its own tasks. This guarantees strict CPU affinity.</p>
 <h3 id="gedf-scheduler"><a class="header" href="#gedf-scheduler">GEDF Scheduler</a></h3>
 <p>The Global Earliest Deadline First (GEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/gedf.rs">gedf.rs</a>. This scheduler implements a real-time scheduling algorithm that prioritizes tasks based on their absolute deadlines.</p>
 <p>The scheduler maintains a <code>BinaryHeap&lt;GEDFTask&gt;</code> as its run queue, where tasks are ordered by their absolute deadlines. When a task is enqueued via <code>wake_task()</code>, the scheduler calculates the absolute deadline by adding the relative deadline (specified in <code>SchedulerType::GEDF(relative_deadline)</code>) to the current uptime. The task's priority is updated using <code>MAX_TASK_PRIORITY - absolute_deadline</code> to ensure proper inter-scheduler priority comparison.</p>

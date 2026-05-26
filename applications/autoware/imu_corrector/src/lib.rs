@@ -1,7 +1,23 @@
-// Ported from the following versions of the original C++ code:
+// Copyright 2020 Tier IV, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Partially ported from the following versions of the original C++ code (See the TODO comment in ImuCorrectorConfig):
 // universe/autoware_universe:
 // type: git
 // url: https://github.com/autowarefoundation/autoware_universe.git
+// original file path: sensing/autoware_imu_corrector/src/imu_corrector_core.cpp
+// test code: Created in-house for I/O verification
 // version: 0.51.0
 
 #![no_std]
@@ -30,26 +46,14 @@ impl Transform {
         }
     }
 
-    fn to_nalgebra_vector3(&self, vec: &Vector3) -> NVector3<f64> {
-        NVector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_imu_vector3(&self, vec: &NVector3<f64>) -> Vector3 {
-        Vector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_nalgebra_quaternion(&self, quat: &Quaternion) -> UnitQuaternion<f64> {
-        let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-        UnitQuaternion::from_quaternion(n_quat)
-    }
-
+    // This code is used as part of the `gyro_odometer` function processing.
     pub fn apply_to_vector(&self, vec: Vector3) -> Vector3 {
-        let nalgebra_vec = self.to_nalgebra_vector3(&vec);
-        let nalgebra_quat = self.to_nalgebra_quaternion(&self.rotation);
-        let nalgebra_trans = self.to_nalgebra_vector3(&self.translation);
+        let nalgebra_vec = to_nalgebra_vector3(&vec);
+        let nalgebra_quat = to_nalgebra_quaternion(&self.rotation);
+        let nalgebra_trans = to_nalgebra_vector3(&self.translation);
         let rotated = nalgebra_quat * nalgebra_vec;
         let result = rotated + nalgebra_trans;
-        self.to_imu_vector3(&result)
+        to_imu_vector3(&result)
     }
 }
 
@@ -80,6 +84,12 @@ impl MockTransformListener {
     }
 }
 
+impl Default for MockTransformListener {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransformListener for MockTransformListener {
     fn get_latest_transform(&self, from_frame: &str, to_frame: &str) -> Option<Transform> {
         let key = format!("{}_to_{}", from_frame, to_frame);
@@ -99,7 +109,6 @@ impl TransformListener for MockTransformListener {
 #[derive(Clone, Debug)]
 pub struct ImuWithCovariance {
     pub header: Header,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub angular_velocity_covariance: [f64; 9],
     pub linear_acceleration: Vector3,
@@ -110,7 +119,6 @@ impl ImuWithCovariance {
     pub fn from_imu_msg(imu_msg: &ImuMsg) -> Self {
         Self {
             header: imu_msg.header.clone(),
-            orientation: imu_msg.orientation.clone(),
             angular_velocity: imu_msg.angular_velocity.clone(),
             angular_velocity_covariance: [0.0; 9],
             linear_acceleration: imu_msg.linear_acceleration.clone(),
@@ -121,13 +129,17 @@ impl ImuWithCovariance {
     pub fn to_imu_msg(&self) -> ImuMsg {
         ImuMsg {
             header: self.header.clone(),
-            orientation: self.orientation.clone(),
             angular_velocity: self.angular_velocity.clone(),
             linear_acceleration: self.linear_acceleration.clone(),
         }
     }
 }
 
+// TODO: The `gyro_bias` and `gyro_scale` functions have not been implemented.
+// Since this application is currently running on the MRM redundant system and for evaluation purposes,
+// the absence of these functions does not cause any apparent issues at this time.
+// However, since their behavior may change when processing data from
+// “long-duration operations” or “high-precision real-world driving,” they will need to be added in the future.
 pub struct ImuCorrectorConfig {
     pub angular_velocity_offset_x: f64,
     pub angular_velocity_offset_y: f64,
@@ -175,32 +187,25 @@ impl ImuCorrector<MockTransformListener> {
     }
 }
 
+impl Default for ImuCorrector<MockTransformListener> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: TransformListener> ImuCorrector<T> {
     pub fn set_config(&mut self, config: ImuCorrectorConfig) {
         self.config = config;
     }
 
-    fn to_nalgebra_vector3(&self, vec: &Vector3) -> NVector3<f64> {
-        NVector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_imu_vector3(&self, vec: &NVector3<f64>) -> Vector3 {
-        Vector3::new(vec.x, vec.y, vec.z)
-    }
-
-    fn to_nalgebra_quaternion(&self, quat: &Quaternion) -> UnitQuaternion<f64> {
-        let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-        UnitQuaternion::from_quaternion(n_quat)
-    }
-
     fn transform_vector3(&self, vec: &Vector3, transform: &Transform) -> Vector3 {
-        let nalgebra_vec = self.to_nalgebra_vector3(vec);
-        let nalgebra_quat = self.to_nalgebra_quaternion(&transform.rotation);
+        let nalgebra_vec = to_nalgebra_vector3(vec);
+        let nalgebra_quat = to_nalgebra_quaternion(&transform.rotation);
         let rotated = nalgebra_quat * nalgebra_vec;
-        self.to_imu_vector3(&rotated)
+        to_imu_vector3(&rotated)
     }
 
-    fn transform_covariance(&self, cov: &[f64; 9]) -> [f64; 9] {
+    fn transform_covariance_impl(cov: &[f64; 9]) -> [f64; 9] {
         let max_cov = cov[0].max(cov[4]).max(cov[8]);
         let mut cov_transformed = [0.0; 9];
         cov_transformed[0] = max_cov;
@@ -210,6 +215,22 @@ impl<T: TransformListener> ImuCorrector<T> {
         cov_transformed
     }
 
+    // NOTE: Unlike the original C++ implementation which returns early (without publishing)
+    // when TF lookup fails, this implementation cannot do the same due to Awkernel DAG's
+    // type constraints: all reactors must return their OutputTuple, and omitting output
+    // would cause downstream reactors (e.g. gyro_odometer) to block indefinitely.
+    //
+    // Currently, the process continues even if `None` is passed, and the value does not
+    // change after the transform. However, This was not caught during evaluation
+    // because the TF used in testing had an identity rotation (translation only, no effect on vector values).
+    // However, the actual vehicle TF would produce incorrect results if skipped.
+    // TODO: To be implemented in a subsequent PR:
+    // Fix by hardcoding a fixed tf value to prevent None from being passed by the caller.
+    //
+    // If dynamic TF support is added in the future, the recommended fallback is to
+    // return an empty/zeroed ImuWithCovariance (analogous to `create_empty_twist` in
+    // gyro_odometer) rather than uncorrected data, to avoid silently publishing
+    // imu_link-frame data labelled as base_link.
     pub fn correct_imu_with_covariance(
         &self,
         imu_msg: &ImuMsg,
@@ -234,11 +255,11 @@ impl<T: TransformListener> ImuCorrector<T> {
             corrected_imu.linear_acceleration =
                 self.transform_vector3(&corrected_imu.linear_acceleration, tf);
             corrected_imu.linear_acceleration_covariance =
-                self.transform_covariance(&corrected_imu.linear_acceleration_covariance);
+                Self::transform_covariance_impl(&corrected_imu.linear_acceleration_covariance);
             corrected_imu.angular_velocity =
                 self.transform_vector3(&corrected_imu.angular_velocity, tf);
             corrected_imu.angular_velocity_covariance =
-                self.transform_covariance(&corrected_imu.angular_velocity_covariance);
+                Self::transform_covariance_impl(&corrected_imu.angular_velocity_covariance);
             corrected_imu.header.frame_id = self.config.output_frame;
         }
 
@@ -292,13 +313,21 @@ impl<T: TransformListener> ImuCorrector<T> {
     }
 }
 
+fn to_nalgebra_vector3(vec: &Vector3) -> NVector3<f64> {
+    NVector3::new(vec.x, vec.y, vec.z)
+}
+
+fn to_imu_vector3(vec: &NVector3<f64>) -> Vector3 {
+    Vector3::new(vec.x, vec.y, vec.z)
+}
+
+fn to_nalgebra_quaternion(quat: &Quaternion) -> UnitQuaternion<f64> {
+    let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
+    UnitQuaternion::from_quaternion(n_quat)
+}
+
 pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
-    let max_cov = cov[0].max(cov[4]).max(cov[8]);
-    let mut cov_transformed = [0.0; 9];
-    cov_transformed[0] = max_cov;
-    cov_transformed[4] = max_cov;
-    cov_transformed[8] = max_cov;
-    cov_transformed
+    ImuCorrector::<MockTransformListener>::transform_covariance_impl(cov)
 }
 
 #[cfg(test)]
@@ -314,12 +343,6 @@ mod tests {
             header: Header {
                 frame_id: "imu_link",
                 timestamp: 0,
-            },
-            orientation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
             },
             angular_velocity: Vector3::new(0.1, 0.2, 0.3),
             linear_acceleration: Vector3::new(9.8, 0.0, 0.0),
@@ -394,23 +417,6 @@ mod tests {
 
     #[test]
     fn covariance_transform_uses_max_diagonal() {
-        let corrector = ImuCorrector::new();
-        let input_cov = [1.0, 0.5, 0.3, 0.5, 2.0, 0.4, 0.3, 0.4, 3.0];
-        let transformed_cov = corrector.transform_covariance(&input_cov);
-
-        assert_eq!(transformed_cov[0], 3.0);
-        assert_eq!(transformed_cov[4], 3.0);
-        assert_eq!(transformed_cov[8], 3.0);
-        assert_eq!(transformed_cov[1], 0.0);
-        assert_eq!(transformed_cov[2], 0.0);
-        assert_eq!(transformed_cov[3], 0.0);
-        assert_eq!(transformed_cov[5], 0.0);
-        assert_eq!(transformed_cov[6], 0.0);
-        assert_eq!(transformed_cov[7], 0.0);
-    }
-
-    #[test]
-    fn public_covariance_transform_uses_max_diagonal() {
         let input_cov = [1.0, 0.5, 0.3, 0.5, 2.0, 0.4, 0.3, 0.4, 3.0];
         let transformed_cov = transform_covariance(&input_cov);
         assert_eq!(transformed_cov[0], 3.0);
