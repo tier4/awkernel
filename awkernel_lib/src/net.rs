@@ -428,7 +428,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     Ok(if_status)
 }
 
-/// Emit debug state for the interface identified by `interface_id` via `log::debug!`.
+/// Emit debug state for the interface identified by `interface_id`.
 ///
 /// Returns [`NetManagerError::InvalidInterfaceID`] if no interface with that ID exists.
 /// The NET_MANAGER read lock is held only to look up and clone the device reference;
