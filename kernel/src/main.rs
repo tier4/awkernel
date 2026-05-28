@@ -27,8 +27,14 @@ mod kernel_info;
 #[cfg(not(feature = "std"))]
 mod nostd;
 
+#[cfg(all(feature = "x86", not(feature = "std")))]
+mod rapl_monitor;
+
 static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
 static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
+
+#[cfg(all(feature = "x86", not(feature = "std")))]
+const RAPL_SAMPLE_INTERVAL_SECS: u64 = 1;
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.
@@ -74,7 +80,15 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Enable awkernel_lib::cpu::sleep_cpu() and awkernel_lib::cpu::wakeup_cpu().
         unsafe { awkernel_lib::cpu::init_sleep() };
 
+        #[cfg(all(feature = "x86", not(feature = "std")))]
+        let mut last_rapl = awkernel_lib::time::Time::now();
+
         loop {
+            #[cfg(all(feature = "x86", not(feature = "std")))]
+            if last_rapl.elapsed().as_secs() >= RAPL_SAMPLE_INTERVAL_SECS {
+                rapl_monitor::tick();
+                last_rapl = awkernel_lib::time::Time::now();
+            }
             // handle IRQs
             {
                 let _irq_enable = awkernel_lib::interrupt::InterruptEnable::new();

@@ -19,6 +19,12 @@ pub(super) const IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE: u64 = 0xff << 8;
 pub(super) const IA32_HWP_MINIMUM_PERFORMANCE: u64 = 0xff;
 
 pub(super) const MSR_IA32_ENERGY_PERF_BIAS: u32 = 0x1b0;
+pub(super) const MSR_RAPL_POWER_UNIT:    u32 = 0x606;
+pub(super) const MSR_PKG_POWER_LIMIT:    u32 = 0x610;
+pub(super) const MSR_PKG_ENERGY_STATUS:  u32 = 0x611;
+pub(super) const MSR_DRAM_ENERGY_STATUS: u32 = 0x619;
+pub(super) const MSR_PP0_ENERGY_STATUS:  u32 = 0x639;
+pub(super) const MSR_PP1_ENERGY_STATUS:  u32 = 0x641;
 pub(super) const MSR_IA32_PM_ENABLE: u32 = 0x770;
 pub(super) const MSR_IA32_HWP_CAPABILITIES: u32 = 0x771;
 pub(super) const MSR_IA32_HWP_REQUEST_PKG: u32 = 0x772;
