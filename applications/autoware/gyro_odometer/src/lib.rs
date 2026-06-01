@@ -49,6 +49,8 @@ pub struct GyroOdometerCore {
     pub message_timeout_sec: f64,
     pub vehicle_twist_arrived: bool,
     pub imu_arrived: bool,
+    pub latest_vehicle_twist_timestamp: Option<u64>,
+    pub latest_imu_timestamp: Option<u64>,
     pub vehicle_twist_queue: VecDeque<TwistWithCovarianceStamped>,
     pub gyro_queue: VecDeque<ImuWithCovariance>,
     pub config: GyroOdometerConfig,
@@ -65,6 +67,8 @@ impl GyroOdometerCore {
             message_timeout_sec,
             vehicle_twist_arrived: false,
             imu_arrived: false,
+            latest_vehicle_twist_timestamp: None,
+            latest_imu_timestamp: None,
             vehicle_twist_queue: VecDeque::with_capacity(queue_size),
             gyro_queue: VecDeque::with_capacity(queue_size),
             config,
@@ -85,11 +89,7 @@ impl GyroOdometerCore {
             self.gyro_queue.clear();
             return Ok(None);
         }
-        if !self.vehicle_twist_queue.is_empty() && !self.gyro_queue.is_empty() {
-            let latest_vehicle_twist_stamp =
-                self.vehicle_twist_queue.back().unwrap().header.timestamp;
-            let latest_imu_stamp = self.gyro_queue.back().unwrap().header.timestamp;
-
+        if let Some(latest_vehicle_twist_stamp) = self.latest_vehicle_twist_timestamp {
             if Self::check_timeout(
                 current_time,
                 latest_vehicle_twist_stamp,
@@ -101,7 +101,9 @@ impl GyroOdometerCore {
                     "Vehicle twist message timeout",
                 )));
             }
+        }
 
+        if let Some(latest_imu_stamp) = self.latest_imu_timestamp {
             if Self::check_timeout(current_time, latest_imu_stamp, self.message_timeout_sec) {
                 self.vehicle_twist_queue.clear();
                 self.gyro_queue.clear();
@@ -223,11 +225,13 @@ impl GyroOdometerCore {
 
     pub fn add_vehicle_twist(&mut self, twist: TwistWithCovarianceStamped) {
         self.vehicle_twist_arrived = true;
+        self.latest_vehicle_twist_timestamp = Some(twist.header.timestamp);
         self.vehicle_twist_queue.push_back(twist);
     }
 
     pub fn add_imu(&mut self, imu: ImuWithCovariance) {
         self.imu_arrived = true;
+        self.latest_imu_timestamp = Some(imu.header.timestamp);
         self.gyro_queue.push_back(imu);
     }
 
@@ -258,6 +262,8 @@ impl GyroOdometerCore {
     pub fn reset_arrival_flags(&mut self) {
         self.vehicle_twist_arrived = false;
         self.imu_arrived = false;
+        self.latest_vehicle_twist_timestamp = None;
+        self.latest_imu_timestamp = None;
     }
 }
 
