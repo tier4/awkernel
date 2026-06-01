@@ -216,6 +216,7 @@ impl GyroOdometerCore {
     // corrected TwistStamped, and corrected TwistWithCovarianceStamped.
     // In this Rust port, only TwistWithCovarianceStamped is needed for the gyro_odometr ->
     // ekf_localizer path, so the other outputs are intentionally omitted.
+    // In MRM mode, the downstream EKF does not use covariance-less data as well.
     pub fn process_result(
         &self,
         twist_with_cov_raw: TwistWithCovarianceStamped,
