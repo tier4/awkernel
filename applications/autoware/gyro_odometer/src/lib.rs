@@ -122,6 +122,9 @@ impl GyroOdometerCore {
             &self.output_frame,
         )?;
 
+        // In the original C++ implementation, angular_velocity_covariance is also transformed
+        // via transform_covariance() after transforming angular_velocity. This is omitted here
+        // because the TF used in evaluation is a fixed identity transform, so the result is the same.
         for gyro in &mut self.gyro_queue {
             let transformed_angular_velocity = tf.apply_to_vector(gyro.angular_velocity.clone());
             gyro.angular_velocity = transformed_angular_velocity;
