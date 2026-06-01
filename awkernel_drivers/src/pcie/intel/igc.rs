@@ -1271,10 +1271,7 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
 }
 
 fn igc_select_num_queues(available_vectors: usize) -> usize {
-    let cpu_count = match awkernel_lib::cpu::num_cpu() {
-        0 => 4,
-        n => n,
-    };
+    let cpu_count = core::cmp::max(1, awkernel_lib::cpu::num_cpu());
     let available = core::cmp::min(core::cmp::min(available_vectors, cpu_count), 4);
 
     if available >= 4 {
