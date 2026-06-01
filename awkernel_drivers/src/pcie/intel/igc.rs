@@ -189,6 +189,20 @@ pub struct Igc {
 }
 
 impl Igc {
+    fn service_queue(inner: &IgcInner, que_id: usize) -> Result<(), IgcDriverErr> {
+        {
+            let mut node = MCSNode::new();
+            let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
+            inner.igc_rx_recv(que_id, &mut rx)?;
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+        inner.igc_txeof(que_id, &mut tx)?;
+
+        Ok(())
+    }
+
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         use PCIeDeviceErr::InitFailure;
 
@@ -265,21 +279,11 @@ impl Igc {
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
         let irq_queue = irq.and_then(|irq| inner.queue_info.irqs_to_queues.get(&irq).copied());
 
-        let que_result = if let Some(que_id) = irq_queue {
-            let rx_result = {
-                let mut node = MCSNode::new();
-                let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
-                inner.igc_rx_recv(que_id, &mut rx)
-            };
-            let tx_result = {
-                let mut node = MCSNode::new();
-                let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
-                inner.igc_txeof(&mut tx)
-            };
-            rx_result.and(tx_result)
-        } else {
-            Ok(())
-        };
+        if let Some(que_id) = irq_queue {
+            Self::service_queue(&inner, que_id)?;
+        }
+
+        let should_poll_link = irq.is_none() && (igc_icr & igc_defines::IGC_ICR_LSC) == 0;
 
         if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
             // Link status change interrupt.
@@ -289,7 +293,7 @@ impl Igc {
                 inner.igc_intr_link()?;
             }
             inner = self.inner.read();
-        } else if irq.is_none() {
+        } else if should_poll_link {
             drop(inner);
             {
                 let mut inner = self.inner.write();
@@ -298,14 +302,22 @@ impl Igc {
             inner = self.inner.read();
         }
 
+        if irq.is_none() {
+            for que_id in 0..inner.queue_info.que.len() {
+                Self::service_queue(&inner, que_id)?;
+            }
+        }
+
+        let msix_linkmask = 1 << inner.queue_info.que.len();
+        let msix_queuesmask = (1 << inner.queue_info.que.len()) - 1;
         write_reg(&inner.info, igc_regs::IGC_IMS, igc_defines::IGC_IMS_LSC)?;
         write_reg(
             &inner.info,
             igc_regs::IGC_EIMS,
-            1 << inner.queue_info.que.len(),
+            msix_queuesmask | msix_linkmask,
         )?;
 
-        que_result
+        Ok(())
     }
 }
 
@@ -365,9 +377,15 @@ impl NetDevice for Igc {
             return false;
         }
 
-        let mut node = MCSNode::new();
-        let mut tx = inner.queue_info.que[0].tx.lock(&mut node);
-        inner.igc_txeof(&mut tx).is_ok() && tx.igc_desc_unused() > 0
+        for que_id in 0..inner.queue_info.que.len() {
+            let mut node = MCSNode::new();
+            let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+            if inner.igc_txeof(que_id, &mut tx).is_ok() && tx.igc_desc_unused() > 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn capabilities(&self) -> net_device::NetCapabilities {
@@ -896,7 +914,7 @@ impl IgcInner {
         Ok(())
     }
 
-    fn igc_txeof(&self, tx: &mut Tx) -> Result<(), IgcDriverErr> {
+    fn igc_txeof(&self, _que_id: usize, tx: &mut Tx) -> Result<(), IgcDriverErr> {
         membar_sync();
 
         loop {
@@ -925,10 +943,6 @@ impl IgcInner {
         que_id: usize,
         ether_frame: net_device::EtherFrameRef,
     ) -> Result<(), IgcDriverErr> {
-        if que_id != 0 {
-            return Err(IgcDriverErr::Param);
-        }
-
         if !self.link_info.link_active {
             return Ok(());
         }
@@ -943,7 +957,7 @@ impl IgcInner {
 
         let mut node = MCSNode::new();
         let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
-        self.igc_txeof(&mut tx)?;
+        self.igc_txeof(que_id, &mut tx)?;
 
         if tx.igc_desc_unused() == 0 {
             return Ok(());
@@ -984,8 +998,6 @@ impl IgcInner {
     }
 
     fn igc_rx_recv(&self, que_id: usize, rx: &mut Rx) -> Result<(), IgcDriverErr> {
-        debug_assert_eq!(que_id, 0, "multi-queue not yet supported (planned for PR5)");
-
         if rx.read_buf.is_none() {
             return Ok(());
         }
@@ -1258,6 +1270,22 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
     !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
 }
 
+fn igc_select_num_queues(available_vectors: usize) -> usize {
+    let cpu_count = match awkernel_lib::cpu::num_cpu() {
+        0 => 4,
+        n => n,
+    };
+    let available = core::cmp::min(core::cmp::min(available_vectors, cpu_count), 4);
+
+    if available >= 4 {
+        4
+    } else if available >= 2 {
+        2
+    } else {
+        1
+    }
+}
+
 /// Allocate PCI resources for the IGC device.
 /// This function initialize IRQs for the IGC device,
 /// and returns IRQs for the Rx/Tx queues and an IRQ for events.
@@ -1275,12 +1303,10 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     }
 
     let nmsix = nmsix - 1; // Give one vector to events.
-
-    // Limit the driver to a single Rx/Tx queue for now.
-    let nqueues = core::cmp::min(nmsix, 1);
+    let nqueues = igc_select_num_queues(nmsix as usize);
 
     // Initialize the IRQs for the Rx/Tx queues.
-    let mut irqs_queues = Vec::with_capacity(nqueues as usize);
+    let mut irqs_queues = Vec::with_capacity(nqueues);
 
     for q in 0..nqueues {
         let irq_name_rxtx = format!("{DEVICE_SHORT_NAME}-{bdf}-RxTx{q}");
@@ -1292,7 +1318,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
                 }),
                 segment_number,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
-                q as usize,
+                q,
             )
             .or(Err(PCIeDeviceErr::InitFailure))?;
         irq_rxtx.enable();
