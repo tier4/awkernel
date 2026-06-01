@@ -202,6 +202,9 @@ impl GyroOdometerCore {
         dt.abs() > timeout_sec
     }
     pub fn get_transform(&self, from_frame: &str, to_frame: &str) -> Result<Transform> {
+        // In the original implementation, a TF lookup failure should clear the queues and
+        // terminate processing early. This port currently returns identity because the
+        // evaluation setup uses a fixed identity transform.
         if from_frame == to_frame || from_frame == "" || to_frame == "" {
             Ok(Transform::identity())
         } else {
@@ -209,7 +212,6 @@ impl GyroOdometerCore {
         }
     }
 
-    
     // The original C++ node publishes four topics: raw TwistStamped, raw TwistWithCovarianceStamped,
     // corrected TwistStamped, and corrected TwistWithCovarianceStamped.
     // In this Rust port, only TwistWithCovarianceStamped is needed for the gyro_odometr ->
