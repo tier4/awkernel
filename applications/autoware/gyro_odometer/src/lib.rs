@@ -209,6 +209,11 @@ impl GyroOdometerCore {
         }
     }
 
+    
+    // The original C++ node publishes four topics: raw TwistStamped, raw TwistWithCovarianceStamped,
+    // corrected TwistStamped, and corrected TwistWithCovarianceStamped.
+    // In this Rust port, only TwistWithCovarianceStamped is needed for the gyro_odometr ->
+    // ekf_localizer path, so the other outputs are intentionally omitted.
     pub fn process_result(
         &self,
         twist_with_cov_raw: TwistWithCovarianceStamped,
