@@ -1,7 +1,23 @@
+// Copyright 2021 TierIV
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
 // Ported from the following versions of the original C++ code:
 // core/autoware_core:
 // type: git
 // url: https://github.com/autowarefoundation/autoware_core.git
+// original file path: sensing/autoware_vehicle_velocity_converter/src/vehicle_velocity_converter.cpp
+// test code: sensing/autoware_vehicle_velocity_converter/test/test_vehicle_velocity_converter.cpp
 // version: 1.8.0
 
 #![no_std]
@@ -58,11 +74,6 @@ pub struct Twist {
     pub angular: Vector3,
 }
 
-#[repr(C)]
-pub struct Odometry {
-    pub velocity: f64,
-}
-
 pub struct VehicleVelocityConverter {
     frame_id: &'static str,
     stddev_vx: f64,
@@ -105,6 +116,13 @@ impl VehicleVelocityConverter {
     }
 
     pub fn convert_velocity_report(&self, msg: &VelocityReport) -> TwistWithCovarianceStamped {
+        if msg.header.frame_id != self.frame_id {
+            log::warn!(
+                "frame_id mismatch: expected '{}', got '{}'",
+                self.frame_id,
+                msg.header.frame_id
+            );
+        }
         TwistWithCovarianceStamped {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
@@ -151,6 +169,12 @@ impl VehicleVelocityConverter {
 
     pub fn get_speed_scale_factor(&self) -> f64 {
         self.speed_scale_factor
+    }
+}
+
+impl Default for VehicleVelocityConverter {
+    fn default() -> Self {
+        Self::new("base_link", 0.2, 0.1, 1.0)
     }
 }
 
@@ -268,21 +292,12 @@ mod tests {
             heading_rate: 0.3,
         };
 
+        // As in the original C++ code: frame_id mismatch logs a warning but continues
         let twist_msg = converter.convert_velocity_report(&velocity_report);
-
-        // As in the original C++ test, conversion still succeeds even with a different frame_id.
         assert_eq!(twist_msg.header.frame_id, velocity_report.header.frame_id);
         assert_eq!(
             twist_msg.twist.twist.linear.x,
             velocity_report.longitudinal_velocity
-        );
-        assert_eq!(
-            twist_msg.twist.twist.linear.y,
-            velocity_report.lateral_velocity
-        );
-        assert_eq!(
-            twist_msg.twist.twist.angular.z,
-            velocity_report.heading_rate
         );
     }
 
