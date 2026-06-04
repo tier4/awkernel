@@ -71,12 +71,6 @@ pub struct MockTransformListener {
     transforms: alloc::collections::BTreeMap<String, Transform>,
 }
 
-impl Default for MockTransformListener {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MockTransformListener {
     pub fn new() -> Self {
         Self {
@@ -175,12 +169,6 @@ impl Default for ImuCorrectorConfig {
 pub struct ImuCorrector<T: TransformListener> {
     config: ImuCorrectorConfig,
     transform_listener: T,
-}
-
-impl Default for ImuCorrector<MockTransformListener> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ImuCorrector<MockTransformListener> {

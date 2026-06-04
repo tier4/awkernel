@@ -444,12 +444,6 @@ fn parse_imu_csv(csv: &str) -> Result<Vec<ImuCsvRow>, &'static str> {
         }
 
         let timestamp = parse_timestamp(fields[0], fields[1])?;
-        let orientation = imu_driver::Quaternion {
-            x: parse_f64(fields[2])?,
-            y: parse_f64(fields[3])?,
-            z: parse_f64(fields[4])?,
-            w: parse_f64(fields[5])?,
-        };
         let angular_velocity = common_types::Vector3::new(
             parse_f64(fields[6])?,
             parse_f64(fields[7])?,
@@ -463,7 +457,6 @@ fn parse_imu_csv(csv: &str) -> Result<Vec<ImuCsvRow>, &'static str> {
 
         rows.push(ImuCsvRow {
             timestamp,
-            orientation,
             angular_velocity,
             linear_acceleration,
         });

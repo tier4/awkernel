@@ -81,12 +81,6 @@ pub struct VehicleVelocityConverter {
     speed_scale_factor: f64,
 }
 
-impl Default for VehicleVelocityConverter {
-    fn default() -> Self {
-        Self::new("base_link", 0.2, 0.1, 1.0)
-    }
-}
-
 impl VehicleVelocityConverter {
     pub fn new(
         frame_id: &'static str,
