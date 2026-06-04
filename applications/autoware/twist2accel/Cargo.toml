@@ -1,0 +1,12 @@
+[package]
+name = "twist2accel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+localization_types = { path = "../localization_types", default-features = false }
+awkernel_lib = { path = "../../../awkernel_lib", default-features = false }

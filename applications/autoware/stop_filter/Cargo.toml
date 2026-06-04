@@ -1,0 +1,11 @@
+[package]
+name = "stop_filter"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+localization_types = { path = "../localization_types", default-features = false }

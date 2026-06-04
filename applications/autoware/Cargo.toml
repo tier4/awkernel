@@ -19,3 +19,7 @@ imu_corrector = { path = "./imu_corrector", default-features = false }
 vehicle_velocity_converter = { path = "./vehicle_velocity_converter", default-features = false }
 gyro_odometer = { path = "./gyro_odometer", default-features = false}
 ekf_localizer = { path = "./ekf_localizer", default-features = false}
+localization_types = { path = "./localization_types", default-features = false }
+stop_filter = { path = "./stop_filter", default-features = false }
+twist2accel = { path = "./twist2accel", default-features = false }
+trajectory_follower = { path = "./trajectory_follower", default-features = false }

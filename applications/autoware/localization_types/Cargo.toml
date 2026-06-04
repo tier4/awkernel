@@ -1,0 +1,13 @@
+[package]
+name = "localization_types"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+nalgebra = { version = "0.32", default-features = false }
+heapless = "0.8"
+awkernel_lib = { path = "../../../awkernel_lib", default-features = false }
