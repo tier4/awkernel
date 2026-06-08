@@ -279,8 +279,15 @@ impl Igc {
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
         let irq_queue = irq.and_then(|irq| inner.queue_info.irqs_to_queues.get(&irq).copied());
 
+        // Accumulate errors rather than short-circuiting with `?`: the EIMS/IMS re-arm
+        // writes below must execute regardless of queue-service failures, otherwise the
+        // interrupt line stays masked permanently.
+        let mut result: Result<(), IgcDriverErr> = Ok(());
+
         if let Some(que_id) = irq_queue {
-            Self::service_queue(&inner, que_id)?;
+            if let Err(e) = Self::service_queue(&inner, que_id) {
+                result = Err(e);
+            }
         }
 
         let should_poll_link = irq.is_none() && (igc_icr & igc_defines::IGC_ICR_LSC) == 0;
@@ -290,21 +297,27 @@ impl Igc {
             drop(inner);
             {
                 let mut inner = self.inner.write();
-                inner.igc_intr_link()?;
+                if let Err(e) = inner.igc_intr_link() {
+                    result = Err(e);
+                }
             }
             inner = self.inner.read();
         } else if should_poll_link {
             drop(inner);
             {
                 let mut inner = self.inner.write();
-                inner.igc_poll_link()?;
+                if let Err(e) = inner.igc_poll_link() {
+                    result = Err(e);
+                }
             }
             inner = self.inner.read();
         }
 
         if irq.is_none() {
             for que_id in 0..inner.queue_info.que.len() {
-                Self::service_queue(&inner, que_id)?;
+                if let Err(e) = Self::service_queue(&inner, que_id) {
+                    result = Err(e);
+                }
             }
         }
 
@@ -317,7 +330,7 @@ impl Igc {
             msix_queuesmask | msix_linkmask,
         )?;
 
-        Ok(())
+        result
     }
 }
 
@@ -379,8 +392,8 @@ impl NetDevice for Igc {
 
         for que_id in 0..inner.queue_info.que.len() {
             let mut node = MCSNode::new();
-            let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
-            if inner.igc_txeof(que_id, &mut tx).is_ok() && tx.igc_desc_unused() > 0 {
+            let tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+            if tx.igc_desc_unused() > 0 {
                 return true;
             }
         }
@@ -914,6 +927,9 @@ impl IgcInner {
         Ok(())
     }
 
+    // _que_id is unused: descriptor reclaim is driven entirely by the DD writeback bit in
+    // descriptor memory; the hardware head register is not required. The parameter is
+    // retained so all queue-scoped helpers share a uniform signature.
     fn igc_txeof(&self, _que_id: usize, tx: &mut Tx) -> Result<(), IgcDriverErr> {
         membar_sync();
 
@@ -943,6 +959,10 @@ impl IgcInner {
         que_id: usize,
         ether_frame: net_device::EtherFrameRef,
     ) -> Result<(), IgcDriverErr> {
+        if que_id >= self.queue_info.que.len() {
+            return Err(IgcDriverErr::Param);
+        }
+
         if !self.link_info.link_active {
             return Ok(());
         }
@@ -998,6 +1018,10 @@ impl IgcInner {
     }
 
     fn igc_rx_recv(&self, que_id: usize, rx: &mut Rx) -> Result<(), IgcDriverErr> {
+        if que_id >= self.queue_info.que.len() {
+            return Err(IgcDriverErr::Param);
+        }
+
         if rx.read_buf.is_none() {
             return Ok(());
         }
@@ -1270,6 +1294,16 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
     !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
 }
 
+/// Select the number of Rx/Tx queue pairs to enable.
+///
+/// The result is constrained by three factors:
+/// 1. **MSI-X vectors**: one vector per queue plus one for link events.
+/// 2. **CPU count**: no benefit in having more queues than CPUs.
+/// 3. **Hardware cap**: IGC/I225 supports at most 4 RSS queues.
+///
+/// The result is rounded down to the nearest power of two (1, 2, or 4) so that
+/// the 128-entry RSS redirection table divides evenly among queues, giving each
+/// queue an equal share of hashed flows.
 fn igc_select_num_queues(available_vectors: usize) -> usize {
     let cpu_count = core::cmp::max(1, awkernel_lib::cpu::num_cpu());
     let available = core::cmp::min(core::cmp::min(available_vectors, cpu_count), 4);
