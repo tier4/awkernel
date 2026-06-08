@@ -8,7 +8,10 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::{extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
+        ether::{
+            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_MAX_LEN,
+            ETHER_TYPE_VLAN,
+        },
         multicast::MulticastAddrs,
         net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags, PacketHeaderFlags},
         tcp::TCPHdr,
@@ -991,8 +994,7 @@ impl IgcInner {
         let mut vlan_macip_lens = 0u32;
         let mut offload = false;
 
-        vlan_macip_lens |=
-            (core::mem::size_of::<EtherHeader>() as u32) << IGC_ADVTXD_MACLEN_SHIFT;
+        vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << IGC_ADVTXD_MACLEN_SHIFT;
 
         let iphlen = match &ext.network {
             NetworkHdr::Ipv4(ip) => {
@@ -1095,8 +1097,7 @@ impl IgcInner {
         let head = tx.next_avail_desc;
         let ring_len = tx.tx_desc_ring.as_ref().len();
 
-        let (ctx_count, data_olinfo_status) =
-            self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
+        let (ctx_count, data_olinfo_status) = self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
 
         let needed = ctx_count + 1;
         if tx.igc_desc_unused() < needed {
