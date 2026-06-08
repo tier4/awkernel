@@ -109,21 +109,17 @@ impl Device for NetDriverRef<'_> {
 
         let capabilities = self.inner.capabilities();
 
+        // Capability bits determine whether TX checksum work stays in software
+        // or is handed to the NIC. Checksum::Rx means smoltcp validates on RX
+        // while the NIC inserts checksums on TX.
+
         if capabilities.contains(NetCapabilities::CSUM_IPv4) {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        // Note: Awkernel doen't yet support Ipv6.
-        // Additionally, tests for TCP functionality have not yet been conducted.
-        // Checksum offload currently only supports UDPv4.
-
-        // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
-        //     cap.checksum.tcp = Checksum::Rx;
-        // }
-
-        // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
-        //     cap.checksum.udp = Checksum::Rx;
-        // }
+        if capabilities.contains(NetCapabilities::CSUM_TCPv4) {
+            cap.checksum.tcp = Checksum::Rx;
+        }
 
         if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
             cap.checksum.udp = Checksum::Rx;

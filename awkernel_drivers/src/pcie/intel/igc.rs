@@ -8,10 +8,12 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
+        ether::{extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::MulticastAddrs,
-        net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags},
+        net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags, PacketHeaderFlags},
+        tcp::TCPHdr,
         toeplitz::stoeplitz_to_key,
+        udp::UDPHdr,
     },
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
@@ -114,11 +116,20 @@ struct Rx {
     dropped_pkts: u64,
 }
 
+#[derive(Debug, PartialEq)]
+enum ActiveChecksumContext {
+    None,
+    Ipv4,
+    TcpIpv4,
+    UdpIpv4,
+}
+
 struct Tx {
     next_avail_desc: usize,
     next_to_clean: usize,
     tx_desc_ring: DMAPool<TxRing>,
     write_buf: Option<DMAPool<TxBuffer>>,
+    active_checksum_context: ActiveChecksumContext,
 }
 
 struct Queue {
@@ -764,7 +775,10 @@ impl IgcInner {
             multicast_addrs: MulticastAddrs::new(),
             if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
             queue_info,
-            capabilities: NetCapabilities::VLAN_MTU,
+            capabilities: NetCapabilities::VLAN_MTU
+                | NetCapabilities::CSUM_IPv4
+                | NetCapabilities::CSUM_TCPv4
+                | NetCapabilities::CSUM_UDPv4,
         }
     }
 
@@ -954,6 +968,105 @@ impl IgcInner {
         Ok(())
     }
 
+    /// Setup an Advanced TX Context Descriptor for checksum offload.
+    ///
+    /// Returns `(ctx_desc_count, data_olinfo_status)` where:
+    /// - `ctx_desc_count` is 0 (context reused or not needed) or 1 (new context written)
+    /// - `data_olinfo_status` is the complete olinfo_status value for the data descriptor
+    fn igc_tx_ctx_setup(
+        &self,
+        tx: &mut Tx,
+        ether_frame: &net_device::EtherFrameRef,
+        head: usize,
+    ) -> Result<(usize, u32), IgcDriverErr> {
+        let base_olinfo = (ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT;
+
+        let ext = match extract_headers(ether_frame.data) {
+            Ok(e) => e,
+            Err(_) => return Ok((0, base_olinfo)),
+        };
+
+        let mut olinfo_status = base_olinfo;
+        let mut type_tucmd_mlhl = 0u32;
+        let mut vlan_macip_lens = 0u32;
+        let mut offload = false;
+
+        vlan_macip_lens |=
+            (core::mem::size_of::<EtherHeader>() as u32) << IGC_ADVTXD_MACLEN_SHIFT;
+
+        let iphlen = match &ext.network {
+            NetworkHdr::Ipv4(ip) => {
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::IPV4_CSUM_OUT)
+                {
+                    olinfo_status |= IGC_TXD_POPTS_IXSM << IGC_ADVTXD_POPTS_SHIFT;
+                    offload = true;
+                }
+                type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_IPV4;
+                ip.header_len() as u32
+            }
+            _ => return Ok((0, olinfo_status)),
+        };
+
+        vlan_macip_lens |= iphlen;
+
+        let (l4len, new_ctx) = match &ext.transport {
+            TransportHdr::Tcp(_) => {
+                type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_TCP;
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::TCP_CSUM_OUT)
+                {
+                    olinfo_status |= IGC_TXD_POPTS_TXSM << IGC_ADVTXD_POPTS_SHIFT;
+                    offload = true;
+                }
+                (
+                    core::mem::size_of::<TCPHdr>() as u32,
+                    ActiveChecksumContext::TcpIpv4,
+                )
+            }
+            TransportHdr::Udp(_) => {
+                type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_L4T_UDP;
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+                {
+                    olinfo_status |= IGC_TXD_POPTS_TXSM << IGC_ADVTXD_POPTS_SHIFT;
+                    offload = true;
+                }
+                (
+                    core::mem::size_of::<UDPHdr>() as u32,
+                    ActiveChecksumContext::UdpIpv4,
+                )
+            }
+            _ => (0, ActiveChecksumContext::Ipv4),
+        };
+
+        if !offload {
+            return Ok((0, olinfo_status));
+        }
+
+        // Reuse the active context descriptor when the checksum context is unchanged.
+        if tx.active_checksum_context == new_ctx {
+            return Ok((0, olinfo_status));
+        }
+
+        // Write a new context descriptor at head.
+        type_tucmd_mlhl |= IGC_ADVTXD_DTYP_CTXT | IGC_TXD_CMD_DEXT;
+        let mss_l4len_idx = l4len << IGC_ADVTXD_L4LEN_SHIFT;
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
+        desc.adv_ctx.ts.launch_time = u32::to_le(0);
+        desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
+        desc.adv_ctx.mss_l4len_idx = u32::to_le(mss_l4len_idx);
+
+        tx.active_checksum_context = new_ctx;
+
+        Ok((1, olinfo_status))
+    }
+
     fn igc_send(
         &self,
         que_id: usize,
@@ -979,24 +1092,28 @@ impl IgcInner {
         let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
         self.igc_txeof(que_id, &mut tx)?;
 
-        if tx.igc_desc_unused() == 0 {
+        let head = tx.next_avail_desc;
+        let ring_len = tx.tx_desc_ring.as_ref().len();
+
+        let (ctx_count, data_olinfo_status) =
+            self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
+
+        let needed = ctx_count + 1;
+        if tx.igc_desc_unused() < needed {
             return Ok(());
         }
 
-        let idx = tx.next_avail_desc;
-        let next_idx = if idx + 1 == tx.tx_desc_ring.as_ref().len() {
-            0
-        } else {
-            idx + 1
-        };
+        let data_idx = (head + ctx_count) % ring_len;
+        let next_idx = (data_idx + 1) % ring_len;
+
         let buffer_addr = {
             let write_buf = tx.write_buf.as_mut().ok_or(IgcDriverErr::DmaPoolAlloc)?;
-            let dst = &mut write_buf.as_mut()[idx];
+            let dst = &mut write_buf.as_mut()[data_idx];
             dst[..ether_frame.data.len()].copy_from_slice(ether_frame.data);
-            (write_buf.get_phy_addr().as_usize() + idx * TX_BUFFER_SIZE) as u64
+            (write_buf.get_phy_addr().as_usize() + data_idx * TX_BUFFER_SIZE) as u64
         };
 
-        let desc = &mut tx.tx_desc_ring.as_mut()[idx];
+        let desc = &mut tx.tx_desc_ring.as_mut()[data_idx];
         let read = unsafe { &mut desc.read };
         read.buffer_addr = u64::to_le(buffer_addr);
         read.cmd_type_len = u32::to_le(
@@ -1007,7 +1124,7 @@ impl IgcInner {
                 | IGC_TXD_CMD_IFCS
                 | IGC_TXD_CMD_RS,
         );
-        read.olinfo_status = u32::to_le((ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT);
+        read.olinfo_status = u32::to_le(data_olinfo_status);
 
         membar_sync();
         write_reg(&self.info, igc_regs::IGC_TDT(que_id), next_idx as u32)?;
@@ -1419,6 +1536,7 @@ fn igc_allocate_queues(
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
             write_buf: None,
+            active_checksum_context: ActiveChecksumContext::None,
         });
 
         que.push(Queue { rx, tx, me: n });
@@ -1584,6 +1702,7 @@ impl Tx {
         // Reset indices
         self.next_avail_desc = 0;
         self.next_to_clean = 0;
+        self.active_checksum_context = ActiveChecksumContext::None;
         self.write_buf = Some(
             DMAPool::new(
                 self.tx_desc_ring.get_numa_id(),
