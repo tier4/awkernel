@@ -1,6 +1,7 @@
 //! This is a skelton of a PCIe device driver.
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     barrier::{bus_space_barrier, membar_sync, BUS_SPACE_BARRIER_WRITE},
@@ -76,6 +77,7 @@ const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 const MAX_FRAME_SIZE: u32 = 9234;
 const RX_BUFFER_SIZE: usize = 4096 * 3;
 const TX_BUFFER_SIZE: usize = 2048;
+const RECV_QUEUE_SIZE: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -105,6 +107,7 @@ struct Rx {
     rx_desc_ring: DMAPool<RxRing>,
 
     read_buf: Option<DMAPool<RxBuffer>>,
+    read_queue: RingQ<net_device::EtherFrameBuf>,
     slots: usize,
 
     // Statistics
@@ -186,6 +189,20 @@ pub struct Igc {
 }
 
 impl Igc {
+    fn service_queue(inner: &IgcInner, que_id: usize) -> Result<(), IgcDriverErr> {
+        {
+            let mut node = MCSNode::new();
+            let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
+            inner.igc_rx_recv(que_id, &mut rx)?;
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+        inner.igc_txeof(que_id, &mut tx)?;
+
+        Ok(())
+    }
+
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         use PCIeDeviceErr::InitFailure;
 
@@ -260,31 +277,60 @@ impl Igc {
 
         let mut inner = self.inner.read();
         let igc_icr = read_reg(&inner.info, igc_regs::IGC_ICR)?;
+        let irq_queue = irq.and_then(|irq| inner.queue_info.irqs_to_queues.get(&irq).copied());
+
+        // Accumulate errors rather than short-circuiting with `?`: the EIMS/IMS re-arm
+        // writes below must execute regardless of queue-service failures, otherwise the
+        // interrupt line stays masked permanently.
+        let mut result: Result<(), IgcDriverErr> = Ok(());
+
+        if let Some(que_id) = irq_queue {
+            if let Err(e) = Self::service_queue(&inner, que_id) {
+                result = Err(e);
+            }
+        }
+
+        let should_poll_link = irq.is_none() && (igc_icr & igc_defines::IGC_ICR_LSC) == 0;
+
         if (igc_icr & igc_defines::IGC_ICR_LSC) != 0 {
             // Link status change interrupt.
             drop(inner);
             {
                 let mut inner = self.inner.write();
-                inner.igc_intr_link()?;
+                if let Err(e) = inner.igc_intr_link() {
+                    result = Err(e);
+                }
             }
             inner = self.inner.read();
-        } else if irq.is_none() {
+        } else if should_poll_link {
             drop(inner);
             {
                 let mut inner = self.inner.write();
-                inner.igc_poll_link()?;
+                if let Err(e) = inner.igc_poll_link() {
+                    result = Err(e);
+                }
             }
             inner = self.inner.read();
         }
 
+        if irq.is_none() {
+            for que_id in 0..inner.queue_info.que.len() {
+                if let Err(e) = Self::service_queue(&inner, que_id) {
+                    result = Err(e);
+                }
+            }
+        }
+
+        let msix_linkmask = 1 << inner.queue_info.que.len();
+        let msix_queuesmask = (1 << inner.queue_info.que.len()) - 1;
         write_reg(&inner.info, igc_regs::IGC_IMS, igc_defines::IGC_IMS_LSC)?;
         write_reg(
             &inner.info,
             igc_regs::IGC_EIMS,
-            1 << inner.queue_info.que.len(),
+            msix_queuesmask | msix_linkmask,
         )?;
 
-        Ok(())
+        result
     }
 }
 
@@ -315,6 +361,11 @@ impl NetDevice for Igc {
             .or(Err(net_device::NetDevError::DeviceError))
     }
 
+    fn debug_dump(&self) {
+        let msg = self.inner.read().dump();
+        log::debug!("igc: dump:\r\n{msg}");
+    }
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), net_device::NetDevError> {
         let mut inner = self.inner.write();
         inner.multicast_addrs.add_addr(*addr);
@@ -339,9 +390,15 @@ impl NetDevice for Igc {
             return false;
         }
 
-        let mut node = MCSNode::new();
-        let mut tx = inner.queue_info.que[0].tx.lock(&mut node);
-        inner.igc_txeof(&mut tx).is_ok() && tx.igc_desc_unused() > 0
+        for que_id in 0..inner.queue_info.que.len() {
+            let mut node = MCSNode::new();
+            let tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+            if tx.igc_desc_unused() > 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn capabilities(&self) -> net_device::NetCapabilities {
@@ -407,9 +464,18 @@ impl NetDevice for Igc {
         que_id: usize,
     ) -> Result<Option<net_device::EtherFrameBuf>, net_device::NetDevError> {
         let inner = self.inner.read();
+        let mut node = MCSNode::new();
+        let mut rx = inner.queue_info.que[que_id].rx.lock(&mut node);
+
+        if let Some(data) = rx.read_queue.pop() {
+            return Ok(Some(data));
+        }
+
         inner
-            .igc_recv(que_id)
-            .or(Err(net_device::NetDevError::DeviceError))
+            .igc_rx_recv(que_id, &mut rx)
+            .or(Err(net_device::NetDevError::DeviceError))?;
+
+        Ok(rx.read_queue.pop())
     }
 
     fn send(
@@ -702,7 +768,7 @@ impl IgcInner {
         }
     }
 
-    fn dump(&self) {
+    fn dump(&self) -> alloc::string::String {
         let mut msg = alloc::string::String::new();
 
         msg = format!("BDF: {}\r\n", self.info.get_bdf());
@@ -802,7 +868,7 @@ impl IgcInner {
             msg = format!("{msg}TDBAL{i}: {tdbal:#08x}\r\n");
         }
 
-        log::debug!("igc: dump:\r\n{msg}");
+        msg
     }
 
     #[inline(always)]
@@ -861,7 +927,10 @@ impl IgcInner {
         Ok(())
     }
 
-    fn igc_txeof(&self, tx: &mut Tx) -> Result<(), IgcDriverErr> {
+    // _que_id is unused: descriptor reclaim is driven entirely by the DD writeback bit in
+    // descriptor memory; the hardware head register is not required. The parameter is
+    // retained so all queue-scoped helpers share a uniform signature.
+    fn igc_txeof(&self, _que_id: usize, tx: &mut Tx) -> Result<(), IgcDriverErr> {
         membar_sync();
 
         loop {
@@ -890,7 +959,7 @@ impl IgcInner {
         que_id: usize,
         ether_frame: net_device::EtherFrameRef,
     ) -> Result<(), IgcDriverErr> {
-        if que_id != 0 {
+        if que_id >= self.queue_info.que.len() {
             return Err(IgcDriverErr::Param);
         }
 
@@ -908,7 +977,7 @@ impl IgcInner {
 
         let mut node = MCSNode::new();
         let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
-        self.igc_txeof(&mut tx)?;
+        self.igc_txeof(que_id, &mut tx)?;
 
         if tx.igc_desc_unused() == 0 {
             return Ok(());
@@ -948,60 +1017,67 @@ impl IgcInner {
         Ok(())
     }
 
-    fn igc_recv(&self, que_id: usize) -> Result<Option<net_device::EtherFrameBuf>, IgcDriverErr> {
-        if que_id != 0 {
-            return Ok(None);
+    fn igc_rx_recv(&self, que_id: usize, rx: &mut Rx) -> Result<(), IgcDriverErr> {
+        if que_id >= self.queue_info.que.len() {
+            return Err(IgcDriverErr::Param);
         }
 
-        let mut node = MCSNode::new();
-        let mut rx = self.queue_info.que[que_id].rx.lock(&mut node);
         if rx.read_buf.is_none() {
-            return Ok(None);
+            return Ok(());
         }
 
+        // Pair with the device's DMA write-back before consuming descriptor state.
         membar_sync();
-        let idx = rx.next_to_check;
-        let (status_error, length, vlan) = {
-            let desc = &rx.rx_desc_ring.as_ref()[idx];
-            let status_error = u32::from_le(unsafe { desc.wb.upper.status_error });
-            let length = u16::from_le(unsafe { desc.wb.upper.length }) as usize;
-            let vlan = if status_error & IGC_RXD_STAT_VP != 0 {
-                Some(u16::from_le(unsafe { desc.wb.upper.vlan }))
-            } else {
-                None
+        while !rx.read_queue.is_full() {
+            let idx = rx.next_to_check;
+            let (status_error, length, vlan) = {
+                let desc = &rx.rx_desc_ring.as_ref()[idx];
+                let status_error = u32::from_le(unsafe { desc.wb.upper.status_error });
+                let length = u16::from_le(unsafe { desc.wb.upper.length }) as usize;
+                let vlan = if status_error & IGC_RXD_STAT_VP != 0 {
+                    Some(u16::from_le(unsafe { desc.wb.upper.vlan }))
+                } else {
+                    None
+                };
+                (status_error, length, vlan)
             };
-            (status_error, length, vlan)
-        };
 
-        if status_error & IGC_RXD_STAT_DD == 0 {
-            return Ok(None);
-        }
+            if status_error & IGC_RXD_STAT_DD == 0 {
+                break;
+            }
 
-        let packet = if status_error & IGC_RXD_STAT_EOP == 0
-            || length == 0
-            || status_error
-                & (IGC_RXDEXT_STATERR_L4E | IGC_RXDEXT_STATERR_IPE | IGC_RXDEXT_STATERR_RXE)
-                != 0
-        {
-            rx.dropped_pkts += 1;
-            None
-        } else {
-            let data = rx.read_buf.as_ref().unwrap().as_ref()[idx][..length].to_vec();
-            Some(net_device::EtherFrameBuf { data, vlan })
-        };
+            let packet = if status_error & IGC_RXD_STAT_EOP == 0
+                || length == 0
+                || status_error
+                    & (IGC_RXDEXT_STATERR_L4E | IGC_RXDEXT_STATERR_IPE | IGC_RXDEXT_STATERR_RXE)
+                    != 0
+            {
+                rx.dropped_pkts += 1;
+                None
+            } else {
+                let data = rx.read_buf.as_ref().unwrap().as_ref()[idx][..length].to_vec();
+                Some(net_device::EtherFrameBuf { data, vlan })
+            };
 
-        {
-            let desc = &mut rx.rx_desc_ring.as_mut()[idx];
-            let upper = unsafe { &mut desc.wb.upper };
-            upper.status_error = 0;
-            upper.length = 0;
-            upper.vlan = 0;
-        }
+            {
+                let desc = &mut rx.rx_desc_ring.as_mut()[idx];
+                let upper = unsafe { &mut desc.wb.upper };
+                upper.status_error = 0;
+                upper.length = 0;
+                upper.vlan = 0;
+            }
 
-        rx.slots += 1;
-        rx.next_to_check += 1;
-        if rx.next_to_check == rx.rx_desc_ring.as_ref().len() {
-            rx.next_to_check = 0;
+            rx.slots += 1;
+            rx.next_to_check += 1;
+            if rx.next_to_check == rx.rx_desc_ring.as_ref().len() {
+                rx.next_to_check = 0;
+            }
+
+            if let Some(packet) = packet {
+                if rx.read_queue.push(packet).is_err() {
+                    rx.dropped_pkts += 1;
+                }
+            }
         }
 
         if rx.igc_rxfill()? {
@@ -1014,7 +1090,7 @@ impl IgcInner {
             bus_space_barrier(BUS_SPACE_BARRIER_WRITE);
         }
 
-        Ok(packet)
+        Ok(())
     }
 
     /// This routine disables all traffic on the adapter by issuing a
@@ -1043,6 +1119,7 @@ impl IgcInner {
             let mut node = MCSNode::new();
             let mut rx = q.rx.lock(&mut node);
             rx.read_buf = None; // Free the read buffer
+            rx.read_queue = RingQ::new(RECV_QUEUE_SIZE);
         }
 
         // Update link status.
@@ -1142,7 +1219,7 @@ impl IgcInner {
 
         self.if_flags.insert(NetFlags::RUNNING);
 
-        self.dump();
+        log::debug!("igc: {}", self.dump());
 
         Ok(())
     }
@@ -1217,6 +1294,29 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
     !(addr[0] & 1 != 0 || addr.iter().all(|&x| x == 0))
 }
 
+/// Select the number of Rx/Tx queue pairs to enable.
+///
+/// The result is constrained by three factors:
+/// 1. **MSI-X vectors**: one vector per queue plus one for link events.
+/// 2. **CPU count**: no benefit in having more queues than CPUs.
+/// 3. **Hardware cap**: IGC/I225 supports at most 4 RSS queues.
+///
+/// The result is rounded down to the nearest power of two (1, 2, or 4) so that
+/// the 128-entry RSS redirection table divides evenly among queues, giving each
+/// queue an equal share of hashed flows.
+fn igc_select_num_queues(available_vectors: usize) -> usize {
+    let cpu_count = core::cmp::max(1, awkernel_lib::cpu::num_cpu());
+    let available = core::cmp::min(core::cmp::min(available_vectors, cpu_count), 4);
+
+    if available >= 4 {
+        4
+    } else if available >= 2 {
+        2
+    } else {
+        1
+    }
+}
+
 /// Allocate PCI resources for the IGC device.
 /// This function initialize IRQs for the IGC device,
 /// and returns IRQs for the Rx/Tx queues and an IRQ for events.
@@ -1234,12 +1334,10 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
     }
 
     let nmsix = nmsix - 1; // Give one vector to events.
-
-    // Limit the driver to a single Rx/Tx queue for now.
-    let nqueues = core::cmp::min(nmsix, 1);
+    let nqueues = igc_select_num_queues(nmsix as usize);
 
     // Initialize the IRQs for the Rx/Tx queues.
-    let mut irqs_queues = Vec::with_capacity(nqueues as usize);
+    let mut irqs_queues = Vec::with_capacity(nqueues);
 
     for q in 0..nqueues {
         let irq_name_rxtx = format!("{DEVICE_SHORT_NAME}-{bdf}-RxTx{q}");
@@ -1251,7 +1349,7 @@ fn igc_allocate_pci_resources(info: &mut PCIeInfo) -> Result<(Vec<IRQ>, IRQ), PC
                 }),
                 segment_number,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
-                q as usize,
+                q,
             )
             .or(Err(PCIeDeviceErr::InitFailure))?;
         irq_rxtx.enable();
@@ -1307,6 +1405,7 @@ fn igc_allocate_queues(
             )
             .ok_or(PCIeDeviceErr::InitFailure)?,
             read_buf: None,
+            read_queue: RingQ::new(RECV_QUEUE_SIZE),
             slots: IGC_DEFAULT_RXD,
             dropped_pkts: 0,
         });
@@ -1559,6 +1658,7 @@ impl Rx {
         // Setup our descriptor indices.
         self.next_to_check = 0;
         self.last_desc_filled = self.rx_desc_ring.as_ref().len() - 1;
+        self.read_queue = RingQ::new(RECV_QUEUE_SIZE);
 
         let read_buf = DMAPool::new(
             info.segment_group as usize,

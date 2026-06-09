@@ -1,7 +1,57 @@
+/*
+ * Copyright 2020 Tier IV, Inc. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Copyright (c) 2019, Map IV, Inc.
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+// * Neither the name of the Map IV, Inc. nor the names of its contributors
+//   may be used to endorse or promote products derived from this software
+//   without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDER BE LIABLE FOR ANY
+// DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+// ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+/*
+ * tag_serial_driver.cpp
+ * Tamagawa IMU Driver
+ * Author MapIV Sekino
+ * Ver 1.00 2019/4/4
+ */
+
 // Ported from the following versions of the original C++ code:
 // tamagawa_imu_driver
 // type: git
 // url: https://github.com/tier4/tamagawa_imu_driver
+// original file path: src/tag_serial_driver.cpp
+// test code: Created in-house for I/O verification
 // version: 0.1.0
 
 #![no_std]
@@ -15,7 +65,6 @@ pub use common_types::{Header, Vector3};
 #[derive(Clone, Debug)]
 pub struct ImuMsg {
     pub header: Header,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub linear_acceleration: Vector3,
 }
@@ -23,7 +72,6 @@ pub struct ImuMsg {
 #[derive(Clone, Debug)]
 pub struct ImuCsvRow {
     pub timestamp: u64,
-    pub orientation: Quaternion,
     pub angular_velocity: Vector3,
     pub linear_acceleration: Vector3,
 }
@@ -43,12 +91,6 @@ impl Default for ImuMsg {
                 frame_id: "imu",
                 timestamp: 0,
             },
-            orientation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             linear_acceleration: Vector3::new(0.0, 0.0, 0.0),
         }
@@ -65,7 +107,6 @@ pub fn build_imu_msg_from_csv_row(
             frame_id,
             timestamp,
         },
-        orientation: row.orientation.clone(),
         angular_velocity: row.angular_velocity.clone(),
         linear_acceleration: row.linear_acceleration.clone(),
     }
@@ -172,10 +213,7 @@ impl TamagawaImuParser {
         if data.len() != 2 {
             return 0;
         }
-        let high_byte = (data[0] as i32) << 8;
-        let low_byte = data[1] as i32;
-        let result = (high_byte & 0xFFFFFF00u32 as i32) | (low_byte & 0x000000FF);
-        result as i16
+        i16::from_be_bytes([data[0], data[1]])
     }
 
     fn convert_angular_velocity(&self, raw_data: i16) -> f64 {
