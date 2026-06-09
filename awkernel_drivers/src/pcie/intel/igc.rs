@@ -9,9 +9,11 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_MAX_LEN,
-            ETHER_TYPE_VLAN,
+            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_HDR_LEN,
+            ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
+        in_cksum::in_pseudo,
+        ip::Ip,
         multicast::MulticastAddrs,
         net_device::{self, LinkStatus, NetCapabilities, NetDevice, NetFlags, PacketHeaderFlags},
         tcp::TCPHdr,
@@ -119,7 +121,7 @@ struct Rx {
     dropped_pkts: u64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ActiveChecksumContext {
     None,
     Ipv4,
@@ -950,43 +952,67 @@ impl IgcInner {
     fn igc_txeof(&self, _que_id: usize, tx: &mut Tx) -> Result<(), IgcDriverErr> {
         membar_sync();
 
+        let ring_len = tx.tx_desc_ring.as_ref().len();
+
         loop {
-            let desc = &mut tx.tx_desc_ring.as_mut()[tx.next_to_clean];
-            let done = u32::from_le(unsafe { desc.wb.status }) & IGC_TXD_STAT_DD != 0;
+            let idx = tx.next_to_clean;
+            let done = u32::from_le(unsafe { tx.tx_desc_ring.as_ref()[idx].wb.status })
+                & IGC_TXD_STAT_DD
+                != 0;
             if !done {
-                break;
+                // Context descriptors carry no DD writeback. A context descriptor is
+                // always immediately followed by its data descriptor, and a single queue
+                // completes in order, so if the next descriptor is done this one is a
+                // consumed context descriptor and can be reclaimed; otherwise stop.
+                let next = if idx + 1 == ring_len { 0 } else { idx + 1 };
+                let next_done = u32::from_le(unsafe { tx.tx_desc_ring.as_ref()[next].wb.status })
+                    & IGC_TXD_STAT_DD
+                    != 0;
+                if !next_done {
+                    break;
+                }
             }
 
+            let desc = &mut tx.tx_desc_ring.as_mut()[idx];
             let read = unsafe { &mut desc.read };
             read.buffer_addr = 0;
             read.cmd_type_len = 0;
             read.olinfo_status = 0;
 
-            tx.next_to_clean += 1;
-            if tx.next_to_clean == tx.tx_desc_ring.as_ref().len() {
-                tx.next_to_clean = 0;
-            }
+            tx.next_to_clean = if idx + 1 == ring_len { 0 } else { idx + 1 };
         }
 
         Ok(())
     }
 
+    /// Compute the IPv4 pseudo-header checksum that must be seeded into the L4
+    /// checksum field so the NIC can complete TCP/UDP checksum offload.
+    fn igc_pseudo_cksum(ip: &Ip) -> u16 {
+        let ip_src = ip.ip_src.swap_bytes();
+        let ip_dst = ip.ip_dst.swap_bytes();
+        let l4_len = ip.ip_len.swap_bytes() as u32 - ((ip.header_len() as u32) << 2);
+        let protocol = ip.ip_p as u32;
+        in_pseudo(ip_src, ip_dst, l4_len + protocol)
+    }
+
     /// Setup an Advanced TX Context Descriptor for checksum offload.
     ///
-    /// Returns `(ctx_desc_count, data_olinfo_status)` where:
+    /// Returns `(ctx_desc_count, data_olinfo_status, cksum_seed)` where:
     /// - `ctx_desc_count` is 0 (context reused or not needed) or 1 (new context written)
     /// - `data_olinfo_status` is the complete olinfo_status value for the data descriptor
+    /// - `cksum_seed` is `Some((offset, value))` to seed the L4 checksum field with the
+    ///   pseudo-header checksum (the NIC adds the segment checksum on top), or `None`.
     fn igc_tx_ctx_setup(
         &self,
         tx: &mut Tx,
         ether_frame: &net_device::EtherFrameRef,
         head: usize,
-    ) -> Result<(usize, u32), IgcDriverErr> {
+    ) -> Result<(usize, u32, Option<(usize, u16)>), IgcDriverErr> {
         let base_olinfo = (ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT;
 
         let ext = match extract_headers(ether_frame.data) {
             Ok(e) => e,
-            Err(_) => return Ok((0, base_olinfo)),
+            Err(_) => return Ok((0, base_olinfo, None)),
         };
 
         let mut olinfo_status = base_olinfo;
@@ -996,22 +1022,25 @@ impl IgcInner {
 
         vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << IGC_ADVTXD_MACLEN_SHIFT;
 
-        let iphlen = match &ext.network {
-            NetworkHdr::Ipv4(ip) => {
-                if ether_frame
-                    .csum_flags
-                    .contains(PacketHeaderFlags::IPV4_CSUM_OUT)
-                {
-                    olinfo_status |= IGC_TXD_POPTS_IXSM << IGC_ADVTXD_POPTS_SHIFT;
-                    offload = true;
-                }
-                type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_IPV4;
-                ip.header_len() as u32
-            }
-            _ => return Ok((0, olinfo_status)),
+        let NetworkHdr::Ipv4(ip) = &ext.network else {
+            return Ok((0, olinfo_status, None));
         };
 
+        if ether_frame
+            .csum_flags
+            .contains(PacketHeaderFlags::IPV4_CSUM_OUT)
+        {
+            olinfo_status |= IGC_TXD_POPTS_IXSM << IGC_ADVTXD_POPTS_SHIFT;
+            offload = true;
+        }
+        type_tucmd_mlhl |= IGC_ADVTXD_TUCMD_IPV4;
+        // `header_len()` returns IHL in 32-bit words; the context descriptor
+        // expects the IP header length in bytes.
+        let iphlen = (ip.header_len() as u32) << 2;
         vlan_macip_lens |= iphlen;
+
+        let l4_off = ETHER_HDR_LEN + iphlen as usize;
+        let mut cksum_seed = None;
 
         let (l4len, new_ctx) = match &ext.transport {
             TransportHdr::Tcp(_) => {
@@ -1022,6 +1051,10 @@ impl IgcInner {
                 {
                     olinfo_status |= IGC_TXD_POPTS_TXSM << IGC_ADVTXD_POPTS_SHIFT;
                     offload = true;
+                    cksum_seed = Some((
+                        l4_off + core::mem::offset_of!(TCPHdr, th_sum),
+                        Self::igc_pseudo_cksum(ip),
+                    ));
                 }
                 (
                     core::mem::size_of::<TCPHdr>() as u32,
@@ -1036,6 +1069,10 @@ impl IgcInner {
                 {
                     olinfo_status |= IGC_TXD_POPTS_TXSM << IGC_ADVTXD_POPTS_SHIFT;
                     offload = true;
+                    cksum_seed = Some((
+                        l4_off + core::mem::offset_of!(UDPHdr, uh_sum),
+                        Self::igc_pseudo_cksum(ip),
+                    ));
                 }
                 (
                     core::mem::size_of::<UDPHdr>() as u32,
@@ -1046,12 +1083,13 @@ impl IgcInner {
         };
 
         if !offload {
-            return Ok((0, olinfo_status));
+            return Ok((0, olinfo_status, None));
         }
 
         // Reuse the active context descriptor when the checksum context is unchanged.
+        // The per-packet pseudo-header seed is still required, so return `cksum_seed`.
         if tx.active_checksum_context == new_ctx {
-            return Ok((0, olinfo_status));
+            return Ok((0, olinfo_status, cksum_seed));
         }
 
         // Write a new context descriptor at head.
@@ -1066,7 +1104,7 @@ impl IgcInner {
 
         tx.active_checksum_context = new_ctx;
 
-        Ok((1, olinfo_status))
+        Ok((1, olinfo_status, cksum_seed))
     }
 
     fn igc_send(
@@ -1097,10 +1135,16 @@ impl IgcInner {
         let head = tx.next_avail_desc;
         let ring_len = tx.tx_desc_ring.as_ref().len();
 
-        let (ctx_count, data_olinfo_status) = self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
+        // Snapshot the checksum context so it can be restored if we bail out below;
+        // `igc_tx_ctx_setup` may have advanced it before we know the ring has room.
+        let saved_ctx = tx.active_checksum_context;
+        let (ctx_count, data_olinfo_status, cksum_seed) =
+            self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
 
         let needed = ctx_count + 1;
         if tx.igc_desc_unused() < needed {
+            // Restore the context: hardware never saw the descriptor we staged.
+            tx.active_checksum_context = saved_ctx;
             return Ok(());
         }
 
@@ -1111,6 +1155,12 @@ impl IgcInner {
             let write_buf = tx.write_buf.as_mut().ok_or(IgcDriverErr::DmaPoolAlloc)?;
             let dst = &mut write_buf.as_mut()[data_idx];
             dst[..ether_frame.data.len()].copy_from_slice(ether_frame.data);
+            // Seed the pseudo-header checksum so the NIC can finish the L4 checksum.
+            if let Some((offset, pseudo)) = cksum_seed {
+                if offset + 2 <= ether_frame.data.len() {
+                    dst[offset..offset + 2].copy_from_slice(&pseudo.to_be_bytes());
+                }
+            }
             (write_buf.get_phy_addr().as_usize() + data_idx * TX_BUFFER_SIZE) as u64
         };
 
