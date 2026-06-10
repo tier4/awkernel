@@ -129,6 +129,10 @@ enum ActiveChecksumContext {
     UdpIpv4,
 }
 
+/// `(offset, value)` to seed the L4 checksum field with the pseudo-header
+/// checksum before TX checksum offload.
+type L4CksumSeed = (usize, u16);
+
 struct Tx {
     next_avail_desc: usize,
     next_to_clean: usize,
@@ -1007,7 +1011,7 @@ impl IgcInner {
         tx: &mut Tx,
         ether_frame: &net_device::EtherFrameRef,
         head: usize,
-    ) -> Result<(usize, u32, Option<(usize, u16)>), IgcDriverErr> {
+    ) -> Result<(usize, u32, Option<L4CksumSeed>), IgcDriverErr> {
         let base_olinfo = (ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT;
 
         let ext = match extract_headers(ether_frame.data) {
