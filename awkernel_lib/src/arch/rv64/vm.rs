@@ -250,7 +250,8 @@ impl MemorySet {
             None,
         );
 
-        // Note: Heap mapping is created separately in calculate_dynamic_heap_size()
+        // Note: The page-table-frame and heap regions are mapped separately when
+        // init_kernel_space() calls map_identity_region() / map_heap_region().
         memory_set
     }
 
@@ -302,17 +303,47 @@ static HEAP_SIZE: AtomicUsize = AtomicUsize::new(0);
 
 /// Initialize the kernel page table.
 ///
-/// `heap_start` and `memory_end` are the physical bounds of the heap region.
-/// They must not overlap with the frame allocator's region.
-pub fn init_kernel_space(heap_start: usize, memory_end: usize) {
+/// `[pt_start, heap_start)` is the frame allocator's region (page table frames)
+/// and `[heap_start, memory_end)` is the heap region. The page-table-frame
+/// region must be identity-mapped too: page table code dereferences those
+/// frames via their physical addresses (e.g. `PhysPageNum::get_pte_array()`),
+/// which must remain valid once translation is enabled.
+pub fn init_kernel_space(pt_start: usize, heap_start: usize, memory_end: usize) {
     let mut node = MCSNode::new();
     let mut kernel_space = KERNEL_SPACE.lock(&mut node);
     let mut memory_set = MemorySet::new_kernel();
 
+    map_identity_region(&mut memory_set, pt_start, heap_start, "Page table frame");
     map_heap_region(&mut memory_set, heap_start, memory_end);
     HEAP_SIZE.store(memory_end - heap_start, Ordering::Relaxed);
 
     *kernel_space = Some(memory_set);
+}
+
+/// Identity-map `[start, end)` with read/write permissions into the kernel page table.
+fn map_identity_region(memory_set: &mut MemorySet, start: usize, end: usize, name: &str) {
+    if end <= start {
+        return;
+    }
+
+    unsafe {
+        unsafe_puts(name);
+        unsafe_puts(" mapping:\r\n  start: 0x");
+        crate::console::unsafe_print_hex_u64(start as u64);
+        unsafe_puts("\r\n  end:   0x");
+        crate::console::unsafe_print_hex_u64(end as u64);
+        unsafe_puts("\r\n");
+    }
+
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(start),
+            VirtAddr::from_usize(end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
 }
 
 /// Map the heap physical region `[heap_start, memory_end)` into the kernel page table.

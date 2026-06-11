@@ -1,4 +1,5 @@
 use super::console;
+use super::interrupt_controller::TIMER_IRQ;
 use crate::{config::BACKUP_HEAP_SIZE, kernel_info::KernelInfo};
 use awkernel_lib::{cpu, heap};
 use core::{
@@ -25,7 +26,9 @@ global_asm!(include_str!("boot.S"));
 /// This function is called from the M-mode trap handler in boot.S
 #[no_mangle]
 pub unsafe extern "C" fn riscv_handle_ipi() {
-    // Handle all pending interrupts, including IPI preemption
+    // boot.S has already cleared MSIP. The sender recorded the logical IRQ
+    // (preempt/wakeup) in the per-hart LOCAL_PENDING mask, which
+    // pending_irqs() drains inside handle_irqs().
     awkernel_lib::interrupt::handle_irqs(true);
 }
 
@@ -36,8 +39,23 @@ pub unsafe extern "C" fn riscv_handle_ipi() {
 /// This function is called from the M-mode trap handler in boot.S
 #[no_mangle]
 pub unsafe extern "C" fn riscv_handle_timer() {
-    // Timer interrupt is already disabled in assembly by setting mtimecmp to max
-    // Handle any pending interrupts (the timer handler will be invoked if registered)
+    // Timer interrupt is already disabled in assembly by setting mtimecmp to max.
+    // MTIP is a local interrupt and never appears in the PLIC claim register, so
+    // record it in LOCAL_PENDING for pending_irqs() to report; handle_irqs()
+    // then dispatches the registered timer handler (which re-arms the timer).
+    super::interrupt_controller::set_local_pending(cpu::cpu_id(), TIMER_IRQ);
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+
+/// M-mode external interrupt handler called from assembly
+///
+/// # Safety
+///
+/// This function is called from the M-mode trap handler in boot.S
+#[no_mangle]
+pub unsafe extern "C" fn riscv_handle_external() {
+    // PLIC-delivered device interrupts (mcause = 11): handle_irqs() claims and
+    // completes all pending sources via pending_irqs().
     awkernel_lib::interrupt::handle_irqs(true);
 }
 
@@ -149,6 +167,14 @@ unsafe fn init_memory(memory_end: usize) {
     let pt_frames_size =
         ((available / 10).clamp(4 * 1024 * 1024, 256 * 1024 * 1024) + 0xfff) & !0xfff;
 
+    // The 4 MiB floor may exceed the actually available RAM; refusing to boot
+    // beats handing the page allocator a range past the end of memory.
+    if pt_frames_size > available {
+        panic!(
+            "Insufficient RAM for page table frames: need at least 4 MiB after the kernel image"
+        );
+    }
+
     let pt_start = kernel_end;
     let pt_end = kernel_end + pt_frames_size;
     let heap_start = pt_end;
@@ -181,8 +207,10 @@ unsafe fn init_memory(memory_end: usize) {
     heap::TALLOC.use_primary_then_backup();
 
     // 3. Build kernel page table (uses heap for Vec, frame allocator for PT nodes).
+    // The page-table-frame region [pt_start, heap_start) must also be mapped:
+    // page table code dereferences those frames via their physical addresses.
     uart_debug_puts("Initializing kernel space...\r\n");
-    awkernel_lib::arch::rv64::init_kernel_space(heap_start, memory_end);
+    awkernel_lib::arch::rv64::init_kernel_space(pt_start, heap_start, memory_end);
 
     uart_debug_puts("Activating kernel space...\r\n");
     awkernel_lib::arch::rv64::activate_kernel_space();
@@ -206,15 +234,16 @@ unsafe fn init_timer_and_interrupts() {
     // This should match the device tree or platform specification
     const PLIC_BASE: usize = 0x0c000000;
     const NUM_SOURCES: u16 = 128; // Typical PLIC configuration
-    const TIMER_IRQ: u16 = 5; // Machine timer interrupt is typically IRQ 5 for PLIC
 
     // Initialize and register interrupt controller
     let plic = Box::new(RiscvPlic::new(PLIC_BASE, NUM_SOURCES));
+    plic.init_primary();
     awkernel_lib::interrupt::register_interrupt_controller(plic);
 
     uart_debug_puts("Initializing RISC-V timer...\r\n");
 
-    // Initialize and register timer
+    // Initialize and register timer. TIMER_IRQ is a synthetic logical IRQ for
+    // the local MTIP interrupt, dispatched via LOCAL_PENDING (not the PLIC).
     let timer = Box::new(RiscvTimer::new(TIMER_IRQ));
     awkernel_lib::timer::register_timer(timer);
 
@@ -266,12 +295,8 @@ unsafe fn primary_hart(hartid: usize) {
     console::init(UART_BASE);
 
     // 6. Initialize timer and interrupt controller
+    // (also enables software/external interrupts in mie via RiscvPlic::init_primary)
     init_timer_and_interrupts();
-
-    // Enable software interrupts for IPIs on primary hart
-    unsafe {
-        core::arch::asm!("csrrs {tmp}, mie, {val}", tmp = lateout(reg) _, val = in(reg) (1usize << 3));
-    }
 
     log::info!("AWkernel RV64 primary CPU initialization complete");
 

@@ -39,10 +39,11 @@ pub fn init_page_allocator(start: usize, end: usize) {
     frame_allocator::init_page_allocator(start, end);
 }
 
-/// Build the kernel page table and identity-map the heap region `[heap_start, memory_end)`.
+/// Build the kernel page table and identity-map the page-table-frame region
+/// `[pt_start, heap_start)` and the heap region `[heap_start, memory_end)`.
 /// Must be called after `init_page_allocator` and after the global heap is initialised.
-pub fn init_kernel_space(heap_start: usize, memory_end: usize) {
-    vm::init_kernel_space(heap_start, memory_end);
+pub fn init_kernel_space(pt_start: usize, heap_start: usize, memory_end: usize) {
+    vm::init_kernel_space(pt_start, heap_start, memory_end);
 }
 
 pub fn activate_kernel_space() {

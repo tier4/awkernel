@@ -74,6 +74,9 @@ handle_interrupt:
   li t1, 3  # M-mode software interrupt (IPI)
   beq t0, t1, handle_software_interrupt
 
+  li t1, 11  # M-mode external interrupt (PLIC)
+  beq t0, t1, handle_external_interrupt
+
   # Unknown interrupt - just return
   mret
 
@@ -161,6 +164,51 @@ handle_software_interrupt:
 
   # Call the Rust IPI handler
   call riscv_handle_ipi
+
+  # Restore registers
+  ld ra, 0(sp)
+  ld t0, 8(sp)
+  ld t1, 16(sp)
+  ld t2, 24(sp)
+  ld a0, 32(sp)
+  ld a1, 40(sp)
+  ld a2, 48(sp)
+  ld a3, 56(sp)
+  ld a4, 64(sp)
+  ld a5, 72(sp)
+  ld a6, 80(sp)
+  ld a7, 88(sp)
+  ld t3, 96(sp)
+  ld t4, 104(sp)
+  ld t5, 112(sp)
+  ld t6, 120(sp)
+  addi sp, sp, 256
+
+  # Return from interrupt
+  mret
+
+handle_external_interrupt:
+  # Save all registers that might be clobbered by the Rust handler
+  addi sp, sp, -256
+  sd ra, 0(sp)
+  sd t0, 8(sp)
+  sd t1, 16(sp)
+  sd t2, 24(sp)
+  sd a0, 32(sp)
+  sd a1, 40(sp)
+  sd a2, 48(sp)
+  sd a3, 56(sp)
+  sd a4, 64(sp)
+  sd a5, 72(sp)
+  sd a6, 80(sp)
+  sd a7, 88(sp)
+  sd t3, 96(sp)
+  sd t4, 104(sp)
+  sd t5, 112(sp)
+  sd t6, 120(sp)
+
+  # Call the Rust external interrupt handler (claims/completes via PLIC)
+  call riscv_handle_external
 
   # Restore registers
   ld ra, 0(sp)
