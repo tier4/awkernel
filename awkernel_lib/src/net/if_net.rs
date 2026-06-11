@@ -71,22 +71,30 @@ impl NetDriverRef<'_> {
 
         let capabilities = self.capabilities();
 
-        if matches!(ext.network, NetworkHdr::Ipv4(_)) && !capabilities.checksum.ipv4.tx() {
+        // TCP/UDP checksum offload is only advertised for IPv4 (CSUM_TCPv4/UDPv4), and the
+        // driver only offloads IPv4. Gate the L4 flags on IPv4 so a non-IPv4 (e.g. IPv6)
+        // TCP/UDP packet is not left with an unfilled checksum (smoltcp skips it because
+        // `cap.checksum.{tcp,udp}.tx() == false`, and the driver would not offload it).
+        let is_ipv4 = matches!(ext.network, NetworkHdr::Ipv4(_));
+
+        if is_ipv4 && !capabilities.checksum.ipv4.tx() {
             flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT); // IPv4 checksum offload
         }
 
-        match ext.transport {
-            TransportHdr::Tcp(_) => {
-                if !capabilities.checksum.tcp.tx() {
-                    flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
+        if is_ipv4 {
+            match ext.transport {
+                TransportHdr::Tcp(_) => {
+                    if !capabilities.checksum.tcp.tx() {
+                        flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
+                    }
                 }
-            }
-            TransportHdr::Udp(_) => {
-                if !capabilities.checksum.udp.tx() {
-                    flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
+                TransportHdr::Udp(_) => {
+                    if !capabilities.checksum.udp.tx() {
+                        flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         flags

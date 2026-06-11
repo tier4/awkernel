@@ -9,8 +9,8 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_ADDR_LEN, ETHER_HDR_LEN,
-            ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            extract_headers, EtherHeader, EtherVlanHeader, NetworkHdr, TransportHdr,
+            ETHER_ADDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
         in_cksum::in_pseudo,
         ip::Ip,
@@ -100,6 +100,7 @@ pub enum IgcDriverErr {
     Phy,
     Config,
     DmaPoolAlloc,
+    InvalidPacket,
 }
 
 type RxRing = [IgcAdvRxDesc; IGC_DEFAULT_RXD];
@@ -960,6 +961,11 @@ impl IgcInner {
 
         loop {
             let idx = tx.next_to_clean;
+            // Never reclaim at or past the producer index: an empty ring
+            // (next_to_clean == next_avail_desc) has nothing to reclaim.
+            if idx == tx.next_avail_desc {
+                break;
+            }
             let done = u32::from_le(unsafe { tx.tx_desc_ring.as_ref()[idx].wb.status })
                 & IGC_TXD_STAT_DD
                 != 0;
@@ -969,6 +975,10 @@ impl IgcInner {
                 // completes in order, so if the next descriptor is done this one is a
                 // consumed context descriptor and can be reclaimed; otherwise stop.
                 let next = if idx + 1 == ring_len { 0 } else { idx + 1 };
+                // Do not peek into the producer slot; it holds no completed descriptor.
+                if next == tx.next_avail_desc {
+                    break;
+                }
                 let next_done = u32::from_le(unsafe { tx.tx_desc_ring.as_ref()[next].wb.status })
                     & IGC_TXD_STAT_DD
                     != 0;
@@ -1014,21 +1024,40 @@ impl IgcInner {
     ) -> Result<(usize, u32, Option<L4CksumSeed>), IgcDriverErr> {
         let base_olinfo = (ether_frame.data.len() as u32) << IGC_ADVTXD_PAYLEN_SHIFT;
 
-        let ext = match extract_headers(ether_frame.data) {
-            Ok(e) => e,
-            Err(_) => return Ok((0, base_olinfo, None)),
-        };
+        // Fast path: no checksum offload requested, so skip header parsing entirely.
+        if ether_frame.csum_flags.is_empty() {
+            return Ok((0, base_olinfo, None));
+        }
+
+        // Offload was requested; a malformed frame cannot be offloaded and smoltcp did
+        // not fill the checksum either, so drop it instead of emitting an unchecksummed
+        // packet (mirrors the igb/ixgbe behaviour).
+        let ext = extract_headers(ether_frame.data).or(Err(IgcDriverErr::InvalidPacket))?;
 
         let mut olinfo_status = base_olinfo;
         let mut type_tucmd_mlhl = 0u32;
         let mut vlan_macip_lens = 0u32;
         let mut offload = false;
 
-        vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << IGC_ADVTXD_MACLEN_SHIFT;
-
         let NetworkHdr::Ipv4(ip) = &ext.network else {
             return Ok((0, olinfo_status, None));
         };
+
+        // IP fragments do not carry the L4 header at the expected offset (and the L4
+        // payload spans multiple frames), so hardware L4 checksum offload cannot work.
+        // smoltcp left the checksum unfilled, so drop rather than emit a corrupt packet.
+        if (ip.ip_off.swap_bytes() & 0x3fff) != 0 {
+            return Err(IgcDriverErr::InvalidPacket);
+        }
+
+        // Account for an inline 802.1Q VLAN tag (18-byte L2 header) when present, so the
+        // MACLEN and the L4 offset used for the pseudo-header seed are correct.
+        let l2_len = if ext.ether_vlan.is_some() {
+            core::mem::size_of::<EtherVlanHeader>()
+        } else {
+            core::mem::size_of::<EtherHeader>()
+        };
+        vlan_macip_lens |= (l2_len as u32) << IGC_ADVTXD_MACLEN_SHIFT;
 
         if ether_frame
             .csum_flags
@@ -1043,7 +1072,7 @@ impl IgcInner {
         let iphlen = (ip.header_len() as u32) << 2;
         vlan_macip_lens |= iphlen;
 
-        let l4_off = ETHER_HDR_LEN + iphlen as usize;
+        let l4_off = l2_len + iphlen as usize;
         let mut cksum_seed = None;
 
         let (l4len, new_ctx) = match &ext.transport {
@@ -1136,21 +1165,18 @@ impl IgcInner {
         let mut tx = self.queue_info.que[que_id].tx.lock(&mut node);
         self.igc_txeof(que_id, &mut tx)?;
 
+        // Reserve room for the worst case (one context + one data descriptor) up front,
+        // so `igc_tx_ctx_setup` can commit the context descriptor and the active-context
+        // state without a rollback path (matches the OpenBSD igc driver).
+        if tx.igc_desc_unused() < 2 {
+            return Ok(());
+        }
+
         let head = tx.next_avail_desc;
         let ring_len = tx.tx_desc_ring.as_ref().len();
 
-        // Snapshot the checksum context so it can be restored if we bail out below;
-        // `igc_tx_ctx_setup` may have advanced it before we know the ring has room.
-        let saved_ctx = tx.active_checksum_context;
         let (ctx_count, data_olinfo_status, cksum_seed) =
             self.igc_tx_ctx_setup(&mut tx, &ether_frame, head)?;
-
-        let needed = ctx_count + 1;
-        if tx.igc_desc_unused() < needed {
-            // Restore the context: hardware never saw the descriptor we staged.
-            tx.active_checksum_context = saved_ctx;
-            return Ok(());
-        }
 
         let data_idx = (head + ctx_count) % ring_len;
         let next_idx = (data_idx + 1) % ring_len;
