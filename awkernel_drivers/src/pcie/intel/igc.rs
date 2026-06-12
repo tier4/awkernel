@@ -1494,17 +1494,15 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
 
 /// Select the number of Rx/Tx queue pairs to enable.
 ///
-/// The result is constrained by three factors:
+/// The result is constrained by two factors:
 /// 1. **MSI-X vectors**: one vector per queue plus one for link events.
-/// 2. **CPU count**: no benefit in having more queues than CPUs.
-/// 3. **Hardware cap**: IGC/I225 supports at most 4 RSS queues.
+/// 2. **Hardware cap**: IGC/I225 supports at most 4 RSS queues.
 ///
 /// The result is rounded down to the nearest power of two (1, 2, or 4) so that
 /// the 128-entry RSS redirection table divides evenly among queues, giving each
 /// queue an equal share of hashed flows.
 fn igc_select_num_queues(available_vectors: usize) -> usize {
-    let cpu_count = core::cmp::max(1, awkernel_lib::cpu::num_cpu());
-    let available = core::cmp::min(core::cmp::min(available_vectors, cpu_count), 4);
+    let available = core::cmp::min(available_vectors, 4);
 
     if available >= 4 {
         4
