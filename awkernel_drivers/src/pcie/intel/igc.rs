@@ -1501,6 +1501,12 @@ fn igc_is_valid_ether_addr(addr: &[u8; 6]) -> bool {
 /// The result is rounded down to the nearest power of two (1, 2, or 4) so that
 /// the 128-entry RSS redirection table divides evenly among queues, giving each
 /// queue an equal share of hashed flows.
+///
+/// Note: for future extensibility
+///
+/// `num_cpu()` is not available when this function is called during device initialization.
+/// If the number of CPU cores is needed to determine the number of queues, the driver should
+/// find the number of CPU cores through other means (e.g., ACPI tables).
 fn igc_select_num_queues(available_vectors: usize) -> usize {
     let available = core::cmp::min(available_vectors, 4);
 
