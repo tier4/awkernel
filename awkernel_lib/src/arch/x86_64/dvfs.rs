@@ -28,7 +28,7 @@ impl Dvfs for X86 {
             misc_enable.write(value);
         }
 
-        let cpuid = unsafe { __cpuid(0x16) };
+        let cpuid = __cpuid(0x16);
         let bus_freq_mhz = (cpuid.ecx & 0xffff) as u64;
         let target_pstate = ((freq_mhz / bus_freq_mhz) as u64) & 0xFFFF;
         unsafe {
@@ -59,7 +59,7 @@ impl Dvfs for X86 {
     /// Get the current frequency of the current CPU.
     fn get_curr_freq() -> u64 {
         // Check if the CPU supports the IA32_PERF_MPERF and IA32_PERF_APERF MSRs.
-        let cpuid = unsafe { __cpuid(0x6) };
+        let cpuid = __cpuid(0x6);
         if (cpuid.ecx & 0x1) == 0 {
             log::warn!("The CPU does not support IA32_PERF_MPERF and IA32_PERF_APERF MSRs.");
             return 0;

@@ -953,7 +953,7 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
-    for (_, task) in tasks.id_to_task.iter() {
+    for task in tasks.id_to_task.values() {
         result.push(task.clone());
     }
 

@@ -825,7 +825,7 @@ fn igc_set_ltr_i225(
         // the calculation by multiplying size/speed by 1000 for result
         // to be in nsec before dividing by the scale in nsec. Set the
         // scale such that the LTR threshold fits in the register.
-        let ltr_min = (1000 * size as u32) / speed as u32;
+        let ltr_min = (1000 * size) / speed as u32;
         let ltr_max = ltr_min + tw_system;
         let scale_min = if ltr_min / 1024 < 1024 {
             IGC_LTRMINV_SCALE_1024
