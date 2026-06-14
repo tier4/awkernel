@@ -92,17 +92,20 @@ x86 = [
     "awkernel_drivers/x86",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/uart_16550",
+    "heap-wf-alloc",
 ]
 rv32 = [
     "no_std_unwinding",
     "awkernel_lib/rv32",
     "dep:ns16550a",
     "awkernel_drivers/rv32",
+    "heap-tlsf",
 ]
 rv64 = [
     "no_std_unwinding",
     "awkernel_lib/rv64",
     "dep:ns16550a",
+    "heap-tlsf",
     #    "awkernel_drivers/rv64",
 ]
 std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
@@ -118,6 +121,7 @@ raspi = [
     "awkernel_drivers/raspi",
     "awkernel_drivers/pl011",
     "dep:embedded-hal",
+    "heap-tlsf",
 ]
 
 raspi5 = [
@@ -128,12 +132,14 @@ raspi5 = [
     "awkernel_drivers/rp1",
     "awkernel_drivers/bcm2712",
     "dep:embedded-hal",
+    "heap-wf-alloc",
 ]
 
 aarch64_virt = [
     "aarch64",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/pl011",
+    "heap-wf-alloc",
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []

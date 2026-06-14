@@ -12,7 +12,9 @@ bitflags = "2.3"
 array-macro = "2.1"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
-chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+], optional = true }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 wf_alloc = { version = "0.1.2", default-features = false, optional = true }
@@ -79,7 +81,7 @@ features = [
 ]
 
 [features]
-default = ["x86", "heap-tlsf"]
+default = ["x86"]
 heap-tlsf = []
 heap-wf-alloc = ["dep:wf_alloc"]
 x86 = [
