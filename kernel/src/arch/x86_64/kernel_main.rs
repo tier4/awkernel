@@ -767,11 +767,7 @@ fn get_numa_info(
         .copied()
         .collect();
 
-    loop {
-        let Some(usable_region) = usable_regions.pop_front() else {
-            break;
-        };
-
+    while let Some(usable_region) = usable_regions.pop_front() {
         let usable_region = if usable_region.start == backup_region.start {
             if let Some(frame) = backup_next_frame {
                 // Exclude the backup heap memory region.
