@@ -88,10 +88,8 @@ impl NetDriverRef<'_> {
                         flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
                     }
                 }
-                TransportHdr::Udp(_) => {
-                    if !capabilities.checksum.udp.tx() {
-                        flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
-                    }
+                TransportHdr::Udp(_) if !capabilities.checksum.udp.tx() => {
+                    flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
                 }
                 _ => {}
             }

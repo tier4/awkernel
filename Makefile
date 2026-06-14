@@ -1,9 +1,9 @@
 ifeq ($(RELEASE), 1)
-	OPT = --release -Zjson-target-spec
+	OPT = --release
 	BUILD = release
 else
 	BUILD = debug
-	OPT = --features debug -Zjson-target-spec
+	OPT = --features debug
 endif
 
 # 2MiB Stack
