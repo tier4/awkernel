@@ -1,5 +1,8 @@
-//! Use a second-level segregated list.
-//! `FLLEN` represents the length of first level lists.
+//! Heap memory allocator.
+//!
+//! The default backend is TLSF, a second-level segregated list allocator.
+//! When `heap-wf-alloc` is enabled on supported targets, `wf_alloc` is used instead.
+//! For the TLSF backend, `FLLEN` represents the length of first level lists and
 //! `SLLEN` represents the length of second level lists.
 //!
 //! `minimum_size = size_of::<usize>() * 4`
@@ -40,24 +43,37 @@
 //! drop(guard)
 //! ```
 
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 const FLLEN: usize = 28; // The maximum block size is (32 << 28) - 1 = 8_589_934_591 (nearly 8GiB)
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 const SLLEN: usize = 64; // The worst-case internal fragmentation is ((32 << 28) / 64 - 2) = 134_217_726 (nearly 128MiB)
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 type FLBitmap = u32; // must be longer than FLLEN
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 type SLBitmap = u64; // must be longer than SLLEN
 
 use crate::{
     console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
     delay,
-    sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
     mem::transmute,
-    ptr::{self, NonNull},
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
-use rlsf::Tlsf;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -80,19 +96,56 @@ pub unsafe fn init_primary(primary_start: usize, primary_size: usize) {
 
 /// # Safety
 ///
+/// This must be called at initialization with the number of CPUs that can
+/// concurrently use the heap.
+pub unsafe fn init_primary_with_num_cpu(primary_start: usize, primary_size: usize, num_cpu: usize) {
+    TALLOC.init_primary_with_num_cpu(primary_start, primary_size, num_cpu);
+}
+
+/// # Safety
+///
 /// This must be called at initialization.
 pub unsafe fn init_backup(backup_start: usize, backup_size: usize) {
     TALLOC.init_backup(backup_start, backup_size);
 }
 
-type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
+/// # Safety
+///
+/// This must be called at initialization with the number of CPUs that can
+/// concurrently use the heap.
+pub unsafe fn init_backup_with_num_cpu(backup_start: usize, backup_size: usize, num_cpu: usize) {
+    TALLOC.init_backup_with_num_cpu(backup_start, backup_size, num_cpu);
+}
 
-struct Allocator(Mutex<TLSFAlloc>);
-struct BackUpAllocator(Mutex<TLSFAlloc>);
+#[cfg(all(
+    feature = "heap-wf-alloc",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
+compile_error!("heap-wf-alloc currently requires a wf_alloc CAS2 backend for this architecture");
+
+#[cfg(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+type Allocator = wf_alloc_backend::WfAllocBackend;
+
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+type Allocator = tlsf_backend::TlsfBackend;
+
+trait HeapBackend {
+    unsafe fn init(&self, heap_start: usize, heap_size: usize, active_threads: usize);
+
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8;
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout);
+}
 
 pub struct Talloc {
     primary: Allocator,
-    backup: BackUpAllocator,
+    backup: Allocator,
 
     /// bitmap for each CPU to decide which allocator to use
     flags: [AtomicU32; NUM_MAX_CPU / 32],
@@ -115,27 +168,33 @@ pub struct Talloc {
 unsafe impl GlobalAlloc for Talloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if self.is_primary() {
-            let ptr = self.primary.alloc(layout);
+            let ptr = unsafe { self.primary.alloc(layout) };
             if ptr.is_null() {
                 panic!();
             } else {
                 ptr
             }
         } else {
-            let ptr = self.primary.alloc(layout);
-            if ptr.is_null() {
-                self.backup.alloc(layout)
-            } else {
-                ptr
+            let ptr = unsafe { self.primary.alloc(layout) };
+            if !ptr.is_null() {
+                return ptr;
             }
+
+            let ptr = unsafe { self.backup.alloc(layout) };
+            if ptr.is_null() {
+                unsafe_puts("failed to allocate heap memory\r\n");
+                unsafe_puts("aborting...\r\n");
+                delay::wait_forever();
+            }
+            ptr
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if self.is_primary_mem(ptr) {
-            self.primary.dealloc(ptr, layout);
+            unsafe { self.primary.dealloc(ptr, layout) };
         } else {
-            self.backup.dealloc(ptr, layout);
+            unsafe { self.backup.dealloc(ptr, layout) };
         }
     }
 }
@@ -164,7 +223,7 @@ impl Talloc {
 
         Self {
             primary: Allocator::new(),
-            backup: BackUpAllocator::new(),
+            backup: Allocator::new(),
             flags: unsafe {
                 transmute::<
                     [i32; NUM_MAX_CPU / 32],
@@ -179,17 +238,35 @@ impl Talloc {
     }
 
     pub fn init_primary(&self, primary_start: usize, primary_size: usize) {
+        self.init_primary_with_num_cpu(primary_start, primary_size, cpu::num_cpu());
+    }
+
+    pub fn init_primary_with_num_cpu(
+        &self,
+        primary_start: usize,
+        primary_size: usize,
+        num_cpu: usize,
+    ) {
         self.primary_start.store(primary_start, Ordering::Relaxed);
         self.primary_size.store(primary_size, Ordering::Relaxed);
 
-        unsafe { self.primary.init(primary_start, primary_size) };
+        unsafe { self.primary.init(primary_start, primary_size, num_cpu) };
     }
 
     pub fn init_backup(&self, backup_start: usize, backup_size: usize) {
+        self.init_backup_with_num_cpu(backup_start, backup_size, cpu::num_cpu());
+    }
+
+    pub fn init_backup_with_num_cpu(
+        &self,
+        backup_start: usize,
+        backup_size: usize,
+        num_cpu: usize,
+    ) {
         self.backup_start.store(backup_start, Ordering::Relaxed);
         self.backup_size.store(backup_size, Ordering::Relaxed);
 
-        unsafe { self.backup.init(backup_start, backup_size) };
+        unsafe { self.backup.init(backup_start, backup_size, num_cpu) };
     }
 
     #[inline(always)]
@@ -289,73 +366,194 @@ impl Talloc {
     }
 }
 
-unsafe impl GlobalAlloc for BackUpAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        if let Some(mut ptr) = guard.allocate(layout) {
-            ptr.as_mut()
-        } else {
-            drop(guard);
-            unsafe_puts("failed to allocate heap memory\r\n");
-            unsafe_puts("aborting...\r\n");
-            delay::wait_forever(); // there is no free memory left
+#[cfg(not(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+mod tlsf_backend {
+    use super::{FLBitmap, HeapBackend, Layout, SLBitmap, FLLEN, SLLEN};
+    use crate::sync::{mcs::MCSNode, mutex::Mutex};
+    use core::{ptr, ptr::NonNull};
+    use rlsf::Tlsf;
+
+    type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
+
+    pub struct TlsfBackend(Mutex<TLSFAlloc>);
+
+    impl TlsfBackend {
+        pub const fn new() -> Self {
+            Self(Mutex::new(Tlsf::new()))
         }
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        guard.deallocate(NonNull::new_unchecked(ptr), layout.align());
-    }
-}
+    impl HeapBackend for TlsfBackend {
+        unsafe fn init(&self, heap_start: usize, heap_size: usize, _active_threads: usize) {
+            let mut node = MCSNode::new();
+            let mut guard = self.0.lock(&mut node);
+            unsafe { init_heap(&mut guard, heap_start, heap_size) };
+        }
 
-unsafe impl GlobalAlloc for Allocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        if let Some(mut ptr) = guard.allocate(layout) {
-            ptr.as_mut()
-        } else {
-            ptr::null_mut()
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let mut node = MCSNode::new();
+            let mut guard = self.0.lock(&mut node);
+            if let Some(mut ptr) = guard.allocate(layout) {
+                ptr.as_mut()
+            } else {
+                ptr::null_mut()
+            }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            let mut node = MCSNode::new();
+            let mut guard = self.0.lock(&mut node);
+            unsafe { guard.deallocate(NonNull::new_unchecked(ptr), layout.align()) };
         }
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        guard.deallocate(NonNull::new_unchecked(ptr), layout.align());
+    unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
+        let heap_mem = unsafe { core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size) };
+        let Some(heap_mem) = NonNull::new(heap_mem) else {
+            return;
+        };
+        allocator.insert_free_block_ptr(heap_mem);
     }
 }
 
-impl Allocator {
-    pub const fn new() -> Self {
-        Self(Mutex::new(Tlsf::new()))
-    }
-
-    pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        init_heap(&mut guard, heap_start, heap_size);
-    }
-}
-
-impl BackUpAllocator {
-    pub const fn new() -> Self {
-        Self(Mutex::new(Tlsf::new()))
-    }
-
-    pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        init_heap(&mut guard, heap_start, heap_size);
-    }
-}
-
-unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
-    let heap_mem = core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size);
-    let Some(heap_mem) = NonNull::new(heap_mem) else {
-        return;
+#[cfg(all(
+    feature = "heap-wf-alloc",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod wf_alloc_backend {
+    use super::{cpu, HeapBackend, Layout, NUM_MAX_CPU};
+    use crate::interrupt::InterruptGuard;
+    use core::{
+        cell::UnsafeCell,
+        mem::MaybeUninit,
+        ptr,
+        sync::atomic::{AtomicBool, Ordering},
     };
-    allocator.insert_free_block_ptr(heap_mem);
+    use wf_alloc::WfSpanAllocator;
+
+    type WfAlloc = WfSpanAllocator<{ wf_alloc::MAX_SUPPORTED_CLASSES }>;
+
+    pub struct WfAllocBackend {
+        state: UnsafeCell<MaybeUninit<WfAlloc>>,
+        initialized: AtomicBool,
+    }
+
+    unsafe impl Sync for WfAllocBackend {}
+
+    impl WfAllocBackend {
+        pub const fn new() -> Self {
+            Self {
+                state: UnsafeCell::new(MaybeUninit::uninit()),
+                initialized: AtomicBool::new(false),
+            }
+        }
+
+        fn allocator(&self) -> Option<&WfAlloc> {
+            if self.initialized.load(Ordering::Acquire) {
+                Some(unsafe { (&*self.state.get()).assume_init_ref() })
+            } else {
+                None
+            }
+        }
+    }
+
+    impl HeapBackend for WfAllocBackend {
+        unsafe fn init(&self, heap_start: usize, heap_size: usize, active_threads: usize) {
+            if self.initialized.load(Ordering::Acquire) {
+                return;
+            }
+
+            let Some(metadata_start) = align_up(heap_start, WfAlloc::metadata_region_align())
+            else {
+                return;
+            };
+            let Some(metadata_offset) = metadata_start.checked_sub(heap_start) else {
+                return;
+            };
+            if metadata_offset >= heap_size {
+                return;
+            }
+
+            if active_threads == 0 || active_threads > NUM_MAX_CPU {
+                return;
+            }
+
+            let metadata_len = heap_size - metadata_offset;
+            let Some(required_metadata_len) = WfAlloc::metadata_region_size(active_threads) else {
+                return;
+            };
+            if required_metadata_len > metadata_len {
+                return;
+            }
+
+            let Some(after_metadata) = metadata_start.checked_add(required_metadata_len) else {
+                return;
+            };
+            let Some(region_start) = align_up(after_metadata, wf_alloc::SPAN_ALIGN) else {
+                return;
+            };
+            let Some(region_offset) = region_start.checked_sub(heap_start) else {
+                return;
+            };
+            if region_offset >= heap_size {
+                return;
+            }
+
+            let region_len = heap_size - region_offset;
+            if region_len < wf_alloc::SPAN_SIZE {
+                return;
+            }
+
+            let Some((allocator, _metadata_used)) = (unsafe {
+                WfAlloc::from_metadata_region(
+                    active_threads,
+                    metadata_start as *mut u8,
+                    required_metadata_len,
+                )
+            }) else {
+                return;
+            };
+
+            unsafe { (*self.state.get()).write(allocator) };
+            let allocator = unsafe { (&*self.state.get()).assume_init_ref() };
+            unsafe { allocator.init(region_start as *mut u8, region_len) };
+            self.initialized.store(true, Ordering::Release);
+        }
+
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let Some(allocator) = self.allocator() else {
+                return ptr::null_mut();
+            };
+            let _interrupt_guard = InterruptGuard::new();
+            let cpu_id = cpu::cpu_id();
+            if cpu_id >= allocator.active_threads() {
+                return ptr::null_mut();
+            }
+            let token = unsafe { allocator.registry.token_from_raw(cpu_id) };
+            unsafe { allocator.alloc_with_token(layout, token) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            let Some(allocator) = self.allocator() else {
+                return;
+            };
+            let _interrupt_guard = InterruptGuard::new();
+            let cpu_id = cpu::cpu_id();
+            if cpu_id >= allocator.active_threads() {
+                return;
+            }
+            let token = unsafe { allocator.registry.token_from_raw(cpu_id) };
+            unsafe { allocator.dealloc_with_token(ptr, layout, token) };
+        }
+    }
+
+    fn align_up(value: usize, align: usize) -> Option<usize> {
+        debug_assert!(align.is_power_of_two());
+        value
+            .checked_add(align - 1)
+            .map(|value| value & !(align - 1))
+    }
 }

@@ -11,7 +11,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
-use acpi::{platform::ProcessorState, AcpiTables};
+use acpi::{madt::MadtEntry, platform::ProcessorState, AcpiTables};
 use alloc::{
     boxed::Box,
     collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
@@ -116,9 +116,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
+    let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
+        unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
+        wait_forever();
+    };
+    let offset = *offset;
+    let early_num_cpu = detect_num_cpus(boot_info, offset).unwrap_or(1);
+
     // 4. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
-        init_backup_heap(boot_info, &mut page_table);
+        init_backup_heap(boot_info, &mut page_table, early_num_cpu);
 
     let _ = catch_unwind(|| {
         kernel_main2(
@@ -131,6 +138,21 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     });
 
     wait_forever();
+}
+
+fn detect_num_cpus(boot_info: &BootInfo, offset: u64) -> Option<usize> {
+    let acpi = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)?;
+    let madt = acpi.find_table::<acpi::madt::Madt>().ok()?;
+    let num_cpus = madt
+        .entries()
+        .filter(|entry| match entry {
+            MadtEntry::LocalApic(local_apic) => ({ local_apic.flags } & 1) != 0,
+            MadtEntry::LocalX2Apic(local_x2apic) => ({ local_x2apic.flags } & 1) != 0,
+            _ => false,
+        })
+        .count();
+
+    (num_cpus > 0).then_some(num_cpus)
 }
 
 fn kernel_main2(
@@ -298,7 +320,11 @@ fn kernel_main2(
     }
 
     // 15. Initialize the primary heap memory allocator.
-    init_primary_heap(&mut page_table, &mut page_allocators);
+    init_primary_heap(
+        &mut page_table,
+        &mut page_allocators,
+        non_primary_cpus.len() + 1,
+    );
 
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
@@ -384,13 +410,14 @@ fn init_apic_timer(apic: &mut dyn Apic) {
 fn init_primary_heap(
     page_table: &mut OffsetPageTable<'static>,
     page_allocators: &mut BTreeMap<u32, VecPageAllocator>,
+    num_cpu: usize,
 ) {
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
 
     let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
 
     let heap_size = num_pages * PAGESIZE;
-    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+    unsafe { awkernel_lib::heap::init_primary_with_num_cpu(primary_start, heap_size, num_cpu) };
 
     log::info!(
         "Primary heap: start = 0x{:x}, size = {}MiB",
@@ -610,6 +637,7 @@ fn map_mpboot_page(
 fn init_backup_heap(
     boot_info: &mut BootInfo,
     page_table: &mut OffsetPageTable<'static>,
+    num_cpu: usize,
 ) -> (usize, MemoryRegion, Option<PhysFrame>) {
     let mut backup_heap_region = None;
     for region in boot_info.memory_regions.iter() {
@@ -645,7 +673,7 @@ fn init_backup_heap(
     // Initialize.
     // Enable heap allocator.
     unsafe {
-        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::init_backup_with_num_cpu(HEAP_START, BACKUP_HEAP_SIZE, num_cpu);
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
     }
 
