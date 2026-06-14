@@ -1,9 +1,9 @@
 ifeq ($(RELEASE), 1)
-	OPT = --release
+	OPT = --release -Zjson-target-spec
 	BUILD = release
 else
 	BUILD = debug
-	OPT = --features debug
+	OPT = --features debug -Zjson-target-spec
 endif
 
 # 2MiB Stack
@@ -55,7 +55,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2025-11-16
+RUSTV=nightly-2026-06-13
 
 all: aarch64 x86_64 riscv32 riscv64 std
 

@@ -232,7 +232,7 @@ pub struct RemapInfo {
 
 impl IommuInfo {
     fn dump(&self) -> Option<String> {
-        let mut result = String::new();
+        let mut result;
 
         {
             let mut node = MCSNode::new();

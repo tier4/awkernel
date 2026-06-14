@@ -793,9 +793,7 @@ impl IgcInner {
     }
 
     fn dump(&self) -> alloc::string::String {
-        let mut msg = alloc::string::String::new();
-
-        msg = format!("BDF: {}\r\n", self.info.get_bdf());
+        let mut msg = format!("BDF: {}\r\n", self.info.get_bdf());
 
         let pci_status_command = self
             .info
