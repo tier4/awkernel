@@ -1,9 +1,19 @@
 //! Heap memory allocator.
 //!
-//! The default backend is TLSF, a second-level segregated list allocator.
-//! When `heap-wf-alloc` is enabled on supported targets, `wf_alloc` is used instead.
-//! For the TLSF backend, `FLLEN` represents the length of first level lists and
-//! `SLLEN` represents the length of second level lists.
+//! The heap backend is selected by compile-time feature flags.
+//!
+//! - `heap-wf-alloc` enables the `wf_alloc` backend (supported on `x86_64` /
+//!   `aarch64`).
+//! - when `heap-wf-alloc` is not enabled, TLSF is used.
+//!
+//! In practice, binaries choose one of these paths via their feature set
+//! (`kernel` enables `heap-wf-alloc` on x86 by default, while `heap-tlsf`
+//! is used for non-`x86_64`/`aarch64` targets).
+//!
+//! # TLSF Backend
+//!
+//! `FLLEN` is the number of first-level list buckets and `SLLEN` is the number
+//! of second-level list buckets.
 //!
 //! `minimum_size = size_of::<usize>() * 4`
 //!
@@ -11,6 +21,20 @@
 //! while the maximum block size is `(32 << FLLEN) - 1`.
 //! The maximum size requested  should be smaller than this.
 //! The worst-case internal fragmentation is `(32 << FLLEN) / SLLEN - 2` bytes.
+//!
+//! # wf_alloc Backend
+//!
+//! `wf_alloc` initializes `WfSpanAllocator` from the raw heap region:
+//! 1. Align `heap_start` by `metadata_region_align()`.
+//! 2. Reserve `metadata_region_size(active_threads)` bytes for metadata.
+//! 3. Align the remaining start by `wf_alloc::SPAN_ALIGN`.
+//! 4. Construct the allocator with `from_metadata_region(...)` and initialize it with `init(...)`.
+//!
+//! CPU IDs are mapped directly to `wf_alloc` tokens, so allocation/deallocation
+//! is done with `InterruptGuard` and `alloc_with_token` / `dealloc_with_token`.
+//! If `wf_alloc` cannot be initialized, its allocator stays uninitialized and
+//! all alloc calls return `null`, so `Talloc` falls back to its existing OOM
+//! behavior.
 //!
 //! # Limitation
 //!
