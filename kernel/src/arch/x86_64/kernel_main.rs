@@ -81,10 +81,10 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Initialize the backup heap memory allocator.
-/// 5. Enable logger.
-/// 6. Get offset address to physical memory.
-/// 7. Initialize ACPI.
+/// 4. Initialize ACPI.
+/// 5. Initialize the backup heap memory allocator.
+/// 6. Enable logger.
+/// 7. Get offset address to physical memory.
 /// 8. Get NUMA information.
 /// 9. Initialize stack memory regions for non-primary CPUs.
 /// 10. Initialize `awkernel_lib`.
@@ -121,9 +121,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
     let offset = *offset;
-    let early_num_cpu = detect_num_cpus(boot_info, offset).unwrap_or(1);
 
-    // 4. Initialize the backup heap memory allocator.
+    // 4. Initialize ACPI.
+    let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
+    {
+        acpi
+    } else {
+        unsafe { unsafe_puts("Failed to initialize ACPI.\r\n") };
+        wait_forever();
+    };
+
+    let early_num_cpu = detect_num_cpus(&acpi).unwrap_or(1);
+
+    // 5. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table, early_num_cpu);
 
@@ -134,14 +144,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             backup_pages,
             backup_region,
             backup_next_frame,
+            acpi,
         )
     });
 
     wait_forever();
 }
 
-fn detect_num_cpus(boot_info: &BootInfo, offset: u64) -> Option<usize> {
-    let acpi = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)?;
+fn detect_num_cpus(acpi: &AcpiTables<AcpiMapper>) -> Option<usize> {
     let madt = acpi.find_table::<acpi::madt::Madt>().ok()?;
     let num_cpus = madt
         .entries()
@@ -161,8 +171,9 @@ fn kernel_main2(
     backup_pages: usize,
     backup_region: MemoryRegion,
     backup_next_frame: Option<PhysFrame>,
+    acpi: AcpiTables<AcpiMapper>,
 ) {
-    // 5. Enable logger.
+    // 6. Enable logger.
     super::console::register_console();
 
     log::info!(
@@ -171,7 +182,7 @@ fn kernel_main2(
         backup_pages * PAGESIZE / 1024 / 1024
     );
 
-    // 6. Get offset address to physical memory.
+    // 7. Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
         unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
         wait_forever();
@@ -179,15 +190,6 @@ fn kernel_main2(
     let offset = *offset;
 
     log::info!("Physical memory offset: 0x{offset:x}");
-
-    // 7. Initialize ACPI.
-    let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
-    {
-        acpi
-    } else {
-        log::error!("Failed to initialize ACPI.");
-        wait_forever();
-    };
 
     // 8. Get NUMA information.
     let (mut numa_to_mem, cpu_to_numa) =
