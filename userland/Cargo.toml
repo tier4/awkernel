@@ -82,6 +82,10 @@ optional = true
 path = "../applications/tests/test_partitioned_edf"
 optional = true
 
+[dependencies.test_task_kill]
+path = "../applications/tests/test_task_kill"
+optional = true
+
 [features]
 default = []
 perf = ["awkernel_services/perf"]
@@ -104,3 +108,4 @@ test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
 test_partitioned_edf = ["dep:test_partitioned_edf"]
+test_task_kill = ["dep:test_task_kill"]

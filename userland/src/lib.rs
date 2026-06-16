@@ -58,5 +58,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_partitioned_edf")]
     test_partitioned_edf::run().await; // test for Partitioned EDF scheduler
 
+    #[cfg(feature = "test_task_kill")]
+    test_task_kill::run().await; // test for task::kill()
+
     Ok(())
 }
