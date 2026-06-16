@@ -960,9 +960,9 @@ pub fn wake(task_id: u32) {
 /// Returns `true` if the task was found and killed, `false` if it was not found or was
 /// already in a terminal state.
 pub fn kill(task_id: u32) -> bool {
-    // Step 1: Clone the Arc out of TASKS without holding TASKS while acquiring
-    // the per-task info lock (preserves the established lock ordering: TASKS is
-    // never held while info is locked by the executor or wake()).
+    // Step 1: Clone the Arc out of TASKS, then drop TASKS before acquiring the per-task info lock.
+    // This keeps the TASKS critical section short and avoids lock-order inversions with code paths
+    // that may lock TASKS and then lock task.info (e.g., task::wake()).
     let task = {
         let mut node = MCSNode::new();
         let tasks = TASKS.lock(&mut node);
