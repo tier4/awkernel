@@ -47,10 +47,21 @@ impl Future for Sleep {
                 // Invoke `sleep_handler` after `self.dur` time.
                 scheduler::sleep_task(
                     Box::new(move || {
-                        let mut node = MCSNode::new();
-                        let mut guard = state.lock(&mut node);
-                        if let State::Wait = &*guard {
-                            *guard = State::Finished;
+                        // Release the state lock before calling waker.wake().
+                        // If kill() removed the task from TASKS, wake() drops the last
+                        // Arc<Task> inline, which chains into Sleep::drop(), which tries
+                        // to re-acquire the same state lock — deadlock if still held.
+                        let should_wake = {
+                            let mut node = MCSNode::new();
+                            let mut guard = state.lock(&mut node);
+                            if let State::Wait = &*guard {
+                                *guard = State::Finished;
+                                true
+                            } else {
+                                false
+                            }
+                        };
+                        if should_wake {
                             waker.wake();
                         }
                     }),
