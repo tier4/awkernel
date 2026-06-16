@@ -882,13 +882,16 @@ pub fn run_main() {
 
             match result {
                 Ok(Poll::Pending) => {
-                    // The task has not been terminated yet.
-                    info.state = State::Waiting;
+                    // A concurrent kill() may have set state = Terminated while we were polling.
+                    // Do not overwrite it back to Waiting, and do not re-enqueue.
+                    if !matches!(info.state, State::Terminated | State::Panicked) {
+                        info.state = State::Waiting;
 
-                    if info.need_sched {
-                        info.need_sched = false;
-                        drop(info);
-                        task.clone().wake();
+                        if info.need_sched {
+                            info.need_sched = false;
+                            drop(info);
+                            task.clone().wake();
+                        }
                     }
                 }
                 Ok(Poll::Ready(result)) => {
@@ -945,6 +948,52 @@ pub fn wake(task_id: u32) {
     let mut node = MCSNode::new();
     let gurad = TASKS.lock(&mut node);
     gurad.wake(task_id);
+}
+
+/// Force-terminate a task by its ID.
+///
+/// Sets the task state to `Terminated` and removes it from the global task registry.
+/// Any subsequent `wake()` call for this task will be a no-op. If the task was in
+/// `Waiting` state, wakers may still hold `Arc<Task>` references; the `Task` is freed
+/// only after those wakers are dropped — the caller is responsible for deregistering them.
+///
+/// Returns `true` if the task was found and killed, `false` if it was not found or was
+/// already in a terminal state.
+pub fn kill(task_id: u32) -> bool {
+    // Step 1: Clone the Arc out of TASKS without holding TASKS while acquiring
+    // the per-task info lock (preserves the established lock ordering: TASKS is
+    // never held while info is locked by the executor or wake()).
+    let task = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+        match tasks.id_to_task.get(&task_id) {
+            Some(t) => t.clone(),
+            None => return false,
+        }
+    };
+
+    // Step 2: Under the info lock, transition state to Terminated.
+    // This prevents any concurrent wake() from re-enqueuing the task via the
+    // existing `Terminated | Panicked => return` guard in Task::wake().
+    {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        match info.state {
+            State::Terminated | State::Panicked => return false,
+            _ => info.state = State::Terminated,
+        }
+    }
+
+    // Step 3: Remove the task from the global registry, decrementing the Arc refcount.
+    // Tasks::remove() is a BTreeMap::remove, so calling it on a missing key (e.g., if the
+    // future completed naturally at the same time) is a no-op.
+    {
+        let mut node = MCSNode::new();
+        let mut tasks = TASKS.lock(&mut node);
+        tasks.remove(task_id);
+    }
+
+    true
 }
 
 pub fn get_tasks() -> Vec<Arc<Task>> {
