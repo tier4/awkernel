@@ -26,6 +26,7 @@ pub async fn run() {
     kill_unknown_id();
     kill_idempotent().await;
     resources_freed_after_kill().await;
+    kill_preempted_task().await;
 
     log::info!("TASK_KILL_TEST done");
 }
@@ -84,6 +85,66 @@ async fn kill_idempotent() {
         log::info!("TASK_KILL_TEST kill_idempotent: PASS (second kill returned false)");
     } else {
         log::error!("TASK_KILL_TEST kill_idempotent: FAIL (second kill returned true)");
+    }
+}
+
+async fn kill_preempted_task() {
+    log::info!("TASK_KILL_TEST kill_preempted_task: step 1 start");
+    DROP_COUNT.store(0, Ordering::Release);
+
+    // Spin-loop followed by a short sleep: the spin phase is interrupted by the timer
+    // preemption interrupt, putting the task in State::Preempted.  PrioritizedRR enables
+    // time-slicing preemption; PrioritizedFIFO does not.  The sleep gives the deferred
+    // kill_pending machinery an await point to trigger on.
+    let id = task::spawn(
+        "preempt-target".into(),
+        async {
+            let _tracker = DropTracker;
+            loop {
+                for _ in 0..500_000u64 {
+                    core::hint::spin_loop();
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        },
+        SchedulerType::PrioritizedRR(0),
+    );
+
+    log::info!("TASK_KILL_TEST kill_preempted_task: step 2 spawned id={}", id);
+
+    // Allow the task to run and be preempted at least once.
+    sleep(Duration::from_millis(50)).await;
+
+    log::info!("TASK_KILL_TEST kill_preempted_task: step 3 after sleep 50ms");
+
+    // kill() may find the task in Preempted, Running, or Waiting state.
+    let killed = task::kill(id);
+
+    log::info!("TASK_KILL_TEST kill_preempted_task: step 4 kill={}", killed);
+
+    if !killed {
+        log::error!("TASK_KILL_TEST kill_preempted_task: FAIL (kill returned false)");
+        return;
+    }
+
+    // If the task was Preempted when killed, it resumes via yield_and_pool and terminates
+    // at the next await (sleep 10 ms).  Allow enough margin for that path.
+    sleep(Duration::from_millis(300)).await;
+
+    log::info!("TASK_KILL_TEST kill_preempted_task: step 5 after sleep 300ms");
+
+    if task::get_task(id).is_some() {
+        log::error!("TASK_KILL_TEST kill_preempted_task: FAIL (task still in registry)");
+        return;
+    }
+
+    if DROP_COUNT.load(Ordering::Acquire) == 1 {
+        log::info!("TASK_KILL_TEST kill_preempted_task: PASS");
+    } else {
+        log::error!(
+            "TASK_KILL_TEST kill_preempted_task: FAIL (drop_count={})",
+            DROP_COUNT.load(Ordering::Acquire)
+        );
     }
 }
 

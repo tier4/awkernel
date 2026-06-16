@@ -170,6 +170,14 @@ pub struct TaskInfo {
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
+
+    // Set by kill() when the task is in State::Preempted.  The worker thread is
+    // suspended mid-execution; this flag defers actual termination to the next
+    // Poll::Pending return (i.e., the task's next await point).
+    // Unlike setting State::Terminated directly, this flag survives re-preemptions
+    // because yield_preempted_and_wake_task() overwrites the state field unconditionally.
+    #[cfg(not(feature = "no_preempt"))]
+    kill_pending: bool,
 }
 
 impl TaskInfo {
@@ -184,6 +192,14 @@ impl TaskInfo {
     pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
         assert!(self.thread.is_none());
         self.thread = Some(ctx)
+    }
+
+    #[inline(always)]
+    fn take_kill_pending(&mut self) -> bool {
+        #[cfg(not(feature = "no_preempt"))]
+        return core::mem::take(&mut self.kill_pending);
+        #[cfg(feature = "no_preempt")]
+        false
     }
 
     #[inline(always)]
@@ -318,6 +334,9 @@ impl Tasks {
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
+
+                    #[cfg(not(feature = "no_preempt"))]
+                    kill_pending: false,
                 });
 
                 // Set the task priority.
@@ -780,6 +799,12 @@ pub fn run_main() {
                 if let Some(ctx) = info.take_preempt_context() {
                     info.update_last_executed();
                     drop(info);
+                    // Drop our Arc<Task> before this thread is pooled inside yield_and_pool.
+                    // The preempted task's original worker thread holds its own Arc, so the
+                    // task is not freed here.  Without this drop, the pooled thread would hold
+                    // a stale Arc that is only released when the thread is taken from the pool
+                    // for a future preemption — which may never happen after kill().
+                    drop(task);
 
                     #[cfg(feature = "perf")]
                     perf::start_context_switch();
@@ -885,12 +910,22 @@ pub fn run_main() {
                     // A concurrent kill() may have set state = Terminated while we were polling.
                     // Do not overwrite it back to Waiting, and do not re-enqueue.
                     if !matches!(info.state, State::Terminated | State::Panicked) {
-                        info.state = State::Waiting;
-
-                        if info.need_sched {
-                            info.need_sched = false;
+                        if info.take_kill_pending() {
+                            // Deferred kill: task was Preempted when kill() was called.
+                            // Now at an await boundary, complete the termination.
+                            info.state = State::Terminated;
                             drop(info);
-                            task.clone().wake();
+                            let mut node = MCSNode::new();
+                            let mut tasks = TASKS.lock(&mut node);
+                            tasks.remove(task.id);
+                        } else {
+                            info.state = State::Waiting;
+
+                            if info.need_sched {
+                                info.need_sched = false;
+                                drop(info);
+                                task.clone().wake();
+                            }
                         }
                     }
                 }
@@ -980,6 +1015,20 @@ pub fn kill(task_id: u32) -> bool {
         let mut info = task.info.lock(&mut node);
         match info.state {
             State::Terminated | State::Panicked => return false,
+            #[cfg(not(feature = "no_preempt"))]
+            State::Preempted => {
+                if info.kill_pending {
+                    return false;
+                }
+                // The worker thread is suspended inside poll_unpin mid-execution.
+                // Directly setting Terminated is unsafe: yield_preempted_and_wake_task()
+                // unconditionally overwrites the state field to Preempted on the next
+                // re-preemption, losing the Terminated signal.  Instead, set kill_pending
+                // so run_main() completes the termination once the thread yields at its
+                // next await point.  The task stays in TASKS until then.
+                info.kill_pending = true;
+                return true;
+            }
             _ => info.state = State::Terminated,
         }
     }
@@ -987,6 +1036,7 @@ pub fn kill(task_id: u32) -> bool {
     // Step 3: Remove the task from the global registry, decrementing the Arc refcount.
     // Tasks::remove() is a BTreeMap::remove, so calling it on a missing key (e.g., if the
     // future completed naturally at the same time) is a no-op.
+    // Skipped for State::Preempted (handled above via kill_pending).
     {
         let mut node = MCSNode::new();
         let mut tasks = TASKS.lock(&mut node);

@@ -135,14 +135,21 @@ unsafe fn do_preemption() {
         return;
     };
 
-    {
-        let current_task = get_task(current_task_id).unwrap();
-
-        if current_task > next {
+    // Obtain the Arc for the currently-running task.
+    // If kill() has already removed it from TASKS, abort preemption and re-enqueue next.
+    let current_task = match get_task(current_task_id) {
+        Some(t) => t,
+        None => {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;
         }
+    };
+
+    if current_task > next {
+        remove_preemption_pending(cpu_id, next.id);
+        next.scheduler.wake_task(next);
+        return;
     }
 
     // If a new preemption-pending task with the highest priority is pushed from peek_preemption_pending() to here, the subsequent re-wake may cause a infinite loop.
@@ -158,14 +165,8 @@ unsafe fn do_preemption() {
         p.scheduler.wake_task(p);
     }
 
-    // If there is a task to be invoked next, execute the task.
-    let current_task = {
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let current_task = tasks.id_to_task.get(&current_task_id).unwrap();
-        current_task.clone()
-    };
-
+    // current_task Arc is kept alive from the lookup above — no second TASKS lock needed.
+    // This also closes the TOCTOU window where kill() could remove the task between two lookups.
     if let Some(next_thread) = {
         let mut node = MCSNode::new();
         let mut task_info = next.info.lock(&mut node);
