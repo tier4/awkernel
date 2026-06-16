@@ -14,7 +14,11 @@ use embedded_graphics::{
 };
 
 pub async fn run() {
-    let mut x = false;
+    if draw(false).is_err() {
+        return;
+    }
+
+    let mut x = true;
     loop {
         let _ = draw(x);
         awkernel_async_lib::sleep(Duration::from_secs(5)).await;
