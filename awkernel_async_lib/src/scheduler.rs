@@ -316,10 +316,7 @@ impl SleepingTasks {
 
     /// Wake tasks up.
     fn wake_task(&mut self) {
-        loop {
-            let Some((dur, _)) = self.delta_list.front() else {
-                break;
-            };
+        while let Some((dur, _)) = self.delta_list.front() {
 
             let dur = Duration::from_nanos(dur);
             let elapsed = self.base_time.elapsed();
