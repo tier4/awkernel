@@ -932,6 +932,7 @@ pub fn run_main() {
                             // Now at an await boundary, complete the termination.
                             info.state = State::Terminated;
                             drop(info);
+                            drop_task_future(&task);
                             let mut node = MCSNode::new();
                             let mut tasks = TASKS.lock(&mut node);
                             tasks.remove(task.id);
@@ -1021,7 +1022,8 @@ pub fn wake(task_id: u32) {
 /// already-terminal tasks and does not alter `Panicked`/`Terminated` state.
 ///
 /// Returns `true` if the task was found and killed, `false` if it was not found or was
-/// already in a terminal state.
+/// already in a terminal state. If the task is currently polling, `kill()` marks termination
+/// and returns `true` immediately; the task is cleaned up when that poll returns.
 pub fn kill(task_id: u32) -> bool {
     // Step 1: Clone the Arc out of TASKS, then drop TASKS before touching task.info.
     // This keeps the TASKS critical section short and avoids nested lock contention.
