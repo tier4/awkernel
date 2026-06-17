@@ -7,6 +7,7 @@ use core::time::Duration;
 use crate::task::Task;
 use crate::task::{get_current_task, get_scheduler_type_by_task_id};
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
+use alloc::vec::Vec;
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
@@ -314,8 +315,10 @@ impl SleepingTasks {
         self.delta_list.insert(dur.as_nanos() as u64, handler);
     }
 
-    /// Wake tasks up.
-    fn wake_task(&mut self) {
+    /// Take wake handlers for tasks whose sleep duration has elapsed.
+    fn take_wake_handlers(&mut self) -> Vec<Box<dyn FnOnce() + Send>> {
+        let mut handlers = Vec::new();
+
         while let Some((dur, _)) = self.delta_list.front() {
             let dur = Duration::from_nanos(dur);
             let elapsed = self.base_time.elapsed();
@@ -332,8 +335,10 @@ impl SleepingTasks {
                 break;
             };
 
-            handler();
+            handlers.push(handler);
         }
+
+        handlers
     }
 
     /// Get the duration of between the current time and the time of the head.
@@ -381,8 +386,17 @@ pub fn wake_task() -> Option<Duration> {
         }
     }
 
-    let mut node = MCSNode::new();
-    let mut guard = SLEEPING.lock(&mut node);
-    guard.wake_task();
-    guard.time_to_wait()
+    let (handlers, time_to_wait) = {
+        let mut node = MCSNode::new();
+        let mut guard = SLEEPING.lock(&mut node);
+        let handlers = guard.take_wake_handlers();
+        let time_to_wait = guard.time_to_wait();
+        (handlers, time_to_wait)
+    };
+
+    for handler in handlers {
+        handler();
+    }
+
+    time_to_wait
 }

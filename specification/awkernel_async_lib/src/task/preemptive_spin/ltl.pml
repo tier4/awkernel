@@ -1,4 +1,4 @@
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 ltl killed_task_eventually_terminated_and_not_running {
 	[](!killed[1] || <> (tasks[1].state == Terminated && RUNNING[0] != 1))
 }
@@ -6,6 +6,12 @@ ltl killed_task_eventually_terminated_and_not_running {
 ltl kill_pending_eventually_terminated {
 	[](!tasks[1].kill_pending || <> (tasks[1].state == Terminated))
 }
+
+#ifdef KILL_RUNNING_PREEMPT_TEST
+ltl killed_running_task_eventually_terminated {
+	[](!killed[1] || <> (tasks[1].state == Terminated && RUNNING[0] != 1))
+}
+#endif
 #else
 ltl eventually_terminate {
 	<> (num_terminated == TASK_NUM)

@@ -1,7 +1,7 @@
 byte num_terminated = 0
 
 byte waking[TASK_NUM] = 0
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 bool killed[TASK_NUM] = false
 bool kill_requested[TASK_NUM] = false
 byte num_kill_requests = 0

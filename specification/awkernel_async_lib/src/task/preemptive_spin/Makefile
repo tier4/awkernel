@@ -16,6 +16,10 @@ kill-test:
 	grep -q "errors: 0" kill-test-killed.log
 	./pan -a -n -m30000 -N kill_pending_eventually_terminated | tee kill-test-pending.log
 	grep -q "errors: 0" kill-test-pending.log
+	spin -a -DKILL_RUNNING_PREEMPT_TEST preemptive.pml
+	gcc -O3 -DCOLLAPSE -DVECTORSZ=5000 -DNFAIR=3 -o pan pan.c
+	./pan -a -n -m30000 -N killed_running_task_eventually_terminated | tee kill-test-running-preempt.log
+	grep -q "errors: 0" kill-test-running-preempt.log
 
 trail:
 	clear

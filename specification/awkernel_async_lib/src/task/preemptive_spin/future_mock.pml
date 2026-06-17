@@ -1,6 +1,6 @@
 bool future_blocked[TASK_NUM] = false
 
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 // Kill-test variant: task 1 is the low-priority target, task 0 preempts it.
 inline future(tid,task,ret) {
 	printf("future(): tid = %d, task = %d\n", tid, task);

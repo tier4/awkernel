@@ -1,4 +1,4 @@
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 #define TASK_NUM 2
 #define WORKER_NUM 2// One running worker and one preemption context worker.
 #define IR_HANDLER_NUM 1// One interrupt handler is enough with CPU_NUM == 1.
@@ -143,7 +143,7 @@ inline wake(tid,task) {
 	fi
 }
 
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 inline kill_task(tid,task) {
 	bool was_killed;
 	was_killed = false;
@@ -159,7 +159,9 @@ inline kill_task(tid,task) {
 			:: !killed[task] -> 
 				killed[task] = true;
 				num_kill_requests++;
-				num_terminated++;
+#ifndef KILL_RUNNING_PREEMPT_TEST
+					num_terminated++;
+#endif
 			:: else
 			fi
 			was_killed = true;
@@ -304,6 +306,13 @@ inline yield_preempted_and_wake_task(cur_task,cur_tid,next_tid) {
 	lock(cur_tid,lock_info[cur_task]);
 	set_preempt_context(cur_task,cur_tid);
 	d_step {
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
+		if
+		:: tasks[cur_task].state == Terminated || tasks[cur_task].state == Panicked ->
+			tasks[cur_task].kill_pending = true
+		:: else -> skip
+		fi;
+#endif
 		tasks[cur_task].state = Preempted;
 		update_runnable_preempted_highest_priority();
 		update_running_lowest_priority();
@@ -633,6 +642,16 @@ proctype killer(byte tid) {
 }
 #endif
 
+#ifdef KILL_RUNNING_PREEMPT_TEST
+proctype running_preempt_killer(byte tid) {
+	do
+	:: tasks[1].state == Running && len(ipi_requests[0]) > 0 -> break
+	:: else -> skip
+	od;
+	kill_task(tid,1);
+}
+#endif
+
 init {
 	byte i;
 #ifdef KILL_TEST
@@ -643,7 +662,7 @@ init {
 		tasks[i].id = i;
 	}
 	tasks[0].scheduler_type = 0;
-#ifdef KILL_TEST
+#if defined(KILL_TEST) || defined(KILL_RUNNING_PREEMPT_TEST)
 	tasks[1].scheduler_type = 0;
 #else
 #if SCHED_TYPE_PATTERN==0

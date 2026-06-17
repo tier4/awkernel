@@ -179,11 +179,14 @@ This keeps `make run` free from the killer process and kill-only state such as `
 In the kill-test variant, the model uses `TASK_NUM=2`, `CPU_NUM=1`, `WORKER_NUM=2`, and `IR_HANDLER_NUM=1`.
 Task 1 is the low-priority kill target, and task 0 is the high-priority task that preempts it.
 The `killer` process waits until task 1 becomes `Preempted`, then calls `kill_task(1)`.
+`make kill-test` also runs `KILL_RUNNING_PREEMPT_TEST`, where `running_preempt_killer` kills task 1 while it is `Running` and an IPI preemption request is pending.
+This covers the race where preemption overwrites `Terminated` with `Preempted`; the model requires that `kill_pending` preserves the kill signal and task 1 eventually returns to `Terminated`.
 
 Verified properties:
 
 1. A killed task eventually becomes `Terminated` and is not running (`ltl killed_task_eventually_terminated_and_not_running`).
 2. A task with `kill_pending` eventually becomes `Terminated` (`ltl kill_pending_eventually_terminated`).
+3. A task killed while running with preemption pending eventually becomes `Terminated` (`ltl killed_running_task_eventually_terminated`).
 
 Result:
 
@@ -195,6 +198,9 @@ State-vector 400 byte, depth reached 888, errors: 0
 ...
 State-vector 400 byte, depth reached 888, errors: 0
      7590 states, stored (8972 visited)
+...
+State-vector 392 byte, depth reached 20644, errors: 0
+    19514 states, stored
 ```
 
 No invalid array index was reported.
