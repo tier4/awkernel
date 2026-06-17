@@ -136,10 +136,10 @@ async fn spawn_handlers(
         );
 
         let _ = awkernel_async_lib::spawn(
-        name.into(),
+            name.into(),
             interrupt_handler(if_status.interface_id, irq, server),
             SchedulerType::PrioritizedFIFO(0),
-    );
+        );
     }
 
     if if_status.poll_mode {
@@ -153,10 +153,10 @@ async fn spawn_handlers(
         );
 
         let _ = awkernel_async_lib::spawn(
-        name.into(),
+            name.into(),
             poll_handler(if_status.interface_id, server),
             SchedulerType::PrioritizedFIFO(0),
-    );
+        );
     }
 
     if let Some(tick_msec) = if_status.tick_msec {
@@ -170,10 +170,10 @@ async fn spawn_handlers(
         );
 
         let _ = awkernel_async_lib::spawn(
-        name.into(),
+            name.into(),
             tick_handler(if_status.interface_id, tick_msec, server),
             SchedulerType::PrioritizedFIFO(0),
-    );
+        );
     }
 }
 
