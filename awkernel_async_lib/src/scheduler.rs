@@ -7,8 +7,8 @@ use core::time::Duration;
 use crate::task::Task;
 use crate::task::{get_current_task, get_scheduler_type_by_task_id};
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
-use alloc::vec::Vec;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
     cpu::num_cpu,
