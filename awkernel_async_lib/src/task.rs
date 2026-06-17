@@ -992,6 +992,14 @@ pub fn wake(task_id: u32) {
 /// `Waiting` state, wakers may still hold `Arc<Task>` references; the `Task` is freed
 /// only after those wakers are dropped — the caller is responsible for deregistering them.
 ///
+/// `Preempted` tasks are not marked `Terminated` immediately because preemption bookkeeping
+/// (`yield_preempted_and_wake_task`) unconditionally rewrites the state to `Preempted`.
+/// In that case, `kill_pending` is used to defer termination until the task reaches the
+/// next poll boundary.
+///
+/// `Panicked` tasks are also considered terminal here. `kill()` returns `false` for
+/// already-terminal tasks and does not alter `Panicked`/`Terminated` state.
+///
 /// Returns `true` if the task was found and killed, `false` if it was not found or was
 /// already in a terminal state.
 pub fn kill(task_id: u32) -> bool {

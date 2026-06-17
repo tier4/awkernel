@@ -27,6 +27,7 @@ pub async fn run() {
     kill_idempotent().await;
     resources_freed_after_kill().await;
     kill_preempted_task().await;
+    kill_panicked_task().await;
 
     log::info!("TASK_KILL_TEST done");
 }
@@ -145,6 +146,34 @@ async fn kill_preempted_task() {
             "TASK_KILL_TEST kill_preempted_task: FAIL (drop_count={})",
             DROP_COUNT.load(Ordering::Acquire)
         );
+    }
+}
+
+async fn kill_panicked_task() {
+    log::info!("TASK_KILL_TEST kill_panicked_task: step 1 start");
+
+    let id = task::spawn(
+        "panicked-target".into(),
+        async {
+            panic!("intentional panic for kill semantics test");
+        },
+        SchedulerType::PrioritizedFIFO(0),
+    );
+
+    // Let the task start and transition to Panicked after panic handling.
+    sleep(Duration::from_millis(100)).await;
+
+    if task::get_task(id).is_none() {
+        log::info!("TASK_KILL_TEST kill_panicked_task: PASS (panicked task removed from registry)");
+    } else {
+        log::error!("TASK_KILL_TEST kill_panicked_task: FAIL (panicked task still in registry)");
+    }
+
+    // Panicked tasks are terminal; kill() should return false and not mutate state.
+    if !task::kill(id) {
+        log::info!("TASK_KILL_TEST kill_panicked_task: PASS (kill returned false)");
+    } else {
+        log::error!("TASK_KILL_TEST kill_panicked_task: FAIL (kill returned true)");
     }
 }
 
