@@ -171,6 +171,34 @@ pan: elapsed time 1.26e+03 seconds
 pan: rate 215529.76 states/second
 ```
 
+## Kill test
+
+The kill-specific verification is separated from the normal priority LTL tests by the `KILL_TEST` build flag.
+This keeps `make run` free from the killer process and kill-only state such as `kill_pending`, while `make kill-test` enables a smaller model for kill behavior.
+
+In the kill-test variant, the model uses `TASK_NUM=2`, `CPU_NUM=1`, `WORKER_NUM=2`, and `IR_HANDLER_NUM=1`.
+Task 1 is the low-priority kill target, and task 0 is the high-priority task that preempts it.
+The `killer` process waits until task 1 becomes `Preempted`, then calls `kill_task(1)`.
+
+Verified properties:
+
+1. A killed task eventually becomes `Terminated` and is not running (`ltl killed_task_eventually_terminated_and_not_running`).
+2. A task with `kill_pending` eventually becomes `Terminated` (`ltl kill_pending_eventually_terminated`).
+
+Result:
+
+```
+$ make kill-test
+...
+State-vector 400 byte, depth reached 888, errors: 0
+     7825 states, stored (9442 visited)
+...
+State-vector 400 byte, depth reached 888, errors: 0
+     7590 states, stored (8972 visited)
+```
+
+No invalid array index was reported.
+
 ## Inter-scheduler priority inversion
 
 As the above verification does not cover inter-scheduler priority inversion, we need to verify it separately. The model now supports multiple scheduler types through [this](https://github.com/tier4/awkernel/commit/4724e908cebeba5ab89ab21d310a309a6d892a00) changes: 

@@ -1,7 +1,14 @@
+#ifdef KILL_TEST
+#define TASK_NUM 2
+#define WORKER_NUM 2// One running worker and one preemption context worker.
+#define IR_HANDLER_NUM 1// One interrupt handler is enough with CPU_NUM == 1.
+#define CPU_NUM 1
+#else
 #define TASK_NUM 4
 #define WORKER_NUM TASK_NUM// Prepare same number of worker threads as tasks.
 #define IR_HANDLER_NUM TASK_NUM// Prepare same number of interrupt handlers as tasks.
 #define CPU_NUM 2
+#endif
 #define SCHEDULER_TYPE_NUM 2
 
 #include "data_structure.pml"
@@ -136,6 +143,7 @@ inline wake(tid,task) {
 	fi
 }
 
+#ifdef KILL_TEST
 inline kill_task(tid,task) {
 	bool was_killed;
 	was_killed = false;
@@ -181,6 +189,8 @@ inline kill_task(tid,task) {
 		assert(false)
 	fi
 }
+
+#endif
 
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
 inline get_next_each_scheduler(tid,ret,sched_type) {
@@ -561,6 +571,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 		:: tasks[task].state == Terminated || tasks[task].state == Panicked -> 
 			unlock(tid,lock_info[task]);
 			goto start
+#ifdef KILL_TEST
 		:: tasks[task].kill_pending -> 
 			d_step {
 				printf("result_future Pending with kill_pending: tid = %d,task = %d\n",tid,task);
@@ -571,6 +582,7 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 			}
 			unlock(tid,lock_info[task]);
 			goto start
+#endif
 		:: else -> 
 			d_step {
 				printf("result_future Pending: tid = %d,task = %d\n",tid,task);
@@ -611,25 +623,29 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 }
 
 
+#ifdef KILL_TEST
 proctype killer(byte tid) {
-	byte target;
-	if
-	:: target = 0
-	:: target = 1
-	:: target = 2
-	:: target = 3
-	fi
-	kill_task(tid,target);
+	do
+	:: tasks[1].state == Preempted -> break
+	:: else -> skip
+	od;
+	kill_task(tid,1);
 }
+#endif
 
 init {
 	byte i;
+#ifdef KILL_TEST
 	run killer(0);
+#endif
 	
 	for (i: 0 .. TASK_NUM - 1) {
 		tasks[i].id = i;
 	}
 	tasks[0].scheduler_type = 0;
+#ifdef KILL_TEST
+	tasks[1].scheduler_type = 0;
+#else
 #if SCHED_TYPE_PATTERN==0
 	tasks[1].scheduler_type = 0;tasks[2].scheduler_type = 0;tasks[3].scheduler_type = 0;
 #elif SCHED_TYPE_PATTERN==1
@@ -638,6 +654,7 @@ init {
 	tasks[1].scheduler_type = 0;tasks[2].scheduler_type = 1;tasks[3].scheduler_type = 1;
 #elif SCHED_TYPE_PATTERN==3
 	tasks[1].scheduler_type = 1;tasks[2].scheduler_type = 1;tasks[3].scheduler_type = 1;
+#endif
 #endif
 	
 	wake(0,INIT_TASK);

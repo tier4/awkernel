@@ -1,5 +1,23 @@
 bool future_blocked[TASK_NUM] = false
 
+#ifdef KILL_TEST
+// Kill-test variant: task 1 is the low-priority target, task 0 preempts it.
+inline future(tid,task,ret) {
+	printf("future(): tid = %d, task = %d\n", tid, task);
+	if
+	:: task == 1 ->
+		wake(tid,0);
+		future_blocked[1] = true;
+		ret = Pending;
+	:: task == 0 ->
+		future_blocked[0] = true;
+		ret = Ready;
+	:: else -> assert(false);
+	fi
+}
+
+#define INIT_TASK 1
+#else
 // This assumes that there are 4 tasks, with task IDs 0, 1, 2, and 3.
 inline future(tid,task,ret) {
 	printf("future(): tid = %d, task = %d\n", tid, task);
@@ -32,3 +50,4 @@ inline future(tid,task,ret) {
 }
 
 #define INIT_TASK 3
+#endif

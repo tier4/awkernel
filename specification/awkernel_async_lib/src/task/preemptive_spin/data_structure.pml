@@ -16,7 +16,9 @@ typedef TaskInfo {
 	bool need_sched = false;
 	byte id;// This also represents the priority of the task. The lower the value,the higher the priority.
 	bool need_preemption = false;
+#ifdef KILL_TEST
 	bool kill_pending = false;
+#endif
 	short thread = - 1;// tid when this task is preempted, -1 otherwise.
 }
 

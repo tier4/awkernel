@@ -1,9 +1,11 @@
 byte num_terminated = 0
 
 byte waking[TASK_NUM] = 0
+#ifdef KILL_TEST
 bool killed[TASK_NUM] = false
 bool kill_requested[TASK_NUM] = false
 byte num_kill_requests = 0
+#endif
 bool handling_interrupt[IR_HANDLER_NUM] = false
 
 byte runnable_preempted_highest_priority = BYTE_MAX
