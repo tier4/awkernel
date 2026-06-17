@@ -23,3 +23,4 @@ localization_types = { path = "./localization_types", default-features = false }
 stop_filter = { path = "./stop_filter", default-features = false }
 twist2accel = { path = "./twist2accel", default-features = false }
 trajectory_follower = { path = "./trajectory_follower", default-features = false }
+command_gate = { path = "./command_gate", default-features = false }
