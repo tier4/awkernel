@@ -33,17 +33,20 @@ pub async fn run() {
 }
 
 async fn kill_sleeping_task() {
+    DROP_COUNT.store(0, Ordering::Release);
+
     let id = task::spawn(
         "kill-target".into(),
         async {
+            let _tracker = DropTracker;
             loop {
-                sleep(Duration::from_secs(3600)).await;
+                sleep(Duration::from_millis(40)).await;
             }
         },
         SchedulerType::PrioritizedFIFO(0),
     );
 
-    sleep(Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(20)).await;
 
     if task::kill(id) {
         log::info!("TASK_KILL_TEST kill_sleeping_task: PASS (kill returned true)");
@@ -51,12 +54,19 @@ async fn kill_sleeping_task() {
         log::error!("TASK_KILL_TEST kill_sleeping_task: FAIL (kill returned false)");
     }
 
-    sleep(Duration::from_millis(50)).await;
-
     if task::get_task(id).is_none() {
         log::info!("TASK_KILL_TEST task_removed_from_registry: PASS");
     } else {
         log::error!("TASK_KILL_TEST task_removed_from_registry: FAIL (still in registry)");
+    }
+
+    if wait_for_drop_count(1, 10).await {
+        log::info!("TASK_KILL_TEST kill_sleeping_task: PASS (resources freed)");
+    } else {
+        log::error!(
+            "TASK_KILL_TEST kill_sleeping_task: FAIL (drop_count={})",
+            DROP_COUNT.load(Ordering::Acquire)
+        );
     }
 }
 
@@ -182,8 +192,8 @@ async fn resources_freed_after_kill() {
 
     // The task owns a DropTracker and sleeps 200 ms per iteration.
     // sleep() stores the Waker in a timer closure, which holds the last Arc<Task>
-    // reference after kill() removes the task from TASKS.  When the timer fires
-    // the closure drops the Waker → Arc<Task> → 0 → Future → DropTracker::drop().
+    // reference after kill() removes the task from TASKS.  The dropped Waker should
+    // drop the future and trigger the DropTracker.
     let id = task::spawn(
         "drop-tracker-task".into(),
         async {
@@ -200,10 +210,7 @@ async fn resources_freed_after_kill() {
 
     task::kill(id);
 
-    // Wait for the timer to fire (~150 ms remaining) plus a safety margin.
-    sleep(Duration::from_millis(300)).await;
-
-    if DROP_COUNT.load(Ordering::Acquire) == 1 {
+    if wait_for_drop_count(1, 8).await {
         log::info!("TASK_KILL_TEST resources_freed_after_kill: PASS");
     } else {
         log::error!(
@@ -211,4 +218,15 @@ async fn resources_freed_after_kill() {
             DROP_COUNT.load(Ordering::Acquire)
         );
     }
+}
+
+async fn wait_for_drop_count(expected: usize, retries: usize) -> bool {
+    for _ in 0..retries {
+        if DROP_COUNT.load(Ordering::Acquire) >= expected {
+            return true;
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+
+    DROP_COUNT.load(Ordering::Acquire) >= expected
 }

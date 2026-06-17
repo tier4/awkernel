@@ -316,18 +316,32 @@ impl SleepingTasks {
 
     /// Wake tasks up.
     fn wake_task(&mut self) {
-        while let Some((dur, _)) = self.delta_list.front() {
-            let dur = Duration::from_nanos(dur);
-            let elapsed = self.base_time.elapsed();
+        loop {
+            let mut handler = None;
 
-            if dur <= elapsed {
-                // Timed out.
-                if let DeltaList::Cons(data) = self.delta_list.pop().unwrap() {
-                    let (_, handler, _) = data.into_inner();
-                    handler(); // Invoke a handler.
+            {
+                let mut node = MCSNode::new();
+                let mut guard = SLEEPING.lock(&mut node);
+                if let Some((dur, _)) = guard.delta_list.front() {
+                    let dur = Duration::from_nanos(dur);
+                    let elapsed = guard.base_time.elapsed();
 
-                    self.base_time += dur;
+                    if dur <= elapsed {
+                        if let DeltaList::Cons(data) = guard.delta_list.pop().unwrap() {
+                            let (_, h, _) = data.into_inner();
+                            guard.base_time += dur;
+                            handler = Some(h);
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
                 }
+            }
+
+            if let Some(task) = handler {
+                task();
             } else {
                 break;
             }

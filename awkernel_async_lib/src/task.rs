@@ -155,6 +155,21 @@ impl ArcWake for Task {
         awkernel_lib::cpu::wake_cpu(0);
     }
 }
+ 
+#[inline(always)]
+fn drop_task_future(task: &Arc<Task>) {
+    let mut node = MCSNode::new();
+    let Some(mut future) = task.future.try_lock(&mut node) else {
+        return;
+    };
+
+    if future.is_terminated() {
+        return;
+    }
+
+    *future = futures::future::ready(Ok::<(), Cow<'static, str>>(())).boxed().fuse();
+}
+
 
 /// Information of task.
 pub struct TaskInfo {
@@ -844,6 +859,8 @@ pub fn run_main() {
 
                     if matches!(info.state, State::Terminated | State::Panicked) {
                         RUNNING[cpu_id].store(0, Ordering::Relaxed);
+                        drop(info);
+                        drop_task_future(&task);
                         continue;
                     }
 
@@ -927,6 +944,9 @@ pub fn run_main() {
                                 task.clone().wake();
                             }
                         }
+                    } else {
+                        drop(info);
+                        drop_task_future(&task);
                     }
                 }
                 Ok(Poll::Ready(result)) => {
@@ -990,7 +1010,7 @@ pub fn wake(task_id: u32) {
 /// Sets the task state to `Terminated` and removes it from the global task registry.
 /// Any subsequent `wake()` call for this task will be a no-op. If the task was in
 /// `Waiting` state, wakers may still hold `Arc<Task>` references; the `Task` is freed
-/// only after those wakers are dropped — the caller is responsible for deregistering them.
+/// after those references are dropped.
 ///
 /// `Preempted` tasks are not marked `Terminated` immediately because preemption bookkeeping
 /// (`yield_preempted_and_wake_task`) unconditionally rewrites the state to `Preempted`.
@@ -1003,9 +1023,8 @@ pub fn wake(task_id: u32) {
 /// Returns `true` if the task was found and killed, `false` if it was not found or was
 /// already in a terminal state.
 pub fn kill(task_id: u32) -> bool {
-    // Step 1: Clone the Arc out of TASKS, then drop TASKS before acquiring the per-task info lock.
-    // This keeps the TASKS critical section short and avoids lock-order inversions with code paths
-    // that may lock TASKS and then lock task.info (e.g., task::wake()).
+    // Step 1: Clone the Arc out of TASKS, then drop TASKS before touching task.info.
+    // This keeps the TASKS critical section short and avoids nested lock contention.
     let task = {
         let mut node = MCSNode::new();
         let tasks = TASKS.lock(&mut node);
@@ -1045,6 +1064,7 @@ pub fn kill(task_id: u32) -> bool {
     // Tasks::remove() is a BTreeMap::remove, so calling it on a missing key (e.g., if the
     // future completed naturally at the same time) is a no-op.
     // Skipped for State::Preempted (handled above via kill_pending).
+    drop_task_future(&task);
     {
         let mut node = MCSNode::new();
         let mut tasks = TASKS.lock(&mut node);
