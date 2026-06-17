@@ -16,19 +16,17 @@ type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>
 pub async fn run() {
     log::info!("Starting {}.", crate::NETWORK_SERVICE_NAME);
 
-    awkernel_async_lib::spawn(
+    let _ = awkernel_async_lib::spawn(
         GARBAGE_COLLECTOR_NAME.into(),
         tcp_garbage_collector(),
         SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
+    );
 
-    awkernel_async_lib::spawn(
+    let _ = awkernel_async_lib::spawn(
         NETWORK_IF_POLLER_NAME.into(),
         network_interface_poller(),
         SchedulerType::PrioritizedFIFO(0),
-    )
-    .await;
+    );
 
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
@@ -137,12 +135,11 @@ async fn spawn_handlers(
             if_status.device_name,
         );
 
-        awkernel_async_lib::spawn(
-            name.into(),
+        let _ = awkernel_async_lib::spawn(
+        name.into(),
             interrupt_handler(if_status.interface_id, irq, server),
             SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
+    );
     }
 
     if if_status.poll_mode {
@@ -155,12 +152,11 @@ async fn spawn_handlers(
             if_status.device_name,
         );
 
-        awkernel_async_lib::spawn(
-            name.into(),
+        let _ = awkernel_async_lib::spawn(
+        name.into(),
             poll_handler(if_status.interface_id, server),
             SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
+    );
     }
 
     if let Some(tick_msec) = if_status.tick_msec {
@@ -173,12 +169,11 @@ async fn spawn_handlers(
             if_status.device_name,
         );
 
-        awkernel_async_lib::spawn(
-            name.into(),
+        let _ = awkernel_async_lib::spawn(
+        name.into(),
             tick_handler(if_status.interface_id, tick_msec, server),
             SchedulerType::PrioritizedFIFO(0),
-        )
-        .await;
+    );
     }
 }
 
