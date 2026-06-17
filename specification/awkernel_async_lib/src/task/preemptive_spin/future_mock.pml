@@ -9,24 +9,24 @@ inline future(tid,task,ret) {
 		:: wake(tid,1); wake(tid,0);
 		:: wake(tid,0); wake(tid,1);
 		fi
-		future_blocked[2];
-		ret = Ready
+		future_blocked[2] = true;
+		ret = Ready;
 	:: task == 3 -> // 1st Low priority task
 		wake(tid,2);
-		future_blocked[3];
-		ret = Ready
+		future_blocked[3] = true;
+		ret = Ready;
 	:: task == 0 -> // 1st High priority task
 		if
 		:: future_blocked[2] = true; future_blocked[3] = true;
 		:: future_blocked[3] = true; future_blocked[2] = true;
 		fi
-		ret = Ready
+		ret = Ready;
 	:: task == 1 -> // 2nd High priority task
 		if
 		:: future_blocked[2] = true; future_blocked[3] = true;
 		:: future_blocked[3] = true; future_blocked[2] = true;
 		fi
-		ret = Ready
+		ret = Ready;
 	:: else -> assert(false);
 	fi
 }

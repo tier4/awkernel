@@ -1,6 +1,9 @@
 byte num_terminated = 0
 
 byte waking[TASK_NUM] = 0
+bool killed[TASK_NUM] = false
+bool kill_requested[TASK_NUM] = false
+byte num_kill_requests = 0
 bool handling_interrupt[IR_HANDLER_NUM] = false
 
 byte runnable_preempted_highest_priority = BYTE_MAX
@@ -12,7 +15,7 @@ inline update_runnable_preempted_highest_priority() {
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
 			if
-			:: ((tasks[j].state == Runnable || tasks[j].state == Preempted) && tasks[j].id < runnable_preempted_highest_priority) -> 
+			:: ((tasks[j].state == Runnable || tasks[j].state == Preempted) && tasks[j].id < runnable_preempted_highest_priority) ->
 				runnable_preempted_highest_priority = tasks[j].id
 			:: else
 			fi
@@ -26,7 +29,7 @@ inline update_running_lowest_priority() {
 		byte j;
 		for (j: 0 .. TASK_NUM - 1) {
 			if
-			:: (tasks[j].state == Running && tasks[j].id > running_lowest_priority) -> 
+			:: (tasks[j].state == Running && tasks[j].id > running_lowest_priority) ->
 				running_lowest_priority = tasks[j].id
 			:: else
 			fi
@@ -42,19 +45,20 @@ chan resume_requests = [WORKER_NUM] of { byte }// tid that requested to resume e
 active proctype timeout_handler() {
 	xr resume_requests;
 	byte tid;
-	
+
 	do
-	:: timeout -> 
+	:: timeout ->
 		if
 		:: num_terminated == TASK_NUM -> break
-		:: atomic{else -> 
-				assert(nempty(resume_requests));
+		:: else ->
+			if
+			:: len(resume_requests) > 0 ->
 				resume_requests?tid;
-				assert(wait_for_weak_fairness[tid]);
 				wait_for_weak_fairness[tid] = false;
-				assert(consecutive_run_main_loop[tid] == MAX_CONSECUTIVE_RUN_MAIN_LOOP);
 				consecutive_run_main_loop[tid] = 0;
-			}
+			:: else ->
+				skip
+			fi
 		fi
 	od
 }

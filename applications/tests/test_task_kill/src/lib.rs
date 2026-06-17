@@ -121,7 +121,10 @@ async fn kill_preempted_task() {
         SchedulerType::PrioritizedRR(0),
     );
 
-    log::info!("TASK_KILL_TEST kill_preempted_task: step 2 spawned id={}", id);
+    log::info!(
+        "TASK_KILL_TEST kill_preempted_task: step 2 spawned id={}",
+        id
+    );
 
     // Allow the task to run and be preempted at least once.
     sleep(Duration::from_millis(50)).await;

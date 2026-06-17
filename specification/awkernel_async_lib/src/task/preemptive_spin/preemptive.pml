@@ -117,9 +117,9 @@ inline wake(tid,task) {
 			waking[task]--;
 		}
 		unlock(tid,lock_info[task])
-	:: tasks[task].state == Terminated -> 
+	:: tasks[task].state == Terminated || tasks[task].state == Panicked -> 
 		d_step{
-			printf("wake() already terminated: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+			printf("wake() already terminal: tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
 			assert(waking[task] > 0);
 			waking[task]--;
 		}
@@ -136,6 +136,52 @@ inline wake(tid,task) {
 	fi
 }
 
+inline kill_task(tid,task) {
+	bool was_killed;
+	was_killed = false;
+	
+	lock(tid,lock_info[task]);
+	if
+	:: tasks[task].state == Running || tasks[task].state == Runnable || tasks[task].state == Waiting || tasks[task].state == Initialized -> 
+		d_step{
+			printf("kill_task(): direct terminate, tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+			tasks[task].state = Terminated;
+			kill_requested[task] = true;
+			if
+			:: !killed[task] -> 
+				killed[task] = true;
+				num_kill_requests++;
+				num_terminated++;
+			:: else
+			fi
+			was_killed = true;
+		}
+		unlock(tid,lock_info[task])
+	:: tasks[task].state == Preempted -> 
+		d_step{
+			printf("kill_task(): deferred terminate for preempted, tid = %d,task = %d\n",tid,task);
+			tasks[task].kill_pending = true;
+			kill_requested[task] = true;
+			if
+			:: !killed[task] -> 
+				killed[task] = true;
+				num_kill_requests++;
+			:: else
+			fi
+			was_killed = true;
+		}
+		unlock(tid,lock_info[task])
+	:: tasks[task].state == Terminated || tasks[task].state == Panicked -> 
+		d_step{
+			printf("kill_task(): already terminal, tid = %d,task = %d,state = %e\n",tid,task,tasks[task].state);
+			was_killed = false;
+		}
+		unlock(tid,lock_info[task])
+	:: else -> 
+		assert(false)
+	fi
+}
+
 /* awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::get_next()*/ 
 inline get_next_each_scheduler(tid,ret,sched_type) {
 	lock(tid,lock_queue[sched_type]);
@@ -149,7 +195,7 @@ inline get_next_each_scheduler(tid,ret,sched_type) {
 		lock(tid,lock_info[head]);
 		
 		if
-		:: tasks[head].state == Terminated -> 
+		:: tasks[head].state == Terminated || tasks[head].state == Panicked -> 
 			unlock(tid,lock_info[head]);
 			goto start_get_next
 		:: tasks[head].state == Preempted -> 
@@ -300,7 +346,7 @@ inline take_preempt_context(task,ret) {
 * In this model,Worker and InterruptHandler has one-to-one relationship, so tid equals the interrupt handler's id.
 */ 
 proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1) {
-	byte cpu_id_;short cur_task;short hp_task;short next_thread;byte pending_lp_task;
+	byte cpu_id_;short cur_task;short hp_task;short next_thread;byte pending_lp_task;bool found_hp_task;
 	chan moved_preemption_pending = [TASK_NUM] of { byte };
 	
 	do
@@ -314,6 +360,14 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		}
 		
 		cur_task = RUNNING[cpu_id_];
+
+		if
+		:: tasks[hp_task].state == Terminated || tasks[hp_task].state == Panicked ->
+			printf("preemption(): skip terminal pending task = %d,state = %e\n",hp_task,tasks[hp_task].state);
+			remove_from_channel(ipi_requests[cpu_id_],hp_task);
+			goto finish
+		:: else
+		fi
 		
 		if
 		:: d_step{cur_task == - 1 -> 
@@ -342,6 +396,21 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		// If there is a task to be invoked next, execute the task.
 		move_channel(ipi_requests[cpu_id_],moved_preemption_pending);
 		moved_preemption_pending?hp_task;// hp_task may be updated, so the latest hp_task is used.
+		found_hp_task = true;
+		do
+		:: tasks[hp_task].state == Terminated || tasks[hp_task].state == Panicked ->
+			if
+			:: moved_preemption_pending?[hp_task] -> moved_preemption_pending?hp_task
+			:: else ->
+				found_hp_task = false;
+				break
+			fi
+		:: else -> break
+		od
+		if
+		:: !found_hp_task -> goto finish
+		:: else
+		fi
 		d_step {
 			printf("RUNNING[%d] = %d\n",cpu_id_,hp_task);
 			RUNNING[cpu_id_] = hp_task;
@@ -350,29 +419,50 @@ proctype interrupt_handler(byte tid) provided (workers[tid].executing_in != - 1)
 		// Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
 		do
 		:: d_step{moved_preemption_pending?[pending_lp_task] -> 
-			moved_preemption_pending?pending_lp_task;
-			waking[pending_lp_task]++;}
-			wake_task(tid,pending_lp_task)
+			moved_preemption_pending?pending_lp_task;}
+			if
+			:: tasks[pending_lp_task].state == Terminated || tasks[pending_lp_task].state == Panicked -> skip
+			:: else ->
+				waking[pending_lp_task]++;
+				wake_task(tid,pending_lp_task)
+			fi
 		:: else -> break
 		od
 
 		printf("Preemption Occurs: cpu_id = %d,cur_task = %d,hp_task = %d\n",cpu_id_,cur_task,hp_task);
 		lock(tid,lock_info[hp_task]);
 		if
-		:: d_step { tasks[hp_task].thread != - 1 -> take_preempt_context(hp_task,next_thread); }
+		:: tasks[hp_task].state == Terminated || tasks[hp_task].state == Panicked ->
+			unlock(tid,lock_info[hp_task]);
+			goto finish
+		:: tasks[hp_task].thread != - 1 ->
+			take_preempt_context(hp_task,next_thread);
 			unlock(tid,lock_info[hp_task]);
 			yield_preempted_and_wake_task(cur_task,tid,next_thread)
 		:: else -> // Otherwise,get a thread from the thread pool or create a new thread.
 			unlock(tid,lock_info[hp_task]);
 			take_pooled_thread(next_thread);
-			d_step {
-				assert(NEXT_TASK[cpu_id_] == - 1);
-				NEXT_TASK[cpu_id_] = hp_task;
-			}
-			yield_preempted_and_wake_task(cur_task,tid,next_thread)
+			lock(tid,lock_info[hp_task]);
+			if
+			:: tasks[hp_task].state == Terminated || tasks[hp_task].state == Panicked ->
+				d_step {
+					RUNNING[cpu_id_] = cur_task;
+					workers[next_thread].pooled = true;
+				}
+				unlock(tid,lock_info[hp_task]);
+				goto finish
+			:: else ->
+				d_step {
+					assert(NEXT_TASK[cpu_id_] == - 1);
+					NEXT_TASK[cpu_id_] = hp_task;
+				}
+				unlock(tid,lock_info[hp_task]);
+				yield_preempted_and_wake_task(cur_task,tid,next_thread)
+			fi
 		fi
 		
 		finish:
+		skip;
 		atomic {
 			interrupt_enabled[cpu_id(tid)] = true;// iretq
 			workers[tid].interrupted = false
@@ -467,25 +557,43 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 	if
 	:: d_step{poll_result == Pending -> 
 		printf("result_future Pending: tid = %d,task = %d\n",tid,task);}
-		d_step {
-			tasks[task].state = Waiting;
-			update_running_lowest_priority();
-		}
-		
 		if
-		:: tasks[task].need_sched -> 
-			tasks[task].need_sched = false;
+		:: tasks[task].state == Terminated || tasks[task].state == Panicked -> 
 			unlock(tid,lock_info[task]);
-			wake(tid,task);
 			goto start
-		:: else
+		:: tasks[task].kill_pending -> 
+			d_step {
+				printf("result_future Pending with kill_pending: tid = %d,task = %d\n",tid,task);
+				tasks[task].state = Terminated;
+				tasks[task].kill_pending = false;
+				update_running_lowest_priority();
+				num_terminated++;
+			}
+			unlock(tid,lock_info[task]);
+			goto start
+		:: else -> 
+			d_step {
+				printf("result_future Pending: tid = %d,task = %d\n",tid,task);
+				tasks[task].state = Waiting;
+				update_running_lowest_priority();
+			}
+			
+			if
+			:: tasks[task].need_sched -> 
+				tasks[task].need_sched = false;
+				unlock(tid,lock_info[task]);
+				wake(tid,task);
+				goto start
+			:: else
+			fi
 		fi
 	:: d_step{poll_result == Ready -> 
 		printf("result_future Ready: tid = %d,task = %d\n",tid,task);}
 		if
-		:: tasks[task].state != Terminated -> 
+		:: tasks[task].state == Terminated || tasks[task].state == Panicked ->
+			skip
+		:: else ->
 			num_terminated++
-		:: else -> assert(false)
 		fi
 		
 		d_step {
@@ -503,8 +611,20 @@ proctype run_main(byte tid) provided (workers[tid].executing_in != - 1 && !worke
 }
 
 
+proctype killer(byte tid) {
+	byte target;
+	if
+	:: target = 0
+	:: target = 1
+	:: target = 2
+	:: target = 3
+	fi
+	kill_task(tid,target);
+}
+
 init {
 	byte i;
+	run killer(0);
 	
 	for (i: 0 .. TASK_NUM - 1) {
 		tasks[i].id = i;

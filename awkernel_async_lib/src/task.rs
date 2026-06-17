@@ -155,7 +155,7 @@ impl ArcWake for Task {
         awkernel_lib::cpu::wake_cpu(0);
     }
 }
- 
+
 #[inline(always)]
 fn drop_task_future(task: &Arc<Task>) {
     let mut node = MCSNode::new();
@@ -167,9 +167,10 @@ fn drop_task_future(task: &Arc<Task>) {
         return;
     }
 
-    *future = futures::future::ready(Ok::<(), Cow<'static, str>>(())).boxed().fuse();
+    *future = futures::future::ready(Ok::<(), Cow<'static, str>>(()))
+        .boxed()
+        .fuse();
 }
-
 
 /// Information of task.
 pub struct TaskInfo {

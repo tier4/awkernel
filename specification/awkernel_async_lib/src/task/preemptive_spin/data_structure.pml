@@ -7,7 +7,7 @@ typedef Worker {
 
 Worker workers[WORKER_NUM]
 
-mtype = { Initialized,Runnable,Running,Waiting,Terminated,Pending,Preempted }// Panic is not considered.
+mtype = { Initialized,Runnable,Running,Waiting,Terminated,Pending,Preempted,Panicked,Ready }
 
 /* awkernel_async_lib::task::TaskInfo */
 typedef TaskInfo {
@@ -16,6 +16,7 @@ typedef TaskInfo {
 	bool need_sched = false;
 	byte id;// This also represents the priority of the task. The lower the value,the higher the priority.
 	bool need_preemption = false;
+	bool kill_pending = false;
 	short thread = - 1;// tid when this task is preempted, -1 otherwise.
 }
 
