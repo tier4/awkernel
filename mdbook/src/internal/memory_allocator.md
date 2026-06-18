@@ -113,9 +113,8 @@ The following functions initialize the memory regions of the primary and backup 
 
 The `wf_alloc` backend maps each CPU id directly to a per-CPU token and must know the
 number of CPUs that can use the heap concurrently (`active_threads`) at initialization time,
-because it sizes its metadata region from that count. If the count is `0`, `wf_alloc`'s
-`init` bails out and the heap is left uninitialized. The TLSF backend ignores the count.
-
+because it sizes its metadata region from that count. If the count is `0`, allocator
+initialization fails and the kernel halts during heap setup. The TLSF backend ignores the count.
 The bare `init_primary` / `init_backup` read this count from `cpu::num_cpu()` internally, so
 they only behave correctly after the active CPU count has been established. On x86_64 the
 heap is initialized before that count is set (so `cpu::num_cpu()` would return `0`); the boot
