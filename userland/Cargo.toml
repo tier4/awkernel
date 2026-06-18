@@ -14,6 +14,10 @@ path = "../awkernel_async_lib"
 [dependencies.awkernel_services]
 path = "../applications/awkernel_services"
 
+[dependencies.autoware]
+path = "../applications/autoware"
+optional = true
+
 [dependencies.rd_gen_to_dags]
 path = "../applications/rd_gen_to_dags"
 optional = true
@@ -74,12 +78,17 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
+[dependencies.test_partitioned_edf]
+path = "../applications/tests/test_partitioned_edf"
+optional = true
+
 [features]
 default = []
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
 rd_gen_to_dags = ["dep:rd_gen_to_dags"]
+autoware = ["dep:autoware"]
 
 # Test applications
 test_network = ["dep:test_network"]
@@ -94,3 +103,4 @@ test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_dag = ["dep:test_dag"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
+test_partitioned_edf = ["dep:test_partitioned_edf"]
