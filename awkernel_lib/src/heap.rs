@@ -94,7 +94,7 @@ type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
 use crate::{
-    console::unsafe_puts,
+    console::{unsafe_print_hex_u64, unsafe_puts},
     cpu::{self, NUM_MAX_CPU},
     delay,
 };
@@ -471,7 +471,9 @@ mod tlsf_backend {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod wf_alloc_backend {
-    use super::{cpu, HeapBackend, Layout, NUM_MAX_CPU};
+    use super::{
+        cpu, delay, unsafe_print_hex_u64, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU,
+    };
     use crate::interrupt::InterruptGuard;
     use core::{
         cell::UnsafeCell,
@@ -590,7 +592,19 @@ mod wf_alloc_backend {
             let _interrupt_guard = InterruptGuard::new();
             let cpu_id = cpu::cpu_id();
             if cpu_id >= allocator.active_threads() {
-                return;
+                // A CPU outside the configured `active_threads` range is freeing a
+                // block. Silently dropping it would permanently leak the block, so we
+                // fail loudly. We halt instead of `panic!` because the panic handler
+                // allocates, which would re-enter this same out-of-range guard on this
+                // CPU.
+                unsafe {
+                    unsafe_puts("wf_alloc dealloc: cpu_id out of range (cpu_id=0x");
+                    unsafe_print_hex_u64(cpu_id as u64);
+                    unsafe_puts(", active_threads=0x");
+                    unsafe_print_hex_u64(allocator.active_threads() as u64);
+                    unsafe_puts(") -- heap misconfigured; aborting...\r\n");
+                }
+                delay::wait_forever();
             }
             let token = unsafe { allocator.registry.token_from_raw(cpu_id) };
             unsafe { allocator.dealloc_with_token(ptr, layout, token) };
