@@ -81,10 +81,10 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Initialize ACPI.
-/// 5. Initialize the backup heap memory allocator.
-/// 6. Enable logger.
-/// 7. Get offset address to physical memory.
+/// 4. Get offset address to physical memory.
+/// 5. Initialize ACPI.
+/// 6. Initialize the backup heap memory allocator.
+/// 7. Enable logger.
 /// 8. Get NUMA information.
 /// 9. Initialize stack memory regions for non-primary CPUs.
 /// 10. Initialize `awkernel_lib`.
@@ -116,13 +116,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
+    // 4. Get offset address to physical memory.
+    // Fetched once here (ACPI initialization below needs it) and passed into
+    // `kernel_main2` so the offset is read exactly once.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
         unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
         wait_forever();
     };
     let offset = *offset;
 
-    // 4. Initialize ACPI.
+    // 5. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -133,7 +136,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let early_num_cpu = detect_num_cpus(&acpi).unwrap_or(1);
 
-    // 5. Initialize the backup heap memory allocator.
+    // 6. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table, early_num_cpu);
 
@@ -145,6 +148,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             backup_region,
             backup_next_frame,
             acpi,
+            offset,
         )
     });
 
@@ -172,8 +176,9 @@ fn kernel_main2(
     backup_region: MemoryRegion,
     backup_next_frame: Option<PhysFrame>,
     acpi: AcpiTables<AcpiMapper>,
+    offset: u64,
 ) {
-    // 6. Enable logger.
+    // 7. Enable logger.
     super::console::register_console();
 
     log::info!(
@@ -182,13 +187,7 @@ fn kernel_main2(
         backup_pages * PAGESIZE / 1024 / 1024
     );
 
-    // 7. Get offset address to physical memory.
-    let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
-        unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
-        wait_forever();
-    };
-    let offset = *offset;
-
+    // The physical memory offset is read once in `kernel_main` (step 4) and passed in.
     log::info!("Physical memory offset: 0x{offset:x}");
 
     // 8. Get NUMA information.
