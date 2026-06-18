@@ -140,3 +140,95 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     // omitted
 }
 ```
+
+## RISC-V 32-bit (RV32)
+
+For RISC-V 32-bit, the primary and backup allocators are initialized
+in `primary_hart` function defined in
+[kernel/src/arch/rv32/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv32/kernel_main.rs) as follows.
+
+**Unlike x86_64 and AArch64, RISC-V initializes heap allocators BEFORE setting up virtual memory.**
+This is because the page table allocation itself requires heap memory.
+The initialization order is:
+1. Initialize heap allocators (lines 89-92)
+2. Initialize page allocator (line 123)
+3. Initialize and activate virtual memory (lines 126-129)
+
+```rust
+unsafe fn primary_hart(hartid: usize) {
+    // omitted
+
+    // setup the VM
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = HEAP_SIZE;
+
+    // enable heap allocator
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    // omitted
+
+    // Initialize memory management (page allocator)
+    awkernel_lib::arch::rv32::init_page_allocator();
+
+    // Initialize virtual memory system
+    awkernel_lib::arch::rv32::init_kernel_space();
+
+    // Activate virtual memory (enable MMU and page tables)
+    awkernel_lib::arch::rv32::activate_kernel_space();
+
+    // omitted
+}
+```
+
+## RISC-V 64-bit (RV64)
+
+For RISC-V 64-bit, the primary and backup allocators are initialized
+in `init_heap_allocation` function defined in
+[kernel/src/arch/rv64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs) as follows.
+
+**Like RV32, RV64 also initializes heap allocators BEFORE setting up virtual memory,**
+as stated in the comment "Setup heap allocation FIRST - page tables need this!"
+The initialization order in `primary_hart` function is:
+1. Initialize UART for early debugging (line 241)
+2. Setup heap allocation (line 244, calling `init_heap_allocation()`)
+3. Initialize memory management including page allocator and virtual memory (line 247, calling `init_memory_management()`)
+4. Initialize architecture-specific features, console, timer, and interrupts
+
+RV64 has additional unique features:
+- Uses the `ekernel` symbol to determine heap start address dynamically
+- Implements dynamic heap sizing with `get_heap_size()` based on available memory
+- Has fallback logic for minimal heap configuration (64MB) when memory is limited
+
+```rust
+unsafe fn init_heap_allocation() {
+    // omitted
+
+    extern "C" {
+        fn ekernel();
+    }
+
+    let heap_start = (ekernel as usize + 0xfff) & !0xfff; // Align to 4K
+    let backup_size = BACKUP_HEAP_SIZE;
+    let total_heap_size = awkernel_lib::arch::rv64::get_heap_size();
+
+    if total_heap_size <= backup_size {
+        // Use minimal heap if not enough memory
+        let primary_size = 64 * 1024 * 1024; // 64MB minimum
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    } else {
+        // Use dynamic calculation
+        let primary_size = total_heap_size - backup_size;
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    }
+
+    heap::TALLOC.use_primary_then_backup();
+
+    // omitted
+}
+```
