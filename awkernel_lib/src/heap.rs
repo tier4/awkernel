@@ -312,6 +312,26 @@ impl Talloc {
         self.init_primary_with_num_cpu(primary_start, primary_size, cpu::num_cpu());
     }
 
+    /// The `primary_start` / `primary_size` stores below use `Relaxed`, and the matching
+    /// loads in [`Self::is_primary_mem`] are also `Relaxed`. This is sound only because
+    /// the caller must complete heap initialization *before* the allocator is shared with
+    /// any other CPU (the same single-init contract documented on
+    /// [`HeapBackend::init`]): init must happen-before any concurrent allocation /
+    /// deallocation. Given that ordering, no other CPU can observe the brief window
+    /// between the two stores (e.g. "new `primary_start`, old `primary_size == 0`"), so it
+    /// cannot misroute a primary-owned deallocation to the backup allocator.
+    ///
+    /// The kernel establishes this happens-before edge at boot, with the BSP running all
+    /// heap init while the APs are still parked and then publishing a "ready" flag that
+    /// each AP observes before its first allocation:
+    /// - on x86_64, the BSP publishes `BSP_READY` with a release store and each AP executes
+    ///   an acquire fence after observing it;
+    /// - on aarch64, the BSP publishes `PRIMARY_INITIALIZED` with a `SeqCst` store and each
+    ///   AP spins on a `SeqCst` load of it before proceeding.
+    ///
+    /// Either edge makes these `Relaxed` stores visible to the APs. Two separate atomics
+    /// could not be made to update atomically by stronger orderings anyway; it is this
+    /// init-before-sharing contract — not the per-atomic ordering — that provides safety.
     pub fn init_primary_with_num_cpu(
         &self,
         primary_start: usize,
@@ -339,6 +359,9 @@ impl Talloc {
         self.init_backup_with_num_cpu(backup_start, backup_size, cpu::num_cpu());
     }
 
+    /// The `Relaxed` stores are sound for the same reason as in
+    /// [`Self::init_primary_with_num_cpu`]: init must happen-before any concurrent
+    /// allocation, so no other CPU observes a partially-updated start/size pair.
     pub fn init_backup_with_num_cpu(
         &self,
         backup_start: usize,
@@ -446,6 +469,14 @@ impl Talloc {
         (val & (1 << cpu_id)) != 0
     }
 
+    /// Returns whether `ptr` lies within the primary heap region, which is how `dealloc`
+    /// decides between the primary and backup allocators.
+    ///
+    /// The two `Relaxed` loads are sound because `primary_start` / `primary_size` are
+    /// written once during heap initialization, which must happen-before the allocator is
+    /// shared with any other CPU (see [`Self::init_primary_with_num_cpu`]). After that
+    /// edge the pair is stable, so this never observes a partially-updated
+    /// `start` / `size` and never misroutes a primary-owned deallocation to the backup.
     #[inline]
     pub fn is_primary_mem(&self, ptr: *mut u8) -> bool {
         let addr = ptr as usize;
