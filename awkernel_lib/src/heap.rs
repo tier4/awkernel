@@ -164,6 +164,9 @@ pub unsafe fn init_backup_with_num_cpu(backup_start: usize, backup_size: usize, 
     TALLOC.init_backup_with_num_cpu(backup_start, backup_size, num_cpu);
 }
 
+#[cfg(all(feature = "heap-tlsf", feature = "heap-wf-alloc"))]
+compile_error!("`heap-tlsf` and `heap-wf-alloc` are mutually exclusive; enable only one");
+
 #[cfg(all(
     feature = "heap-wf-alloc",
     not(any(target_arch = "x86_64", target_arch = "aarch64"))
