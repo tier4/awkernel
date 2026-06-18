@@ -471,9 +471,7 @@ mod tlsf_backend {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod wf_alloc_backend {
-    use super::{
-        cpu, delay, unsafe_print_hex_u64, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU,
-    };
+    use super::{cpu, delay, unsafe_print_hex_u64, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU};
     use crate::interrupt::InterruptGuard;
     use core::{
         cell::UnsafeCell,
