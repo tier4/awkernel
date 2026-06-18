@@ -522,6 +522,7 @@ mod tlsf_backend {
 mod wf_alloc_backend {
     use super::{cpu, delay, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU};
     use crate::console::unsafe_print_hex_u64;
+    use crate::heap_util::align_up;
     use crate::interrupt::InterruptGuard;
     use core::{
         cell::UnsafeCell,
@@ -663,12 +664,5 @@ mod wf_alloc_backend {
             let token = unsafe { allocator.registry.token_from_raw(cpu_id) };
             unsafe { allocator.dealloc_with_token(ptr, layout, token) };
         }
-    }
-
-    fn align_up(value: usize, align: usize) -> Option<usize> {
-        debug_assert!(align.is_power_of_two());
-        value
-            .checked_add(align - 1)
-            .map(|value| value & !(align - 1))
     }
 }
