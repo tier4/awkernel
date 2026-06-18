@@ -94,7 +94,7 @@ type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
 use crate::{
-    console::{unsafe_print_hex_u64, unsafe_puts},
+    console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
     delay,
 };
@@ -183,6 +183,19 @@ type Allocator = wf_alloc_backend::WfAllocBackend;
 type Allocator = tlsf_backend::TlsfBackend;
 
 trait HeapBackend {
+    /// # Safety
+    ///
+    /// The caller must guarantee that `init` is called exactly once, on a single
+    /// thread, and before the allocator becomes reachable by any other CPU (i.e.
+    /// before any `alloc` / `dealloc` can run concurrently).
+    ///
+    /// Backends are accessed through `&self` and are `Sync`, so the type does not
+    /// prevent concurrent callers, and the `initialized` fast-path inside an
+    /// implementation is *not* mutual exclusion. If two CPUs call `init`
+    /// concurrently they can both observe the uninitialized state and both write
+    /// the backing storage, which is undefined behavior. The kernel satisfies this
+    /// contract by initializing the heap during single-threaded boot, before the
+    /// secondary CPUs (APs) are started.
     unsafe fn init(&self, heap_start: usize, heap_size: usize, active_threads: usize);
 
     unsafe fn alloc(&self, layout: Layout) -> *mut u8;
@@ -471,7 +484,8 @@ mod tlsf_backend {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod wf_alloc_backend {
-    use super::{cpu, delay, unsafe_print_hex_u64, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU};
+    use super::{cpu, delay, unsafe_puts, HeapBackend, Layout, NUM_MAX_CPU};
+    use crate::console::unsafe_print_hex_u64;
     use crate::interrupt::InterruptGuard;
     use core::{
         cell::UnsafeCell,
