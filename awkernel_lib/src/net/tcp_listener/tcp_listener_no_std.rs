@@ -31,15 +31,13 @@ impl SockTcpListener<TcpStream> for TcpListener {
         tx_buffer_size: usize,
         backlogs: usize,
     ) -> Result<TcpListener, NetManagerError> {
-        // Find the interface that has the specified address.
-        let if_net = {
+        // Validate the interface exists before claiming a port.
+        {
             let net_manager = NET_MANAGER.read();
-            net_manager
-                .interfaces
-                .get(&interface_id)
-                .ok_or(NetManagerError::InvalidInterfaceID)?
-                .clone()
-        };
+            if !net_manager.interfaces.contains_key(&interface_id) {
+                return Err(NetManagerError::InvalidInterfaceID);
+            }
+        }
 
         let port = if let Some(port) = port {
             if port == 0 {
@@ -67,16 +65,25 @@ impl SockTcpListener<TcpStream> for TcpListener {
                 .ok_or(NetManagerError::NoAvailablePort)?
         };
 
-        let mut handles = Vec::new();
+        // Add the listening sockets while holding the read lock, so that a concurrent
+        // interface removal (which takes the write lock) cannot orphan them.
+        // If the interface is gone, `port` (TcpPort) frees the port on the early return.
+        let handles = {
+            let net_manager = NET_MANAGER.read();
+            let if_net = net_manager
+                .interfaces
+                .get(&interface_id)
+                .ok_or(NetManagerError::InvalidInterfaceID)?;
 
-        for _ in 0..backlogs {
-            // Create a TCP socket.
-            let socket = create_listen_socket(addr, port.port(), rx_buffer_size, tx_buffer_size);
-
-            let handle = if_net.socket_set.write().add(socket);
-
-            handles.push(handle);
-        }
+            let mut handles = Vec::new();
+            for _ in 0..backlogs {
+                // Create a TCP socket.
+                let socket =
+                    create_listen_socket(addr, port.port(), rx_buffer_size, tx_buffer_size);
+                handles.push(if_net.socket_set.write().add(socket));
+            }
+            handles
+        };
 
         Ok(TcpListener {
             handles,

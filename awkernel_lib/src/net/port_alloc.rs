@@ -6,6 +6,30 @@ use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::tcp::TcpPort;
 
+/// RAII handle for a claimed UDP port. Frees the port from [`PORT_ALLOC`] on drop,
+/// so the port is released on any error path between claiming it and constructing
+/// the owning socket.
+pub(super) struct UdpPort {
+    port: u16,
+    is_ipv4: bool,
+}
+
+impl UdpPort {
+    pub(super) fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for UdpPort {
+    fn drop(&mut self) {
+        if self.is_ipv4 {
+            PORT_ALLOC.free_udp_ipv4(self.port);
+        } else {
+            PORT_ALLOC.free_udp_ipv6(self.port);
+        }
+    }
+}
+
 struct TcpPortsInner {
     map: BTreeMap<u16, u64>,
     cursor: u16,
@@ -158,7 +182,7 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral UDP IPv4 port.
-    pub(super) fn get_ephemeral_udp_ipv4(&self) -> Option<u16> {
+    pub(super) fn get_ephemeral_udp_ipv4(&self) -> Option<UdpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv4.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
@@ -169,17 +193,27 @@ impl PortAllocator {
                 ports.cursor
             };
             if ports.set.insert(port) {
-                return Some(port);
+                return Some(UdpPort {
+                    port,
+                    is_ipv4: true,
+                });
             }
         }
         None
     }
 
-    /// Claim a specific UDP IPv4 port. Returns `false` if the port is already in use.
-    pub(super) fn try_claim_udp_ipv4(&self, port: u16) -> bool {
+    /// Claim a specific UDP IPv4 port. Returns `None` if the port is already in use.
+    pub(super) fn try_claim_udp_ipv4(&self, port: u16) -> Option<UdpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv4.lock(&mut node);
-        ports.set.insert(port)
+        if ports.set.insert(port) {
+            Some(UdpPort {
+                port,
+                is_ipv4: true,
+            })
+        } else {
+            None
+        }
     }
 
     /// Free a UDP IPv4 port.
@@ -190,7 +224,7 @@ impl PortAllocator {
     }
 
     /// Allocate an ephemeral UDP IPv6 port.
-    pub(super) fn get_ephemeral_udp_ipv6(&self) -> Option<u16> {
+    pub(super) fn get_ephemeral_udp_ipv6(&self) -> Option<UdpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv6.lock(&mut node);
         for _ in 0..(u16::MAX >> 2) {
@@ -201,17 +235,27 @@ impl PortAllocator {
                 ports.cursor
             };
             if ports.set.insert(port) {
-                return Some(port);
+                return Some(UdpPort {
+                    port,
+                    is_ipv4: false,
+                });
             }
         }
         None
     }
 
-    /// Claim a specific UDP IPv6 port. Returns `false` if the port is already in use.
-    pub(super) fn try_claim_udp_ipv6(&self, port: u16) -> bool {
+    /// Claim a specific UDP IPv6 port. Returns `None` if the port is already in use.
+    pub(super) fn try_claim_udp_ipv6(&self, port: u16) -> Option<UdpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.udp_ipv6.lock(&mut node);
-        ports.set.insert(port)
+        if ports.set.insert(port) {
+            Some(UdpPort {
+                port,
+                is_ipv4: false,
+            })
+        } else {
+            None
+        }
     }
 
     /// Free a UDP IPv6 port.

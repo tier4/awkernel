@@ -1,6 +1,10 @@
 use core::net::Ipv4Addr;
 
-use crate::net::{ip_addr::IpAddr, port_alloc::PORT_ALLOC, NET_MANAGER};
+use crate::net::{
+    ip_addr::IpAddr,
+    port_alloc::{UdpPort, PORT_ALLOC},
+    NET_MANAGER,
+};
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{NetManagerError, SockUdp};
@@ -19,8 +23,9 @@ pub struct UdpSocket {
     handle: smoltcp::iface::SocketHandle,
     interface_id: u64,
     addr: IpAddr,
-    port: u16,
-    is_ipv4: bool,
+    // Held only to free the port via its `Drop` impl when the socket is dropped.
+    #[allow(dead_code)]
+    udp_port: UdpPort,
     joined_multicast_addr_v4: BTreeSet<Ipv4Addr>,
 }
 
@@ -32,50 +37,43 @@ impl super::SockUdp for UdpSocket {
         rx_buffer_size: usize,
         tx_buffer_size: usize,
     ) -> Result<Self, NetManagerError> {
-        // Find the interface that has the specified address.
-        let if_net = {
+        // Validate the interface exists before claiming a port or allocating buffers.
+        {
             let net_manager = NET_MANAGER.read();
-            net_manager
-                .interfaces
-                .get(&interface_id)
-                .ok_or(NetManagerError::InvalidInterfaceID)?
-                .clone()
-        };
+            if !net_manager.interfaces.contains_key(&interface_id) {
+                return Err(NetManagerError::InvalidInterfaceID);
+            }
+        }
 
-        let is_ipv4;
-        let port = if let Some(port) = port {
+        // Claim the port. `udp_port` is RAII: it frees the port on any early return below.
+        let udp_port = if let Some(port) = port {
             if port == 0 {
                 return Err(NetManagerError::InvalidPort);
             }
 
             // Check if the specified port is available and claim it atomically.
             if addr.is_ipv4() {
-                if !PORT_ALLOC.try_claim_udp_ipv4(port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-                is_ipv4 = true;
-                port
+                PORT_ALLOC
+                    .try_claim_udp_ipv4(port)
+                    .ok_or(NetManagerError::PortInUse)?
             } else {
-                if !PORT_ALLOC.try_claim_udp_ipv6(port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-                is_ipv4 = false;
-                port
+                PORT_ALLOC
+                    .try_claim_udp_ipv6(port)
+                    .ok_or(NetManagerError::PortInUse)?
             }
         } else {
             // Find an ephemeral port.
             if addr.is_ipv4() {
-                is_ipv4 = true;
                 PORT_ALLOC
                     .get_ephemeral_udp_ipv4()
                     .ok_or(NetManagerError::PortInUse)?
             } else {
-                is_ipv4 = false;
                 PORT_ALLOC
                     .get_ephemeral_udp_ipv6()
                     .ok_or(NetManagerError::PortInUse)?
             }
         };
+        let port = udp_port.port();
 
         // Create a UDP socket.
         use smoltcp::socket::udp;
@@ -110,15 +108,23 @@ impl super::SockUdp for UdpSocket {
             }
         }
 
-        // Add the socket to the interface.
-        let handle = if_net.socket_set.write().add(socket);
+        // Add the socket to the interface while holding the read lock, so that a
+        // concurrent interface removal (which takes the write lock) cannot orphan it.
+        let handle = {
+            let net_manager = NET_MANAGER.read();
+            let if_net = net_manager
+                .interfaces
+                .get(&interface_id)
+                .ok_or(NetManagerError::InvalidInterfaceID)?;
+            let handle = if_net.socket_set.write().add(socket);
+            handle
+        };
 
         Ok(UdpSocket {
             handle,
             interface_id,
             addr: addr.clone(),
-            port,
-            is_ipv4,
+            udp_port,
             joined_multicast_addr_v4: Default::default(),
         })
     }
@@ -333,10 +339,6 @@ impl Drop for UdpSocket {
             }
         }
 
-        if self.is_ipv4 {
-            PORT_ALLOC.free_udp_ipv4(self.port);
-        } else {
-            PORT_ALLOC.free_udp_ipv6(self.port);
-        }
+        // `self.udp_port` (UdpPort) frees the port via its Drop impl.
     }
 }
