@@ -196,7 +196,15 @@ trait HeapBackend {
     /// the backing storage, which is undefined behavior. The kernel satisfies this
     /// contract by initializing the heap during single-threaded boot, before the
     /// secondary CPUs (APs) are started.
-    unsafe fn init(&self, heap_start: usize, heap_size: usize, active_threads: usize);
+    ///
+    /// Returns `Err(reason)` if the backend could not be initialized, so the caller
+    /// can fail loudly instead of leaving a silently half-initialized heap.
+    unsafe fn init(
+        &self,
+        heap_start: usize,
+        heap_size: usize,
+        active_threads: usize,
+    ) -> Result<(), &'static str>;
 
     unsafe fn alloc(&self, layout: Layout) -> *mut u8;
 
@@ -310,7 +318,18 @@ impl Talloc {
         self.primary_start.store(primary_start, Ordering::Relaxed);
         self.primary_size.store(primary_size, Ordering::Relaxed);
 
-        unsafe { self.primary.init(primary_start, primary_size, num_cpu) };
+        if let Err(reason) = unsafe { self.primary.init(primary_start, primary_size, num_cpu) } {
+            // Fail loudly: a half-initialized heap would otherwise surface much later
+            // as an opaque allocation failure, after the boot log already claimed the
+            // heap was up. We print and halt (rather than `panic!`) because the panic
+            // handler itself allocates, which cannot work while the heap is not up.
+            unsafe {
+                unsafe_puts("primary heap init failed: ");
+                unsafe_puts(reason);
+                unsafe_puts("\r\n");
+            }
+            delay::wait_forever();
+        }
     }
 
     pub fn init_backup(&self, backup_start: usize, backup_size: usize) {
@@ -326,7 +345,15 @@ impl Talloc {
         self.backup_start.store(backup_start, Ordering::Relaxed);
         self.backup_size.store(backup_size, Ordering::Relaxed);
 
-        unsafe { self.backup.init(backup_start, backup_size, num_cpu) };
+        if let Err(reason) = unsafe { self.backup.init(backup_start, backup_size, num_cpu) } {
+            // See `init_primary_with_num_cpu` for why we print and halt here.
+            unsafe {
+                unsafe_puts("backup heap init failed: ");
+                unsafe_puts(reason);
+                unsafe_puts("\r\n");
+            }
+            delay::wait_forever();
+        }
     }
 
     #[inline(always)]
@@ -447,10 +474,16 @@ mod tlsf_backend {
     }
 
     impl HeapBackend for TlsfBackend {
-        unsafe fn init(&self, heap_start: usize, heap_size: usize, _active_threads: usize) {
+        unsafe fn init(
+            &self,
+            heap_start: usize,
+            heap_size: usize,
+            _active_threads: usize,
+        ) -> Result<(), &'static str> {
             let mut node = MCSNode::new();
             let mut guard = self.0.lock(&mut node);
             unsafe { init_heap(&mut guard, heap_start, heap_size) };
+            Ok(())
         }
 
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -522,50 +555,55 @@ mod wf_alloc_backend {
     }
 
     impl HeapBackend for WfAllocBackend {
-        unsafe fn init(&self, heap_start: usize, heap_size: usize, active_threads: usize) {
+        unsafe fn init(
+            &self,
+            heap_start: usize,
+            heap_size: usize,
+            active_threads: usize,
+        ) -> Result<(), &'static str> {
             if self.initialized.load(Ordering::Acquire) {
-                return;
+                return Ok(());
             }
 
             let Some(metadata_start) = align_up(heap_start, WfAlloc::metadata_region_align())
             else {
-                return;
+                return Err("metadata region alignment overflowed");
             };
             let Some(metadata_offset) = metadata_start.checked_sub(heap_start) else {
-                return;
+                return Err("metadata start is below heap start");
             };
             if metadata_offset >= heap_size {
-                return;
+                return Err("heap is too small to align the metadata region");
             }
 
             if active_threads == 0 || active_threads > NUM_MAX_CPU {
-                return;
+                return Err("active_threads is zero or exceeds NUM_MAX_CPU");
             }
 
             let metadata_len = heap_size - metadata_offset;
             let Some(required_metadata_len) = WfAlloc::metadata_region_size(active_threads) else {
-                return;
+                return Err("metadata region size overflowed");
             };
             if required_metadata_len > metadata_len {
-                return;
+                return Err("heap is too small for the metadata region");
             }
 
             let Some(after_metadata) = metadata_start.checked_add(required_metadata_len) else {
-                return;
+                return Err("metadata region end overflowed");
             };
             let Some(region_start) = align_up(after_metadata, wf_alloc::SPAN_ALIGN) else {
-                return;
+                return Err("span region alignment overflowed");
             };
             let Some(region_offset) = region_start.checked_sub(heap_start) else {
-                return;
+                return Err("span region start is below heap start");
             };
             if region_offset >= heap_size {
-                return;
+                return Err("heap is too small for the span region");
             }
 
             let region_len = heap_size - region_offset;
             if region_len < wf_alloc::SPAN_SIZE {
-                return;
+                return Err("heap is too small for a single span");
             }
 
             let Some((allocator, _metadata_used)) = (unsafe {
@@ -575,13 +613,14 @@ mod wf_alloc_backend {
                     required_metadata_len,
                 )
             }) else {
-                return;
+                return Err("WfAlloc::from_metadata_region failed");
             };
 
             unsafe { (*self.state.get()).write(allocator) };
             let allocator = unsafe { (&*self.state.get()).assume_init_ref() };
             unsafe { allocator.init(region_start as *mut u8, region_len) };
             self.initialized.store(true, Ordering::Release);
+            Ok(())
         }
 
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
