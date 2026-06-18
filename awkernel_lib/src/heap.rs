@@ -32,9 +32,14 @@
 //!
 //! CPU IDs are mapped directly to `wf_alloc` tokens, so allocation/deallocation
 //! is done with `InterruptGuard` and `alloc_with_token` / `dealloc_with_token`.
+//!
 //! If `wf_alloc` cannot be initialized, its allocator stays uninitialized and
-//! all alloc calls return `null`, so `Talloc` falls back to its existing OOM
-//! behavior.
+//! every allocation returns `null`. There is no graceful, `alloc_error_handler`-style
+//! recovery: when `Talloc::alloc` observes the `null`, the primary path calls
+//! `panic!()`, and the non-primary path prints an error via `unsafe_puts` and then
+//! halts in `delay::wait_forever()`. In other words, a failed `wf_alloc`
+//! initialization means the kernel does not boot (or every userland allocation
+//! panics), rather than falling back to some other OOM behavior.
 //!
 //! # Limitation
 //!
@@ -114,6 +119,15 @@ pub static TALLOC: Talloc = Talloc::new();
 /// # Safety
 ///
 /// This must be called at initialization.
+///
+/// This wrapper reads the active CPU count internally via `cpu::num_cpu()`, so it
+/// must only be called after that count has been established (i.e. after
+/// `set_num_cpu()`). For the `wf_alloc` backend the count becomes the allocator's
+/// `active_threads`; if `cpu::num_cpu()` returns `0` (for example on x86_64, where
+/// the heap is initialized before `set_num_cpu()` runs), `WfAllocBackend::init`
+/// silently bails out at its `active_threads == 0` check and the heap is left
+/// uninitialized. Callers that initialize the heap before the CPU count is known
+/// must use [`init_primary_with_num_cpu`] with an explicit count instead.
 pub unsafe fn init_primary(primary_start: usize, primary_size: usize) {
     TALLOC.init_primary(primary_start, primary_size);
 }
@@ -129,6 +143,15 @@ pub unsafe fn init_primary_with_num_cpu(primary_start: usize, primary_size: usiz
 /// # Safety
 ///
 /// This must be called at initialization.
+///
+/// This wrapper reads the active CPU count internally via `cpu::num_cpu()`, so it
+/// must only be called after that count has been established (i.e. after
+/// `set_num_cpu()`). For the `wf_alloc` backend the count becomes the allocator's
+/// `active_threads`; if `cpu::num_cpu()` returns `0` (for example on x86_64, where
+/// the heap is initialized before `set_num_cpu()` runs), `WfAllocBackend::init`
+/// silently bails out at its `active_threads == 0` check and the heap is left
+/// uninitialized. Callers that initialize the heap before the CPU count is known
+/// must use [`init_backup_with_num_cpu`] with an explicit count instead.
 pub unsafe fn init_backup(backup_start: usize, backup_size: usize) {
     TALLOC.init_backup(backup_start, backup_size);
 }
