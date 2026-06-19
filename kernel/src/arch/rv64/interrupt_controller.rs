@@ -1,5 +1,7 @@
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use awkernel_lib::interrupt::InterruptController;
+use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -32,6 +34,20 @@ const MAX_HARTS: usize = awkernel_lib::cpu::NUM_MAX_CPU;
 /// records the logical IRQ (e.g. PREEMPT_IRQ vs WAKEUP_IRQ) here before raising
 /// MSIP, and `pending_irqs()` on the target hart drains it.
 static LOCAL_PENDING: [AtomicU64; MAX_HARTS] = [const { AtomicU64::new(0) }; MAX_HARTS];
+
+/// Per-hart list of PLIC sources claimed by `pending_irqs()` but not yet
+/// completed.
+///
+/// For level-triggered devices the PLIC completion (writing the claimed source
+/// id back to the claim register) must happen only after the registered handler
+/// has cleared the device-side interrupt condition. Completing earlier lets the
+/// PLIC gateway immediately re-forward the same source. `pending_irqs()` claims
+/// each source (which masks further claims for it) and records it here; `eoi()`
+/// writes the completions back after `handle_irqs()` has dispatched the handlers.
+///
+/// M-mode disables interrupts while a trap handler runs, so a hart never
+/// re-enters this path on top of itself; only the owning hart touches its slot.
+static CLAIMED: [Mutex<Vec<u16>>; MAX_HARTS] = [const { Mutex::new(Vec::new()) }; MAX_HARTS];
 
 /// Record a pending local interrupt for `hart_id` so the next `pending_irqs()`
 /// call on that hart reports `irq`.
@@ -200,8 +216,13 @@ impl InterruptController for RiscvPlic {
 
         // Then drain all pending PLIC external interrupts by claiming until the
         // claim register reads 0, so multiple pending sources are not starved.
+        // Claiming a source masks further claims for it until it is completed, so
+        // this loop terminates even though completion is deferred to eoi().
         let context = self.get_machine_context();
         let claim_reg = self.claim_reg(context);
+
+        let mut node = MCSNode::new();
+        let mut claimed_list = (hart_id < MAX_HARTS).then(|| CLAIMED[hart_id].lock(&mut node));
 
         loop {
             let claimed = unsafe { read_volatile(claim_reg) };
@@ -209,8 +230,14 @@ impl InterruptController for RiscvPlic {
                 break;
             }
             pending.push(claimed as u16);
-            // Complete the interrupt (write back the claim)
-            unsafe { write_volatile(claim_reg, claimed) };
+            // Defer completion until after the handler has cleared the device-side
+            // condition; eoi() writes the claim back once handlers have run.
+            match claimed_list {
+                Some(ref mut list) => list.push(claimed as u16),
+                // hart_id out of range: fall back to immediate completion rather
+                // than leaking the claim and wedging the source forever.
+                None => unsafe { write_volatile(claim_reg, claimed) },
+            }
         }
 
         Box::new(pending.into_iter())
@@ -251,6 +278,27 @@ impl InterruptController for RiscvPlic {
 
         // Enable software interrupts (IPIs) and external interrupts (PLIC)
         self.enable_machine_interrupts();
+    }
+
+    /// Complete every PLIC source claimed by the most recent `pending_irqs()`
+    /// call on this hart. Called after `handle_irqs()` has dispatched the
+    /// handlers, so by now any level-triggered device condition has been cleared
+    /// by its handler and writing the claim back will not immediately re-pend it.
+    fn eoi(&mut self) {
+        let hart_id = self.get_hart_id();
+        if hart_id >= MAX_HARTS {
+            return;
+        }
+
+        let context = self.get_machine_context();
+        let claim_reg = self.claim_reg(context);
+
+        let mut node = MCSNode::new();
+        let mut claimed = CLAIMED[hart_id].lock(&mut node);
+        for &source in claimed.iter() {
+            unsafe { write_volatile(claim_reg, source as u32) };
+        }
+        claimed.clear();
     }
 
     fn irq_range(&self) -> (u16, u16) {

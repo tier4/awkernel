@@ -9,6 +9,15 @@ use core::{
 
 const UART_BASE: usize = 0x1000_0000;
 
+/// Base address of the initial per-hart boot stacks.
+///
+/// boot.S sets each hart's stack pointer to `BOOT_STACK_BASE +
+/// BOOT_STACK_SIZE_PER_HART * (hartid + 1)` and the stack grows down from there,
+/// so hart `i` occupies `[BOOT_STACK_BASE + SIZE * i, BOOT_STACK_BASE + SIZE *
+/// (i + 1))`. These constants MUST match the values in boot.S.
+const BOOT_STACK_BASE: usize = 0x8080_0000;
+const BOOT_STACK_SIZE_PER_HART: usize = 0x0080_0000;
+
 extern "C" {
     static dtb_ptr: usize;
 }
@@ -30,6 +39,9 @@ pub unsafe extern "C" fn riscv_handle_ipi() {
     // (preempt/wakeup) in the per-hart LOCAL_PENDING mask, which
     // pending_irqs() drains inside handle_irqs().
     awkernel_lib::interrupt::handle_irqs(true);
+    // pending_irqs() also drains any PLIC sources pending on this hart; complete
+    // them now that their handlers have run (see RiscvPlic::eoi).
+    awkernel_lib::interrupt::eoi();
 }
 
 /// M-mode timer interrupt handler called from assembly
@@ -45,6 +57,9 @@ pub unsafe extern "C" fn riscv_handle_timer() {
     // then dispatches the registered timer handler (which re-arms the timer).
     super::interrupt_controller::set_local_pending(cpu::cpu_id(), TIMER_IRQ);
     awkernel_lib::interrupt::handle_irqs(true);
+    // pending_irqs() also drains any PLIC sources pending on this hart; complete
+    // them now that their handlers have run (see RiscvPlic::eoi).
+    awkernel_lib::interrupt::eoi();
 }
 
 /// M-mode external interrupt handler called from assembly
@@ -54,9 +69,12 @@ pub unsafe extern "C" fn riscv_handle_timer() {
 /// This function is called from the M-mode trap handler in boot.S
 #[no_mangle]
 pub unsafe extern "C" fn riscv_handle_external() {
-    // PLIC-delivered device interrupts (mcause = 11): handle_irqs() claims and
-    // completes all pending sources via pending_irqs().
+    // PLIC-delivered device interrupts (mcause = 11): handle_irqs() claims all
+    // pending sources via pending_irqs() and dispatches their handlers.
     awkernel_lib::interrupt::handle_irqs(true);
+    // Complete the claimed PLIC sources now that their handlers have cleared the
+    // device-side condition (see RiscvPlic::eoi).
+    awkernel_lib::interrupt::eoi();
 }
 
 /// Write to UART during early boot for debugging
@@ -146,24 +164,37 @@ unsafe fn init_uart() {
 
 /// Initialise memory management with non-overlapping frame allocator and heap.
 ///
-/// Physical layout after ekernel:
-///   [ekernel, ekernel + pt_frames_size)  — frame allocator (page table nodes)
-///   [ekernel + pt_frames_size, memory_end) — heap (backup + primary)
+/// Physical layout after the reserved region:
+///   [alloc_base, alloc_base + pt_frames_size)  — frame allocator (page table nodes)
+///   [alloc_base + pt_frames_size, memory_end)  — heap (backup + primary)
+///
+/// `alloc_base` is the first free page above both the kernel image and the
+/// initial per-hart boot stacks placed by boot.S, so neither the frame allocator
+/// nor the heap can hand out memory that is still in use as a CPU stack.
 ///
 /// pt_frames_size is 10% of available RAM, clamped to [4 MiB, 256 MiB].
 ///
 /// # Safety
 ///
-/// Must be called on the primary hart during early boot.
-unsafe fn init_memory(memory_end: usize) {
+/// Must be called on the primary hart during early boot, with `num_cpus` equal
+/// to the number of harts that ran boot.S (and therefore have a boot stack).
+unsafe fn init_memory(memory_end: usize, num_cpus: usize) {
     extern "C" {
         fn ekernel();
     }
     let kernel_end = (ekernel as *const () as usize + 0xfff) & !0xfff;
 
+    // boot.S places each hart's initial stack at a fixed address above
+    // BOOT_STACK_BASE; these stacks are in active use throughout early boot. The
+    // page-table-frame region can be large (up to 256 MiB) and would otherwise
+    // overlap them, so start all allocations above both the kernel image and the
+    // boot-stack region.
+    let stack_region_end = BOOT_STACK_BASE + BOOT_STACK_SIZE_PER_HART * num_cpus;
+    let alloc_base = (kernel_end.max(stack_region_end) + 0xfff) & !0xfff;
+
     // 10% of available RAM, floored at 4 MiB (tiny systems) and capped at
     // 256 MiB (large automotive SoCs like Orin). Page-aligned.
-    let available = memory_end.saturating_sub(kernel_end);
+    let available = memory_end.saturating_sub(alloc_base);
     let pt_frames_size =
         ((available / 10).clamp(4 * 1024 * 1024, 256 * 1024 * 1024) + 0xfff) & !0xfff;
 
@@ -171,12 +202,12 @@ unsafe fn init_memory(memory_end: usize) {
     // beats handing the page allocator a range past the end of memory.
     if pt_frames_size > available {
         panic!(
-            "Insufficient RAM for page table frames: need at least 4 MiB after the kernel image"
+            "Insufficient RAM for page table frames: need at least 4 MiB after the kernel image and boot stacks"
         );
     }
 
-    let pt_start = kernel_end;
-    let pt_end = kernel_end + pt_frames_size;
+    let pt_start = alloc_base;
+    let pt_end = alloc_base + pt_frames_size;
     let heap_start = pt_end;
 
     // 1. Frame allocator over [pt_start, pt_end) — no heap needed yet.
@@ -266,12 +297,12 @@ pub unsafe extern "C" fn kernel_main() {
 
 /// Primary CPU initialization sequence.
 /// 1. Initialize UART for early debugging
-/// 2. Setup heap allocation FIRST (required for page tables)
-/// 3. Initialize memory management (page allocator and virtual memory)
-/// 4. Initialize architecture-specific features
-/// 5. Initialize console driver
-/// 6. Initialize timer and interrupt controller
-/// 7. Detect CPU count from device tree
+/// 2. Detect physical memory end from DTB
+/// 3. Detect CPU count from DTB (needed to reserve the boot-stack region)
+/// 4. Initialize memory management (frame allocator, heap, page tables)
+/// 5. Initialize architecture-specific features
+/// 6. Initialize console driver
+/// 7. Initialize timer and interrupt controller
 /// 8. Wake up secondary CPUs
 /// 9. Start the kernel main function
 ///
@@ -285,26 +316,29 @@ unsafe fn primary_hart(hartid: usize) {
     // 2. Detect physical memory end from DTB
     let memory_end = awkernel_lib::arch::rv64::get_memory_end() as usize;
 
-    // 3. Frame allocator + heap + page tables with non-overlapping regions
-    init_memory(memory_end);
+    // 3. Detect the CPU count from the DTB before initialising the allocator, so
+    //    init_memory() can reserve the boot-stack region (one stack per hart).
+    //    Both detection helpers parse the DTB without using the heap.
+    let num_cpu = awkernel_lib::arch::rv64::detect_cpu_count();
+    NUM_CPUS.store(num_cpu, Ordering::Release);
 
-    // 4. Initialize architecture-specific features
+    // 4. Frame allocator + heap + page tables with non-overlapping regions,
+    //    placed above the kernel image and the per-hart boot stacks.
+    init_memory(memory_end, num_cpu);
+
+    // 5. Initialize architecture-specific features
     awkernel_lib::arch::rv64::init_primary();
 
-    // 5. Initialize console driver
+    // 6. Initialize console driver
     console::init(UART_BASE);
 
-    // 6. Initialize timer and interrupt controller
+    // 7. Initialize timer and interrupt controller
     // (also enables software/external interrupts in mie via RiscvPlic::init_primary)
     init_timer_and_interrupts();
 
     log::info!("AWkernel RV64 primary CPU initialization complete");
 
-    // 7. Detect CPU count from device tree and store it
-    let num_cpu = awkernel_lib::arch::rv64::detect_cpu_count();
-    NUM_CPUS.store(num_cpu, Ordering::Release);
-
-    // 8. Wake up secondary CPUs
+    // 8. Wake up secondary CPUs (NUM_CPUS was stored in step 3)
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
