@@ -33,13 +33,20 @@
 //! CPU IDs are mapped directly to `wf_alloc` tokens, so allocation/deallocation
 //! is done with `InterruptGuard` and `alloc_with_token` / `dealloc_with_token`.
 //!
-//! If `wf_alloc` cannot be initialized, its allocator stays uninitialized and
-//! every allocation returns `null`. There is no graceful, `alloc_error_handler`-style
-//! recovery: when `Talloc::alloc` observes the `null`, the primary path calls
-//! `panic!()`, and the non-primary path prints an error via `unsafe_puts` and then
-//! halts in `delay::wait_forever()`. In other words, a failed `wf_alloc`
-//! initialization means the kernel does not boot (or every userland allocation
-//! panics), rather than falling back to some other OOM behavior.
+//! If `wf_alloc` cannot be initialized, the failure is reported immediately rather
+//! than deferred: [`Talloc::init_primary_with_num_cpu`] /
+//! [`Talloc::init_backup_with_num_cpu`] receive the `Err` from the backend's
+//! `init`, print the reason via `unsafe_puts`, and then halt in
+//! `delay::wait_forever()`. (They print and halt instead of `panic!`-ing because
+//! the panic handler itself allocates, which cannot work while the heap is not up.)
+//! So a failed `wf_alloc` initialization means the kernel does not boot; it never
+//! continues to a later allocation in that case.
+//!
+//! Runtime out-of-memory is a separate path. Once the heap is up, an exhausted
+//! allocator returns `null`, and there is no graceful, `alloc_error_handler`-style
+//! recovery: the primary-only path calls `panic!()`, while the primary-then-backup
+//! path prints an error via `unsafe_puts` and halts in `delay::wait_forever()` only
+//! after the backup allocator is also exhausted.
 //!
 //! # Limitation
 //!
