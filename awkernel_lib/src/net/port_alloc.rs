@@ -87,7 +87,9 @@ impl PortAllocator {
     pub(super) fn get_ephemeral_tcp_ipv6(&self) -> Option<TcpPort> {
         let mut node = MCSNode::new();
         let mut ports = self.tcp_ipv6.lock(&mut node);
-        ports.alloc_ephemeral().map(|port| TcpPort::new(port, false))
+        ports
+            .alloc_ephemeral()
+            .map(|port| TcpPort::new(port, false))
     }
 
     /// Claim a specific TCP IPv6 port. Returns `None` if the port is already in use.

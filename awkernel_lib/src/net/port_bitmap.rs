@@ -36,9 +36,7 @@ struct PortBitmap {
 
 impl PortBitmap {
     const fn new() -> Self {
-        Self {
-            bits: [0; NWORDS],
-        }
+        Self { bits: [0; NWORDS] }
     }
 
     #[inline]
