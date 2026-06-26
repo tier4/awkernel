@@ -16,3 +16,5 @@ awkernel_lib = { path = "../../awkernel_lib", default-features = false }
 imu_driver = { path = "./imu_driver", default-features = false }
 imu_corrector = { path = "./imu_corrector", default-features = false }
 vehicle_velocity_converter = { path = "./vehicle_velocity_converter", default-features = false }
+gyro_odometer = { path = "./gyro_odometer", default-features = false}
+

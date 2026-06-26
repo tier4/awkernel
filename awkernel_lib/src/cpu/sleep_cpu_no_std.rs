@@ -205,7 +205,7 @@ fn is_virtualized() -> bool {
         return true;
     }
 
-    let cpuid = unsafe { __cpuid(1) };
+    let cpuid = __cpuid(1);
     (cpuid.ecx & (1 << 31)) != 0
 }
 
