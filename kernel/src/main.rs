@@ -83,7 +83,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             #[cfg(feature = "period-index-propagation")]
             if last_print.elapsed().as_secs() >= PERF_PRINT_INTERVAL_SECS {
-                awkernel_async_lib::task::perf::print_timestamp_table();
+                // awkernel_async_lib::task::perf::print_timestamp_table();
+                awkernel_async_lib::task::perf::print_dag_table();
 
                 last_print = awkernel_lib::time::Time::now();
             }

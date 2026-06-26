@@ -407,10 +407,17 @@ where
     }
 
     #[cfg(feature = "period-index-propagation")]
-    pub async fn send_with_period_index(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+    pub async fn send_with_period_index(
+        &self,
+        data: T,
+        pub_id: u32,
+        index: usize,
+        node_id: u32,
+        dag_id: u32,
+    ) {
         // [start] pubsub communication latency
         let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-        record_publish_timestamp(index, start, pub_id, node_id);
+        record_publish_timestamp(index, start, pub_id, node_id, dag_id);
         let period_index = match u32::try_from(index) {
             Ok(period_index) => period_index,
             Err(_) => {
@@ -470,7 +477,7 @@ mod period_index_propagation_tests {
     fn send_with_period_index_propagates_period_index_to_receiver() {
         block_on(async {
             let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
-            publisher.send_with_period_index(42, 1, 7, 99).await;
+            publisher.send_with_period_index(42, 1, 7, 99, 0).await;
 
             let received = subscriber.recv().await;
             assert_eq!(received.data, 42);
@@ -484,8 +491,8 @@ mod period_index_propagation_tests {
             let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
             let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
 
-            publisher1.send_with_period_index(10, 11, 3, 21).await;
-            publisher2.send_with_period_index(20, 12, 3, 22).await;
+            publisher1.send_with_period_index(10, 11, 3, 21, 0).await;
+            publisher2.send_with_period_index(20, 12, 3, 22, 0).await;
 
             let ((value1, value2), period_index) = (subscriber1, subscriber2)
                 .recv_all_with_period_index()
@@ -884,6 +891,7 @@ pub trait MultipleSender {
         pub_id: u32,
         index: usize,
         node_id: u32,
+        dag_id: u32,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
@@ -980,6 +988,7 @@ macro_rules! impl_async_receiver_for_tuple {
                 _pub_id: u32,
                 _index: usize,
                 _node_id: u32,
+                _dag_id: u32,
             ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
@@ -1051,12 +1060,13 @@ macro_rules! impl_async_receiver_for_tuple {
                 pub_id: u32,
                 index: usize,
                 node_id: u32,
+                dag_id: u32,
             ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 let ($($idx,)+) = self;
                 let ($($idx2,)+) = item;
                 Box::pin(async move {
                     $(
-                        $idx.send_with_period_index($idx2, pub_id, index, node_id).await;
+                        $idx.send_with_period_index($idx2, pub_id, index, node_id, dag_id).await;
                     )+
                 })
             }

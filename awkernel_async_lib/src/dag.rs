@@ -70,8 +70,8 @@ use crate::{
 
 #[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{
-    get_period_index, increment_period_index, record_subscribe_timestamp,
-    update_cycle_end_timestamp, update_cycle_start_timestamp,
+    get_period_index, increment_period_index, record_sink_exec_end_timestamp,
+    record_subscribe_timestamp, update_cycle_end_timestamp, update_cycle_start_timestamp,
 };
 
 use alloc::{
@@ -942,11 +942,23 @@ where
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
+                record_subscribe_timestamp(
+                    period_index as usize,
+                    end,
+                    1,
+                    dag_info.node_id,
+                    dag_info.dag_id,
+                );
 
                 let results = f(args);
                 publishers
-                    .send_all_with_period_index(results, 1, period_index as usize, dag_info.node_id)
+                    .send_all_with_period_index(
+                        results,
+                        1,
+                        period_index as usize,
+                        dag_info.node_id,
+                        dag_info.dag_id,
+                    )
                     .await;
             }
 
@@ -1009,7 +1021,13 @@ where
                 }
                 let results = f();
                 publishers
-                    .send_all_with_period_index(results, 0, index, dag_info.node_id)
+                    .send_all_with_period_index(
+                        results,
+                        0,
+                        index,
+                        dag_info.node_id,
+                        dag_info.dag_id,
+                    )
                     .await;
                 increment_period_index(dag_info.dag_id);
             }
@@ -1059,7 +1077,13 @@ where
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
+                record_subscribe_timestamp(
+                    period_index as usize,
+                    end,
+                    2,
+                    dag_info.node_id,
+                    dag_info.dag_id,
+                );
 
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
@@ -1067,6 +1091,13 @@ where
                 }
 
                 f(args);
+                let sink_exec_end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                record_sink_exec_end_timestamp(
+                    period_index as usize,
+                    sink_exec_end,
+                    dag_info.node_id,
+                    dag_info.dag_id,
+                );
             }
 
             #[cfg(not(feature = "period-index-propagation"))]

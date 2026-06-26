@@ -549,7 +549,7 @@ pub mod perf {
     use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
     // NOTE: When logging evaluation results, this value can be adjusted based on awkernel's execution time.
     // This value matches the one actually used in the awkernel evaluation branch, and it is a ring buffer.
-    const MAX_LOGS: usize = 2048;
+    const MAX_LOGS: usize = 8192;
 
     type DagTimestampMap = BTreeMap<u32, u64>;
     type DagTimestampTable = [DagTimestampMap; MAX_LOGS];
@@ -584,46 +584,31 @@ pub mod perf {
     // This value indicates the maximum number of nodes in the DAG
     // and can be adjusted based on the structure of the DAG used for evaluation.
     const MAX_NODES: usize = 5;
+
+    type DagTimestamps = [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS];
+
     #[derive(Clone)]
     struct PubSubTable {
-        timestamps: [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
-        used_indices: Vec<usize>,
-    }
-
-    impl Default for PubSubTable {
-        fn default() -> Self {
-            Self {
-                timestamps: [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
-                used_indices: Vec::new(),
-            }
-        }
+        by_dag: BTreeMap<u32, Box<DagTimestamps>>,
     }
 
     impl PubSubTable {
-        #[inline(always)]
-        fn flat_index(index: usize, pub_id: usize, node_id: usize) -> usize {
-            (index * MAX_PUBSUB * MAX_NODES) + (pub_id * MAX_NODES) + node_id
+        fn new() -> Self {
+            Self {
+                by_dag: BTreeMap::new(),
+            }
         }
 
-        #[inline(always)]
-        fn decode_flat_index(flat_index: usize) -> (usize, usize, usize) {
-            let per_log = MAX_PUBSUB * MAX_NODES;
-            let index = flat_index / per_log;
-            let rem = flat_index % per_log;
-            let pub_id = rem / MAX_NODES;
-            let node_id = rem % MAX_NODES;
-            (index, pub_id, node_id)
-        }
-
-        #[inline(always)]
-        fn mark_used(&mut self, index: usize, pub_id: usize, node_id: usize) {
-            self.used_indices
-                .push(Self::flat_index(index, pub_id, node_id));
+        fn get_or_insert_dag(&mut self, dag_id: u32) -> &mut DagTimestamps {
+            self.by_dag
+                .entry(dag_id)
+                .or_insert_with(|| Box::new([[[0u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS]))
         }
     }
 
     static PUBLISH: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
     static SUBSCRIBE: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
+    static SINK_EXEC_END: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
 
     #[inline(always)]
     fn to_ring_buffer_index(period_index: usize) -> usize {
@@ -683,6 +668,7 @@ pub mod perf {
         new_timestamp: u64,
         pub_id: u32,
         node_id: u32,
+        dag_id: u32,
     ) {
         let log_index = to_ring_buffer_index(period_index);
         if (pub_id as usize) >= MAX_PUBSUB {
@@ -707,12 +693,12 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = PUBLISH.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::new()));
         let pub_id = pub_id as usize;
+        let table = recorder.get_or_insert_dag(dag_id);
 
-        if recorder.timestamps[log_index][pub_id][node_id_usize] == 0 {
-            recorder.timestamps[log_index][pub_id][node_id_usize] = new_timestamp;
-            recorder.mark_used(log_index, pub_id, node_id_usize);
+        if table[log_index][pub_id][node_id_usize] == 0 {
+            table[log_index][pub_id][node_id_usize] = new_timestamp;
         }
     }
 
@@ -721,6 +707,7 @@ pub mod perf {
         new_timestamp: u64,
         sub_id: u32,
         node_id: u32,
+        dag_id: u32,
     ) {
         let log_index = to_ring_buffer_index(period_index);
         if (sub_id as usize) >= MAX_PUBSUB {
@@ -745,13 +732,254 @@ pub mod perf {
         let mut node = MCSNode::new();
         let mut recorder_opt = SUBSCRIBE.lock(&mut node);
 
-        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::new()));
         let sub_id = sub_id as usize;
+        let table = recorder.get_or_insert_dag(dag_id);
 
-        if recorder.timestamps[log_index][sub_id][node_id_usize] == 0 {
-            recorder.timestamps[log_index][sub_id][node_id_usize] = new_timestamp;
-            recorder.mark_used(log_index, sub_id, node_id_usize);
+        if table[log_index][sub_id][node_id_usize] == 0 {
+            table[log_index][sub_id][node_id_usize] = new_timestamp;
         }
+    }
+
+    pub fn record_sink_exec_end_timestamp(
+        period_index: usize,
+        new_timestamp: u64,
+        node_id: u32,
+        dag_id: u32,
+    ) {
+        let log_index = to_ring_buffer_index(period_index);
+
+        let node_id_usize = node_id as usize;
+        if node_id_usize >= MAX_NODES {
+            log::warn!(
+                "Sink exec-end node ID out of bounds: {} (max {})",
+                node_id_usize,
+                MAX_NODES
+            );
+            return;
+        }
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SINK_EXEC_END.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::new()));
+        let table = recorder.get_or_insert_dag(dag_id);
+
+        if table[log_index][0][node_id_usize] == 0 {
+            table[log_index][0][node_id_usize] = new_timestamp;
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub enum DagNodeRole {
+        Source,
+        Middle,
+        Sink,
+    }
+
+    pub struct DagNodeTimingSample {
+        pub node_id: u32,
+        pub role: DagNodeRole,
+        /// exec time samples in nanoseconds per period
+        pub exec_samples: Vec<u64>,
+        /// comm time samples (from previous node) in nanoseconds per period
+        pub comm_samples: Vec<u64>,
+    }
+
+    pub struct DagTimingStats {
+        pub nodes: Vec<DagNodeTimingSample>,
+        /// RECV_OUTER - SEND_OUTER per period (excludes sink exec)
+        pub e2e_partial_samples: Vec<u64>,
+    }
+
+    fn get_or_insert_timing_node(
+        nodes: &mut Vec<DagNodeTimingSample>,
+        node_id: u32,
+        role: DagNodeRole,
+    ) -> &mut DagNodeTimingSample {
+        if let Some(pos) = nodes.iter().position(|n| n.node_id == node_id) {
+            &mut nodes[pos]
+        } else {
+            nodes.push(DagNodeTimingSample {
+                node_id,
+                role,
+                exec_samples: Vec::new(),
+                comm_samples: Vec::new(),
+            });
+            nodes.last_mut().unwrap()
+        }
+    }
+
+    /// Scan all pubsub tables and compute per-DAG timing stats.
+    ///
+    /// Assumes a linear pipeline topology: source → (middle)* → sink.
+    /// pub_id=0: source publish; sub_id=1: middle subscribe; pub_id=1: middle publish;
+    /// sub_id=2: sink subscribe; SINK_EXEC_END: sink exec end.
+    pub fn collect_all_dag_timing_stats() -> BTreeMap<u32, DagTimingStats> {
+        let mut n1 = MCSNode::new();
+        let mut n2 = MCSNode::new();
+        let mut n3 = MCSNode::new();
+        let mut n4 = MCSNode::new();
+        let mut n5 = MCSNode::new();
+
+        let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut n1);
+        let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut n2);
+        let publish_opt = PUBLISH.lock(&mut n3);
+        let subscribe_opt = SUBSCRIBE.lock(&mut n4);
+        let sink_exec_end_opt = SINK_EXEC_END.lock(&mut n5);
+
+        let mut dag_ids: Vec<u32> = Vec::new();
+        if let Some(t) = publish_opt.as_ref() {
+            dag_ids.extend(t.by_dag.keys().copied());
+        }
+        if let Some(t) = subscribe_opt.as_ref() {
+            for k in t.by_dag.keys() {
+                if !dag_ids.contains(k) {
+                    dag_ids.push(*k);
+                }
+            }
+        }
+        dag_ids.sort_unstable();
+
+        let mut result: BTreeMap<u32, DagTimingStats> = BTreeMap::new();
+
+        for dag_id in dag_ids {
+            let mut stats = DagTimingStats {
+                nodes: Vec::new(),
+                e2e_partial_samples: Vec::new(),
+            };
+
+            // Extract dag-specific table slices once before the period loop.
+            // Using `match &*opt` (same pattern as print_timestamp_table) to avoid
+            // lifetime issues with closures that return references via and_then.
+            let pub_dag: Option<&DagTimestamps> = match &*publish_opt {
+                Some(pt) => pt.by_dag.get(&dag_id).map(|b| b.as_ref()),
+                None => None,
+            };
+            let sub_dag: Option<&DagTimestamps> = match &*subscribe_opt {
+                Some(st) => st.by_dag.get(&dag_id).map(|b| b.as_ref()),
+                None => None,
+            };
+            let sink_dag: Option<&DagTimestamps> = match &*sink_exec_end_opt {
+                Some(se) => se.by_dag.get(&dag_id).map(|b| b.as_ref()),
+                None => None,
+            };
+
+            for p in 0..MAX_LOGS {
+                let send_outer = match &*send_outer_opt {
+                    Some(arr) => arr[p].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+                let recv_outer = match &*recv_outer_opt {
+                    Some(arr) => arr[p].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+
+                if send_outer != 0 && recv_outer != 0 && recv_outer > send_outer {
+                    stats.e2e_partial_samples.push(recv_outer - send_outer);
+                }
+
+                // source pub (pub_id=0)
+                let mut src_pub_ts = 0u64;
+                let mut src_node_id = 0u32;
+                if let Some(t) = pub_dag {
+                    for k in 0..MAX_NODES {
+                        if t[p][0][k] != 0 {
+                            src_pub_ts = t[p][0][k];
+                            src_node_id = k as u32;
+                            break;
+                        }
+                    }
+                }
+                if src_pub_ts != 0 && send_outer != 0 && src_pub_ts > send_outer {
+                    get_or_insert_timing_node(&mut stats.nodes, src_node_id, DagNodeRole::Source)
+                        .exec_samples
+                        .push(src_pub_ts - send_outer);
+                }
+
+                // Collect ALL middle nodes (slot [1]).
+                // All spawn_reactor nodes use sub_id=1 / pub_id=1 regardless of chain position.
+                // Sort by subscribe time to reconstruct linear chain order, then compute
+                // comm (from predecessor pub) and exec (pub - sub) for each node.
+                let mut mid_nodes: Vec<(u64, u64, u32)> = Vec::new(); // (sub_ts, pub_ts, node_id)
+                for k in 0..MAX_NODES {
+                    let sub_ts = sub_dag.map(|t| t[p][1][k]).unwrap_or(0);
+                    let pub_ts = pub_dag.map(|t| t[p][1][k]).unwrap_or(0);
+                    if sub_ts != 0 || pub_ts != 0 {
+                        mid_nodes.push((sub_ts, pub_ts, k as u32));
+                    }
+                }
+                mid_nodes.sort_by_key(|&(sub_ts, _, _)| sub_ts);
+
+                let mut prev_pub_ts = src_pub_ts;
+                for &(mid_sub_ts, mid_pub_ts, mid_node_id) in &mid_nodes {
+                    if prev_pub_ts != 0 && mid_sub_ts != 0 && mid_sub_ts > prev_pub_ts {
+                        get_or_insert_timing_node(
+                            &mut stats.nodes,
+                            mid_node_id,
+                            DagNodeRole::Middle,
+                        )
+                        .comm_samples
+                        .push(mid_sub_ts - prev_pub_ts);
+                    }
+                    if mid_sub_ts != 0 && mid_pub_ts != 0 && mid_pub_ts > mid_sub_ts {
+                        get_or_insert_timing_node(
+                            &mut stats.nodes,
+                            mid_node_id,
+                            DagNodeRole::Middle,
+                        )
+                        .exec_samples
+                        .push(mid_pub_ts - mid_sub_ts);
+                    }
+                    if mid_pub_ts != 0 {
+                        prev_pub_ts = mid_pub_ts;
+                    }
+                }
+
+                // sink sub (sub_id=2)
+                let last_mid_pub_ts = mid_nodes
+                    .last()
+                    .map(|&(_, pub_ts, _)| pub_ts)
+                    .unwrap_or(src_pub_ts);
+                let mut sink_sub_ts = 0u64;
+                let mut sink_node_id = 0u32;
+                if let Some(t) = sub_dag {
+                    for k in 0..MAX_NODES {
+                        if t[p][2][k] != 0 {
+                            sink_sub_ts = t[p][2][k];
+                            sink_node_id = k as u32;
+                            break;
+                        }
+                    }
+                }
+                if last_mid_pub_ts != 0 && sink_sub_ts != 0 && sink_sub_ts > last_mid_pub_ts {
+                    get_or_insert_timing_node(&mut stats.nodes, sink_node_id, DagNodeRole::Sink)
+                        .comm_samples
+                        .push(sink_sub_ts - last_mid_pub_ts);
+                }
+
+                // sink exec end (index 0 in SINK_EXEC_END)
+                let mut sink_exec_end_ts = 0u64;
+                if let Some(t) = sink_dag {
+                    for k in 0..MAX_NODES {
+                        if t[p][0][k] != 0 {
+                            sink_exec_end_ts = t[p][0][k];
+                            break;
+                        }
+                    }
+                }
+                if sink_sub_ts != 0 && sink_exec_end_ts != 0 && sink_exec_end_ts > sink_sub_ts {
+                    get_or_insert_timing_node(&mut stats.nodes, sink_node_id, DagNodeRole::Sink)
+                        .exec_samples
+                        .push(sink_exec_end_ts - sink_sub_ts);
+                }
+            }
+
+            stats.nodes.sort_by_key(|n| n.node_id);
+            result.insert(dag_id, stats);
+        }
+
+        result
     }
 
     // For precision of the cycle
@@ -889,59 +1117,65 @@ pub mod perf {
         let publish_opt = PUBLISH.lock(&mut node1);
         let subscribe_opt = SUBSCRIBE.lock(&mut node2);
 
-        let mut indices = Vec::new();
-        if let Some(publish) = publish_opt.as_ref() {
-            indices.extend_from_slice(&publish.used_indices);
+        let mut dag_ids: Vec<u32> = Vec::new();
+        if let Some(t) = publish_opt.as_ref() {
+            dag_ids.extend(t.by_dag.keys().copied());
         }
-        if let Some(subscribe) = subscribe_opt.as_ref() {
-            indices.extend_from_slice(&subscribe.used_indices);
+        if let Some(t) = subscribe_opt.as_ref() {
+            for k in t.by_dag.keys() {
+                if !dag_ids.contains(k) {
+                    dag_ids.push(*k);
+                }
+            }
         }
-        indices.sort_unstable();
-        indices.dedup();
+        dag_ids.sort_unstable();
 
         log::info!("--- Pub/Sub Timestamp Summary (in nanoseconds) ---");
         log::info!(
-            "{: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
+            "{: ^6} | {: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
+            "DAG-ID",
             "Index",
             "Pub/Sub ID",
             "Node ID",
             "Publish Time",
             "Subscribe Time"
         );
-        log::info!("-----|------------|---------|----------------|----------------");
-        for flat_index in indices {
-            let (i, j, k) = PubSubTable::decode_flat_index(flat_index);
-            // Skip if decoded indices are out of bounds
-            if i >= MAX_LOGS || j >= MAX_PUBSUB || k >= MAX_NODES {
-                log::warn!("Decoded index out of bounds: ({}, {}, {})", i, j, k);
-                continue;
+        log::info!("--------|-------|------------|---------|----------------|----------------");
+
+        let format_ts = |ts: u64| -> String {
+            if ts == 0 {
+                "-".to_string()
+            } else {
+                ts.to_string()
             }
-            let publish_time = match &*publish_opt {
-                Some(table) => table.timestamps[i][j][k],
-                None => 0,
-            };
-            let subscribe_time = match &*subscribe_opt {
-                Some(table) => table.timestamps[i][j][k],
-                None => 0,
-            };
+        };
 
-            if publish_time != 0 || subscribe_time != 0 {
-                let format_ts = |ts: u64| -> String {
-                    if ts == 0 {
-                        "-".to_string()
-                    } else {
-                        ts.to_string()
+        for dag_id in &dag_ids {
+            for i in 0..MAX_LOGS {
+                for j in 0..MAX_PUBSUB {
+                    for k in 0..MAX_NODES {
+                        let pub_time = match &*publish_opt {
+                            Some(pt) => pt.by_dag.get(dag_id).map(|ts| ts[i][j][k]).unwrap_or(0),
+                            None => 0,
+                        };
+                        let sub_time = match &*subscribe_opt {
+                            Some(st) => st.by_dag.get(dag_id).map(|ts| ts[i][j][k]).unwrap_or(0),
+                            None => 0,
+                        };
+
+                        if pub_time != 0 || sub_time != 0 {
+                            log::info!(
+                                "{: >6} | {: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
+                                dag_id,
+                                i,
+                                j,
+                                k,
+                                format_ts(pub_time),
+                                format_ts(sub_time),
+                            );
+                        }
                     }
-                };
-
-                log::info!(
-                    "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
-                    i,
-                    j,
-                    k,
-                    format_ts(publish_time),
-                    format_ts(subscribe_time),
-                );
+                }
             }
         }
         log::info!("--------------------------------------------------------------");
@@ -1175,6 +1409,210 @@ pub mod perf {
     #[inline(always)]
     pub fn get_perf_wcet(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_WCET[cpu_id]) }
+    }
+
+    // ─── DAG aggregate statistics ────────────────────────────────────────────
+
+    #[cfg(feature = "period-index-propagation")]
+    fn samples_avg(s: &[u64]) -> Option<u64> {
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.iter().sum::<u64>() / s.len() as u64)
+        }
+    }
+
+    #[cfg(feature = "period-index-propagation")]
+    fn samples_wcet(s: &[u64]) -> Option<u64> {
+        s.iter().copied().reduce(u64::max)
+    }
+
+    #[cfg(feature = "period-index-propagation")]
+    pub struct DagNodeStats {
+        pub node_id: u32,
+        pub role: DagNodeRole,
+        pub exec_avg: Option<u64>,
+        pub exec_wcet: Option<u64>,
+        pub comm_avg: Option<u64>,
+        pub comm_wcet: Option<u64>,
+    }
+
+    #[cfg(feature = "period-index-propagation")]
+    pub struct DagStats {
+        pub dag_id: u32,
+        pub cores: Vec<u16>,
+        pub total_preempts: u64,
+        pub exec_avg: u64,
+        pub exec_wcet: u64,
+        pub comm_avg: u64,
+        pub comm_wcet: u64,
+        pub e2e_partial_avg: Option<u64>,
+        pub e2e_partial_wcet: Option<u64>,
+        pub period_count: u32,
+        pub nodes: Vec<DagNodeStats>,
+    }
+
+    /// Aggregate pubsub timestamps and task metadata into per-DAG statistics.
+    #[cfg(feature = "period-index-propagation")]
+    pub fn get_all_dag_stats() -> Vec<DagStats> {
+        let timing_map = collect_all_dag_timing_stats();
+        let all_tasks = super::get_tasks();
+
+        let mut result = Vec::new();
+
+        for (dag_id, timing) in &timing_map {
+            let mut cores: Vec<u16> = Vec::new();
+            let mut total_preempts: u64 = 0;
+
+            for t in &all_tasks {
+                let mut node = MCSNode::new();
+                let info = t.info.lock(&mut node);
+                if let Some(di) = info.get_dag_info() {
+                    if di.dag_id == *dag_id {
+                        total_preempts += info.get_num_preemption();
+                        if let Some(core) = t.partitioned_core {
+                            if !cores.contains(&core) {
+                                cores.push(core);
+                            }
+                        }
+                    }
+                }
+            }
+            cores.sort_unstable();
+
+            let mut nodes = Vec::new();
+            let mut exec_avg_sum: u64 = 0;
+            let mut exec_wcet_max: u64 = 0;
+            let mut comm_avg_sum: u64 = 0;
+            let mut comm_wcet_max: u64 = 0;
+
+            for nt in &timing.nodes {
+                let ea = samples_avg(&nt.exec_samples);
+                let ew = samples_wcet(&nt.exec_samples);
+                let ca = samples_avg(&nt.comm_samples);
+                let cw = samples_wcet(&nt.comm_samples);
+                exec_avg_sum += ea.unwrap_or(0);
+                exec_wcet_max = exec_wcet_max.max(ew.unwrap_or(0));
+                comm_avg_sum += ca.unwrap_or(0);
+                comm_wcet_max = comm_wcet_max.max(cw.unwrap_or(0));
+                nodes.push(DagNodeStats {
+                    node_id: nt.node_id,
+                    role: nt.role,
+                    exec_avg: ea,
+                    exec_wcet: ew,
+                    comm_avg: ca,
+                    comm_wcet: cw,
+                });
+            }
+
+            result.push(DagStats {
+                dag_id: *dag_id,
+                cores,
+                total_preempts,
+                exec_avg: exec_avg_sum,
+                exec_wcet: exec_wcet_max,
+                comm_avg: comm_avg_sum,
+                comm_wcet: comm_wcet_max,
+                e2e_partial_avg: samples_avg(&timing.e2e_partial_samples),
+                e2e_partial_wcet: samples_wcet(&timing.e2e_partial_samples),
+                period_count: timing.e2e_partial_samples.len() as u32,
+                nodes,
+            });
+        }
+
+        result
+    }
+
+    #[cfg(feature = "period-index-propagation")]
+    pub fn print_dag_table() {
+        use alloc::format;
+        let stats = get_all_dag_stats();
+        if stats.is_empty() {
+            return;
+        }
+
+        log::info!("--- DAG Statistics (ns) ---");
+        log::info!(
+            "{:>4} | {:>9} | {:>7} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9}",
+            "DAG",
+            "#preempt",
+            "periods",
+            "exec_avg",
+            "exec_wc",
+            "comm_avg",
+            "comm_wc",
+            "e2e_avg",
+            "e2e_wc"
+        );
+        log::info!("-----|-----------|---------|-----------|-----------|-----------|-----------|-----------|----------");
+
+        for dag in &stats {
+            let e2e_avg = dag
+                .e2e_partial_avg
+                .map(|v| format!("{}", v))
+                .unwrap_or_else(|| "-".into());
+            let e2e_wcet = dag
+                .e2e_partial_wcet
+                .map(|v| format!("{}", v))
+                .unwrap_or_else(|| "-".into());
+            log::info!(
+                "{:>4} | {:>9} | {:>7} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9}",
+                dag.dag_id,
+                dag.total_preempts,
+                dag.period_count,
+                dag.exec_avg,
+                dag.exec_wcet,
+                dag.comm_avg,
+                dag.comm_wcet,
+                e2e_avg,
+                e2e_wcet,
+            );
+        }
+
+        for dag in &stats {
+            log::info!("DAG {} node detail:", dag.dag_id);
+            log::info!(
+                "{:>5} | {:6} | {:>9} | {:>9} | {:>9} | {:>9}",
+                "node",
+                "role",
+                "exec_avg",
+                "exec_wc",
+                "comm_avg",
+                "comm_wc"
+            );
+            for n in &dag.nodes {
+                let role_str = match n.role {
+                    DagNodeRole::Source => "src   ",
+                    DagNodeRole::Middle => "middle",
+                    DagNodeRole::Sink => "sink  ",
+                };
+                let ea = n
+                    .exec_avg
+                    .map(|v| format!("{}", v))
+                    .unwrap_or_else(|| "-".into());
+                let ew = n
+                    .exec_wcet
+                    .map(|v| format!("{}", v))
+                    .unwrap_or_else(|| "-".into());
+                let ca = n
+                    .comm_avg
+                    .map(|v| format!("{}", v))
+                    .unwrap_or_else(|| "-".into());
+                let cw = n
+                    .comm_wcet
+                    .map(|v| format!("{}", v))
+                    .unwrap_or_else(|| "-".into());
+                log::info!(
+                    "{:>5} | {} | {:>9} | {:>9} | {:>9} | {:>9}",
+                    n.node_id,
+                    role_str,
+                    ea,
+                    ew,
+                    ca,
+                    cw
+                );
+            }
+        }
     }
 }
 
