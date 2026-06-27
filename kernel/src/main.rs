@@ -58,6 +58,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         awkernel_lib::sanity::check();
 
+        // Initialize RAM disk (2048 blocks × 512 B = 1 MiB) and mount FAT on it.
+        init_ramdisk_fatfs();
+
         // Userland.
         task::spawn(
             "main".into(),
@@ -144,6 +147,32 @@ fn make_stdin_nonblocking() -> std::io::Result<()> {
     let fd = stdin.as_raw_fd();
 
     awkernel_lib::file_control::set_nonblocking(fd)
+}
+
+fn init_ramdisk_fatfs() {
+    use alloc::sync::Arc;
+    use awkernel_lib::{
+        file::fatfs::{format_and_mount_fatfs, is_storage_fatfs_ready},
+        storage::{add_storage_device, ramdisk::RamDisk},
+    };
+
+    // A persistent block device (e.g. virtio-blk) may have already mounted
+    // the storage FAT during PCIe init.  In that case the RAM disk is not needed.
+    if is_storage_fatfs_ready() {
+        log::info!("Storage FAT already mounted; skipping RAM disk.");
+        return;
+    }
+
+    const BLOCK_SIZE: usize = 512;
+    const NUM_BLOCKS: u64 = 2048; // 1 MiB
+
+    let ramdisk = Arc::new(RamDisk::new(NUM_BLOCKS, BLOCK_SIZE));
+    let _device_id = add_storage_device(ramdisk.clone());
+
+    match format_and_mount_fatfs(ramdisk) {
+        Ok(()) => log::info!("RAM disk FAT filesystem mounted ({}KiB).", NUM_BLOCKS * BLOCK_SIZE as u64 / 1024),
+        Err(e) => log::warn!("Failed to mount RAM disk FAT filesystem: {e}"),
+    }
 }
 
 #[cfg(not(feature = "std"))]

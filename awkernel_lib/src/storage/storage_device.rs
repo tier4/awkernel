@@ -55,4 +55,20 @@ pub trait StorageDevice: Send + Sync {
     fn get_namespace_id(&self) -> Option<u32> {
         None
     }
+
+    /// Read `buf.len()` bytes starting from the given logical block address (LBA).
+    ///
+    /// `buf.len()` must be a multiple of `block_size()`.
+    /// Devices that do not support random access may return `NotSupported`.
+    fn read_blocks_at(&self, _lba: u64, _buf: &mut [u8]) -> Result<(), StorageDevError> {
+        Err(StorageDevError::NotSupported)
+    }
+
+    /// Write `buf.len()` bytes starting from the given logical block address (LBA).
+    ///
+    /// `buf.len()` must be a multiple of `block_size()`.
+    /// Devices that do not support random access may return `NotSupported`.
+    fn write_blocks_at(&self, _lba: u64, _buf: &[u8]) -> Result<(), StorageDevError> {
+        Err(StorageDevError::NotSupported)
+    }
 }
