@@ -61,6 +61,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Initialize RAM disk (2048 blocks × 512 B = 1 MiB) and mount FAT on it.
         init_ramdisk_fatfs();
 
+        // Initialize the VFS on top of whichever FAT filesystem was just mounted.
+        awkernel_lib::file::vfs::init_vfs();
+
         // Userland.
         task::spawn(
             "main".into(),
