@@ -56,10 +56,15 @@ async fn console_handler() -> TaskResult {
     ];
 
     #[cfg(feature = "perf")]
-    functions.push(Box::new(PerfFfi));
+    {
+        functions.push(Box::new(PerfFfi));
+        functions.push(Box::new(TraceStartFfi));
+        functions.push(Box::new(TraceStopFfi));
+        functions.push(Box::new(TraceFfi));
+    }
 
     let code = if cfg!(feature = "perf") {
-        format!("{CODE}\r\n{PERF_CODE}")
+        format!("{CODE}\r\n{PERF_CODE}\r\n{TRACE_CODE}")
     } else {
         CODE.to_string()
     };
@@ -185,6 +190,13 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 const PERF_CODE: &str = "(export perf () (IO (-> () []))
     (perf_ffi))";
 
+const TRACE_CODE: &str = "(export trace_start () (IO (-> () []))
+    (trace_start_ffi))
+(export trace_stop () (IO (-> () []))
+    (trace_stop_ffi))
+(export trace () (IO (-> () []))
+    (trace_ffi))";
+
 #[embedded]
 fn help_ffi() {
     console::print("Awkernel v202306\r\n");
@@ -203,7 +215,12 @@ fn help_ffi() {
     lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
 
     #[cfg(feature = "perf")]
-    lines.push_str("(perf)      ; print performance information\r\n");
+    {
+        lines.push_str("(perf)      ; print performance information\r\n");
+        lines.push_str("(trace_start) ; start recording task execution trace\r\n");
+        lines.push_str("(trace_stop)  ; stop recording task execution trace\r\n");
+        lines.push_str("(trace)     ; dump recorded trace (for plot_trace.py)\r\n");
+    }
 
     console::print(lines.as_str());
 }
@@ -345,6 +362,28 @@ fn perf_ffi() {
             console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
         }
     }
+}
+
+#[cfg(feature = "perf")]
+#[embedded]
+fn trace_start_ffi() {
+    awkernel_async_lib::task::trace::start();
+    console::print("trace started\r\n");
+}
+
+#[cfg(feature = "perf")]
+#[embedded]
+fn trace_stop_ffi() {
+    awkernel_async_lib::task::trace::stop();
+    console::print("trace stopped\r\n");
+}
+
+#[cfg(feature = "perf")]
+#[embedded]
+fn trace_ffi() {
+    // Dump logic lives in the trace module so the boot-time auto-trace task
+    // (real hardware, no shell input) can reuse it.
+    awkernel_async_lib::task::trace::dump_to_console();
 }
 
 fn print_tasks() {

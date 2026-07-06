@@ -9,6 +9,9 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
+#[cfg(feature = "perf")]
+pub mod trace;
+
 use crate::scheduler::{self, get_scheduler, pop_preemption_pending, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
@@ -834,6 +837,9 @@ pub fn run_main() {
                 // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
+                #[cfg(feature = "perf")]
+                let task_id = task.id;
+
                 // Invoke a task.
                 catch_unwind(|| {
                     #[cfg(all(
@@ -847,8 +853,14 @@ pub fn run_main() {
                     #[cfg(feature = "perf")]
                     perf::start_task();
 
+                    #[cfg(feature = "perf")]
+                    trace::record(task_id, trace::KIND_START);
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    #[cfg(feature = "perf")]
+                    trace::record(task_id, trace::KIND_END);
 
                     #[cfg(feature = "perf")]
                     perf::start_kernel();

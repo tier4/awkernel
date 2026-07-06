@@ -71,6 +71,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::PrioritizedFIFO(31),
         );
 
+        // Auto-trace for real hardware (no shell input available).
+        #[cfg(feature = "perf")]
+        spawn_auto_trace();
+
         PRIMARY_READY.store(true, Ordering::SeqCst);
 
         // Wait until all other CPUs have incremented NUM_CPU
@@ -150,6 +154,44 @@ fn make_stdin_nonblocking() -> std::io::Result<()> {
     let fd = stdin.as_raw_fd();
 
     awkernel_lib::file_control::set_nonblocking(fd)
+}
+
+/// Spawn a task that records a task execution trace automatically after boot
+/// and dumps it to the serial console (see `config::AUTO_TRACE_*`).
+///
+/// This replaces the shell commands on real hardware, where the serial
+/// console is output-only (viewed with minicom on the host).
+#[cfg(feature = "perf")]
+fn spawn_auto_trace() {
+    use awkernel_async_lib::task::trace;
+    use core::time::Duration;
+
+    if !config::AUTO_TRACE_ENABLED {
+        return;
+    }
+
+    task::spawn(
+        "[Awkernel] auto trace".into(),
+        async {
+            awkernel_async_lib::sleep(Duration::from_secs(config::AUTO_TRACE_START_DELAY_SECS))
+                .await;
+
+            log::info!(
+                "auto trace: recording for {} seconds.",
+                config::AUTO_TRACE_DURATION_SECS
+            );
+            trace::start();
+
+            awkernel_async_lib::sleep(Duration::from_secs(config::AUTO_TRACE_DURATION_SECS)).await;
+
+            trace::stop();
+            log::info!("auto trace: recording finished; dumping.");
+            trace::dump_to_console();
+
+            Ok(())
+        },
+        SchedulerType::PrioritizedFIFO(31),
+    );
 }
 
 fn init_ramdisk_fatfs() {
