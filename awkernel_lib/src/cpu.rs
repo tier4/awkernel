@@ -5,7 +5,99 @@ use core::{
 };
 
 pub const NUM_MAX_CPU: usize = 512;
+
+/// Number of 64-bit words needed to represent a set of `NUM_MAX_CPU` CPUs.
+pub const CPU_SET_WORDS: usize = NUM_MAX_CPU / 64;
+
 static NUM_CPU: AtomicUsize = AtomicUsize::new(0);
+
+/// A set of CPU cores, represented as a bitmask supporting up to `NUM_MAX_CPU` CPUs.
+///
+/// All constructors and predicates are `const fn` so that a `CpuSet` can be
+/// embedded in const-evaluated statics.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CpuSet([u64; CPU_SET_WORDS]);
+
+impl CpuSet {
+    /// Create an empty set.
+    pub const fn empty() -> Self {
+        Self([0; CPU_SET_WORDS])
+    }
+
+    /// Create a set from a bitmask of CPUs 0..64.
+    /// Bit `i` of `bits` corresponds to CPU `i`.
+    pub const fn from_bits(bits: u64) -> Self {
+        let mut words = [0; CPU_SET_WORDS];
+        words[0] = bits;
+        Self(words)
+    }
+
+    /// Return a new set with the bit for `cpu` set.
+    /// Panics if `cpu >= NUM_MAX_CPU`.
+    pub const fn insert(mut self, cpu: usize) -> Self {
+        assert!(cpu < NUM_MAX_CPU, "CPU index out of range");
+        self.0[cpu / 64] |= 1 << (cpu % 64);
+        self
+    }
+
+    /// True if the bit for `cpu` is set.
+    pub const fn contains(&self, cpu: usize) -> bool {
+        cpu < NUM_MAX_CPU && (self.0[cpu / 64] >> (cpu % 64)) & 1 == 1
+    }
+
+    /// True if no bit is set.
+    pub const fn is_empty(&self) -> bool {
+        let mut i = 0;
+        while i < CPU_SET_WORDS {
+            if self.0[i] != 0 {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+
+    /// Return word `idx` of the backing bitmask. Panics if `idx >= CPU_SET_WORDS`.
+    pub const fn word(&self, idx: usize) -> u64 {
+        self.0[idx]
+    }
+
+    /// Return a new set keeping only CPUs in `1..num_cpus`
+    /// (CPU 0 is always excluded).
+    pub const fn masked_workers(mut self, num_cpus: usize) -> Self {
+        let mut i = 0;
+        while i < CPU_SET_WORDS {
+            let lo = i * 64;
+            if lo >= num_cpus {
+                self.0[i] = 0;
+            } else {
+                let valid = num_cpus - lo; // 1..=64 bits of this word are valid.
+                if valid < 64 {
+                    self.0[i] &= (1 << valid) - 1;
+                }
+            }
+            i += 1;
+        }
+        self.0[0] &= !1; // Exclude CPU 0.
+        self
+    }
+
+    /// Return the set of all worker CPUs (`1..num_cpus`).
+    pub const fn all_workers(num_cpus: usize) -> Self {
+        let mut set = Self([u64::MAX; CPU_SET_WORDS]);
+        set = set.masked_workers(num_cpus);
+        set
+    }
+
+    /// Iterate over the CPUs contained in the set, in ascending order.
+    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        self.0.iter().enumerate().flat_map(|(w, &word)| {
+            (0..64)
+                .filter(move |bit| (word >> bit) & 1 == 1)
+                .map(move |bit| w * 64 + bit)
+        })
+    }
+}
 
 #[cfg(feature = "std")]
 mod sleep_cpu_std;
