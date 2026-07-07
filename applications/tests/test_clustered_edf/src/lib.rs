@@ -7,7 +7,7 @@ use alloc::string::ToString;
 use awkernel_async_lib::sleep;
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::{
-    cpu::{cpu_id, num_cpu},
+    cpu::{cpu_id, num_cpu, CpuSet},
     delay::{uptime, wait_microsec},
 };
 use core::time::Duration;
@@ -16,11 +16,12 @@ pub async fn run() {
     wait_microsec(2_000_000);
 
     if num_cpu() < 2 {
-        log::warn!("test_partitioned_edf: requires at least 2 CPUs, skipping");
+        log::warn!("test_clustered_edf: requires at least 2 CPUs, skipping");
         return;
     }
 
     test_core_pinning().await;
+    test_cluster_affinity().await;
     test_edf_preemption().await;
     test_multi_core().await;
 
@@ -28,12 +29,11 @@ pub async fn run() {
 }
 
 /// Test 1: Verify tasks are pinned to their assigned cores.
-/// Spawns one periodic task per worker core (1..num_cpu()).
-/// Each task checks cpu_id() matches the assigned core.
+/// Spawns one periodic task per worker core (1..num_cpu()) with a
+/// single-core CPU set. Each task checks cpu_id() matches the assigned core.
 async fn test_core_pinning() {
     log::info!("=== test_core_pinning start ===");
     for core in 1..num_cpu() {
-        let core_u16 = core as u16;
         spawn(
             alloc::format!("pinning_core{core}").into(),
             async move {
@@ -49,13 +49,44 @@ async fn test_core_pinning() {
                     awkernel_async_lib::r#yield().await;
                 }
             },
-            SchedulerType::PartitionedEDF(1_000_000, core_u16),
+            SchedulerType::ClusteredEDF(1_000_000, CpuSet::empty().insert(core)),
         )
         .await;
     }
 }
 
-/// Test 2: Verify EDF preemption on a single core.
+/// Test 2: Verify a task with a multi-core CPU set only runs on cores
+/// within the set.
+async fn test_cluster_affinity() {
+    if num_cpu() < 4 {
+        log::info!("test_cluster_affinity: skipped (num_cpu < 4)");
+        return;
+    }
+    log::info!("=== test_cluster_affinity start ===");
+
+    // Cluster {1, 2}: the task must never run on other cores.
+    let cluster = CpuSet::empty().insert(1).insert(2);
+    spawn(
+        "cluster_1_2".into(),
+        async move {
+            for _ in 0..5 {
+                let actual = cpu_id();
+                if cluster.contains(actual) {
+                    log::info!("cluster_affinity: task ran on cpu {actual} [OK]");
+                } else {
+                    log::error!("cluster_affinity: task ran on cpu {actual} [FAIL]");
+                }
+                wait_microsec(100_000);
+                sleep(Duration::from_millis(200)).await;
+                awkernel_async_lib::r#yield().await;
+            }
+        },
+        SchedulerType::ClusteredEDF(1_000_000, cluster),
+    )
+    .await;
+}
+
+/// Test 3: Verify EDF preemption on a single core.
 /// heavy (deadline=9900ms) is preempted by light (deadline=990ms) on core 1.
 async fn test_edf_preemption() {
     log::info!("=== test_edf_preemption start ===");
@@ -63,7 +94,7 @@ async fn test_edf_preemption() {
     spawn_periodic_task("light".to_string(), 900_000, 1_000_000, 990_000, 1).await;
 }
 
-/// Test 3: Verify core independence when num_cpu >= 3.
+/// Test 4: Verify core independence when num_cpu >= 3.
 /// Tasks on core 1 and core 2 run in parallel without interfering.
 async fn test_multi_core() {
     if num_cpu() < 3 {
@@ -81,7 +112,7 @@ async fn spawn_periodic_task(
     exe_time: u64,
     period: u64,
     relative_deadline: u64,
-    core: u16,
+    core: usize,
 ) {
     let task_name_clone = task_name.clone();
     spawn(
@@ -102,7 +133,7 @@ async fn spawn_periodic_task(
                 awkernel_async_lib::r#yield().await;
             }
         },
-        SchedulerType::PartitionedEDF(relative_deadline, core),
+        SchedulerType::ClusteredEDF(relative_deadline, CpuSet::empty().insert(core)),
     )
     .await;
 }

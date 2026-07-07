@@ -17,7 +17,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    cpu::{num_cpu, NUM_MAX_CPU},
+    cpu::{num_cpu, CpuSet, NUM_MAX_CPU},
     priority_queue::HIGHEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
@@ -53,7 +53,9 @@ pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priori
 #[cfg(target_pointer_width = "64")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
-pub(crate) static NUM_PARTITIONED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
+/// `NUM_CLUSTERED_TASKS_IN_QUEUE[cpu]` is the number of tasks in the clustered
+/// schedulers' queues whose `cpu_set` contains `cpu`.
+pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
     array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
 #[cfg(target_pointer_width = "32")]
@@ -70,7 +72,7 @@ pub struct Task {
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
     pub priority: PriorityInfo,
-    pub partitioned_core: Option<u16>, // The core to which the task is statically assigned in partitioned scheduling. None if not assigned.
+    pub cpu_set: Option<CpuSet>, // The set of cores on which the task may run in clustered scheduling. None if not assigned.
 }
 
 impl Task {
@@ -139,9 +141,9 @@ impl ArcWake for Task {
         }
 
         // Panicked tasks go to the global panicked scheduler, so always use the global counter.
-        // Non-panicked partitioned tasks: counter is managed inside partitioned_edf::wake_task.
-        // Non-panicked non-partitioned tasks: increment the global counter here.
-        if panicked || self.partitioned_core.is_none() {
+        // Non-panicked clustered tasks: counters are managed inside clustered_edf::wake_task.
+        // Non-panicked non-clustered tasks: increment the global counter here.
+        if panicked || self.cpu_set.is_none() {
             NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
         }
 
@@ -285,22 +287,23 @@ impl Tasks {
 
             // Find an unused task ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
-                // Validate and normalise the partitioned core before creating TaskInfo so that
-                // info.scheduler_type and task.partitioned_core stay in sync.
-                let partitioned_core = if let SchedulerType::PartitionedEDF(deadline, core) =
-                    scheduler_type
-                {
-                    if core == 0 || core >= num_cpu() as u16 {
+                // Validate and normalise the CPU set before creating TaskInfo so that
+                // info.scheduler_type and task.cpu_set stay in sync.
+                let cpu_set = if let SchedulerType::ClusteredEDF(deadline, set) = scheduler_type {
+                    // CPU 0 is the primary core and cannot run clustered tasks.
+                    let masked = set.masked_workers(num_cpu());
+                    let normalized = if masked.is_empty() {
                         log::warn!(
-                            "Partitioned core should be between 1 and {}. Falling back to core 1. Given core: {}",
+                            "The CPU set must contain at least one core between 1 and {}. Falling back to all worker cores. Given set: {:?}",
                             num_cpu() - 1,
-                            core
+                            set
                         );
-                        scheduler_type = SchedulerType::PartitionedEDF(deadline, 1);
-                        Some(1u16)
+                        CpuSet::all_workers(num_cpu())
                     } else {
-                        Some(core)
-                    }
+                        masked
+                    };
+                    scheduler_type = SchedulerType::ClusteredEDF(deadline, normalized);
+                    Some(normalized)
                 } else {
                     None
                 };
@@ -335,7 +338,7 @@ impl Tasks {
                     id,
                     info,
                     priority: PriorityInfo::new(scheduler.priority(), task_priority),
-                    partitioned_core,
+                    cpu_set,
                 };
 
                 e.insert(Arc::new(task));
@@ -1169,18 +1172,21 @@ pub fn wake_workers() {
     let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
 
-    for (i, partitioned_tasks) in NUM_PARTITIONED_TASKS_IN_QUEUE[..num_cpus]
+    for (i, clustered_tasks) in NUM_CLUSTERED_TASKS_IN_QUEUE[..num_cpus]
         .iter()
         .enumerate()
         .skip(1)
     {
-        if (*partitioned_tasks).load(Ordering::Relaxed) > 0 {
+        if (*clustered_tasks).load(Ordering::Relaxed) > 0 {
             awkernel_lib::cpu::wake_cpu(i);
             continue;
         }
 
+        // Even if there are no global tasks left, keep scanning: a
+        // higher-numbered CPU may still have clustered tasks waiting and
+        // breaking here would leave it asleep (lost wakeup).
         if num_tasks == 0 {
-            break;
+            continue;
         }
 
         if awkernel_lib::cpu::wake_cpu(i) {

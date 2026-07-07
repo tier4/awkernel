@@ -10,16 +10,16 @@ use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
-    cpu::num_cpu,
+    cpu::{num_cpu, CpuSet},
     sync::mutex::{MCSNode, Mutex},
 };
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
+mod clustered_edf;
 pub mod gedf;
 pub(super) mod panicked;
-mod partitioned_edf;
 mod prioritized_fifo;
 mod prioritized_rr;
 
@@ -73,8 +73,8 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    PartitionedEDF(u64, u16), // relative deadline and partitioned core
-    GEDF(u64),                // relative deadline
+    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
+    GEDF(u64),                 // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -86,8 +86,8 @@ impl SchedulerType {
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
                 | (
-                    SchedulerType::PartitionedEDF(_, _),
-                    SchedulerType::PartitionedEDF(_, _)
+                    SchedulerType::ClusteredEDF(_, _),
+                    SchedulerType::ClusteredEDF(_, _)
                 )
                 | (
                     SchedulerType::PrioritizedFIFO(_),
@@ -101,13 +101,13 @@ impl SchedulerType {
         )
     }
 
-    /// Return the partitioned core index if this is a [`SchedulerType::PartitionedEDF`] scheduler.
+    /// Return the CPU affinity set if this is a [`SchedulerType::ClusteredEDF`] scheduler.
     ///
-    /// Returns `Some(n)` where `n` is the CPU core index (`1..num_cpu()`) assigned to the
-    /// partitioned EDF scheduler. Returns `None` for all other scheduler variants.
-    pub const fn partitioned_core(&self) -> Option<u16> {
+    /// Returns `Some(set)` where `set` is the set of CPU cores (`1..num_cpu()`) the task
+    /// may run on. Returns `None` for all other scheduler variants.
+    pub const fn cpu_set(&self) -> Option<CpuSet> {
         match self {
-            SchedulerType::PartitionedEDF(_, n) => Some(*n),
+            SchedulerType::ClusteredEDF(_, set) => Some(*set),
             _ => None,
         }
     }
@@ -118,7 +118,7 @@ impl SchedulerType {
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
 /// - The highest priority.
-///   - Partitioned EDF scheduler.
+///   - Clustered EDF scheduler.
 /// - The second highest priority.
 ///   - GEDF scheduler.
 /// - The third highest priority.
@@ -128,19 +128,19 @@ impl SchedulerType {
 /// - The lowest priority.
 ///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 5] = [
-    SchedulerType::PartitionedEDF(0, 0),
+    SchedulerType::ClusteredEDF(0, CpuSet::empty()),
     SchedulerType::GEDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
 ];
 
-/// Return the number of partitioned schedulers in `PRIORITY_LIST`.
-/// Update this function if you add a new partitioned scheduler to `PRIORITY_LIST`.
-const fn get_num_partitioned_schedulers() -> usize {
+/// Return the number of clustered schedulers in `PRIORITY_LIST`.
+/// Update this function if you add a new clustered scheduler to `PRIORITY_LIST`.
+const fn get_num_clustered_schedulers() -> usize {
     let mut count = 0;
     while count < PRIORITY_LIST.len() {
-        if matches!(PRIORITY_LIST[count], SchedulerType::PartitionedEDF(_, _)) {
+        if matches!(PRIORITY_LIST[count], SchedulerType::ClusteredEDF(_, _)) {
             count += 1;
         } else {
             break;
@@ -177,15 +177,15 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
-    let num_partitioned_tasks =
-        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
+    let num_clustered_tasks =
+        crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
 
-    if num_partitioned_tasks > 0 {
-        let task = PRIORITY_LIST[..get_num_partitioned_schedulers()]
+    if num_clustered_tasks > 0 {
+        let task = PRIORITY_LIST[..get_num_clustered_schedulers()]
             .iter()
             .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
-        // Decrement is handled by PartitionedTask::Drop inside get_next().
+        // Decrement is handled by ClusteredTask::Drop inside get_next().
         task
     } else {
         let task = PRIORITY_LIST
@@ -206,7 +206,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
-        SchedulerType::PartitionedEDF(_, _) => &partitioned_edf::SCHEDULER,
+        SchedulerType::ClusteredEDF(_, _) => &clustered_edf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
@@ -222,69 +222,54 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
     panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
 }
 
-/// RAII wrapper representing one slot in `NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id]`.
+/// RAII wrapper representing one slot in `NUM_CLUSTERED_TASKS_IN_QUEUE` for every
+/// CPU in `cpu_set`.
 ///
-/// Constructing a `PartitionedTask` increments the counter for `cpu_id`.
-/// The counter is decremented exactly once — either via [`take`] (explicit
+/// Constructing a `ClusteredTask` increments the counter of each CPU in `cpu_set`.
+/// The counters are decremented exactly once — either via [`take`] (explicit
 /// ownership transfer) or via `Drop` (e.g. when a terminated task is
 /// discarded). If `take` has already been called, `Drop` is a no-op.
 ///
-/// [`take`]: PartitionedTask::take
-pub(crate) struct PartitionedTask<T> {
+/// [`take`]: ClusteredTask::take
+pub(crate) struct ClusteredTask<T> {
     inner: Option<T>,
-    cpu_id: usize,
+    cpu_set: CpuSet,
 }
 
-impl<T> PartitionedTask<T> {
-    pub(crate) fn new(inner: T, cpu_id: usize) -> Self {
-        crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[cpu_id].fetch_add(1, Ordering::Relaxed);
+impl<T> ClusteredTask<T> {
+    pub(crate) fn new(inner: T, cpu_set: CpuSet) -> Self {
+        for cpu_id in cpu_set.iter() {
+            crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_add(1, Ordering::Relaxed);
+        }
         Self {
             inner: Some(inner),
-            cpu_id,
+            cpu_set,
         }
     }
 
-    /// Take the inner value and decrement the counter.
+    /// Take the inner value and decrement the counters.
     ///
     /// Returns `None` if the value has already been taken.
     /// After this call `Drop` will be a no-op.
     pub(crate) fn take(&mut self) -> Option<T> {
         let val = self.inner.take();
         if val.is_some() {
-            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id]
-                .fetch_sub(1, Ordering::Relaxed);
+            for cpu_id in self.cpu_set.iter() {
+                crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
+            }
         }
         val
     }
 }
 
-impl<T> Drop for PartitionedTask<T> {
+impl<T> Drop for ClusteredTask<T> {
     fn drop(&mut self) {
         // Decrement only if take() has not been called yet.
         if self.inner.is_some() {
-            crate::task::NUM_PARTITIONED_TASKS_IN_QUEUE[self.cpu_id]
-                .fetch_sub(1, Ordering::Relaxed);
+            for cpu_id in self.cpu_set.iter() {
+                crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
+            }
         }
-    }
-}
-
-impl<T: PartialEq> PartialEq for PartitionedTask<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
-    }
-}
-
-impl<T: Eq> Eq for PartitionedTask<T> {}
-
-impl<T: PartialOrd> PartialOrd for PartitionedTask<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.inner.partial_cmp(&other.inner)
-    }
-}
-
-impl<T: Ord> Ord for PartitionedTask<T> {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.inner.cmp(&other.inner)
     }
 }
 
