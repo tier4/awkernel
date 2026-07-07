@@ -24,6 +24,11 @@ impl CpuSet {
         Self([0; CPU_SET_WORDS])
     }
 
+    /// Create a set containing all CPUs.
+    pub fn any() -> Self {
+        Self::all_workers(num_cpu())
+    }
+
     /// Create a set from a bitmask of CPUs 0..64.
     /// Bit `i` of `bits` corresponds to CPU `i`.
     pub const fn from_bits(bits: u64) -> Self {
