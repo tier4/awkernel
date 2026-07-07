@@ -186,18 +186,20 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
             .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
         // Decrement is handled by ClusteredTask::Drop inside get_next().
-        task
-    } else {
-        let task = PRIORITY_LIST
-            .iter()
-            .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
-
         if task.is_some() {
-            crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+            return task;
         }
-
-        task
     }
+
+    let task = PRIORITY_LIST
+        .iter()
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+
+    if task.is_some() {
+        crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    task
 }
 
 /// Get a scheduler.
