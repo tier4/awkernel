@@ -280,9 +280,9 @@ pub static TALLOC: Talloc = Talloc::new();
 </div>
 <p>The <code>wf_alloc</code> backend maps each CPU id directly to a per-CPU token and must know the
 number of CPUs that can use the heap concurrently (<code>active_threads</code>) at initialization time,
-because it sizes its metadata region from that count. If the count is <code>0</code>, <code>wf_alloc</code>'s
-<code>init</code> bails out and the heap is left uninitialized. The TLSF backend ignores the count.</p>
-<p>The bare <code>init_primary</code> / <code>init_backup</code> read this count from <code>cpu::num_cpu()</code> internally, so
+because it sizes its metadata region from that count. If the count is <code>0</code>, allocator
+initialization fails and the kernel halts during heap setup. The TLSF backend ignores the count.
+The bare <code>init_primary</code> / <code>init_backup</code> read this count from <code>cpu::num_cpu()</code> internally, so
 they only behave correctly after the active CPU count has been established. On x86_64 the
 heap is initialized before that count is set (so <code>cpu::num_cpu()</code> would return <code>0</code>); the boot
 code therefore uses the <code>init_primary_with_num_cpu</code> / <code>init_backup_with_num_cpu</code> variants and
@@ -350,6 +350,97 @@ in <code>primary_cpu</code> function defined in
 
     heap::init_primary_with_num_cpu(primary_start, primary_size, num_cpu);
     heap::init_backup_with_num_cpu(backup_start, backup_size, num_cpu);
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32"><a class="header" href="#risc-v-32-bit-rv32">RISC-V 32-bit (RV32)</a></h2>
+<p>For RISC-V 32-bit, the primary and backup allocators are initialized
+in <code>primary_hart</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv32/kernel_main.rs">kernel/src/arch/rv32/kernel_main.rs</a> as follows.</p>
+<p><strong>Unlike x86_64 and AArch64, RISC-V initializes heap allocators BEFORE setting up virtual memory.</strong>
+This is because the page table allocation itself requires heap memory.
+The initialization order is:</p>
+<ol>
+<li>Initialize heap allocators (lines 89-92)</li>
+<li>Initialize page allocator (line 123)</li>
+<li>Initialize and activate virtual memory (lines 126-129)</li>
+</ol>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn primary_hart(hartid: usize) {
+    // omitted
+
+    // setup the VM
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = HEAP_SIZE;
+
+    // enable heap allocator
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    // omitted
+
+    // Initialize memory management (page allocator)
+    awkernel_lib::arch::rv32::init_page_allocator();
+
+    // Initialize virtual memory system
+    awkernel_lib::arch::rv32::init_kernel_space();
+
+    // Activate virtual memory (enable MMU and page tables)
+    awkernel_lib::arch::rv32::activate_kernel_space();
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64"><a class="header" href="#risc-v-64-bit-rv64">RISC-V 64-bit (RV64)</a></h2>
+<p>For RISC-V 64-bit, the primary and backup allocators are initialized
+in <code>init_heap_allocation</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a> as follows.</p>
+<p><strong>Like RV32, RV64 also initializes heap allocators BEFORE setting up virtual memory,</strong>
+as stated in the comment "Setup heap allocation FIRST - page tables need this!"
+The initialization order in <code>primary_hart</code> function is:</p>
+<ol>
+<li>Initialize UART for early debugging (line 241)</li>
+<li>Setup heap allocation (line 244, calling <code>init_heap_allocation()</code>)</li>
+<li>Initialize memory management including page allocator and virtual memory (line 247, calling <code>init_memory_management()</code>)</li>
+<li>Initialize architecture-specific features, console, timer, and interrupts</li>
+</ol>
+<p>RV64 has additional unique features:</p>
+<ul>
+<li>Uses the <code>ekernel</code> symbol to determine heap start address dynamically</li>
+<li>Implements dynamic heap sizing with <code>get_heap_size()</code> based on available memory</li>
+<li>Has fallback logic for minimal heap configuration (64MB) when memory is limited</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn init_heap_allocation() {
+    // omitted
+
+    extern "C" {
+        fn ekernel();
+    }
+
+    let heap_start = (ekernel as usize + 0xfff) &amp; !0xfff; // Align to 4K
+    let backup_size = BACKUP_HEAP_SIZE;
+    let total_heap_size = awkernel_lib::arch::rv64::get_heap_size();
+
+    if total_heap_size &lt;= backup_size {
+        // Use minimal heap if not enough memory
+        let primary_size = 64 * 1024 * 1024; // 64MB minimum
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    } else {
+        // Use dynamic calculation
+        let primary_size = total_heap_size - backup_size;
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    }
+
+    heap::TALLOC.use_primary_then_backup();
 
     // omitted
 }

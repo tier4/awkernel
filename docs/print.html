@@ -923,6 +923,108 @@ To handle page tables, the <code>OffsetPageTable</code> structure defined in the
 <h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
 <p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
 To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
+<h2 id="risc-v-32-bit-rv32"><a class="header" href="#risc-v-32-bit-rv32">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, the <code>RV32</code> structure implements the <code>Mapper</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/paging.rs">awkernel_lib/src/arch/rv32/paging.rs</a>.
+Each operation reads the <strong>currently active</strong> page table from the <code>satp</code> register via
+<code>get_page_table</code> (see <a href="internal/arch/../page_table.html">Page Table</a>), then delegates to the Sv32
+<code>PageTable</code>. The generic <code>Flags</code> are translated into RISC-V PTE flags — entries are always
+valid, accessed and readable (<code>V | A | R</code>), writable pages also set <code>W | D</code>, and executable
+pages set <code>X</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::Mapper for super::RV32 {
+    unsafe fn map(
+        vm_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+    ) -&gt; Result&lt;(), MapError&gt; {
+        // Check address alignment
+        if !vm_addr.aligned() || !phy_addr.aligned() {
+            return Err(MapError::AddressNotAligned);
+        }
+
+        // Get current page table
+        if let Some(mut page_table) = get_page_table(vm_addr) {
+            let vpn = VirtPageNum::from(vm_addr);
+            let ppn = phy_addr.floor();
+
+            // Convert common flags to RV32 flags
+            let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+            if flags.write {
+                rv_flags |= Flags::W | Flags::D; // Writable and dirty
+            }
+            rv_flags |= Flags::R; // Always readable
+            if flags.execute {
+                rv_flags |= Flags::X;
+            }
+
+            // Try to map the page
+            if page_table.map(vpn, ppn, rv_flags) {
+                Ok(())
+            } else {
+                Err(MapError::AlreadyMapped)
+            }
+        } else {
+            Err(MapError::InvalidPageTable)
+        }
+    }
+
+    // unmap / vm_to_phy omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>vm_to_phy</code> walks the active page table for the page's virtual page number, and, if the
+leaf PTE is valid, reconstructs the physical address from the entry's PPN plus the page
+offset.</p>
+<h2 id="risc-v-64-bit-rv64"><a class="header" href="#risc-v-64-bit-rv64">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, the <code>RV64</code> structure implements the <code>Mapper</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/paging.rs">awkernel_lib/src/arch/rv64/paging.rs</a>.
+The structure mirrors RV32 but uses the Sv39 <code>PageTable</code>. Two differences are worth noting:
+<code>map</code> first checks <code>vm_to_phy</code> to reject an already-mapped address, and both <code>map</code> and
+<code>unmap</code> explicitly align the virtual and physical addresses down to the 4 KiB page
+boundary before walking the table.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::Mapper for super::RV64 {
+    unsafe fn map(
+        vm_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+    ) -&gt; Result&lt;(), MapError&gt; {
+        // Check if already mapped
+        if Self::vm_to_phy(vm_addr).is_some() {
+            return Err(MapError::AlreadyMapped);
+        }
+
+        let vm_addr_aligned = vm_addr.as_usize() &amp; !(PAGESIZE - 1);
+        let phy_addr_aligned = phy_addr.as_usize() &amp; !(PAGESIZE - 1);
+
+        if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(vm_addr_aligned)) {
+            let vpn = VirtPageNum::from(VirtAddr::from_usize(vm_addr_aligned));
+            let ppn = PhysPageNum::from(PhyAddr::from_usize(phy_addr_aligned));
+
+            let mut rv_flags = Flags::V | Flags::A;
+            rv_flags |= Flags::R; // Always readable
+            if flags.write {
+                rv_flags |= Flags::W | Flags::D;
+            }
+            if flags.execute {
+                rv_flags |= Flags::X;
+            }
+
+            if page_table.map(vpn, ppn, rv_flags) {
+                Ok(())
+            } else {
+                Err(MapError::AlreadyMapped)
+            }
+        } else {
+            Err(MapError::InvalidPageTable)
+        }
+    }
+
+    // unmap / vm_to_phy omitted
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
 <p><code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
 It is defined as follows.</p>
@@ -1047,6 +1149,153 @@ pub struct PageTable {
         }
 
         self.map_to_aarch64(virt_addr, phy_addr, f, page_allocator)
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32-1"><a class="header" href="#risc-v-32-bit-rv32-1">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, the <code>PageTable</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/page_table.rs">awkernel_lib/src/arch/rv32/page_table.rs</a>.
+It implements the <strong>Sv32</strong> translation scheme: 32-bit virtual addresses, 4 KiB pages
+and a <strong>2-level</strong> page table. Each page table entry (PTE) holds a physical page number
+(<code>PPN</code>) and the standard RISC-V flag bits.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>bitflags! {
+    /// PTE Flags for RISC-V Sv32 page table
+    pub struct Flags: u8 {
+        const V = 1 &lt;&lt; 0; // Valid
+        const R = 1 &lt;&lt; 1; // Readable
+        const W = 1 &lt;&lt; 2; // Writable
+        const X = 1 &lt;&lt; 3; // Executable
+        const U = 1 &lt;&lt; 4; // User-accessible
+        const G = 1 &lt;&lt; 5; // Global
+        const A = 1 &lt;&lt; 6; // Accessed
+        const D = 1 &lt;&lt; 7; // Dirty
+    }
+}
+
+pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec&lt;FrameTracker&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The root page table is allocated from the physical frame allocator on <code>PageTable::new</code>,
+and every intermediate table allocated while walking the tree is tracked in <code>frames</code>
+so that it is kept alive for the lifetime of the address space.
+The virtual page number is split into two 10-bit indices (<code>VirtPageNum::indexes</code>),
+one per level of the Sv32 table.</p>
+<p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.
+The generic <code>Flags</code> are translated into RISC-V PTE flags: entries are always made valid,
+accessed and readable (<code>V | A | R</code>); writable mappings also set the dirty bit (<code>W | D</code>),
+and executable mappings set <code>X</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::PageTable&lt;Page, RV32PageAllocator, &amp;'static str&gt; for PageTable {
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &amp;mut RV32PageAllocator,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D; // Writable and dirty
+        }
+        rv_flags |= Flags::R; // Always readable
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Translation is enabled by writing the <code>satp</code> (Supervisor Address Translation and Protection)
+register. For Sv32 the <code>token</code> method returns the register value with <code>MODE = 1</code> (Sv32) in
+bit 31 and the root table's PPN in the low bits.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn token(&amp;self) -&gt; usize {
+    (1usize &lt;&lt; 31)    // MODE = 1 (Sv32 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64-1"><a class="header" href="#risc-v-64-bit-rv64-1">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, the <code>PageTable</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/page_table.rs">awkernel_lib/src/arch/rv64/page_table.rs</a>.
+It implements the <strong>Sv39</strong> translation scheme: 39-bit virtual addresses, 4 KiB pages
+and a <strong>3-level</strong> page table. The PTE layout and <code>Flags</code> definition are identical to RV32;
+the differences are the number of levels and the <code>satp</code> encoding.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec&lt;FrameTracker&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The virtual page number is split into three 9-bit indices (<code>VirtPageNum::indexes</code>),
+walked by <code>find_pte</code> / <code>find_pte_create</code>; the leaf PTE is reached at level index <code>2</code>.</p>
+<p>The <code>map_to</code> implementation is the same as RV32 — generic <code>Flags</code> are mapped to the
+RISC-V PTE flags (<code>V | A | R</code>, plus <code>W | D</code> for writable and <code>X</code> for executable pages):</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::PageTable&lt;Page, RV64PageAllocator, &amp;'static str&gt; for PageTable {
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &amp;mut RV64PageAllocator,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A;
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D;
+        }
+        rv_flags |= Flags::R;
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>For Sv39 the <code>token</code> method encodes <code>MODE = 8</code> (Sv39) in bits 63-60 and the root PPN in
+the low 44 bits:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn token(&amp;self) -&gt; usize {
+    (8usize &lt;&lt; 60)    // MODE = 8 (Sv39 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The kernel address space is built in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/vm.rs">awkernel_lib/src/arch/rv64/vm.rs</a>:
+<code>new_kernel</code> maps the kernel sections (<code>.text</code>, <code>.rodata</code>, <code>.data</code>, <code>.bss</code>) and an
+identity mapping for available RAM, and <code>activate</code> installs the table by writing <code>satp</code>
+and flushing the TLB:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn activate(&amp;self) {
+    let satp = self.page_table.token();
+    unsafe {
+        asm!("csrw satp, {}", in(reg) satp);
+        asm!("sfence.vma");
     }
 }
 <span class="boring">}</span></code></pre></pre>
@@ -1397,6 +1646,42 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
     interrupt::handle_irqs();
 }
 <span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64-2"><a class="header" href="#risc-v-64-bit-rv64-2">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, traps are taken in machine mode by a low-level handler installed into <code>mtvec</code>
+during boot in <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/boot.S">kernel/src/arch/rv64/boot.S</a>.
+The handler reads <code>mcause</code> to distinguish exceptions from interrupts and dispatches on the
+interrupt code: a machine timer interrupt (code 7) and a machine software interrupt / IPI
+(code 3) are handled, while other causes return without action.</p>
+<pre><code class="language-asm">early_trap_handler:
+  csrr t0, mcause
+  blt t0, zero, handle_interrupt   # MSB set =&gt; interrupt
+  j unhandled_trap
+
+handle_interrupt:
+  # ... mask off the interrupt code ...
+  li t1, 7                         # M-mode timer interrupt
+  beq t0, t1, handle_timer_interrupt
+  li t1, 3                         # M-mode software interrupt (IPI)
+  beq t0, t1, handle_software_interrupt
+</code></pre>
+<p>After saving the clobbered registers, the timer path calls <code>riscv_handle_timer</code> and the
+IPI path calls <code>riscv_handle_ipi</code>. Both are defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a>
+and forward to the architecture-independent <code>handle_irqs</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// M-mode software interrupt (IPI) handler called from assembly.
+pub extern "C" fn riscv_handle_ipi() {
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+
+/// M-mode timer interrupt handler called from assembly.
+pub extern "C" fn riscv_handle_timer() {
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The software-interrupt (<code>MSIP</code>) bit is cleared in assembly before returning, and the timer
+is re-armed by the registered timer handler.</p>
 <h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
 <p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
 This means that the target CPU should handle the preemption request if it receives the IPI.</p>
@@ -1448,6 +1733,88 @@ pub fn handle_irqs() {
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv2.rs">GICv2</a></li>
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
 </ul>
+<h2 id="risc-v-64-bit-rv64-3"><a class="header" href="#risc-v-64-bit-rv64-3">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, external interrupts are managed by the <strong>PLIC</strong> (Platform-Level Interrupt
+Controller), and inter-processor interrupts (IPIs) are delivered through the
+<strong>CLINT/ACLINT</strong> software-interrupt (<code>MSIP</code>) registers. Both are implemented by the
+<code>RiscvPlic</code> structure in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/interrupt_controller.rs">kernel/src/arch/rv64/interrupt_controller.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// RISC-V PLIC (Platform-Level Interrupt Controller) implementation.
+/// Combined with CLINT/ACLINT for IPI support.
+pub struct RiscvPlic {
+    base_address: usize,
+    max_priority: u32,
+    num_sources: u16,
+}
+
+// CLINT/ACLINT base address for IPIs.
+const ACLINT_BASE: usize = 0x0200_0000;
+const MSIP_OFFSET: usize = 0x0000; // Machine Software Interrupt Pending
+<span class="boring">}</span></code></pre></pre>
+<p>The PLIC register layout is computed relative to <code>base_address</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>register</th><th>address</th><th>purpose</th></tr></thead><tbody>
+<tr><td>priority</td><td><code>base + source * 4</code></td><td>per-source interrupt priority (0-7)</td></tr>
+<tr><td>enable</td><td><code>base + 0x2000 + context * 0x80</code></td><td>per-context enable bitmap</td></tr>
+<tr><td>threshold</td><td><code>base + 0x200000 + context * 0x1000</code></td><td>per-context priority threshold</td></tr>
+<tr><td>claim/complete</td><td><code>base + 0x200004 + context * 0x1000</code></td><td>claim a pending IRQ / signal completion</td></tr>
+</tbody></table>
+</div>
+<p>The PLIC <em>context</em> for the running hart is computed as <code>hartid * 2 + 1</code> (the
+supervisor-mode context), where the hart ID is read from the <code>mhartid</code> CSR.</p>
+<p><code>RiscvPlic</code> implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs"><code>InterruptController</code></a> trait:</p>
+<ul>
+<li><code>enable_irq</code> sets the source priority to <code>1</code> and sets its bit in the enable register.</li>
+<li><code>disable_irq</code> clears the source's bit in the enable register.</li>
+<li><code>pending_irqs</code> reads the claim register; a non-zero value is the claimed IRQ, which is
+immediately written back to the claim register to signal completion.</li>
+<li><code>send_ipi</code> writes <code>1</code> to the target hart's <code>MSIP</code> register; the broadcast variants do so
+for every hart (skipping the sender for <code>send_ipi_broadcast_without_self</code>).</li>
+<li><code>init_non_primary</code> sets the context threshold to <code>0</code> (accept all priorities) and enables
+machine software interrupts (<code>mie.MSIE</code>) so the core can receive IPIs.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl InterruptController for RiscvPlic {
+    fn enable_irq(&amp;mut self, irq: u16) {
+        self.set_priority(irq, 1);
+        let context = self.get_supervisor_context();
+        self.enable_interrupt(context, irq);
+    }
+
+    fn pending_irqs(&amp;self) -&gt; Box&lt;dyn Iterator&lt;Item = u16&gt;&gt; {
+        let context = self.get_supervisor_context();
+        let claim_reg = self.claim_reg(context);
+        let mut pending = alloc::vec::Vec::new();
+        unsafe {
+            let claimed = read_volatile(claim_reg);
+            if claimed != 0 {
+                pending.push(claimed as u16);
+                write_volatile(claim_reg, claimed); // Complete the interrupt.
+            }
+        }
+        Box::new(pending.into_iter())
+    }
+
+    // ... send_ipi / init_non_primary / irq_range omitted ...
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The controller is instantiated and registered during boot in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a>,
+with the PLIC mapped at <code>0x0c00_0000</code> and 128 interrupt sources:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>const PLIC_BASE: usize = 0x0c000000;
+const NUM_SOURCES: u16 = 128;
+
+let plic = Box::new(RiscvPlic::new(PLIC_BASE, NUM_SOURCES));
+awkernel_lib::interrupt::register_interrupt_controller(plic);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32-2"><a class="header" href="#risc-v-32-bit-rv32-2">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, a PLIC-based <code>InterruptController</code> is not yet implemented;
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/interrupt.rs">awkernel_lib/src/arch/rv32/interrupt.rs</a>
+currently provides only the low-level enable/disable of interrupts via the <code>sstatus</code> CSR.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
 <p>The heap backend in Awkernel is selected at compile time by feature flags.</p>
 <ul>
@@ -1553,9 +1920,9 @@ pub static TALLOC: Talloc = Talloc::new();
 </div>
 <p>The <code>wf_alloc</code> backend maps each CPU id directly to a per-CPU token and must know the
 number of CPUs that can use the heap concurrently (<code>active_threads</code>) at initialization time,
-because it sizes its metadata region from that count. If the count is <code>0</code>, <code>wf_alloc</code>'s
-<code>init</code> bails out and the heap is left uninitialized. The TLSF backend ignores the count.</p>
-<p>The bare <code>init_primary</code> / <code>init_backup</code> read this count from <code>cpu::num_cpu()</code> internally, so
+because it sizes its metadata region from that count. If the count is <code>0</code>, allocator
+initialization fails and the kernel halts during heap setup. The TLSF backend ignores the count.
+The bare <code>init_primary</code> / <code>init_backup</code> read this count from <code>cpu::num_cpu()</code> internally, so
 they only behave correctly after the active CPU count has been established. On x86_64 the
 heap is initialized before that count is set (so <code>cpu::num_cpu()</code> would return <code>0</code>); the boot
 code therefore uses the <code>init_primary_with_num_cpu</code> / <code>init_backup_with_num_cpu</code> variants and
@@ -1627,6 +1994,97 @@ in <code>primary_cpu</code> function defined in
     // omitted
 }
 <span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32-3"><a class="header" href="#risc-v-32-bit-rv32-3">RISC-V 32-bit (RV32)</a></h2>
+<p>For RISC-V 32-bit, the primary and backup allocators are initialized
+in <code>primary_hart</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv32/kernel_main.rs">kernel/src/arch/rv32/kernel_main.rs</a> as follows.</p>
+<p><strong>Unlike x86_64 and AArch64, RISC-V initializes heap allocators BEFORE setting up virtual memory.</strong>
+This is because the page table allocation itself requires heap memory.
+The initialization order is:</p>
+<ol>
+<li>Initialize heap allocators (lines 89-92)</li>
+<li>Initialize page allocator (line 123)</li>
+<li>Initialize and activate virtual memory (lines 126-129)</li>
+</ol>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn primary_hart(hartid: usize) {
+    // omitted
+
+    // setup the VM
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = HEAP_SIZE;
+
+    // enable heap allocator
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    // omitted
+
+    // Initialize memory management (page allocator)
+    awkernel_lib::arch::rv32::init_page_allocator();
+
+    // Initialize virtual memory system
+    awkernel_lib::arch::rv32::init_kernel_space();
+
+    // Activate virtual memory (enable MMU and page tables)
+    awkernel_lib::arch::rv32::activate_kernel_space();
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64-4"><a class="header" href="#risc-v-64-bit-rv64-4">RISC-V 64-bit (RV64)</a></h2>
+<p>For RISC-V 64-bit, the primary and backup allocators are initialized
+in <code>init_heap_allocation</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a> as follows.</p>
+<p><strong>Like RV32, RV64 also initializes heap allocators BEFORE setting up virtual memory,</strong>
+as stated in the comment "Setup heap allocation FIRST - page tables need this!"
+The initialization order in <code>primary_hart</code> function is:</p>
+<ol>
+<li>Initialize UART for early debugging (line 241)</li>
+<li>Setup heap allocation (line 244, calling <code>init_heap_allocation()</code>)</li>
+<li>Initialize memory management including page allocator and virtual memory (line 247, calling <code>init_memory_management()</code>)</li>
+<li>Initialize architecture-specific features, console, timer, and interrupts</li>
+</ol>
+<p>RV64 has additional unique features:</p>
+<ul>
+<li>Uses the <code>ekernel</code> symbol to determine heap start address dynamically</li>
+<li>Implements dynamic heap sizing with <code>get_heap_size()</code> based on available memory</li>
+<li>Has fallback logic for minimal heap configuration (64MB) when memory is limited</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn init_heap_allocation() {
+    // omitted
+
+    extern "C" {
+        fn ekernel();
+    }
+
+    let heap_start = (ekernel as usize + 0xfff) &amp; !0xfff; // Align to 4K
+    let backup_size = BACKUP_HEAP_SIZE;
+    let total_heap_size = awkernel_lib::arch::rv64::get_heap_size();
+
+    if total_heap_size &lt;= backup_size {
+        // Use minimal heap if not enough memory
+        let primary_size = 64 * 1024 * 1024; // 64MB minimum
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    } else {
+        // Use dynamic calculation
+        let primary_size = total_heap_size - backup_size;
+        heap::init_primary(heap_start + backup_size, primary_size);
+        heap::init_backup(heap_start, backup_size);
+    }
+
+    heap::TALLOC.use_primary_then_backup();
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1656,8 +2114,8 @@ in <code>primary_cpu</code> function defined in
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum SchedulerType {
-    PartitionedEDF(u64, u16), // relative deadline and partitioned core
-    GEDF(u64),                // relative deadline
+    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
+    GEDF(u64),                 // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -1682,16 +2140,16 @@ in <code>primary_cpu</code> function defined in
 <h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
 <p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
 <pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
-&gt; gedf.rs  panicked.rs  partitioned_edf.rs  prioritized_fifo.rs  prioritized_rr.rs
+&gt; clustered_edf.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 </code></pre>
 <p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
 Each scheduler must be registered in the following three locations.
 <code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
-<h3 id="partitionededf-scheduler"><a class="header" href="#partitionededf-scheduler">PartitionedEDF Scheduler</a></h3>
-<p>The Partitioned Earliest Deadline First (PartitionedEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/partitioned_edf.rs">partitioned_edf.rs</a>. This scheduler is an EDF variant that pins each task to a specific CPU core (partition), maintaining a separate run queue per core.</p>
-<p>The scheduler holds a <code>[Mutex&lt;Option&lt;EDFData&gt;&gt;; NUM_MAX_CPU]</code> array, one slot per CPU. Each slot's <code>EDFData</code> contains a <code>BinaryHeap&lt;PartitionedEDFTask&gt;</code> ordered by absolute deadline (earliest deadline first), with wake time used as a tie-breaker when deadlines are equal.</p>
-<p>When a task is enqueued via <code>wake_task()</code>, the scheduler reads the <code>SchedulerType::PartitionedEDF(relative_deadline, partitioned_core)</code> attached to the task and calculates the absolute deadline as <code>uptime + relative_deadline</code>. If the task is part of a DAG, <code>calculate_and_update_dag_deadline()</code> (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then inserted into the run queue of the assigned <code>partitioned_core</code>. Preemption is handled via <code>invoke_preemption()</code>, which sends an IPI to the target core when a newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.</p>
-<p><code>get_next()</code> pops the task with the earliest deadline from the run queue of the calling CPU, so each core only dequeues its own tasks. This guarantees strict CPU affinity.</p>
+<h3 id="clusterededf-scheduler"><a class="header" href="#clusterededf-scheduler">ClusteredEDF Scheduler</a></h3>
+<p>The Clustered Earliest Deadline First (ClusteredEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/clustered_edf.rs">clustered_edf.rs</a>. This scheduler is an EDF variant that restricts each task to a set of CPU cores (a cluster), specified as a <code>CpuSet</code> bitmask. Pinning a task to a single core (partitioned scheduling) is the special case of a one-bit <code>CpuSet</code>.</p>
+<p>The scheduler holds a single affinity-aware priority queue, <a href="https://crates.io/crates/affinity_btree_queue"><code>AffinityBTreeQueue</code></a>, backed by an augmented B-tree. Each entry carries <code>(priority, affinity, task)</code>, where the priority is the pair <code>(absolute_deadline, wake_time)</code>; smaller values dequeue first, so tasks are ordered by earliest deadline with wake time as a tie-breaker. Every B-tree node stores the OR of the affinities in its subtree, which lets <code>pop_for_cpu(cpu)</code> find the earliest-deadline task runnable on <code>cpu</code> in logarithmic time while skipping subtrees with no eligible entry.</p>
+<p>When a task is enqueued via <code>wake_task()</code>, the scheduler reads the <code>SchedulerType::ClusteredEDF(relative_deadline, cpu_set)</code> attached to the task and calculates the absolute deadline as <code>uptime + relative_deadline</code>. If the task is part of a DAG, <code>calculate_and_update_dag_deadline()</code> (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then pushed into the queue with its <code>cpu_set</code> as the affinity mask. Preemption is handled via <code>invoke_preemption()</code>: if no core in the set is idle and the task is not already running, the core running the lowest-priority task among the set is chosen, and an IPI is sent to it when the newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.</p>
+<p><code>get_next()</code> pops the earliest-deadline task whose <code>cpu_set</code> contains the calling CPU (<code>pop_for_cpu</code>), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from <code>cpu_set</code> when a task is spawned.</p>
 <h3 id="gedf-scheduler"><a class="header" href="#gedf-scheduler">GEDF Scheduler</a></h3>
 <p>The Global Earliest Deadline First (GEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/gedf.rs">gedf.rs</a>. This scheduler implements a real-time scheduling algorithm that prioritizes tasks based on their absolute deadlines.</p>
 <p>The scheduler maintains a <code>BinaryHeap&lt;GEDFTask&gt;</code> as its run queue, where tasks are ordered by their absolute deadlines. When a task is enqueued via <code>wake_task()</code>, the scheduler calculates the absolute deadline by adding the relative deadline (specified in <code>SchedulerType::GEDF(relative_deadline)</code>) to the current uptime. The task's priority is updated using <code>MAX_TASK_PRIORITY - absolute_deadline</code> to ensure proper inter-scheduler priority comparison.</p>
