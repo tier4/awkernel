@@ -24,7 +24,7 @@ impl CpuSet {
         Self([0; CPU_SET_WORDS])
     }
 
-    /// Create a set containing all CPUs.
+    /// Create a set containing all worker CPUs (`1..num_cpu()`).
     pub fn any() -> Self {
         Self::all_workers(num_cpu())
     }
