@@ -12,9 +12,6 @@ pub const CPU_SET_WORDS: usize = NUM_MAX_CPU / 64;
 static NUM_CPU: AtomicUsize = AtomicUsize::new(0);
 
 /// A set of CPU cores, represented as a bitmask supporting up to `NUM_MAX_CPU` CPUs.
-///
-/// All constructors and predicates are `const fn` so that a `CpuSet` can be
-/// embedded in const-evaluated statics.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CpuSet([u64; CPU_SET_WORDS]);
 
