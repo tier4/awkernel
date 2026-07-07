@@ -29,6 +29,7 @@ pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
 mod port_alloc;
+mod port_bitmap;
 pub mod tcp;
 pub mod tcp_listener;
 pub mod tcp_stream;
