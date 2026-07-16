@@ -1,0 +1,203 @@
+[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+INFO : Framebuffer info: FrameBufferInfo { byte_len: 4096000, width: 1280, height: 800, pixel_format: Bgr, bytes_per_pixel: 4, stride: 1280 }
+INFO : UEFI bootloader started
+INFO : Using framebuffer at 0x80000000
+INFO : Reading configuration from disk was successful
+INFO : Trying to load ramdisk via Disk
+INFO : Ramdisk not found.
+TRACE: exiting boot services
+TRACE: switching to new level 4 table
+INFO : New page table at: PhysFrame[4KiB](0x101000)
+INFO : Elf file loaded at Pointer {
+    addr: 0x000000007d3ea000,
+    metadata: 6327048,
+}
+INFO : virtual_address_offset: 0x0
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(5), offset: 1000, virtual_addr: 401000, physical_addr: 401000, file_size: 3a1d2f, mem_size: 3a1d2f, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(4), offset: 3a3000, virtual_addr: 7a3000, physical_addr: 7a3000, file_size: a4310, mem_size: a4310, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(6), offset: 448000, virtual_addr: 848000, physical_addr: 848000, file_size: 2c7a8, mem_size: 641058, align: 1000 })
+INFO : Mapping bss section
+INFO : Entry point at: 0x557ba0
+INFO : Creating GDT at PhysAddr(0x189c000)
+INFO : Map framebuffer
+INFO : Map physical memory
+INFO : Allocate bootinfo
+INFO : Create Memory Map
+INFO : Create bootinfo
+INFO : Jumping to kernel entry point at VirtAddr(0x557ba0)
+
+The primary CPU is waking up.
+[            0 INFO] Backup heap: start = 0x41000000000, size = 64MiB
+[            0 INFO] Physical memory offset: 0x20000000000
+[            0 INFO] DMA(NUMA #0): start = 0x40000000000, size = 128MiB
+[            0 INFO] DMA(NUMA #1): start = 0x40008000000, size = 128MiB
+[            0 INFO] DMA(NUMA #2): start = 0x40010000000, size = 128MiB
+[            0 INFO] DMA(NUMA #3): start = 0x40018000000, size = 128MiB
+[            0 INFO] CPU/NUMA: 0/0
+[            0 INFO] CPU/NUMA: 1/0
+[            0 INFO] CPU/NUMA: 2/0
+[            0 INFO] CPU/NUMA: 3/0
+[            0 INFO] CPU/NUMA: 4/1
+[            0 INFO] CPU/NUMA: 5/1
+[            0 INFO] CPU/NUMA: 6/1
+[            0 INFO] CPU/NUMA: 7/1
+[            0 INFO] CPU/NUMA: 8/2
+[            0 INFO] CPU/NUMA: 9/2
+[            0 INFO] CPU/NUMA: 10/2
+[            0 INFO] CPU/NUMA: 11/2
+[            0 INFO] CPU/NUMA: 12/3
+[            0 INFO] CPU/NUMA: 13/3
+[            0 INFO] CPU/NUMA: 14/3
+[            0 INFO] CPU/NUMA: 15/3
+[            0 INFO] CPU #0's stack memory: 0x10001000 - 0x10200000
+[            0 INFO] CPU #1's stack memory: 0x10201000 - 0x10400000
+[            0 INFO] CPU #2's stack memory: 0x10401000 - 0x10600000
+[            0 INFO] CPU #3's stack memory: 0x10601000 - 0x10800000
+[            0 INFO] CPU #4's stack memory: 0x10801000 - 0x10a00000
+[            0 INFO] CPU #5's stack memory: 0x10a01000 - 0x10c00000
+[            0 INFO] CPU #6's stack memory: 0x10c01000 - 0x10e00000
+[            0 INFO] CPU #7's stack memory: 0x10e01000 - 0x11000000
+[            0 INFO] CPU #8's stack memory: 0x11001000 - 0x11200000
+[            0 INFO] CPU #9's stack memory: 0x11201000 - 0x11400000
+[            0 INFO] CPU #10's stack memory: 0x11401000 - 0x11600000
+[            0 INFO] CPU #11's stack memory: 0x11601000 - 0x11800000
+[            0 INFO] CPU #12's stack memory: 0x11801000 - 0x11a00000
+[            0 INFO] CPU #13's stack memory: 0x11a01000 - 0x11c00000
+[            0 INFO] CPU #14's stack memory: 0x11c01000 - 0x11e00000
+[            0 INFO] CPU #15's stack memory: 0x11e01000 - 0x12000000
+[            0 INFO] HPET base addres: 0xfed00000
+[            0 INFO] HPET frequency = 100000000[Hz]
+[            0 INFO] TSC Frequency (HPET) = 2420547030 Hz
+[           26 INFO] APIC base address = 0xfee00000
+[           26 INFO] Local APIC is enabled in xAPIC mode.
+[           26 INFO] Local APIC ID = 0
+[           27 INFO] write mpboot.img to 0x20000000000
+[           27 INFO] write the kernel entry of 0x00557700 to 0x20000000800
+[           27 INFO] write CR3 of 0x00101000 to 0x20000000808
+[           27 INFO] Waking non-primary CPUs up.
+[           29 INFO] Raw CPU ID/CPU ID: 1/1
+[           30 INFO] Raw CPU ID/CPU ID: 2/2
+[           30 INFO] Raw CPU ID/CPU ID: 3/3
+[           30 INFO] Raw CPU ID/CPU ID: 4/4
+[           30 INFO] Raw CPU ID/CPU ID: 5/5
+[           30 INFO] Raw CPU ID/CPU ID: 6/6
+[           30 INFO] Raw CPU ID/CPU ID: 7/7
+[           30 INFO] Raw CPU ID/CPU ID: 8/8
+[           30 INFO] Raw CPU ID/CPU ID: 9/9
+[           30 INFO] Raw CPU ID/CPU ID: 10/10
+[           30 INFO] Raw CPU ID/CPU ID: 11/11
+[           31 INFO] Raw CPU ID/CPU ID: 12/12
+[           32 INFO] Raw CPU ID/CPU ID: 13/13
+[           33 INFO] Raw CPU ID/CPU ID: 14/14
+[           33 INFO] Raw CPU ID/CPU ID: 15/15
+123456789:;<=>?
+[          357 INFO] Sent IPIs to wake non-primary CPUs up.
+[         2314 INFO] Primary heap: start = 0x41004000000, size = 4392MiB
+[         2408 INFO] XAPIC: IRQ #64 has been enabled on CPU#0.
+[         2501 INFO] igb-0000:00:02.0:0000:00:02.0: Intel Gigabit Ethernet Controller (Em82574): MAC = 52:54:00:12:34:56
+[         2506 INFO] PCIe: segment_group = 0000
+Bus #00
+    0000:00:00.0: Vendor ID = 8086, Device ID = 29c0, PCIe Class = BridgeDevice(HostBridge)
+    0000:00:01.0: Vendor ID = 1234, Device ID = 1111, PCIe Class = DisplayController
+    0000:00:02.0: Intel Gigabit Ethernet Controller (Em82574), status = [Capabilities List], command = [Interrupt Disable, Bus Master, Memory Space, IO Space]
+    0000:00:1f.0: Vendor ID = 8086, Device ID = 2918, PCIe Class = BridgeDevice(ISA)
+    0000:00:1f.2: Vendor ID = 8086, Device ID = 2922, PCIe Class = MassStorageController(SerialAta)
+    0000:00:1f.3: Vendor ID = 8086, Device ID = 2930, PCIe Class = SerialBusController
+
+[         2523 INFO] Framebuffer: width = 1280, height = 800, pixel_format = Bgr
+[         2524 DEBUG] awkernel_drivers/src/ic/x86_64/lfb.rs:22: Frame buffer has been initialized: FrameBufferInfo { byte_len: 4096000, width: 1280, height: 800, pixel_format: Bgr, bytes_per_pixel: 4, stride: 1280 }
+[         2531 INFO] CPU#1 is starting.
+[         2532 INFO] CPU#2 is starting.
+[         2536 INFO] CPU#3 is starting.
+[         2539 INFO] CPU#4 is starting.
+[         2541 INFO] CPU#5 is starting.
+[         2542 INFO] CPU#6 is starting.
+[         2544 INFO] CPU#7 is starting.
+[         2546 INFO] CPU#8 is starting.
+[         2549 INFO] CPU#9 is starting.
+[         2551 INFO] CPU#10 is starting.
+[         2553 INFO] CPU#11 is starting.
+[         2555 INFO] CPU#12 is starting.
+[         2558 INFO] CPU#13 is starting.
+[         2560 INFO] CPU#14 is starting.
+[         2562 INFO] CPU#15 is starting.
+[         2562 INFO] Synchronized TSCs.
+[         2563 INFO] All CPUs are ready.
+[         2564 INFO] RTC time: 2026-07-16 16:24:10
+[         2565 INFO] CPU#0 is starting.
+[         2566 INFO] XAPIC: IRQ #254 has been enabled on CPU#0.
+[         2567 INFO] interrupt::INTERRUPT_CONTROLLER has been initialized.
+[         2568 INFO] interrupt::PREEMPT_FN has been initialized.
+[         2569 INFO] timer::TIMER has been initialized.
+[         2572 INFO] XAPIC: IRQ #255 has been enabled on CPU#12.
+[         2576 INFO] XAPIC: IRQ #254 has been enabled on CPU#12.
+[         2577 INFO] XAPIC: IRQ #255 has been enabled on CPU#9.
+[         2577 INFO] XAPIC: IRQ #254 has been enabled on CPU#9.
+[         2578 INFO] XAPIC: IRQ #253 has been enabled on CPU#9.
+[         2580 INFO] XAPIC: IRQ #255 has been enabled on CPU#4.
+[         2581 INFO] XAPIC: IRQ #254 has been enabled on CPU#4.
+[         2584 INFO] XAPIC: IRQ #253 has been enabled on CPU#4.
+[         2586 INFO] XAPIC: IRQ #255 has been enabled on CPU#10.
+[         2588 INFO] XAPIC: IRQ #255 has been enabled on CPU#11.
+[         2589 INFO] XAPIC: IRQ #254 has been enabled on CPU#11.
+[         2589 INFO] XAPIC: IRQ #253 has been enabled on CPU#11.
+[         2591 INFO] XAPIC: IRQ #255 has been enabled on CPU#14.
+[         2593 INFO] XAPIC: IRQ #254 has been enabled on CPU#14.
+[         2596 INFO] XAPIC: IRQ #253 has been enabled on CPU#14.
+[         2597 INFO] XAPIC: IRQ #255 has been enabled on CPU#13.
+[         2598 INFO] XAPIC: IRQ #254 has been enabled on CPU#13.
+[         2599 INFO] XAPIC: IRQ #253 has been enabled on CPU#13.
+[         2600 INFO] XAPIC: IRQ #255 has been enabled on CPU#5.
+[         2604 INFO] XAPIC: IRQ #254 has been enabled on CPU#5.
+[         2604 INFO] XAPIC: IRQ #253 has been enabled on CPU#5.
+[         2605 INFO] XAPIC: IRQ #255 has been enabled on CPU#7.
+[         2606 INFO] XAPIC: IRQ #254 has been enabled on CPU#7.
+[         2607 INFO] XAPIC: IRQ #253 has been enabled on CPU#7.
+[         2608 INFO] XAPIC: IRQ #255 has been enabled on CPU#1.
+[         2609 INFO] XAPIC: IRQ #253 has been enabled on CPU#12.
+[         2610 INFO] XAPIC: IRQ #255 has been enabled on CPU#3.
+[         2611 INFO] XAPIC: IRQ #254 has been enabled on CPU#3.
+[         2614 INFO] XAPIC: IRQ #253 has been enabled on CPU#3.
+[         2615 INFO] XAPIC: IRQ #254 has been enabled on CPU#10.
+[         2616 INFO] XAPIC: IRQ #253 has been enabled on CPU#10.
+[         2616 INFO] XAPIC: IRQ #255 has been enabled on CPU#6.
+[         2618 INFO] XAPIC: IRQ #254 has been enabled on CPU#6.
+[         2619 INFO] XAPIC: IRQ #253 has been enabled on CPU#6.
+[         2620 INFO] XAPIC: IRQ #254 has been enabled on CPU#1.
+[         2621 INFO] XAPIC: IRQ #253 has been enabled on CPU#1.
+[         2621 INFO] XAPIC: IRQ #255 has been enabled on CPU#8.
+[         2624 INFO] XAPIC: IRQ #254 has been enabled on CPU#8.
+[         2625 INFO] XAPIC: IRQ #253 has been enabled on CPU#8.
+[         2626 INFO] XAPIC: IRQ #255 has been enabled on CPU#15.
+[         2627 INFO] XAPIC: IRQ #254 has been enabled on CPU#15.
+[         2628 INFO] XAPIC: IRQ #253 has been enabled on CPU#15.
+[         2628 INFO] XAPIC: IRQ #255 has been enabled on CPU#2.
+[         2630 INFO] XAPIC: IRQ #254 has been enabled on CPU#2.
+[         2632 INFO] XAPIC: IRQ #253 has been enabled on CPU#2.
+[         2635 INFO] XAPIC: IRQ #253 has been enabled on CPU#0.
+[         2637 INFO] A local timer has been initialized.
+[         2644 INFO] Starting [Awkernel] network service.
+[         2656 INFO] Waking igb-0000:00:02.0 up.
+[         3646 INFO] Start [Awkernel] shell.
+
+Welcome to Awkernel!
+
+You can use BLisp language as follows.
+https://ytakano.github.io/blisp/
+
+> (factorial 20)
+2432902008176640000
+> (+ 10 20)
+30
+
+Enjoy!
+
+> [         4830 INFO] DAGs created successfully.
+(trace_start)
+Typing Error: trace_start is not defined 5
+
+try as follows
+> (help)
+
+> (

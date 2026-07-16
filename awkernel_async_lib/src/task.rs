@@ -1470,7 +1470,10 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    //別のstart関数を置いて改変
+                    // The resumed task's perf state transition (start_task) is recorded
+                    // in `preempt::yield_preempted_and_wake_task`, right after its
+                    // `context_switch` returns (that is the task's real resume point),
+                    // not here. See preempt.rs.
                     unsafe { preempt::yield_and_pool(ctx) };
 
                     #[cfg(feature = "perf")]

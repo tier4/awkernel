@@ -78,6 +78,16 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     unsafe {
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
+
+        // [resume] context_switch returned here means this task has just been
+        // resumed on this CPU (either woken from `do_preemption` after an IPI,
+        // or from `run_main`'s `yield_and_pool`). Without this, the time spent
+        // actually running the resumed task's poll would be misattributed to
+        // whatever perf state was active before the switch (ContextSwitch /
+        // ContextSwitchMain), since PERF_STATES is per-CPU, not per-task.
+        #[cfg(feature = "perf")]
+        super::perf::start_task();
+
         thread::set_current_context(current_ctx);
     }
 
