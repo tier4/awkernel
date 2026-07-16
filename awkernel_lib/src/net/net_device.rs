@@ -132,6 +132,14 @@ pub enum NetDevError {
     MulticastAddrError,
 }
 
+impl core::fmt::Display for NetDevError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for NetDevError {}
+
 #[derive(Debug, Clone)]
 pub struct EtherFrameRef<'a> {
     pub data: &'a [u8],
@@ -210,6 +218,11 @@ pub trait NetDevice {
     /// `tick()` is used for periodic tasks, such as status update.
     fn tick(&self) -> Result<(), NetDevError> {
         Ok(())
+    }
+
+    /// Dump device-specific debug state on demand.
+    fn debug_dump(&self) {
+        log::warn!("debug_dump not implemented for this device");
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;

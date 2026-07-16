@@ -136,3 +136,161 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, &'static str> for PageT
     }
 }
 ```
+
+## RISC-V 32-bit (RV32)
+
+For RV32, the `PageTable` structure is defined in
+[awkernel_lib/src/arch/rv32/page_table.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/page_table.rs).
+It implements the **Sv32** translation scheme: 32-bit virtual addresses, 4 KiB pages
+and a **2-level** page table. Each page table entry (PTE) holds a physical page number
+(`PPN`) and the standard RISC-V flag bits.
+
+```rust
+bitflags! {
+    /// PTE Flags for RISC-V Sv32 page table
+    pub struct Flags: u8 {
+        const V = 1 << 0; // Valid
+        const R = 1 << 1; // Readable
+        const W = 1 << 2; // Writable
+        const X = 1 << 3; // Executable
+        const U = 1 << 4; // User-accessible
+        const G = 1 << 5; // Global
+        const A = 1 << 6; // Accessed
+        const D = 1 << 7; // Dirty
+    }
+}
+
+pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec<FrameTracker>,
+}
+```
+
+The root page table is allocated from the physical frame allocator on `PageTable::new`,
+and every intermediate table allocated while walking the tree is tracked in `frames`
+so that it is kept alive for the lifetime of the address space.
+The virtual page number is split into two 10-bit indices (`VirtPageNum::indexes`),
+one per level of the Sv32 table.
+
+The `PageTable` structure implements the [`PageTable`:awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) trait as follows.
+The generic `Flags` are translated into RISC-V PTE flags: entries are always made valid,
+accessed and readable (`V | A | R`); writable mappings also set the dirty bit (`W | D`),
+and executable mappings set `X`.
+
+```rust
+impl crate::paging::PageTable<Page, RV32PageAllocator, &'static str> for PageTable {
+    unsafe fn map_to(
+        &mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &mut RV32PageAllocator,
+    ) -> Result<(), &'static str> {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D; // Writable and dirty
+        }
+        rv_flags |= Flags::R; // Always readable
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+```
+
+Translation is enabled by writing the `satp` (Supervisor Address Translation and Protection)
+register. For Sv32 the `token` method returns the register value with `MODE = 1` (Sv32) in
+bit 31 and the root table's PPN in the low bits.
+
+```rust
+pub fn token(&self) -> usize {
+    (1usize << 31)    // MODE = 1 (Sv32 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+```
+
+## RISC-V 64-bit (RV64)
+
+For RV64, the `PageTable` structure is defined in
+[awkernel_lib/src/arch/rv64/page_table.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/page_table.rs).
+It implements the **Sv39** translation scheme: 39-bit virtual addresses, 4 KiB pages
+and a **3-level** page table. The PTE layout and `Flags` definition are identical to RV32;
+the differences are the number of levels and the `satp` encoding.
+
+```rust
+pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec<FrameTracker>,
+}
+```
+
+The virtual page number is split into three 9-bit indices (`VirtPageNum::indexes`),
+walked by `find_pte` / `find_pte_create`; the leaf PTE is reached at level index `2`.
+
+The `map_to` implementation is the same as RV32 — generic `Flags` are mapped to the
+RISC-V PTE flags (`V | A | R`, plus `W | D` for writable and `X` for executable pages):
+
+```rust
+impl crate::paging::PageTable<Page, RV64PageAllocator, &'static str> for PageTable {
+    unsafe fn map_to(
+        &mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &mut RV64PageAllocator,
+    ) -> Result<(), &'static str> {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A;
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D;
+        }
+        rv_flags |= Flags::R;
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+```
+
+For Sv39 the `token` method encodes `MODE = 8` (Sv39) in bits 63-60 and the root PPN in
+the low 44 bits:
+
+```rust
+pub fn token(&self) -> usize {
+    (8usize << 60)    // MODE = 8 (Sv39 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+```
+
+The kernel address space is built in
+[awkernel_lib/src/arch/rv64/vm.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/vm.rs):
+`new_kernel` maps the kernel sections (`.text`, `.rodata`, `.data`, `.bss`) and an
+identity mapping for available RAM, and `activate` installs the table by writing `satp`
+and flushing the TLB:
+
+```rust
+pub fn activate(&self) {
+    let satp = self.page_table.token();
+    unsafe {
+        asm!("csrw satp, {}", in(reg) satp);
+        asm!("sfence.vma");
+    }
+}
+```

@@ -1,0 +1,7 @@
+[package]
+name = "imu_driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common_types = { path = "../common_types", default-features = false }

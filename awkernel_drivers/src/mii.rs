@@ -157,6 +157,14 @@ pub enum MiiError {
     Media,
 }
 
+impl core::fmt::Display for MiiError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for MiiError {}
+
 pub struct MiiDev {
     mii_data: MiiData,
     phys: BTreeMap<u32, Box<dyn MiiPhy + Send + Sync>>,

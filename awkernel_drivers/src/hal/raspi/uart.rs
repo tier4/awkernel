@@ -243,6 +243,14 @@ impl Drop for Uart {
     }
 }
 
+impl core::fmt::Display for UartError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for UartError {}
+
 impl embedded_hal_nb::serial::Error for UartError {
     fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
         match self {

@@ -102,6 +102,8 @@ impl fmt::Display for PCIeDeviceErr {
     }
 }
 
+impl core::error::Error for PCIeDeviceErr {}
+
 pub(crate) mod registers {
     use alloc::vec::Vec;
     use core::fmt;
@@ -353,7 +355,7 @@ impl PCIeTree {
         bridge_device_number: u8,
         bridge_function_number: u8,
     ) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.update_bridge_info(
                 bridge_bus_number,
                 bridge_device_number,
@@ -363,13 +365,13 @@ impl PCIeTree {
     }
 
     fn attach(&mut self) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.attach();
         }
     }
 
     fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.init_base_address(ranges);
         }
     }
@@ -377,7 +379,7 @@ impl PCIeTree {
 
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (_, bus) in self.tree.iter() {
+        for bus in self.tree.values() {
             if !bus.devices.is_empty() {
                 write!(f, "{bus}")?;
             }
@@ -487,7 +489,26 @@ impl PCIeBus {
         }
     }
 
+    fn enable_bridge_forwarding(&mut self) {
+        let Some(info) = self.info.as_mut() else {
+            return;
+        };
+
+        let mut csr = info.read_status_command();
+        let before = csr;
+
+        csr.set(registers::StatusCommand::BUS_MASTER, true);
+        csr.set(registers::StatusCommand::MEMORY_SPACE, true);
+        csr.set(registers::StatusCommand::IO_SPACE, true);
+
+        if csr.bits() != before.bits() {
+            info.write_status_command(csr);
+        }
+    }
+
     fn attach(&mut self) {
+        self.enable_bridge_forwarding();
+
         for device in self.devices.iter_mut() {
             device.attach();
         }
@@ -1051,6 +1072,7 @@ impl PCIeInfo {
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
         csr.set(registers::StatusCommand::IO_SPACE, true);
+        csr.set(registers::StatusCommand::BUS_MASTER, true);
         self.write_status_command(csr);
 
         // map MMIO regions

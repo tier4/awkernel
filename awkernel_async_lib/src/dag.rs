@@ -785,13 +785,13 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     for dag in dags {
         // Skip DAG validation if an arity mismatch is found, as it's the root cause of potential subsequent errors.
         if let Err(arg_errors) = check_for_arity_mismatches(dag.id) {
-            errors.extend(arg_errors.into_iter());
+            errors.extend(arg_errors);
         } else if let Err(dag_validation_error) = validate_dag(dag) {
             errors.push(dag_validation_error);
         } else if let Err(pubsub_duplicate_errors) = check_for_pubsub_duplicates(dag.id) {
             errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
-            errors.extend(duplicate_error.into_iter());
+            errors.extend(duplicate_error);
         }
     }
 

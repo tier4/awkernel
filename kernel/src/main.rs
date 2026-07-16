@@ -3,9 +3,10 @@
 //! Awkernel is a safe and realtime operating system.
 //! It can execute async/await applications in kernel space safely.
 
-#![feature(abi_x86_interrupt)]
-#![feature(allocator_api)]
+#![cfg_attr(feature = "x86", feature(abi_x86_interrupt))]
 #![no_main]
+#![allow(unused_features)]
+#![feature(allocator_api)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

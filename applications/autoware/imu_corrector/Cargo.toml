@@ -1,0 +1,8 @@
+[package]
+name = "imu_corrector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nalgebra = { version = "0.32", default-features = false, features = ["libm"] }
+imu_driver = { path = "../imu_driver", default-features = false }

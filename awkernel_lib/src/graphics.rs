@@ -6,9 +6,18 @@ use embedded_graphics::{
 };
 use embedded_graphics_core::pixelcolor::Rgb888;
 
+#[derive(Debug)]
 pub enum FrameBufferError {
     NoFrameBuffer,
 }
+
+impl core::fmt::Display for FrameBufferError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl core::error::Error for FrameBufferError {}
 
 static mut FRAME_BUFFER: Option<&'static mut dyn FrameBuffer> = None;
 

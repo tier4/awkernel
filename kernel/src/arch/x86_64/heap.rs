@@ -74,7 +74,7 @@ pub(super) fn map_primary_heap(
     let mut num_pages = 0;
     let mut addr = start;
 
-    for (_, page_allocator) in page_allocators.iter_mut() {
+    for page_allocator in page_allocators.values_mut() {
         while let Some(frame) = page_allocator.allocate_frame() {
             // Map a virtual page to the physical memory.
             let page = Page::containing_address(VirtAddr::new(addr as u64));
