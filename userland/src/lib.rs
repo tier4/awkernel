@@ -58,5 +58,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_clustered_edf")]
     test_clustered_edf::run().await; // test for Clustered EDF scheduler
 
+    #[cfg(feature = "test_clustered_dag")]
+    test_clustered_dag::run().await; // test_dag's DAG shape, pinned to one CpuSet via ClusteredEDF
+
     Ok(())
 }

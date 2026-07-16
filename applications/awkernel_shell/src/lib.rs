@@ -392,8 +392,8 @@ fn print_tasks() {
     console::print("Tasks:\r\n");
 
     let msg = format!(
-        "{:>5}  {:<10} {:>14} {:>14} name\r\n",
-        "ID", "State", "#Preemption", "Last Executed"
+        "{:>5}  {:<10} {:>14} {:>14} {:>10} name\r\n",
+        "ID", "State", "#Preemption", "Last Executed", "DAG"
     );
     console::print(&msg);
 
@@ -403,13 +403,19 @@ fn print_tasks() {
 
         let state = format!("{:?}", info.get_state());
 
+        let dag = match info.get_dag_info() {
+            Some(d) => format!("{}/{}", d.dag_id, d.node_id),
+            None => "-".into(),
+        };
+
         let msg = format!(
-            "{:>5}{} {:<10} {:>14} {:>14} {}\r\n",
+            "{:>5}{} {:<10} {:>14} {:>14} {:>10} {}\r\n",
             t.id,
             if info.panicked() { "*" } else { " " },
             state,
             info.get_num_preemption(),
             info.get_last_executed().uptime().as_micros(),
+            dag,
             t.name,
         );
 

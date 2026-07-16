@@ -90,9 +90,15 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
         // [resume] `context_switch` returning here means this task (whose
         // stack this function call belongs to) has just been resumed,
-        // possibly on a different CPU than where it paused.
+        // possibly on a different CPU than where it paused. Without this,
+        // the resumed task's execution time is misattributed to whatever
+        // perf state (ContextSwitch) was active before the switch, since
+        // PERF_STATES is per-CPU, not per-task.
         #[cfg(feature = "perf")]
-        super::trace::record(task_id, super::trace::KIND_START);
+        {
+            super::trace::record(task_id, super::trace::KIND_START);
+            super::perf::start_task();
+        }
 
         thread::set_current_context(current_ctx);
     }
