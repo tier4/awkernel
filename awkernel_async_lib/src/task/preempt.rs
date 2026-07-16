@@ -51,6 +51,14 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
 fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorkerThreadContext) {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
+    // `trace::record` only brackets `poll_unpin` in `run_main`'s normal path
+    // (task.rs). A task resumed from a preempted state never re-enters that
+    // closure directly, so without an explicit END/START pair here, the
+    // recorded interval for a preempted task would span the entire pause
+    // (and even a different CPU on migration), corrupting the Gantt chart.
+    #[cfg(feature = "perf")]
+    let task_id = current_task.id;
+
     let mut current_ctx = thread::take_current_context();
 
     {
@@ -69,12 +77,23 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
+    // [pause] This task stops running here.
+    #[cfg(feature = "perf")]
+    super::trace::record(task_id, super::trace::KIND_END);
+
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
+
+        // [resume] `context_switch` returning here means this task (whose
+        // stack this function call belongs to) has just been resumed,
+        // possibly on a different CPU than where it paused.
+        #[cfg(feature = "perf")]
+        super::trace::record(task_id, super::trace::KIND_START);
+
         thread::set_current_context(current_ctx);
     }
 
