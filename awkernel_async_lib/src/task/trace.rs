@@ -24,6 +24,9 @@ pub const TRACE_CAP: usize = 32768;
 
 pub const KIND_START: u8 = 0;
 pub const KIND_END: u8 = 1;
+/// Marker recorded by a DAG periodic reactor at the top of every period, so
+/// the host can attribute execution intervals to period (job) indices.
+pub const KIND_RELEASE: u8 = 2;
 
 #[derive(Clone, Copy, Default)]
 pub struct TraceEvent {
@@ -69,6 +72,19 @@ pub(crate) fn record(task_id: u32, kind: u8) {
         if let Some(buf) = bufs[cpu_id].as_mut() {
             buf[i] = TraceEvent { tsc, task_id, kind };
         }
+    }
+}
+
+/// Record a [`KIND_RELEASE`] marker for the task currently running on this
+/// CPU.  Called from the DAG periodic reactor at the start of every period.
+#[inline]
+pub(crate) fn mark_release_current() {
+    if !ENABLED.load(Ordering::Acquire) {
+        return;
+    }
+
+    if let Some(task_id) = super::get_current_task(awkernel_lib::cpu::cpu_id()) {
+        record(task_id, KIND_RELEASE);
     }
 }
 
@@ -168,15 +184,55 @@ pub fn dump_to_console() {
     console::print(&format!("TRACE_CAL,start,{start_tsc},{start_us}\r\n"));
     console::print(&format!("TRACE_CAL,end,{end_tsc},{end_us}\r\n"));
 
+    // TRACE_TASK,<id>,<dag_id|->,<node_id|->,<cpu|cpu|...|->,<name>
+    // dag/node identify the DAG membership, the cpu list is the task's
+    // `cpu_set` (clustered tasks only).  `-` means "not applicable".
     for t in super::get_tasks() {
-        console::print(&format!("TRACE_TASK,{},{}\r\n", t.id, t.name));
+        let dag_info = {
+            let mut node = awkernel_lib::sync::mutex::MCSNode::new();
+            let info = t.info.lock(&mut node);
+            info.get_dag_info()
+        };
+        let (dag_id, node_id) = match dag_info {
+            Some(d) => (format!("{}", d.dag_id), format!("{}", d.node_id)),
+            None => (String::from("-"), String::from("-")),
+        };
+
+        let cpus = match &t.cpu_set {
+            Some(set) => {
+                let mut s = String::new();
+                for cpu in set.iter() {
+                    if !s.is_empty() {
+                        s.push('|');
+                    }
+                    s.push_str(&format!("{cpu}"));
+                }
+                s
+            }
+            None => String::from("-"),
+        };
+
+        console::print(&format!(
+            "TRACE_TASK,{},{dag_id},{node_id},{cpus},{}\r\n",
+            t.id, t.name
+        ));
+    }
+
+    // TRACE_DAG,<dag_id>,<src_node_id>,<dst_node_id> — DAG topology, so the
+    // host can compute critical paths from the log alone.
+    for (dag_id, src, dst) in crate::dag::get_all_dag_edges() {
+        console::print(&format!("TRACE_DAG,{dag_id},{src},{dst}\r\n"));
     }
 
     for cpu_id in 0..awkernel_lib::cpu::num_cpu() {
         let evs = events(cpu_id);
         let mut out = String::new();
         for e in &evs {
-            let kind = if e.kind == KIND_START { 'S' } else { 'E' };
+            let kind = match e.kind {
+                KIND_START => 'S',
+                KIND_END => 'E',
+                _ => 'R',
+            };
             out.push_str(&format!("TRACE_EV,{cpu_id},{},{kind},{}\r\n", e.task_id, e.tsc));
 
             // Flush in chunks so a single huge String is not required.

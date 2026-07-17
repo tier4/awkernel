@@ -158,6 +158,9 @@ $(X86ASM): FORCE
 OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
 QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
+ifeq ($(KVM),1)
+QEMU_X86_ARGS += -enable-kvm -cpu host
+endif
 QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
 QEMU_X86_ARGS+= -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35

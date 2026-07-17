@@ -580,6 +580,32 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+/// `(dag_id, src_node_id, dst_node_id)` of every edge of every registered DAG.
+///
+/// Used by the trace dump (`task::trace::dump_to_console`) so the host can
+/// reconstruct the DAG topology (e.g. critical-path analysis) from a serial
+/// log alone.  Node ids match `DagInfo::node_id`.
+pub fn get_all_dag_edges() -> Vec<(u32, u32, u32)> {
+    let dags = {
+        let mut node = MCSNode::new();
+        let dags = DAGS.lock(&mut node);
+        dags.id_to_dag
+            .iter()
+            .map(|(id, dag)| (*id, dag.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    let mut edges = Vec::new();
+    for (id, dag) in dags {
+        let mut node = MCSNode::new();
+        let graph = dag.graph.lock(&mut node);
+        for e in graph.edge_references() {
+            edges.push((id, e.source().index() as u32, e.target().index() as u32));
+        }
+    }
+    edges
+}
+
 #[inline(always)]
 pub fn get_dag_absolute_deadline(dag_id: u32) -> Option<u64> {
     get_dag(dag_id)?.get_absolute_deadline()
@@ -971,6 +997,10 @@ where
         interval.tick().await;
 
         loop {
+            // Trace marker: a new period (job) of this periodic reactor starts here.
+            #[cfg(feature = "perf")]
+            crate::task::trace::mark_release_current();
+
             let results = f();
             publishers.send_all(results).await;
 

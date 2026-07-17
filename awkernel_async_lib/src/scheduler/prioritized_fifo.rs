@@ -119,16 +119,19 @@ impl PrioritizedFIFOScheduler {
 
         let preemption_target = tasks_running
             .iter()
+            // CPUs reserved by clustered tasks must not be preempted by global tasks.
+            .filter(|rt| !crate::task::is_cpu_reserved(rt.cpu_id))
             .filter_map(|rt| {
                 get_task(rt.task_id).map(|t| {
                     let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
                     (max(t, highest_pending), rt.cpu_id)
                 })
             })
-            .min()
-            .unwrap();
+            .min();
 
-        let (target_task, target_cpu) = preemption_target;
+        let Some((target_task, target_cpu)) = preemption_target else {
+            return false;
+        };
         if task > target_task {
             push_preemption_pending(target_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();

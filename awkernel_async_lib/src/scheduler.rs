@@ -191,6 +191,13 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
         }
     }
 
+    // A CPU reserved by a live clustered task is dedicated to clustered
+    // scheduling: never serve it tasks from the global schedulers, so the
+    // cluster stays exclusive (e.g. the shell must not run on a DAG's cores).
+    if crate::task::is_cpu_reserved(cpu_id) {
+        return None;
+    }
+
     let task = PRIORITY_LIST
         .iter()
         .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));

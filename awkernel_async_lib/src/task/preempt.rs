@@ -56,8 +56,16 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     // closure directly, so without an explicit END/START pair here, the
     // recorded interval for a preempted task would span the entire pause
     // (and even a different CPU on migration), corrupting the Gantt chart.
-    #[cfg(feature = "perf")]
     let task_id = current_task.id;
+
+    // An IPI can also land while `RUNNING` is still set but the task's poll
+    // is not executing (the run loop's bookkeeping just before/after
+    // `poll_unpin`).  Recording a pause/resume pair there would emit
+    // spurious unpaired S/E events and, worse, attribute the kernel
+    // bookkeeping resumed below to task time.  `POLLING` brackets exactly
+    // the poll span; capture it on this stack so the resume side (same
+    // frame, possibly another CPU) stays symmetric.
+    let was_polling = super::POLLING[cpu_id].load(Ordering::Relaxed) == task_id;
 
     let mut current_ctx = thread::take_current_context();
 
@@ -78,8 +86,12 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
     // [pause] This task stops running here.
-    #[cfg(feature = "perf")]
-    super::trace::record(task_id, super::trace::KIND_END);
+    if was_polling {
+        super::POLLING[cpu_id].store(0, Ordering::Relaxed);
+
+        #[cfg(feature = "perf")]
+        super::trace::record(task_id, super::trace::KIND_END);
+    }
 
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_thread.get_cpu_context();
@@ -94,10 +106,19 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
         // the resumed task's execution time is misattributed to whatever
         // perf state (ContextSwitch) was active before the switch, since
         // PERF_STATES is per-CPU, not per-task.
-        #[cfg(feature = "perf")]
-        {
-            super::trace::record(task_id, super::trace::KIND_START);
-            super::perf::start_task();
+        if was_polling {
+            super::POLLING[awkernel_lib::cpu::cpu_id()].store(task_id, Ordering::Relaxed);
+
+            #[cfg(feature = "perf")]
+            {
+                super::trace::record(task_id, super::trace::KIND_START);
+                super::perf::start_task();
+            }
+        } else {
+            // The frame resumed here is the run loop's bookkeeping, not the
+            // task's poll: account it as kernel time.
+            #[cfg(feature = "perf")]
+            super::perf::start_kernel();
         }
 
         thread::set_current_context(current_ctx);

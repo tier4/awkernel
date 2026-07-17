@@ -17,14 +17,17 @@ pub const BACKUP_HEAP_SIZE: usize = 64 * 1024 * 1024;
 #[allow(dead_code)]
 pub const AUTO_TRACE_ENABLED: bool = true;
 
-/// Seconds to wait after boot before starting the auto-trace
-/// (skips driver-initialization noise).
+/// Seconds to wait after boot before starting the auto-trace.
+///
+/// Keep this shorter than the userland app's startup (test DAG apps wait
+/// ~1 s and finish `finish_create_dags` at ~5 s after boot) so the trace
+/// window covers the DAG from its very first release.
 #[allow(dead_code)]
-pub const AUTO_TRACE_START_DELAY_SECS: u64 = 10;
+pub const AUTO_TRACE_START_DELAY_SECS: u64 = 2;
 
 /// Length of the auto-trace recording in seconds.
 #[allow(dead_code)]
-pub const AUTO_TRACE_DURATION_SECS: u64 = 5;
+pub const AUTO_TRACE_DURATION_SECS: u64 = 30;
 
 #[cfg(test)]
 #[allow(dead_code)]

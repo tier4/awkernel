@@ -30,10 +30,12 @@ fn cluster() -> CpuSet {
 fn check_core(reactor_name: &str) {
     let actual = cpu_id();
     let set = cluster();
-    if set.contains(actual) {
+    if LOG_ENABLE{
+        if set.contains(actual) {
         log::info!("clustered_dag: {reactor_name} ran on cpu {actual} [OK]");
-    } else {
-        log::error!("clustered_dag: {reactor_name} ran on cpu {actual}, expected in {set:?} [FAIL]");
+        } else {
+            log::error!("clustered_dag: {reactor_name} ran on cpu {actual}, expected in {set:?} [FAIL]");
+        }
     }
 }
 

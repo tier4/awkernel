@@ -61,11 +61,42 @@ pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of
 pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
     array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
+/// `NUM_CLUSTERED_TASKS_ALIVE[cpu]` is the number of live (spawned and not yet
+/// terminated) clustered tasks whose `cpu_set` contains `cpu`.
+///
+/// While non-zero, `cpu` is *reserved* for clustered scheduling: the global
+/// (non-clustered) schedulers neither dispatch tasks onto it in
+/// `get_next_task` nor select it as a preemption victim, so a dedicated
+/// cluster is exclusive in both directions (clustered tasks stay inside, and
+/// other tasks stay outside).
+pub(crate) static NUM_CLUSTERED_TASKS_ALIVE: [AtomicU32; NUM_MAX_CPU] =
+    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
+
+/// True if `cpu` is currently dedicated to clustered tasks.
+/// See [`NUM_CLUSTERED_TASKS_ALIVE`].
+#[inline(always)]
+pub(crate) fn is_cpu_reserved(cpu_id: usize) -> bool {
+    NUM_CLUSTERED_TASKS_ALIVE[cpu_id].load(Ordering::Relaxed) > 0
+}
+
 #[cfg(target_pointer_width = "32")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU];
+
+/// `POLLING[cpu]` is the id of the task whose future is being polled on `cpu`
+/// right now (0 = none).
+///
+/// Unlike `RUNNING` (which stays set through the run loop's bookkeeping
+/// before/after the poll), this brackets exactly the `poll_unpin` span plus
+/// the preemption pause/resume boundaries.  The preemption path uses it to
+/// tell whether an IPI interrupted the task itself (pause/resume must be
+/// recorded) or only the kernel bookkeeping around it (recording a pause
+/// there would emit spurious unpaired trace events and misattribute kernel
+/// time to the task).
+pub(crate) static POLLING: [AtomicU32; NUM_MAX_CPU] =
+    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -347,6 +378,21 @@ impl Tasks {
                 e.insert(Arc::new(task));
                 self.candidate_id = id;
 
+                // Reserve the cluster's CPUs for clustered scheduling until
+                // this task terminates (released in `Tasks::remove`).
+                if let Some(set) = cpu_set {
+                    for cpu_id in set.iter() {
+                        NUM_CLUSTERED_TASKS_ALIVE[cpu_id].fetch_add(1, Ordering::Relaxed);
+                    }
+
+                    if (1..num_cpu()).all(is_cpu_reserved) {
+                        log::warn!(
+                            "All worker CPUs are now reserved by clustered tasks; \
+                             non-clustered tasks (shell, services) cannot run until a cluster is released."
+                        );
+                    }
+                }
+
                 return id;
             } else {
                 // The candidate task ID is already used.
@@ -365,7 +411,14 @@ impl Tasks {
 
     #[inline(always)]
     fn remove(&mut self, id: u32) {
-        self.id_to_task.remove(&id);
+        if let Some(task) = self.id_to_task.remove(&id) {
+            // Release the CPU reservation taken in `Tasks::spawn`.
+            if let Some(set) = task.cpu_set {
+                for cpu_id in set.iter() {
+                    NUM_CLUSTERED_TASKS_ALIVE[cpu_id].fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+        }
     }
 }
 
@@ -859,8 +912,17 @@ pub fn run_main() {
                     #[cfg(feature = "perf")]
                     trace::record(task_id, trace::KIND_START);
 
+                    // Set strictly inside the trace S/E bracket so the
+                    // preemption path never records a pause without a
+                    // matching recorded start (see `POLLING`).
+                    POLLING[awkernel_lib::cpu::cpu_id()].store(task.id, Ordering::Relaxed);
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    // The poll may resume on a different CPU than it started
+                    // on; clear the flag where it actually ends.
+                    POLLING[awkernel_lib::cpu::cpu_id()].store(0, Ordering::Relaxed);
 
                     #[cfg(feature = "perf")]
                     trace::record(task_id, trace::KIND_END);
