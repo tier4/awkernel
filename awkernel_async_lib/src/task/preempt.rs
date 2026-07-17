@@ -39,7 +39,17 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_ctx.get_cpu_context();
 
+    // [start] context_switch_main
+    #[cfg(feature = "perf")]
+    super::perf::start_context_switch_main();
+
     unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
+
+    // [resume] This (previously pooled) worker thread was switched to. Close
+    // the exchange sample here; set_current_context() and re_schedule() below
+    // are accounted to Kernel.
+    #[cfg(feature = "perf")]
+    super::perf::start_kernel();
 
     thread::set_current_context(current_ctx);
 
@@ -69,16 +79,32 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
+    // [start] context_switch
+    #[cfg(feature = "perf")]
+    super::perf::start_context_switch();
+
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
+
+        // [resume] This task was switched to (possibly on a different CPU).
+        // Close the exchange sample (ContextSwitch or ContextSwitchMain) here;
+        // set_current_context() and re_schedule() below are switch aftermath,
+        // accounted to Kernel, not to this task.
+        #[cfg(feature = "perf")]
+        super::perf::start_kernel();
+
         thread::set_current_context(current_ctx);
     }
 
     re_schedule();
+
+    // The switch aftermath is done; from here on this task runs its own code.
+    #[cfg(feature = "perf")]
+    super::perf::start_task();
 }
 
 fn re_schedule() {
@@ -119,9 +145,6 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
 }
 
 unsafe fn do_preemption() {
-    #[cfg(feature = "perf")]
-    super::perf::start_context_switch();
-
     let cpu_id = awkernel_lib::cpu::cpu_id();
     let Some(mut next) = peek_preemption_pending(cpu_id) else {
         return;

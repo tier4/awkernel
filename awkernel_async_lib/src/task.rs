@@ -484,6 +484,24 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
+    //! Per-CPU time accounting by a state machine.
+    //!
+    //! Measurement definitions (agreed 2026-07-18):
+    //! - `ContextSwitch` / `ContextSwitchMain` measure **only the exchange
+    //!   itself** (from just before `context_switch()` on the yielding side to
+    //!   the first hook after it returns on the resumed side). `ContextSwitch`
+    //!   is the preemption route (`yield_preempted_and_wake_task`);
+    //!   `ContextSwitchMain` is the queued-resume route (`yield_and_pool`).
+    //!   The two are symmetric and directly comparable.
+    //! - Preemption *decision* work (`do_preemption` bookkeeping) is covered
+    //!   by `Interrupt` on the IPI route (`start_interrupt` already brackets
+    //!   the handler) and leaks into `Task` on the voluntary-checkpoint route
+    //!   (known, small). Dispatch bookkeeping in `run_main` stays in `Kernel`.
+    //! - Switch aftermath on the resumed side (`set_current_context`,
+    //!   `re_schedule`) is accounted to `Kernel`; `Task` starts only when the
+    //!   resumed task returns to its own code, keeping per-task execution
+    //!   times (measured WCET inputs) clean.
+
     use alloc::boxed::Box;
     use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
@@ -1101,6 +1119,11 @@ pub mod perf {
     }
 
     #[inline(always)]
+    pub fn get_context_switch_main_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
     pub fn get_idle_time(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&IDLE_TIME[cpu_id]) }
     }
@@ -1139,6 +1162,13 @@ pub mod perf {
     }
 
     #[inline(always)]
+    pub fn get_ave_context_switch_main_time(cpu_id: usize) -> Option<f64> {
+        let total = get_context_switch_main_time(cpu_id);
+        let count = unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
     pub fn get_ave_idle_time(cpu_id: usize) -> Option<f64> {
         let total = get_idle_time(cpu_id);
         let count = unsafe { read_volatile(&IDLE_COUNT[cpu_id]) };
@@ -1173,6 +1203,10 @@ pub mod perf {
         unsafe { read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]) }
     }
     #[inline(always)]
+    pub fn get_context_switch_main_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]) }
+    }
+    #[inline(always)]
     pub fn get_perf_wcet(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_WCET[cpu_id]) }
     }
@@ -1198,15 +1232,14 @@ pub fn run_main() {
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
+                // The exchange itself is measured as ContextSwitchMain inside
+                // yield_and_pool(); the dispatch bookkeeping here stays in Kernel.
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
                 if let Some(ctx) = info.take_preempt_context() {
                     info.update_last_executed();
                     drop(info);
-
-                    #[cfg(feature = "perf")]
-                    perf::start_context_switch();
 
                     unsafe { preempt::yield_and_pool(ctx) };
 
