@@ -201,6 +201,22 @@ impl ClusteredEDFScheduler {
             // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
             // Therefore, a more sophisticated implementation will be considered in the future.
 
+            // NOTE: The task is now pinned to `victim_cpu`'s preemption-pending
+            // heap and is not in the affinity queue, so it is invisible to the
+            // other CPUs in its `cpu_set` (neither `pop_for_cpu`, the clustered
+            // task counter, nor `queued_cpu_mask` sees it). If another CPU in
+            // the set becomes idle while the IPI is in flight, it cannot pick
+            // the task up and may go to sleep — a latency window bounded by the
+            // IPI delivery plus the victim's interrupt-disabled sections. This
+            // is not a lost wakeup: the task is eventually run either by the
+            // victim's preemption handler (`do_preemption`), or re-woken by the
+            // victim's `run_main` if its running task finishes first, in which
+            // case the idle check above routes it to the queue. Future work:
+            // an enqueue-instead-of-pin strategy (push to the affinity queue
+            // and treat the IPI as a hint) would close this window, but it
+            // requires redesigning the duplicate-IPI suppression that the
+            // pending heap currently provides via `peek_preemption_pending`.
+
             return true;
         }
 
