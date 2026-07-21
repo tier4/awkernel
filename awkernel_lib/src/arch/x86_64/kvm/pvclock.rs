@@ -163,7 +163,7 @@ pub(crate) fn uptime_nano() -> Option<u64> {
         return Some(ctr);
     }
 
-    if let Err(prev) = PVCLOCK_LAST_COUNT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+    if let Err(prev) = PVCLOCK_LAST_COUNT.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
         if n < ctr {
             Some(ctr)
         } else {
