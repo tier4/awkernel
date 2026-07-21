@@ -15,10 +15,10 @@ use crate::{
         get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
     },
 };
-use affinity_btree_queue::{AffinityBTreeQueue, CpuMask, DEFAULT_MIN_DEGREE};
+use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
 use alloc::sync::Arc;
 use awkernel_lib::{
-    cpu::{num_cpu, CpuSet, CPU_SET_WORDS},
+    cpu::{masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
     sync::mutex::{MCSNode, Mutex},
 };
 
@@ -33,14 +33,6 @@ pub struct ClusteredEDFScheduler {
     // initialized with `num_cpu()` on first use.
     data: Mutex<Option<EDFQueue>>,
     priority: u8,
-}
-
-fn to_cpu_mask(cpu_set: &CpuSet) -> CpuMask<CPU_SET_WORDS> {
-    let mut mask = CpuMask::empty();
-    for idx in 0..CPU_SET_WORDS {
-        mask.set_word(idx, cpu_set.word(idx));
-    }
-    mask
 }
 
 impl Scheduler for ClusteredEDFScheduler {
@@ -73,7 +65,7 @@ impl Scheduler for ClusteredEDFScheduler {
         // `Tasks::spawn` normalizes the set to worker cores (1..num_cpu()),
         // so an invalid set here is an internal invariant violation.
         let cpu_set = task.cpu_set.expect("Task has no CPU set");
-        if cpu_set.is_empty() || cpu_set.masked_workers(num_cpu()) != cpu_set {
+        if cpu_set.is_empty() || masked_workers(cpu_set, num_cpu()) != cpu_set {
             panic!("ClusteredEDF: CPU set {cpu_set:?} is out of range");
         }
 
@@ -86,8 +78,8 @@ impl Scheduler for ClusteredEDFScheduler {
             queue
                 .push(
                     (absolute_deadline, wake_time),
-                    to_cpu_mask(&cpu_set),
-                    ClusteredTask::new(task.clone(), cpu_set),
+                    cpu_set,
+                    ClusteredTask::new(task.clone()),
                 )
                 .expect("ClusteredEDF: failed to push a task");
         }
@@ -138,6 +130,18 @@ impl Scheduler for ClusteredEDFScheduler {
 
     fn priority(&self) -> u8 {
         self.priority
+    }
+
+    fn queued_cpu_mask(&self) -> CpuSet {
+        let mut node = MCSNode::new();
+        let data = self.data.lock(&mut node);
+
+        // O(1): the queue maintains the OR of all queued affinities in its
+        // B-tree root.
+        match &*data {
+            Some(queue) => queue.affinity_mask(),
+            None => CpuSet::empty(),
+        }
     }
 }
 

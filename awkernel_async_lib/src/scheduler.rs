@@ -111,6 +111,14 @@ impl SchedulerType {
             _ => None,
         }
     }
+
+    /// True if this is a clustered scheduler, i.e. one whose tasks carry a
+    /// CPU affinity set. Update this function when adding a new clustered
+    /// scheduler; it is the single source of truth for the clustered prefix
+    /// of `PRIORITY_LIST`.
+    pub const fn is_clustered(&self) -> bool {
+        matches!(self, SchedulerType::ClusteredEDF(_, _))
+    }
 }
 
 /// # Priority
@@ -136,11 +144,10 @@ static PRIORITY_LIST: [SchedulerType; 5] = [
 ];
 
 /// Return the number of clustered schedulers in `PRIORITY_LIST`.
-/// Update this function if you add a new clustered scheduler to `PRIORITY_LIST`.
 const fn get_num_clustered_schedulers() -> usize {
     let mut count = 0;
     while count < PRIORITY_LIST.len() {
-        if matches!(PRIORITY_LIST[count], SchedulerType::ClusteredEDF(_, _)) {
+        if PRIORITY_LIST[count].is_clustered() {
             count += 1;
         } else {
             break;
@@ -149,11 +156,36 @@ const fn get_num_clustered_schedulers() -> usize {
     count
 }
 
+// `get_next_task` and `NUM_TASK_IN_QUEUE` accounting rely on the clustered
+// schedulers forming a strict prefix of `PRIORITY_LIST`. Reject any reorder
+// at compile time.
+const _: () = {
+    let mut i = get_num_clustered_schedulers();
+    while i < PRIORITY_LIST.len() {
+        assert!(
+            !PRIORITY_LIST[i].is_clustered(),
+            "clustered schedulers must form a strict prefix of PRIORITY_LIST"
+        );
+        i += 1;
+    }
+};
+
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
 /// In order to resolve priority inversion in multiple priority-based schedulers,
 /// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
 static GLOBAL_WAKE_GET_MUTEX: Mutex<()> = Mutex::new(());
 
+/// # Implementing a clustered scheduler
+///
+/// A clustered scheduler keeps tasks that may run only on a subset of CPUs.
+/// Every clustered scheduler must:
+///
+/// 1. Wrap each entry of its run queue in [`ClusteredTask`] so that
+///    `NUM_CLUSTERED_TASKS_IN_QUEUE` is kept consistent.
+/// 2. Implement [`Scheduler::queued_cpu_mask`] to report the exact set of
+///    CPUs its queued tasks are runnable on (`wake_workers` relies on it).
+/// 3. Be placed in the clustered prefix of `PRIORITY_LIST` and be matched by
+///    `SchedulerType::is_clustered` (checked at compile time).
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
@@ -167,25 +199,43 @@ pub(crate) trait Scheduler {
 
     #[allow(dead_code)] // TODO: to be removed
     fn priority(&self) -> u8;
+
+    /// The set of CPUs that have at least one queued task eligible to run on
+    /// them. Non-clustered schedulers use the default (empty) implementation;
+    /// clustered schedulers must override it.
+    fn queued_cpu_mask(&self) -> CpuSet {
+        CpuSet::empty()
+    }
+}
+
+/// Return the union of [`Scheduler::queued_cpu_mask`] over all clustered
+/// schedulers: the exact set of CPUs for which a clustered task is queued.
+pub(crate) fn clustered_queued_cpu_mask() -> CpuSet {
+    let mut mask = CpuSet::empty();
+    for scheduler_type in &PRIORITY_LIST[..get_num_clustered_schedulers()] {
+        mask = mask.union(get_scheduler(*scheduler_type).queued_cpu_mask());
+    }
+    mask
 }
 
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
-    let num_clustered_tasks =
-        crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].load(Ordering::Relaxed);
+    let num_clustered_tasks = crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE.load(Ordering::Relaxed);
 
+    // The counter is global: it may be non-zero even when no queued clustered
+    // task is runnable on this CPU. That is fine because the run queues fail
+    // fast (`pop_for_cpu` checks the root affinity mask in O(1)).
     if num_clustered_tasks > 0 {
         let task = PRIORITY_LIST[..get_num_clustered_schedulers()]
             .iter()
             .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
-        // Decrement is handled by ClusteredTask::Drop inside get_next().
+        // The counter is decremented by the ClusteredTask::take() call inside
+        // get_next() (Drop is a no-op once take() has run).
         if task.is_some() {
             return task;
         }
@@ -224,41 +274,32 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
     panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
 }
 
-/// RAII wrapper representing one slot in `NUM_CLUSTERED_TASKS_IN_QUEUE` for every
-/// CPU in `cpu_set`.
+/// RAII wrapper representing one slot in `NUM_CLUSTERED_TASKS_IN_QUEUE`.
 ///
-/// Constructing a `ClusteredTask` increments the counter of each CPU in `cpu_set`.
-/// The counters are decremented exactly once — either via [`take`] (explicit
-/// ownership transfer) or via `Drop` (e.g. when a terminated task is
-/// discarded). If `take` has already been called, `Drop` is a no-op.
+/// Constructing a `ClusteredTask` increments the counter. The counter is
+/// decremented exactly once — either via [`take`] (explicit ownership
+/// transfer) or via `Drop` (e.g. when a terminated task is discarded). If
+/// `take` has already been called, `Drop` is a no-op.
 ///
 /// [`take`]: ClusteredTask::take
 pub(crate) struct ClusteredTask<T> {
     inner: Option<T>,
-    cpu_set: CpuSet,
 }
 
 impl<T> ClusteredTask<T> {
-    pub(crate) fn new(inner: T, cpu_set: CpuSet) -> Self {
-        for cpu_id in cpu_set.iter() {
-            crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_add(1, Ordering::Relaxed);
-        }
-        Self {
-            inner: Some(inner),
-            cpu_set,
-        }
+    pub(crate) fn new(inner: T) -> Self {
+        crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
+        Self { inner: Some(inner) }
     }
 
-    /// Take the inner value and decrement the counters.
+    /// Take the inner value and decrement the counter.
     ///
     /// Returns `None` if the value has already been taken.
     /// After this call `Drop` will be a no-op.
     pub(crate) fn take(&mut self) -> Option<T> {
         let val = self.inner.take();
         if val.is_some() {
-            for cpu_id in self.cpu_set.iter() {
-                crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
-            }
+            crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
         }
         val
     }
@@ -268,9 +309,7 @@ impl<T> Drop for ClusteredTask<T> {
     fn drop(&mut self) {
         // Decrement only if take() has not been called yet.
         if self.inner.is_some() {
-            for cpu_id in self.cpu_set.iter() {
-                crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE[cpu_id].fetch_sub(1, Ordering::Relaxed);
-            }
+            crate::task::NUM_CLUSTERED_TASKS_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
         }
     }
 }

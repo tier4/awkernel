@@ -80,6 +80,10 @@ When a task is enqueued via `wake_task()`, the scheduler reads the `SchedulerTyp
 
 `get_next()` pops the earliest-deadline task whose `cpu_set` contains the calling CPU (`pop_for_cpu`), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from `cpu_set` when a task is spawned.
 
+Bookkeeping for sleeping workers uses two pieces of state. A single global counter (`NUM_CLUSTERED_TASKS_IN_QUEUE`) tracks how many tasks are queued across all clustered schedulers; it is maintained by the `ClusteredTask` RAII wrapper (incremented on enqueue, decremented exactly once on dequeue or drop) and lets `get_next_task()` skip the clustered schedulers entirely when it is zero. The per-CPU information — which CPUs actually have an eligible task queued — is not duplicated in counters: it is read directly from the run queue, whose B-tree root already maintains the OR of all queued affinities (`affinity_mask()`, O(1)). `wake_workers()` obtains this set via `Scheduler::queued_cpu_mask()` (unioned over all clustered schedulers by `clustered_queued_cpu_mask()`) and wakes exactly the cores that have an eligible clustered task.
+
+A new clustered scheduler must (1) wrap its queue entries in `ClusteredTask`, (2) implement `Scheduler::queued_cpu_mask()`, and (3) be placed in the clustered prefix of `PRIORITY_LIST` and matched by `SchedulerType::is_clustered()`; the prefix requirement is enforced at compile time.
+
 ### GEDF Scheduler
 
 The Global Earliest Deadline First (GEDF) scheduler is implemented in [gedf.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/gedf.rs). This scheduler implements a real-time scheduling algorithm that prioritizes tasks based on their absolute deadlines.

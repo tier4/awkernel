@@ -49,7 +49,7 @@ async fn test_core_pinning() {
                     awkernel_async_lib::r#yield().await;
                 }
             },
-            SchedulerType::ClusteredEDF(1_000_000, CpuSet::empty().insert(core)),
+            SchedulerType::ClusteredEDF(1_000_000, CpuSet::empty().with(core)),
         )
         .await;
     }
@@ -65,7 +65,7 @@ async fn test_cluster_affinity() {
     log::info!("=== test_cluster_affinity start ===");
 
     // Cluster {1, 2}: the task must never run on other cores.
-    let cluster = CpuSet::empty().insert(1).insert(2);
+    let cluster = CpuSet::empty().with(1).with(2);
     spawn(
         "cluster_1_2".into(),
         async move {
@@ -133,7 +133,7 @@ async fn spawn_periodic_task(
                 awkernel_async_lib::r#yield().await;
             }
         },
-        SchedulerType::ClusteredEDF(relative_deadline, CpuSet::empty().insert(core)),
+        SchedulerType::ClusteredEDF(relative_deadline, CpuSet::empty().with(core)),
     )
     .await;
 }
