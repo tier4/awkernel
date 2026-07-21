@@ -403,6 +403,57 @@ pub fn handle_preemption() {
     preemption();
 }
 
+/// Handle all pending interrupt requests for RISC-V.
+/// This is called from the M-mode interrupt handler.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub fn handle_irqs(is_task: bool) {
+    use crate::{heap, unwind::catch_unwind};
+    use core::mem::transmute;
+
+    let handlers = IRQ_HANDLERS.read();
+    let mut need_preemption = false;
+
+    let controller = INTERRUPT_CONTROLLER.read();
+    if let Some(ctrl) = controller.as_ref() {
+        let iter = ctrl.pending_irqs();
+        drop(controller); // unlock
+
+        // Use the primary allocator.
+        #[cfg(not(feature = "std"))]
+        let _guard = {
+            let g = heap::TALLOC.save();
+            unsafe { heap::TALLOC.use_primary() };
+            g
+        };
+
+        for irq in iter {
+            if irq == PREEMPT_IRQ.load(Ordering::Relaxed) {
+                need_preemption = true;
+                continue;
+            }
+
+            if let Some((_, handler)) = handlers.get(&irq) {
+                if let Err(err) = catch_unwind(|| {
+                    handler(irq);
+                }) {
+                    log::warn!("an interrupt handler has been panicked\n{err:?}");
+                }
+            }
+        }
+    }
+
+    if need_preemption && is_task {
+        let ptr = PREEMPT_FN.load(Ordering::Relaxed);
+        let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
+        preemption();
+    }
+
+    // Because IPIs are edge-trigger,
+    // IPI sent during interrupt handlers will be ignored.
+    // To notify the interrupt again, we setup a timer.
+    crate::cpu::reset_wakeup_timer();
+}
+
 /// Disable interrupts and automatically restored the configuration.
 ///
 /// ```
