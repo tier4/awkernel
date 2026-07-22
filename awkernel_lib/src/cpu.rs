@@ -122,3 +122,80 @@ pub fn wait_init_sleep() {
 pub(crate) fn reset_wakeup_timer() {
     sleep_cpu_no_std::reset_wakeup_timer();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// Collect the CPUs contained in `set`, in ascending order.
+    fn cpus(set: CpuSet) -> Vec<usize> {
+        set.iter().collect()
+    }
+
+    #[test]
+    fn all_workers_excludes_cpu0_and_sizes() {
+        // Only CPU 0 exists, so there is no worker core.
+        assert!(all_workers(1).is_empty());
+
+        assert_eq!(cpus(all_workers(2)), [1]);
+        assert_eq!(cpus(all_workers(4)), [1, 2, 3]);
+
+        // Word boundary: num_cpus 64 keeps CPUs 1..=63 (CPU 0 dropped).
+        let w64 = all_workers(64);
+        assert_eq!(cpus(w64), (1..64).collect::<Vec<_>>());
+
+        // num_cpus 65 spills one bit (CPU 64) into the second word.
+        let w65 = all_workers(65);
+        assert_eq!(cpus(w65), (1..65).collect::<Vec<_>>());
+
+        // Two full words minus CPU 0.
+        let w128 = all_workers(128);
+        assert_eq!(cpus(w128), (1..128).collect::<Vec<_>>());
+
+        // CPU 0 is never a worker, at any size.
+        for n in [1, 2, 4, 64, 65, 128] {
+            assert!(!all_workers(n).contains(0), "num_cpus={n}");
+        }
+    }
+
+    #[test]
+    fn all_workers_iter_is_ascending_across_words() {
+        // The 63 -> 64 transition crosses the first word boundary.
+        let v = cpus(all_workers(65));
+        assert_eq!(v.first(), Some(&1));
+        assert_eq!(v.last(), Some(&64));
+        assert!(
+            v.windows(2).all(|w| w[0] < w[1]),
+            "must be strictly ascending"
+        );
+    }
+
+    #[test]
+    fn masked_workers_normalizes() {
+        // CPU 0 is stripped even when explicitly present.
+        let s = CpuSet::empty().with(0).with(1).with(2);
+        assert_eq!(cpus(masked_workers(s, 4)), [1, 2]);
+
+        // Out-of-range CPUs are trimmed.
+        let s = CpuSet::empty().with(1).with(100);
+        assert_eq!(cpus(masked_workers(s, 4)), [1]);
+
+        // Around a word boundary: with num_cpus=65, valid CPUs are 0..=64,
+        // so CPU 65 is out of range and dropped.
+        let s = CpuSet::empty().with(64).with(65);
+        assert_eq!(cpus(masked_workers(s, 65)), [64]);
+    }
+
+    #[test]
+    fn masked_workers_is_idempotent_on_valid_sets() {
+        // An already-normalized set is a fixed point. This is the invariant
+        // `clustered_edf::wake_task` relies on (`masked_workers(s, n) != s`
+        // is false for a valid set).
+        let s = all_workers(64);
+        assert_eq!(masked_workers(s, 64), s);
+
+        let s = CpuSet::empty().with(1).with(2);
+        assert_eq!(masked_workers(s, 4), s);
+    }
+}
