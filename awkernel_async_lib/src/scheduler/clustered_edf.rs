@@ -62,11 +62,13 @@ impl Scheduler for ClusteredEDFScheduler {
             }
         };
 
-        // `Tasks::spawn` normalizes the set to worker cores (1..num_cpu()),
-        // so an invalid set here is an internal invariant violation.
-        let cpu_set = task.cpu_set.expect("Task has no CPU set");
+        // `Tasks::spawn` is the single point that validates and normalizes the
+        // set (masking to worker cores, falling back to all workers when empty).
+        // Reaching here with an invalid set means that invariant was violated
+        // internally, so fail loud rather than enqueue an unrunnable task.
+        let cpu_set = task.cpu_set.expect("ClusteredEDF task has no CPU set");
         if cpu_set.is_empty() || masked_workers(cpu_set, num_cpu()) != cpu_set {
-            panic!("ClusteredEDF: CPU set {cpu_set:?} is out of range");
+            unreachable!("ClusteredEDF: cpu_set {cpu_set:?} was not normalized by spawn");
         }
 
         let mut node = MCSNode::new();
