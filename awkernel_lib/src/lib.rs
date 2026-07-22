@@ -41,6 +41,8 @@ pub mod select;
 #[cfg(not(feature = "std"))]
 pub mod heap;
 
+mod heap_util;
+
 #[cfg(not(feature = "std"))]
 pub mod dma_pool;
 
