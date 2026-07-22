@@ -73,8 +73,16 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
-    GEDF(u64),                 // relative deadline
+    /// Clustered EDF: `(relative_deadline, cpu_set)`.
+    ///
+    /// `cpu_set` is the set of cores the task may run on. It is normalized at
+    /// spawn time: CPU 0 (the primary core) and any out-of-range bits are
+    /// removed. If normalization leaves the set empty — e.g. an empty set, or
+    /// one naming only CPU 0 or out-of-range cores — the task is **not**
+    /// rejected; it falls back to all worker cores (`1..num_cpu()`) with a
+    /// warning.
+    ClusteredEDF(u64, CpuSet),
+    GEDF(u64), // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
