@@ -147,7 +147,7 @@ impl Scheduler for ClusteredEDFScheduler {
 
 pub static SCHEDULER: ClusteredEDFScheduler = ClusteredEDFScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::ClusteredEDF(0, CpuSet::empty())),
+    priority: get_priority(&SchedulerType::ClusteredEDF(0, CpuSet::empty())),
 };
 
 impl ClusteredEDFScheduler {

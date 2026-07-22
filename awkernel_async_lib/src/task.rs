@@ -435,7 +435,7 @@ pub fn inner_spawn(
 
     let future = future.boxed();
 
-    let scheduler = get_scheduler(sched_type);
+    let scheduler = get_scheduler(&sched_type);
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);

@@ -221,7 +221,7 @@ pub(crate) trait Scheduler {
 pub(crate) fn clustered_queued_cpu_mask() -> CpuSet {
     let mut mask = CpuSet::empty();
     for scheduler_type in &PRIORITY_LIST[..get_num_clustered_schedulers()] {
-        mask = mask.union(get_scheduler(*scheduler_type).queued_cpu_mask());
+        mask = mask.union(get_scheduler(scheduler_type).queued_cpu_mask());
     }
     mask
 }
@@ -240,7 +240,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     if num_clustered_tasks > 0 {
         let task = PRIORITY_LIST[..get_num_clustered_schedulers()]
             .iter()
-            .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+            .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
         // The counter is decremented by the ClusteredTask::take() call inside
         // get_next() (Drop is a no-op once take() has run).
@@ -251,7 +251,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
     let task = PRIORITY_LIST
         .iter()
-        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
 
     if task.is_some() {
         crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
@@ -261,7 +261,11 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 }
 
 /// Get a scheduler.
-pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
+///
+/// Takes `&SchedulerType` so the caller does not copy the full payload (the
+/// embedded `CpuSet` makes `SchedulerType` large); only the discriminant is
+/// matched.
+pub(crate) fn get_scheduler(sched_type: &SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
@@ -271,10 +275,10 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
     }
 }
 
-pub const fn get_priority(sched_type: SchedulerType) -> u8 {
+pub const fn get_priority(sched_type: &SchedulerType) -> u8 {
     let mut index = 0;
     while index < PRIORITY_LIST.len() {
-        if PRIORITY_LIST[index].equals(&sched_type) {
+        if PRIORITY_LIST[index].equals(sched_type) {
             return (PRIORITY_LIST.len() - 1 - index) as u8;
         }
         index += 1;
