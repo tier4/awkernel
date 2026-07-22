@@ -122,9 +122,10 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     let backup_size = BACKUP_HEAP_SIZE;
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
     let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+    let num_cpu = initializer.get_num_cpus();
 
-    heap::init_primary(primary_start, primary_size);
-    heap::init_backup(backup_start, backup_size);
+    heap::init_primary_with_num_cpu(primary_start, primary_size, num_cpu);
+    heap::init_backup_with_num_cpu(backup_start, backup_size, num_cpu);
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
@@ -164,7 +165,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     log::info!("{device_tree}");
 
-    let num_cpu = initializer.get_num_cpus();
     NUM_CPUS.store(num_cpu as u16, Ordering::SeqCst);
 
     log::info!("Waking non-primary CPUs up.");

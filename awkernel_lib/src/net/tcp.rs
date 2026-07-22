@@ -19,13 +19,14 @@ impl TCPHdr {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(not(feature = "std"))]
 #[derive(Debug)]
 pub struct TcpPort {
     port: u16,
     is_ipv4: bool,
 }
 
+#[cfg(not(feature = "std"))]
 impl TcpPort {
     pub fn new(port: u16, is_ipv4: bool) -> Self {
         Self { port, is_ipv4 }
@@ -37,16 +38,13 @@ impl TcpPort {
     }
 }
 
+#[cfg(not(feature = "std"))]
 impl Drop for TcpPort {
     fn drop(&mut self) {
-        #[cfg(not(feature = "std"))]
-        {
-            let mut net_manager = super::NET_MANAGER.write();
-            if self.is_ipv4 {
-                net_manager.decrement_port_in_use_tcp_ipv4(self.port);
-            } else {
-                net_manager.decrement_port_in_use_tcp_ipv6(self.port);
-            }
+        if self.is_ipv4 {
+            super::port_alloc::PORT_ALLOC.decrement_ref_tcp_ipv4(self.port);
+        } else {
+            super::port_alloc::PORT_ALLOC.decrement_ref_tcp_ipv6(self.port);
         }
     }
 }
