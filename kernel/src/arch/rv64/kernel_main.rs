@@ -7,7 +7,6 @@ use awkernel_lib::{cpu, heap};
 use core::{
     arch::global_asm,
     fmt::Write,
-    //    mem::MaybeUninit,
     sync::atomic::{AtomicBool, Ordering},
 };
 use ns16550a::Uart;
@@ -16,18 +15,48 @@ const UART_BASE: usize = 0x1000_0000;
 
 const HEAP_SIZE: usize = 1024 * 1024 * 512;
 
-// TODO: set initial stack 4MB for each CPU on 0x8040_0000. see boot.S
-// const MAX_HARTS: usize = 8;
-// const INITIAL_STACK: usize = 0x8040_0000;
-// const INITIAL_STACK_SIZE: usize = 0x0040_0000;
-// #[repr(align(4096))]
-// struct InitialStack([MaybeUninit<u8>; INITIAL_STACK_SIZE * MAX_HARTS]);
-// #[no_mangle]
-// static INITIAL_STACK: InitialStack = unsafe { MaybeUninit::uninit().assume_init() };
-
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub(super) static NUM_CPUS: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(4);
 
 global_asm!(include_str!("boot.S"));
+
+/// M-mode software interrupt (IPI) handler called from assembly
+///
+/// # Safety
+///
+/// This function is called from the M-mode trap handler in boot.S
+#[no_mangle]
+pub unsafe extern "C" fn riscv_handle_ipi() {
+    // Handle all pending interrupts, including IPI preemption
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+
+/// M-mode timer interrupt handler called from assembly
+///
+/// # Safety
+///
+/// This function is called from the M-mode trap handler in boot.S
+#[no_mangle]
+pub unsafe extern "C" fn riscv_handle_timer() {
+    // Timer interrupt is already disabled in assembly by setting mtimecmp to max
+    // Handle any pending interrupts (the timer handler will be invoked if registered)
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+
+/// Initialize and register the RISC-V ACLINT timer.
+///
+/// # Safety
+///
+/// Must be called after heap initialization on the primary hart.
+unsafe fn init_timer() {
+    use super::timer::RiscvTimer;
+    use alloc::boxed::Box;
+
+    const TIMER_IRQ: u16 = 5;
+    let timer = Box::new(RiscvTimer::new(TIMER_IRQ));
+    awkernel_lib::timer::register_timer(timer);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() {
@@ -42,8 +71,6 @@ pub unsafe extern "C" fn kernel_main() {
 }
 
 unsafe fn primary_hart(hartid: usize) {
-    // setup interrupt; TODO;
-
     super::console::init_port(UART_BASE);
 
     // Initialize memory management (page allocator)
@@ -55,9 +82,6 @@ unsafe fn primary_hart(hartid: usize) {
     // Activate virtual memory (enable MMU and page tables)
     awkernel_lib::arch::rv64::activate_kernel_space();
 
-    // Verify VM system is working by getting kernel token
-    let _kernel_token = awkernel_lib::arch::rv64::get_kernel_token();
-
     // setup the VM
     let backup_start = HEAP_START;
     let backup_size = BACKUP_HEAP_SIZE;
@@ -67,7 +91,7 @@ unsafe fn primary_hart(hartid: usize) {
     // enable heap allocator
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
-    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+    heap::TALLOC.use_primary_then_backup();
 
     // initialize serial device and dump booting logo
     let mut port = Uart::new(UART_BASE);
@@ -87,17 +111,25 @@ unsafe fn primary_hart(hartid: usize) {
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);
 
-    // switch to S-Mode; TODO;
-    // * currntly this impl. holds both kernel and userland
-    // * in M-Mode, which is the highest priority.
+    // Initialize architecture-specific features (delay/uptime counters)
+    awkernel_lib::arch::rv64::init_primary();
+
+    // Initialize and register the RISC-V timer
+    init_timer();
+
+    // Enable machine software interrupts for IPIs
+    core::arch::asm!("csrrs t0, mie, {}", in(reg) 1 << 3);
+
+    log::info!("AWkernel RV64 timer initialized");
 
     // wake up another harts
+    NUM_CPUS.store(4, Ordering::Release); // TODO: detect from device tree
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
-        num_cpu: 4, // TODO: get the number of CPUs
+        num_cpu: NUM_CPUS.load(Ordering::Acquire),
     };
 
     crate::main::<()>(kernel_info);
@@ -108,12 +140,15 @@ unsafe fn non_primary_hart(hartid: usize) {
         core::hint::spin_loop();
     }
 
-    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+    awkernel_lib::arch::rv64::init_non_primary();
+    heap::TALLOC.use_primary_then_backup();
+
+    let num_cpu = NUM_CPUS.load(Ordering::Acquire);
 
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
-        num_cpu: 4, // TODO: get the number of CPUs
+        num_cpu,
     };
 
     crate::main::<()>(kernel_info);

@@ -38,7 +38,7 @@ impl Delay for super::RV32 {
             while {
                 let test: u32;
                 core::arch::asm!(
-                    "rdcycleh {0}; rdcycle {1}; rdcycleh {2}",
+                    "rdcycleh {0:x}; rdcycle {1:x}; rdcycleh {2:x}",
                     out(reg) cycleh,
                     out(reg) cycle,
                     out(reg) test
