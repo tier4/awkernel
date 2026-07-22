@@ -293,6 +293,8 @@ impl Tasks {
                     // CPU 0 is the primary core and cannot run clustered tasks.
                     let masked = masked_workers(set, num_cpu());
                     let normalized = if masked.is_empty() {
+                        // `cpu::sanity_check()` guarantees num_cpu() >= 2 at boot,
+                        // so `all_workers(num_cpu())` below is always non-empty.
                         log::warn!(
                             "The CPU set must contain at least one core between 1 and {}. Falling back to all worker cores. Given set: {:?}",
                             num_cpu() - 1,

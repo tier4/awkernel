@@ -74,6 +74,24 @@ pub fn num_cpu() -> usize {
     NUM_CPU.load(Ordering::Relaxed)
 }
 
+/// Verify the CPU count invariant during kernel initialization.
+///
+/// Awkernel reserves CPU 0 as the primary core and runs tasks on the worker
+/// cores `1..num_cpu()`, so it requires at least two CPUs: with a single CPU
+/// there is no worker core and no task can ever be scheduled. This panics if
+/// the invariant does not hold, making `num_cpu() >= 2` a guarantee for the
+/// rest of the kernel.
+///
+/// Must be called on the primary CPU after [`set_num_cpu`].
+pub fn sanity_check() {
+    let n = num_cpu();
+    assert!(
+        n >= 2,
+        "Awkernel requires at least 2 CPUs (primary core 0 plus at least one worker core), but num_cpu() = {n}"
+    );
+    log::info!("cpu: {n} CPUs available ({} worker cores).", n - 1);
+}
+
 pub trait SleepCpu {
     /// Sleep current CPU.
     fn sleep(&self, timeout: Option<Duration>);
