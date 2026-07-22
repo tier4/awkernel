@@ -15,7 +15,7 @@ bitflags! {
 
 #[inline(always)]
 fn is_kvm() -> bool {
-    let cpuid = unsafe { core::arch::x86_64::__cpuid(KVM_CPUID_SIGNATURE) };
+    let cpuid = core::arch::x86_64::__cpuid(KVM_CPUID_SIGNATURE);
     // https://www.kernel.org/doc/html/v5.7/virt/kvm/cpuid.html
     cpuid.eax == 0x40000001
         && cpuid.ebx == 0x4b4d564b
@@ -29,6 +29,6 @@ pub fn cpuid_features() -> Option<KvmCpuidFeatures> {
         return None;
     }
 
-    let cpuid = unsafe { core::arch::x86_64::__cpuid(KVM_CPUID_FEATURES) };
+    let cpuid = core::arch::x86_64::__cpuid(KVM_CPUID_FEATURES);
     Some(KvmCpuidFeatures::from_bits_retain(cpuid.eax))
 }

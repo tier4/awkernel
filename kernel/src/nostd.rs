@@ -2,7 +2,7 @@ use alloc::{boxed::Box, format};
 use awkernel_lib::{console, delay::wait_forever, heap::TALLOC};
 
 use core::ffi::c_void;
-use unwinding::abi::{UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_GetIP};
+use unwinding::abi::{_Unwind_Backtrace, _Unwind_GetIP, UnwindContext, UnwindReasonCode};
 
 // Base address and size of each debug section
 unsafe extern "C" {

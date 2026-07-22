@@ -358,7 +358,7 @@ impl PCIeTree {
         bridge_device_number: u8,
         bridge_function_number: u8,
     ) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.update_bridge_info(
                 bridge_bus_number,
                 bridge_device_number,
@@ -368,13 +368,13 @@ impl PCIeTree {
     }
 
     fn attach(&mut self) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.attach();
         }
     }
 
     fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.init_base_address(ranges);
         }
     }
@@ -382,7 +382,7 @@ impl PCIeTree {
 
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (_, bus) in self.tree.iter() {
+        for bus in self.tree.values() {
             if !bus.devices.is_empty() {
                 write!(f, "{bus}")?;
             }

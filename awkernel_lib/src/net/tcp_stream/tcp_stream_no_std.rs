@@ -1,4 +1,6 @@
-use crate::net::{ip_addr::IpAddr, tcp::TcpPort, NetManagerError, NET_MANAGER};
+use crate::net::{
+    ip_addr::IpAddr, port_alloc::PORT_ALLOC, tcp::TcpPort, NetManagerError, NET_MANAGER,
+};
 
 use super::{SockTcpStream, TcpResult};
 
@@ -90,40 +92,47 @@ impl SockTcpStream for TcpStream {
         tx_buffer_size: usize,
         waker: &core::task::Waker,
     ) -> Result<TcpStream, NetManagerError> {
-        let mut net_manager = NET_MANAGER.write();
-
-        let if_net = net_manager
-            .interfaces
-            .get(&interface_id)
-            .ok_or(NetManagerError::InvalidInterfaceID)?;
-        let if_net = if_net.clone();
+        // Validate the interface exists before claiming a port or allocating buffers.
+        {
+            let net_manager = NET_MANAGER.read();
+            if !net_manager.interfaces.contains_key(&interface_id) {
+                return Err(NetManagerError::InvalidInterfaceID);
+            }
+        }
 
         let local_port = if remote_addr.is_ipv4() {
-            net_manager
-                .get_ephemeral_port_tcp_ipv4()
+            PORT_ALLOC
+                .get_ephemeral_tcp_ipv4()
                 .ok_or(NetManagerError::NoAvailablePort)?
         } else {
-            net_manager
-                .get_ephemeral_port_tcp_ipv6()
+            PORT_ALLOC
+                .get_ephemeral_tcp_ipv6()
                 .ok_or(NetManagerError::NoAvailablePort)?
         };
-
-        drop(net_manager);
 
         let rx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; rx_buffer_size]);
         let tx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; tx_buffer_size]);
 
         let socket = smoltcp::socket::tcp::Socket::new(rx_buffer, tx_buffer);
 
-        let handle;
-        {
+        // Add the socket and connect it while holding the read lock, so that a concurrent
+        // interface removal (which takes the write lock) cannot orphan it. If the interface
+        // is gone, `local_port` (TcpPort) frees the port on the early return.
+        let (handle, if_net) = {
+            let net_manager = NET_MANAGER.read();
+            let if_net = net_manager
+                .interfaces
+                .get(&interface_id)
+                .ok_or(NetManagerError::InvalidInterfaceID)?
+                .clone();
+
             let mut node = MCSNode::new();
             let mut inner = if_net.inner.lock(&mut node);
 
             let interface = inner.get_interface();
 
             let mut socket_set = if_net.socket_set.write();
-            handle = socket_set.add(socket);
+            let handle = socket_set.add(socket);
 
             let connect_is_err = {
                 let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
@@ -146,7 +155,11 @@ impl SockTcpStream for TcpStream {
                 socket_set.remove(handle);
                 return Err(NetManagerError::InvalidState);
             }
-        }
+
+            drop(socket_set);
+            drop(inner);
+            (handle, if_net)
+        };
 
         let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
         if_net.poll_tx_only(que_id);

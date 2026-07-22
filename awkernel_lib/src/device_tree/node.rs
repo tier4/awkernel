@@ -134,10 +134,8 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
                             return Some(node);
                         }
                     }
-                    PropertyValue::PHandle(v) => {
-                        if *v == phandle {
-                            return Some(node);
-                        }
+                    PropertyValue::PHandle(v) if *v == phandle => {
+                        return Some(node);
                     }
                     _ => {}
                 }

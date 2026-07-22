@@ -11,7 +11,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
-use acpi::{platform::ProcessorState, AcpiTables};
+use acpi::{madt::MadtEntry, platform::ProcessorState, AcpiTables};
 use alloc::{
     boxed::Box,
     collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
@@ -81,10 +81,10 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Initialize the backup heap memory allocator.
-/// 5. Enable logger.
-/// 6. Get offset address to physical memory.
-/// 7. Initialize ACPI.
+/// 4. Get offset address to physical memory.
+/// 5. Initialize ACPI.
+/// 6. Initialize the backup heap memory allocator.
+/// 7. Enable logger.
 /// 8. Get NUMA information.
 /// 9. Initialize stack memory regions for non-primary CPUs.
 /// 10. Initialize `awkernel_lib`.
@@ -121,9 +121,39 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 4. Initialize the backup heap memory allocator.
+    // 4. Get offset address to physical memory.
+    // Fetched once here (ACPI initialization below needs it) and passed into
+    // `kernel_main2` so the offset is read exactly once.
+    let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
+        unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
+        wait_forever();
+    };
+    let offset = *offset;
+
+    // 5. Initialize ACPI.
+    let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
+    {
+        acpi
+    } else {
+        unsafe { unsafe_puts("Failed to initialize ACPI.\r\n") };
+        wait_forever();
+    };
+
+    // Detect the CPU count up front so the backup heap can be sized. A missing MADT /
+    // processor info is fatal: silently degrading to a single CPU would leave the heap
+    // sized for one CPU while extra CPUs later fail allocations, masking the real ACPI
+    // fault. This matches the `wait_forever()` taken when processor info is unavailable
+    // later in `kernel_main2`.
+    let Some(early_num_cpu) = count_usable_cpus(&acpi) else {
+        unsafe {
+            unsafe_puts("Failed to detect CPUs from ACPI (MADT/processor info missing).\r\n")
+        };
+        wait_forever();
+    };
+
+    // 6. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
-        init_backup_heap(boot_info, &mut page_table);
+        init_backup_heap(boot_info, &mut page_table, early_num_cpu);
 
     // BAR 2 (blue): backup heap OK — about to enter kernel_main2.
     // draw_boot_bar(boot_info, 2, 100, 100, 100);
@@ -135,10 +165,39 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             backup_pages,
             backup_region,
             backup_next_frame,
+            acpi,
+            offset,
         )
     });
 
     wait_forever();
+}
+
+/// Upper bound on the number of CPUs that can touch the heap, derived from the MADT.
+///
+/// This runs before any heap is initialized, so it must not allocate. It therefore counts
+/// MADT local-APIC entries by the enabled bit via `madt.entries()`, rather than going
+/// through `acpi.platform_info()` (which allocates a `Vec` of processors) the way
+/// `non_primary_cpus` does later, once the backup heap is up. Counting every enabled
+/// processor (the primary plus all enabled APs) is a deliberate over-approximation:
+/// `non_primary_cpus` only ever applies *additional* restrictive filters
+/// (`WaitingForSipi`, and the xAPIC `local_apic_id < 255` limit), so this count is always
+/// `>= non_primary_cpus.len() + 1`. Sizing the backup heap with this upper bound
+/// guarantees it is never smaller than the primary heap (sized for the exact
+/// `non_primary_cpus.len() + 1`), so no cpu_id ever exceeds either heap's
+/// `active_threads`. `kernel_main2` re-checks this invariant once the exact set is known.
+fn count_usable_cpus(acpi: &AcpiTables<AcpiMapper>) -> Option<usize> {
+    let madt = acpi.find_table::<acpi::madt::Madt>().ok()?;
+    let num_cpus = madt
+        .entries()
+        .filter(|entry| match entry {
+            MadtEntry::LocalApic(local_apic) => ({ local_apic.flags } & 1) != 0,
+            MadtEntry::LocalX2Apic(local_x2apic) => ({ local_x2apic.flags } & 1) != 0,
+            _ => false,
+        })
+        .count();
+
+    (num_cpus > 0).then_some(num_cpus)
 }
 
 fn kernel_main2(
@@ -147,6 +206,8 @@ fn kernel_main2(
     backup_pages: usize,
     backup_region: MemoryRegion,
     backup_next_frame: Option<PhysFrame>,
+    acpi: AcpiTables<AcpiMapper>,
+    offset: u64,
 ) {
     // BAR 3 (yellow): kernel_main2 entered — inside catch_unwind.
     // draw_boot_bar(boot_info, 3, 100, 100, 100);
@@ -163,13 +224,7 @@ fn kernel_main2(
         backup_pages * PAGESIZE / 1024 / 1024
     );
 
-    // 6. Get offset address to physical memory.
-    let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
-        unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
-        wait_forever();
-    };
-    let offset = *offset;
-
+    // The physical memory offset is read once in `kernel_main` (step 4) and passed in.
     log::info!("Physical memory offset: 0x{offset:x}");
 
     // BAR 5 (orange): physical memory offset obtained.
@@ -279,6 +334,21 @@ fn kernel_main2(
         wait_forever();
     };
 
+    // The backup heap was sized in `kernel_main` for `count_usable_cpus(&acpi)` (an upper
+    // bound). The primary heap is sized for the exact `non_primary_cpus.len() + 1`.
+    // `count_usable_cpus` is a pure function of the same `acpi` tables, so recomputing it
+    // here yields the value the backup heap was sized with. Verify the upper bound holds
+    // so a violation is caught loudly here, rather than as an opaque allocation failure on
+    // a high cpu_id against the smaller-sized backup heap later.
+    let backup_num_cpu = count_usable_cpus(&acpi).unwrap_or(0);
+    if non_primary_cpus.len() + 1 > backup_num_cpu {
+        log::error!(
+            "CPU count inconsistency: non_primary_cpus + 1 = {} exceeds backup heap active_threads = {backup_num_cpu}",
+            non_primary_cpus.len() + 1,
+        );
+        wait_forever();
+    }
+
     let mut cpu_mapping = BTreeMap::<usize, usize>::new();
     for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
         let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
@@ -334,7 +404,11 @@ fn kernel_main2(
     }
 
     // 15. Initialize the primary heap memory allocator.
-    init_primary_heap(&mut page_table, &mut page_allocators);
+    init_primary_heap(
+        &mut page_table,
+        &mut page_allocators,
+        non_primary_cpus.len() + 1,
+    );
 
     // Row 0: primary heap ready, about to init PCIe/xHCI.
     draw_boot_bar(boot_info, 0, 100, 100, 100);
@@ -696,13 +770,14 @@ fn init_apic_timer(apic: &mut dyn Apic) {
 fn init_primary_heap(
     page_table: &mut OffsetPageTable<'static>,
     page_allocators: &mut BTreeMap<u32, VecPageAllocator>,
+    num_cpu: usize,
 ) {
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
 
     let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
 
     let heap_size = num_pages * PAGESIZE;
-    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+    unsafe { awkernel_lib::heap::init_primary_with_num_cpu(primary_start, heap_size, num_cpu) };
 
     log::info!(
         "Primary heap: start = 0x{:x}, size = {}MiB",
@@ -919,6 +994,7 @@ fn map_mpboot_page(
 fn init_backup_heap(
     boot_info: &mut BootInfo,
     page_table: &mut OffsetPageTable<'static>,
+    num_cpu: usize,
 ) -> (usize, MemoryRegion, Option<PhysFrame>) {
     let mut backup_heap_region = None;
     for region in boot_info.memory_regions.iter() {
@@ -954,7 +1030,7 @@ fn init_backup_heap(
     // Initialize.
     // Enable heap allocator.
     unsafe {
-        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::init_backup_with_num_cpu(HEAP_START, BACKUP_HEAP_SIZE, num_cpu);
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
     }
 
@@ -1048,11 +1124,7 @@ fn get_numa_info(
         .copied()
         .collect();
 
-    loop {
-        let Some(usable_region) = usable_regions.pop_front() else {
-            break;
-        };
-
+    while let Some(usable_region) = usable_regions.pop_front() {
         let usable_region = if usable_region.start == backup_region.start {
             if let Some(frame) = backup_next_frame {
                 // Exclude the backup heap memory region.

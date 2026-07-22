@@ -1449,8 +1449,14 @@ pub fn handle_irqs() {
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
-<p>Awkernel uses <a href="https://github.com/yvt/rlsf">rlsf</a>, which implements Two-Level Segregated Fit (TLSF) memory allocator.
-The <code>Tallock</code> structure represents an allocator in Awkernel,
+<p>The heap backend in Awkernel is selected at compile time by feature flags.</p>
+<ul>
+<li><code>heap-wf-alloc</code> selects the wait-free <a href="https://github.com/ytakano/wf_alloc">wf_alloc</a> backend, supported on <code>x86_64</code> and <code>aarch64</code>.</li>
+<li>Otherwise, the <a href="https://github.com/yvt/rlsf">rlsf</a> Two-Level Segregated Fit (TLSF) backend is used.</li>
+</ul>
+<p>The two features are mutually exclusive; enabling both fails the build with a <code>compile_error!</code>.
+The <code>kernel</code> crate enables <code>heap-wf-alloc</code> on x86 by default, while TLSF remains for other targets.</p>
+<p>Regardless of the backend, the <code>Talloc</code> structure represents the allocator in Awkernel,
 which contains a primary allocator and a backup allocator.
 Async/await tasks use only the primary allocator,
 but kernel tasks, such as interrupt handlers,
@@ -1486,15 +1492,41 @@ The task is executed by calling <code>poll_unpin</code> method in the <code>catc
 If the task exhausts the primary memory region, it will panic and <code>run_main</code> function will catch the panic.
 After catching the panic, <code>awkernel_lib::heap::TALLOC.use_primary_then_backup()</code> is called to use both the primary and backup memory allocators,
 and safely deallocate the task.</p>
-<p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
+<p>Each backend implements the <code>HeapBackend</code> trait, defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct Allocator(Mutex&lt;TLSFAlloc&gt;);
-struct BackUpAllocator(Mutex&lt;TLSFAlloc&gt;);
+</span>trait HeapBackend {
+    /// Initialize the backend over the `[heap_start, heap_start + heap_size)` region.
+    /// `active_threads` is the number of CPUs that can use the heap concurrently.
+    /// Returns `Err(reason)` if the backend could not be initialized.
+    unsafe fn init(
+        &amp;self,
+        heap_start: usize,
+        heap_size: usize,
+        active_threads: usize,
+    ) -&gt; Result&lt;(), &amp;'static str&gt;;
 
-pub struct Talloc {
+    unsafe fn alloc(&amp;self, layout: Layout) -&gt; *mut u8;
+
+    unsafe fn dealloc(&amp;self, ptr: *mut u8, layout: Layout);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The backend is chosen by a compile-time type alias.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// `heap-wf-alloc` on x86_64 / aarch64:
+type Allocator = wf_alloc_backend::WfAllocBackend;
+
+// otherwise:
+type Allocator = tlsf_backend::TlsfBackend;
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Talloc</code> structure holds a primary and a backup allocator of the selected backend.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Talloc {
     primary: Allocator,
-    backup: BackUpAllocator,
+    backup: Allocator,
 
     /// bitmap for each CPU to decide which allocator to use
     flags: [AtomicU32; NUM_MAX_CPU / 32],
@@ -1511,12 +1543,23 @@ pub struct Talloc {
 </span>#[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 <span class="boring">}</span></code></pre></pre>
-<p>There are 2 functions to initialize memory regions of the primary and backup allocators.</p>
+<p>The following functions initialize the memory regions of the primary and backup allocators.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
-<tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the memory region of the primary allocator.</td></tr>
-<tr><td><code>fn init_backup(backup_start: usize, backup_size: usize)</code></td><td>Initialize the memory region of the backup allocator.</td></tr>
+<tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the primary allocator, using <code>cpu::num_cpu()</code> as the CPU count.</td></tr>
+<tr><td><code>fn init_backup(backup_start: usize, backup_size: usize)</code></td><td>Initialize the backup allocator, using <code>cpu::num_cpu()</code> as the CPU count.</td></tr>
+<tr><td><code>fn init_primary_with_num_cpu(primary_start: usize, primary_size: usize, num_cpu: usize)</code></td><td>Initialize the primary allocator with an explicit CPU count.</td></tr>
+<tr><td><code>fn init_backup_with_num_cpu(backup_start: usize, backup_size: usize, num_cpu: usize)</code></td><td>Initialize the backup allocator with an explicit CPU count.</td></tr>
 </tbody></table>
 </div>
+<p>The <code>wf_alloc</code> backend maps each CPU id directly to a per-CPU token and must know the
+number of CPUs that can use the heap concurrently (<code>active_threads</code>) at initialization time,
+because it sizes its metadata region from that count. If the count is <code>0</code>, <code>wf_alloc</code>'s
+<code>init</code> bails out and the heap is left uninitialized. The TLSF backend ignores the count.</p>
+<p>The bare <code>init_primary</code> / <code>init_backup</code> read this count from <code>cpu::num_cpu()</code> internally, so
+they only behave correctly after the active CPU count has been established. On x86_64 the
+heap is initialized before that count is set (so <code>cpu::num_cpu()</code> would return <code>0</code>); the boot
+code therefore uses the <code>init_primary_with_num_cpu</code> / <code>init_backup_with_num_cpu</code> variants and
+passes the CPU count it detected from ACPI explicitly.</p>
 <h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
 <h2 id="x86_64-12"><a class="header" href="#x86_64-12">x86_64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
@@ -1524,18 +1567,21 @@ in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions de
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
 These functions initialize virtual memory regions for the primary and backup heaps
 before initializing the primary and backup allocators.</p>
+<p>The <code>num_cpu</code> argument is the CPU count detected from ACPI during boot, passed through to
+the <code>*_with_num_cpu</code> initializers.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn init_primary_heap(
     page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
     page_allocators: &amp;mut BTreeMap&lt;u32, VecPageAllocator&gt;,
+    num_cpu: usize,
 ) {
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
 
     let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
 
     let heap_size = num_pages * PAGESIZE;
-    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+    unsafe { awkernel_lib::heap::init_primary_with_num_cpu(primary_start, heap_size, num_cpu) };
 
     // omitted
 }
@@ -1545,13 +1591,14 @@ before initializing the primary and backup allocators.</p>
 </span>fn init_backup_heap(
     boot_info: &amp;mut BootInfo,
     page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
+    num_cpu: usize,
 ) -&gt; (usize, MemoryRegion, Option&lt;PhysFrame&gt;) {
     // omitted: Initialize virtual memory regions for the backup heap.
 
     // Initialize.
     // Enable heap allocator.
     unsafe {
-        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::init_backup_with_num_cpu(HEAP_START, BACKUP_HEAP_SIZE, num_cpu);
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
     }
 
@@ -1559,7 +1606,7 @@ before initializing the primary and backup allocators.</p>
 }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="aarch64-12"><a class="header" href="#aarch64-12">AArch64</a></h2>
-<p>For x86_64, the primary and backup allocators are initialized
+<p>For AArch64, the primary and backup allocators are initialized
 in <code>primary_cpu</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1572,9 +1619,10 @@ in <code>primary_cpu</code> function defined in
     let backup_size = BACKUP_HEAP_SIZE;
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
     let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+    let num_cpu = initializer.get_num_cpus();
 
-    heap::init_primary(primary_start, primary_size);
-    heap::init_backup(backup_start, backup_size);
+    heap::init_primary_with_num_cpu(primary_start, primary_size, num_cpu);
+    heap::init_backup_with_num_cpu(backup_start, backup_size, num_cpu);
 
     // omitted
 }

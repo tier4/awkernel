@@ -408,7 +408,7 @@ fn cpu_x_wait_tx(msg: i64) {
 #[inline(always)]
 fn cpu_x_get_tx() -> i64 {
     loop {
-        match CHANNEL_CPU0_TX.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+        match CHANNEL_CPU0_TX.try_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
             if x != MSG_NULL {
                 Some(MSG_NULL)
             } else {
@@ -425,7 +425,7 @@ fn cpu_x_get_tx() -> i64 {
 #[inline(always)]
 fn cpu_0_get_rx() -> i64 {
     loop {
-        match CHANNEL_CPU0_RX.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+        match CHANNEL_CPU0_RX.try_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
             if x != MSG_NULL {
                 Some(MSG_NULL)
             } else {
