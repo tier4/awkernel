@@ -83,7 +83,7 @@ path = "../applications/tests/test_partitioned_edf"
 optional = true
 
 [features]
-default = []
+default = ["autoware"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications

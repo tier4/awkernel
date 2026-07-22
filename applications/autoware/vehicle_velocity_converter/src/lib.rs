@@ -139,12 +139,12 @@ impl VehicleVelocityConverter {
 
     fn create_covariance_matrix(&self) -> [f64; 36] {
         let mut covariance = [0.0; 36];
-        covariance[0 + 0 * 6] = self.stddev_vx * self.stddev_vx;
-        covariance[1 + 1 * 6] = 10000.0;
-        covariance[2 + 2 * 6] = 10000.0;
-        covariance[3 + 3 * 6] = 10000.0;
-        covariance[4 + 4 * 6] = 10000.0;
-        covariance[5 + 5 * 6] = self.stddev_wz * self.stddev_wz;
+        covariance[0] = self.stddev_vx * self.stddev_vx;
+        covariance[7] = 10000.0;
+        covariance[14] = 10000.0;
+        covariance[21] = 10000.0;
+        covariance[28] = 10000.0;
+        covariance[35] = self.stddev_wz * self.stddev_wz;
 
         covariance
     }
