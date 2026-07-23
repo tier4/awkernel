@@ -55,8 +55,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_voluntary_preemption")]
     test_voluntary_preemption::run().await; // test for voluntary preemption
 
-    #[cfg(feature = "test_partitioned_edf")]
-    test_partitioned_edf::run().await; // test for Partitioned EDF scheduler
+    #[cfg(feature = "test_clustered_edf")]
+    test_clustered_edf::run().await; // test for Clustered EDF scheduler
 
     Ok(())
 }

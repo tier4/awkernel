@@ -24,14 +24,14 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 | function                                      | description                   |
 | --------------------------------------------- | ----------------------------- |
 | `fn get_next_task()`                          | Get the next executable task. |
-| `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.              |
+| `fn get_scheduler(sched_type: &SchedulerType)` | Get a scheduler.              |
 
 `SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
 ```rust
 pub enum SchedulerType {
-    PartitionedEDF(u64, u16), // relative deadline and partitioned core
-    GEDF(u64),                // relative deadline
+    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
+    GEDF(u64),                 // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -63,22 +63,26 @@ Some schedulers are implemented under the folder [awkernel_async_lib/src/schedul
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
-> gedf.rs  panicked.rs  partitioned_edf.rs  prioritized_fifo.rs  prioritized_rr.rs
+> clustered_edf.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 ```
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
 Each scheduler must be registered in the following three locations.
-`fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
+`fn get_next_task()`, `fn get_scheduler(sched_type: &SchedulerType)` and `pub enum SchedulerType`.
 
-### PartitionedEDF Scheduler
+### ClusteredEDF Scheduler
 
-The Partitioned Earliest Deadline First (PartitionedEDF) scheduler is implemented in [partitioned_edf.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/partitioned_edf.rs). This scheduler is an EDF variant that pins each task to a specific CPU core (partition), maintaining a separate run queue per core.
+The Clustered Earliest Deadline First (ClusteredEDF) scheduler is implemented in [clustered_edf.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/clustered_edf.rs). This scheduler is an EDF variant that restricts each task to a set of CPU cores (a cluster), specified as a `CpuSet` bitmask. Pinning a task to a single core (partitioned scheduling) is the special case of a one-bit `CpuSet`.
 
-The scheduler holds a `[Mutex<Option<EDFData>>; NUM_MAX_CPU]` array, one slot per CPU. Each slot's `EDFData` contains a `BinaryHeap<PartitionedEDFTask>` ordered by absolute deadline (earliest deadline first), with wake time used as a tie-breaker when deadlines are equal.
+The scheduler holds a single affinity-aware priority queue, [`AffinityBTreeQueue`](https://crates.io/crates/affinity_btree_queue), backed by an augmented B-tree. Each entry carries `(priority, affinity, task)`, where the priority is the pair `(absolute_deadline, wake_time)`; smaller values dequeue first, so tasks are ordered by earliest deadline with wake time as a tie-breaker. Every B-tree node stores the OR of the affinities in its subtree, which lets `pop_for_cpu(cpu)` find the earliest-deadline task runnable on `cpu` in logarithmic time while skipping subtrees with no eligible entry.
 
-When a task is enqueued via `wake_task()`, the scheduler reads the `SchedulerType::PartitionedEDF(relative_deadline, partitioned_core)` attached to the task and calculates the absolute deadline as `uptime + relative_deadline`. If the task is part of a DAG, `calculate_and_update_dag_deadline()` (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then inserted into the run queue of the assigned `partitioned_core`. Preemption is handled via `invoke_preemption()`, which sends an IPI to the target core when a newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.
+When a task is enqueued via `wake_task()`, the scheduler reads the `SchedulerType::ClusteredEDF(relative_deadline, cpu_set)` attached to the task and calculates the absolute deadline as `uptime + relative_deadline`. If the task is part of a DAG, `calculate_and_update_dag_deadline()` (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then pushed into the queue with its `cpu_set` as the affinity mask. Preemption is handled via `invoke_preemption()`: if no core in the set is idle and the task is not already running, the core running the lowest-priority task among the set is chosen, and an IPI is sent to it when the newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.
 
-`get_next()` pops the task with the earliest deadline from the run queue of the calling CPU, so each core only dequeues its own tasks. This guarantees strict CPU affinity.
+`get_next()` pops the earliest-deadline task whose `cpu_set` contains the calling CPU (`pop_for_cpu`), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from `cpu_set` when a task is spawned. The `cpu_set` is normalized at spawn time by removing CPU 0 and out-of-range bits; if this leaves the set empty (for example an empty set, or one naming only CPU 0 or out-of-range cores), the task is not rejected but falls back to all worker cores (`1..num_cpu()`) with a warning.
+
+Bookkeeping for sleeping workers uses two pieces of state. A single global counter (`NUM_CLUSTERED_TASKS_IN_QUEUE`) tracks how many tasks are queued across all clustered schedulers; it is maintained by the `ClusteredTask` RAII wrapper (incremented on enqueue, decremented exactly once on dequeue or drop) and lets `get_next_task()` skip the clustered schedulers entirely when it is zero. The per-CPU information — which CPUs actually have an eligible task queued — is not duplicated in counters: it is read directly from the run queue, whose B-tree root already maintains the OR of all queued affinities (`affinity_mask()`, O(1)). `wake_workers()` obtains this set via `Scheduler::queued_cpu_mask()` (unioned over all clustered schedulers by `clustered_queued_cpu_mask()`) and wakes exactly the cores that have an eligible clustered task.
+
+A new clustered scheduler must (1) wrap its queue entries in `ClusteredTask`, (2) implement `Scheduler::queued_cpu_mask()`, and (3) be placed in the clustered prefix of `PRIORITY_LIST` and matched by `SchedulerType::is_clustered()`; the prefix requirement is enforced at compile time.
 
 ### GEDF Scheduler
 
