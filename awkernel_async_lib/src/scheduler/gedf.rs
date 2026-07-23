@@ -149,7 +149,7 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::GEDF(0)),
+    priority: get_priority(&SchedulerType::GEDF(0)),
 };
 
 impl GEDFScheduler {
