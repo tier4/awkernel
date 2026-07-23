@@ -270,6 +270,42 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
     interrupt::handle_irqs();
 }
 <span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64"><a class="header" href="#risc-v-64-bit-rv64">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, traps are taken in machine mode by a low-level handler installed into <code>mtvec</code>
+during boot in <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/boot.S">kernel/src/arch/rv64/boot.S</a>.
+The handler reads <code>mcause</code> to distinguish exceptions from interrupts and dispatches on the
+interrupt code: a machine timer interrupt (code 7) and a machine software interrupt / IPI
+(code 3) are handled, while other causes return without action.</p>
+<pre><code class="language-asm">early_trap_handler:
+  csrr t0, mcause
+  blt t0, zero, handle_interrupt   # MSB set =&gt; interrupt
+  j unhandled_trap
+
+handle_interrupt:
+  # ... mask off the interrupt code ...
+  li t1, 7                         # M-mode timer interrupt
+  beq t0, t1, handle_timer_interrupt
+  li t1, 3                         # M-mode software interrupt (IPI)
+  beq t0, t1, handle_software_interrupt
+</code></pre>
+<p>After saving the clobbered registers, the timer path calls <code>riscv_handle_timer</code> and the
+IPI path calls <code>riscv_handle_ipi</code>. Both are defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a>
+and forward to the architecture-independent <code>handle_irqs</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// M-mode software interrupt (IPI) handler called from assembly.
+pub extern "C" fn riscv_handle_ipi() {
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+
+/// M-mode timer interrupt handler called from assembly.
+pub extern "C" fn riscv_handle_timer() {
+    awkernel_lib::interrupt::handle_irqs(true);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The software-interrupt (<code>MSIP</code>) bit is cleared in assembly before returning, and the timer
+is re-armed by the registered timer handler.</p>
 <h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
 <p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
 This means that the target CPU should handle the preemption request if it receives the IPI.</p>
@@ -321,6 +357,88 @@ pub fn handle_irqs() {
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv2.rs">GICv2</a></li>
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
 </ul>
+<h2 id="risc-v-64-bit-rv64-1"><a class="header" href="#risc-v-64-bit-rv64-1">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, external interrupts are managed by the <strong>PLIC</strong> (Platform-Level Interrupt
+Controller), and inter-processor interrupts (IPIs) are delivered through the
+<strong>CLINT/ACLINT</strong> software-interrupt (<code>MSIP</code>) registers. Both are implemented by the
+<code>RiscvPlic</code> structure in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/interrupt_controller.rs">kernel/src/arch/rv64/interrupt_controller.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// RISC-V PLIC (Platform-Level Interrupt Controller) implementation.
+/// Combined with CLINT/ACLINT for IPI support.
+pub struct RiscvPlic {
+    base_address: usize,
+    max_priority: u32,
+    num_sources: u16,
+}
+
+// CLINT/ACLINT base address for IPIs.
+const ACLINT_BASE: usize = 0x0200_0000;
+const MSIP_OFFSET: usize = 0x0000; // Machine Software Interrupt Pending
+<span class="boring">}</span></code></pre></pre>
+<p>The PLIC register layout is computed relative to <code>base_address</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>register</th><th>address</th><th>purpose</th></tr></thead><tbody>
+<tr><td>priority</td><td><code>base + source * 4</code></td><td>per-source interrupt priority (0-7)</td></tr>
+<tr><td>enable</td><td><code>base + 0x2000 + context * 0x80</code></td><td>per-context enable bitmap</td></tr>
+<tr><td>threshold</td><td><code>base + 0x200000 + context * 0x1000</code></td><td>per-context priority threshold</td></tr>
+<tr><td>claim/complete</td><td><code>base + 0x200004 + context * 0x1000</code></td><td>claim a pending IRQ / signal completion</td></tr>
+</tbody></table>
+</div>
+<p>The PLIC <em>context</em> for the running hart is computed as <code>hartid * 2 + 1</code> (the
+supervisor-mode context), where the hart ID is read from the <code>mhartid</code> CSR.</p>
+<p><code>RiscvPlic</code> implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs"><code>InterruptController</code></a> trait:</p>
+<ul>
+<li><code>enable_irq</code> sets the source priority to <code>1</code> and sets its bit in the enable register.</li>
+<li><code>disable_irq</code> clears the source's bit in the enable register.</li>
+<li><code>pending_irqs</code> reads the claim register; a non-zero value is the claimed IRQ, which is
+immediately written back to the claim register to signal completion.</li>
+<li><code>send_ipi</code> writes <code>1</code> to the target hart's <code>MSIP</code> register; the broadcast variants do so
+for every hart (skipping the sender for <code>send_ipi_broadcast_without_self</code>).</li>
+<li><code>init_non_primary</code> sets the context threshold to <code>0</code> (accept all priorities) and enables
+machine software interrupts (<code>mie.MSIE</code>) so the core can receive IPIs.</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl InterruptController for RiscvPlic {
+    fn enable_irq(&amp;mut self, irq: u16) {
+        self.set_priority(irq, 1);
+        let context = self.get_supervisor_context();
+        self.enable_interrupt(context, irq);
+    }
+
+    fn pending_irqs(&amp;self) -&gt; Box&lt;dyn Iterator&lt;Item = u16&gt;&gt; {
+        let context = self.get_supervisor_context();
+        let claim_reg = self.claim_reg(context);
+        let mut pending = alloc::vec::Vec::new();
+        unsafe {
+            let claimed = read_volatile(claim_reg);
+            if claimed != 0 {
+                pending.push(claimed as u16);
+                write_volatile(claim_reg, claimed); // Complete the interrupt.
+            }
+        }
+        Box::new(pending.into_iter())
+    }
+
+    // ... send_ipi / init_non_primary / irq_range omitted ...
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The controller is instantiated and registered during boot in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/rv64/kernel_main.rs">kernel/src/arch/rv64/kernel_main.rs</a>,
+with the PLIC mapped at <code>0x0c00_0000</code> and 128 interrupt sources:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>const PLIC_BASE: usize = 0x0c000000;
+const NUM_SOURCES: u16 = 128;
+
+let plic = Box::new(RiscvPlic::new(PLIC_BASE, NUM_SOURCES));
+awkernel_lib::interrupt::register_interrupt_controller(plic);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32"><a class="header" href="#risc-v-32-bit-rv32">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, a PLIC-based <code>InterruptController</code> is not yet implemented;
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/interrupt.rs">awkernel_lib/src/arch/rv32/interrupt.rs</a>
+currently provides only the low-level enable/disable of interrupts via the <code>sstatus</code> CSR.</p>
 
                     </main>
 
