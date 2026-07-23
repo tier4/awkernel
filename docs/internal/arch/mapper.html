@@ -238,6 +238,108 @@ To handle page tables, the <code>OffsetPageTable</code> structure defined in the
 <h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
 <p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
 To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
+<h2 id="risc-v-32-bit-rv32"><a class="header" href="#risc-v-32-bit-rv32">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, the <code>RV32</code> structure implements the <code>Mapper</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/paging.rs">awkernel_lib/src/arch/rv32/paging.rs</a>.
+Each operation reads the <strong>currently active</strong> page table from the <code>satp</code> register via
+<code>get_page_table</code> (see <a href="../page_table.html">Page Table</a>), then delegates to the Sv32
+<code>PageTable</code>. The generic <code>Flags</code> are translated into RISC-V PTE flags — entries are always
+valid, accessed and readable (<code>V | A | R</code>), writable pages also set <code>W | D</code>, and executable
+pages set <code>X</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::Mapper for super::RV32 {
+    unsafe fn map(
+        vm_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+    ) -&gt; Result&lt;(), MapError&gt; {
+        // Check address alignment
+        if !vm_addr.aligned() || !phy_addr.aligned() {
+            return Err(MapError::AddressNotAligned);
+        }
+
+        // Get current page table
+        if let Some(mut page_table) = get_page_table(vm_addr) {
+            let vpn = VirtPageNum::from(vm_addr);
+            let ppn = phy_addr.floor();
+
+            // Convert common flags to RV32 flags
+            let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+            if flags.write {
+                rv_flags |= Flags::W | Flags::D; // Writable and dirty
+            }
+            rv_flags |= Flags::R; // Always readable
+            if flags.execute {
+                rv_flags |= Flags::X;
+            }
+
+            // Try to map the page
+            if page_table.map(vpn, ppn, rv_flags) {
+                Ok(())
+            } else {
+                Err(MapError::AlreadyMapped)
+            }
+        } else {
+            Err(MapError::InvalidPageTable)
+        }
+    }
+
+    // unmap / vm_to_phy omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>vm_to_phy</code> walks the active page table for the page's virtual page number, and, if the
+leaf PTE is valid, reconstructs the physical address from the entry's PPN plus the page
+offset.</p>
+<h2 id="risc-v-64-bit-rv64"><a class="header" href="#risc-v-64-bit-rv64">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, the <code>RV64</code> structure implements the <code>Mapper</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/paging.rs">awkernel_lib/src/arch/rv64/paging.rs</a>.
+The structure mirrors RV32 but uses the Sv39 <code>PageTable</code>. Two differences are worth noting:
+<code>map</code> first checks <code>vm_to_phy</code> to reject an already-mapped address, and both <code>map</code> and
+<code>unmap</code> explicitly align the virtual and physical addresses down to the 4 KiB page
+boundary before walking the table.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::Mapper for super::RV64 {
+    unsafe fn map(
+        vm_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+    ) -&gt; Result&lt;(), MapError&gt; {
+        // Check if already mapped
+        if Self::vm_to_phy(vm_addr).is_some() {
+            return Err(MapError::AlreadyMapped);
+        }
+
+        let vm_addr_aligned = vm_addr.as_usize() &amp; !(PAGESIZE - 1);
+        let phy_addr_aligned = phy_addr.as_usize() &amp; !(PAGESIZE - 1);
+
+        if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(vm_addr_aligned)) {
+            let vpn = VirtPageNum::from(VirtAddr::from_usize(vm_addr_aligned));
+            let ppn = PhysPageNum::from(PhyAddr::from_usize(phy_addr_aligned));
+
+            let mut rv_flags = Flags::V | Flags::A;
+            rv_flags |= Flags::R; // Always readable
+            if flags.write {
+                rv_flags |= Flags::W | Flags::D;
+            }
+            if flags.execute {
+                rv_flags |= Flags::X;
+            }
+
+            if page_table.map(vpn, ppn, rv_flags) {
+                Ok(())
+            } else {
+                Err(MapError::AlreadyMapped)
+            }
+        } else {
+            Err(MapError::InvalidPageTable)
+        }
+    }
+
+    // unmap / vm_to_phy omitted
+}
+<span class="boring">}</span></code></pre></pre>
 
                     </main>
 

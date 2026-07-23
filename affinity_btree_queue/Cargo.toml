@@ -1,0 +1,12 @@
+[package]
+name = "affinity_btree_queue"
+version = "0.1.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "An affinity-aware priority queue backed by an augmented classical (CLRS-style) B-tree."
+readme = "README.md"
+keywords = ["no-std", "priority-queue"]
+categories = ["data-structures"]
+repository = "https://github.com/ytakano/affinity_btree_queue"
+
+[dependencies]
