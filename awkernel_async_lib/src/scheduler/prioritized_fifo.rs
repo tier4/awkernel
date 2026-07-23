@@ -151,5 +151,5 @@ impl PrioritizedFIFOScheduler {
 
 pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::PrioritizedFIFO(0)),
+    priority: get_priority(&SchedulerType::PrioritizedFIFO(0)),
 };

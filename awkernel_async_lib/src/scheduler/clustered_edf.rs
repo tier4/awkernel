@@ -15,10 +15,10 @@ use crate::{
         get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
     },
 };
-use affinity_btree_queue::{AffinityBTreeQueue, CpuMask, DEFAULT_MIN_DEGREE};
+use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
 use alloc::sync::Arc;
 use awkernel_lib::{
-    cpu::{num_cpu, CpuSet, CPU_SET_WORDS},
+    cpu::{masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
     sync::mutex::{MCSNode, Mutex},
 };
 
@@ -33,14 +33,6 @@ pub struct ClusteredEDFScheduler {
     // initialized with `num_cpu()` on first use.
     data: Mutex<Option<EDFQueue>>,
     priority: u8,
-}
-
-fn to_cpu_mask(cpu_set: &CpuSet) -> CpuMask<CPU_SET_WORDS> {
-    let mut mask = CpuMask::empty();
-    for idx in 0..CPU_SET_WORDS {
-        mask.set_word(idx, cpu_set.word(idx));
-    }
-    mask
 }
 
 impl Scheduler for ClusteredEDFScheduler {
@@ -70,11 +62,13 @@ impl Scheduler for ClusteredEDFScheduler {
             }
         };
 
-        // `Tasks::spawn` normalizes the set to worker cores (1..num_cpu()),
-        // so an invalid set here is an internal invariant violation.
-        let cpu_set = task.cpu_set.expect("Task has no CPU set");
-        if cpu_set.is_empty() || cpu_set.masked_workers(num_cpu()) != cpu_set {
-            panic!("ClusteredEDF: CPU set {cpu_set:?} is out of range");
+        // `Tasks::spawn` is the single point that validates and normalizes the
+        // set (masking to worker cores, falling back to all workers when empty).
+        // Reaching here with an invalid set means that invariant was violated
+        // internally, so fail loud rather than enqueue an unrunnable task.
+        let cpu_set = task.cpu_set.expect("ClusteredEDF task has no CPU set");
+        if cpu_set.is_empty() || masked_workers(cpu_set, num_cpu()) != cpu_set {
+            unreachable!("ClusteredEDF: cpu_set {cpu_set:?} was not normalized by spawn");
         }
 
         let mut node = MCSNode::new();
@@ -86,8 +80,8 @@ impl Scheduler for ClusteredEDFScheduler {
             queue
                 .push(
                     (absolute_deadline, wake_time),
-                    to_cpu_mask(&cpu_set),
-                    ClusteredTask::new(task.clone(), cpu_set),
+                    cpu_set,
+                    ClusteredTask::new(task.clone()),
                 )
                 .expect("ClusteredEDF: failed to push a task");
         }
@@ -139,11 +133,23 @@ impl Scheduler for ClusteredEDFScheduler {
     fn priority(&self) -> u8 {
         self.priority
     }
+
+    fn queued_cpu_mask(&self) -> CpuSet {
+        let mut node = MCSNode::new();
+        let data = self.data.lock(&mut node);
+
+        // O(1): the queue maintains the OR of all queued affinities in its
+        // B-tree root.
+        match &*data {
+            Some(queue) => queue.affinity_mask(),
+            None => CpuSet::empty(),
+        }
+    }
 }
 
 pub static SCHEDULER: ClusteredEDFScheduler = ClusteredEDFScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::ClusteredEDF(0, CpuSet::empty())),
+    priority: get_priority(&SchedulerType::ClusteredEDF(0, CpuSet::empty())),
 };
 
 impl ClusteredEDFScheduler {
@@ -196,6 +202,22 @@ impl ClusteredEDFScheduler {
             // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
             // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
             // Therefore, a more sophisticated implementation will be considered in the future.
+
+            // NOTE: The task is now pinned to `victim_cpu`'s preemption-pending
+            // heap and is not in the affinity queue, so it is invisible to the
+            // other CPUs in its `cpu_set` (neither `pop_for_cpu`, the clustered
+            // task counter, nor `queued_cpu_mask` sees it). If another CPU in
+            // the set becomes idle while the IPI is in flight, it cannot pick
+            // the task up and may go to sleep — a latency window bounded by the
+            // IPI delivery plus the victim's interrupt-disabled sections. This
+            // is not a lost wakeup: the task is eventually run either by the
+            // victim's preemption handler (`do_preemption`), or re-woken by the
+            // victim's `run_main` if its running task finishes first, in which
+            // case the idle check above routes it to the queue. Future work:
+            // an enqueue-instead-of-pin strategy (push to the affinity queue
+            // and treat the IPI as a hint) would close this window, but it
+            // requires redesigning the duplicate-IPI suppression that the
+            // pending heap currently provides via `peek_preemption_pending`.
 
             return true;
         }

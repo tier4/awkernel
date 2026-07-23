@@ -20,7 +20,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    cpu::{num_cpu, CpuSet, NUM_MAX_CPU},
+    cpu::{all_workers, masked_workers, num_cpu, CpuSet, NUM_MAX_CPU},
     priority_queue::HIGHEST_PRIORITY,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
@@ -56,10 +56,10 @@ pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priori
 #[cfg(target_pointer_width = "64")]
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
-/// `NUM_CLUSTERED_TASKS_IN_QUEUE[cpu]` is the number of tasks in the clustered
-/// schedulers' queues whose `cpu_set` contains `cpu`.
-pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: [AtomicU32; NUM_MAX_CPU] =
-    array![_ => AtomicU32::new(0); NUM_MAX_CPU];
+/// Total number of tasks in the clustered schedulers' queues.
+/// Which CPUs those tasks are runnable on is tracked exactly by the run
+/// queues themselves; see `scheduler::clustered_queued_cpu_mask`.
+pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 /// `NUM_CLUSTERED_TASKS_ALIVE[cpu]` is the number of live (spawned and not yet
 /// terminated) clustered tasks whose `cpu_set` contains `cpu`.
@@ -325,14 +325,16 @@ impl Tasks {
                 // info.scheduler_type and task.cpu_set stay in sync.
                 let cpu_set = if let SchedulerType::ClusteredEDF(deadline, set) = scheduler_type {
                     // CPU 0 is the primary core and cannot run clustered tasks.
-                    let masked = set.masked_workers(num_cpu());
+                    let masked = masked_workers(set, num_cpu());
                     let normalized = if masked.is_empty() {
+                        // `cpu::sanity_check()` guarantees num_cpu() >= 2 at boot,
+                        // so `all_workers(num_cpu())` below is always non-empty.
                         log::warn!(
                             "The CPU set must contain at least one core between 1 and {}. Falling back to all worker cores. Given set: {:?}",
                             num_cpu() - 1,
                             set
                         );
-                        CpuSet::all_workers(num_cpu())
+                        all_workers(num_cpu())
                     } else {
                         masked
                     };
@@ -489,7 +491,7 @@ pub fn inner_spawn(
 
     let future = future.boxed();
 
-    let scheduler = get_scheduler(sched_type);
+    let scheduler = get_scheduler(&sched_type);
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
@@ -1246,19 +1248,19 @@ pub fn wake_workers() {
     let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
 
-    for (i, clustered_tasks) in NUM_CLUSTERED_TASKS_IN_QUEUE[..num_cpus]
-        .iter()
-        .enumerate()
-        .skip(1)
-    {
-        if (*clustered_tasks).load(Ordering::Relaxed) > 0 {
+    // The exact set of CPUs for which a clustered task is queued, read from
+    // the clustered schedulers' run queues.
+    let clustered_mask = crate::scheduler::clustered_queued_cpu_mask();
+
+    for i in 1..num_cpus {
+        if clustered_mask.contains(i) {
             awkernel_lib::cpu::wake_cpu(i);
             continue;
         }
 
         // Even if there are no global tasks left, keep scanning: a
         // higher-numbered CPU may still have clustered tasks waiting and
-        // breaking here would leave it asleep (lost wakeup).
+        // skipping the rest would leave it asleep (lost wakeup).
         if num_tasks == 0 {
             continue;
         }

@@ -11,94 +11,22 @@ pub const CPU_SET_WORDS: usize = NUM_MAX_CPU / 64;
 
 static NUM_CPU: AtomicUsize = AtomicUsize::new(0);
 
-/// A set of CPU cores, represented as a bitmask supporting up to `NUM_MAX_CPU` CPUs.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct CpuSet([u64; CPU_SET_WORDS]);
+/// A set of CPU cores, represented as a bitmask supporting up to `NUM_MAX_CPU`
+/// CPUs. This is the affinity mask type of the `affinity_btree_queue` crate,
+/// so schedulers can pass it to the run queue without conversion. All
+/// constructors are `const fn`; build sets with the chainable builder, e.g.
+/// `CpuSet::empty().with(1).with(2)`.
+pub type CpuSet = affinity_btree_queue::CpuMask<CPU_SET_WORDS>;
 
-impl CpuSet {
-    /// Create an empty set.
-    pub const fn empty() -> Self {
-        Self([0; CPU_SET_WORDS])
-    }
+/// Return a new set keeping only the worker CPUs (`1..num_cpus`) of `set`.
+/// CPU 0 is the primary core and is always excluded.
+pub const fn masked_workers(set: CpuSet, num_cpus: usize) -> CpuSet {
+    set.masked_below(num_cpus).without(0)
+}
 
-    /// Create a set containing all worker CPUs (`1..num_cpu()`).
-    pub fn any() -> Self {
-        Self::all_workers(num_cpu())
-    }
-
-    /// Create a set from a bitmask of CPUs 0..64.
-    /// Bit `i` of `bits` corresponds to CPU `i`.
-    pub const fn from_bits(bits: u64) -> Self {
-        let mut words = [0; CPU_SET_WORDS];
-        words[0] = bits;
-        Self(words)
-    }
-
-    /// Return a new set with the bit for `cpu` set.
-    /// Panics if `cpu >= NUM_MAX_CPU`.
-    pub const fn insert(mut self, cpu: usize) -> Self {
-        assert!(cpu < NUM_MAX_CPU, "CPU index out of range");
-        self.0[cpu / 64] |= 1 << (cpu % 64);
-        self
-    }
-
-    /// True if the bit for `cpu` is set.
-    pub const fn contains(&self, cpu: usize) -> bool {
-        cpu < NUM_MAX_CPU && (self.0[cpu / 64] >> (cpu % 64)) & 1 == 1
-    }
-
-    /// True if no bit is set.
-    pub const fn is_empty(&self) -> bool {
-        let mut i = 0;
-        while i < CPU_SET_WORDS {
-            if self.0[i] != 0 {
-                return false;
-            }
-            i += 1;
-        }
-        true
-    }
-
-    /// Return word `idx` of the backing bitmask. Panics if `idx >= CPU_SET_WORDS`.
-    pub const fn word(&self, idx: usize) -> u64 {
-        self.0[idx]
-    }
-
-    /// Return a new set keeping only CPUs in `1..num_cpus`
-    /// (CPU 0 is always excluded).
-    pub const fn masked_workers(mut self, num_cpus: usize) -> Self {
-        let mut i = 0;
-        while i < CPU_SET_WORDS {
-            let lo = i * 64;
-            if lo >= num_cpus {
-                self.0[i] = 0;
-            } else {
-                let valid = num_cpus - lo; // 1..=64 bits of this word are valid.
-                if valid < 64 {
-                    self.0[i] &= (1 << valid) - 1;
-                }
-            }
-            i += 1;
-        }
-        self.0[0] &= !1; // Exclude CPU 0.
-        self
-    }
-
-    /// Return the set of all worker CPUs (`1..num_cpus`).
-    pub const fn all_workers(num_cpus: usize) -> Self {
-        let mut set = Self([u64::MAX; CPU_SET_WORDS]);
-        set = set.masked_workers(num_cpus);
-        set
-    }
-
-    /// Iterate over the CPUs contained in the set, in ascending order.
-    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.0.iter().enumerate().flat_map(|(w, &word)| {
-            (0..64)
-                .filter(move |bit| (word >> bit) & 1 == 1)
-                .map(move |bit| w * 64 + bit)
-        })
-    }
+/// Return the set of all worker CPUs (`1..num_cpus`).
+pub const fn all_workers(num_cpus: usize) -> CpuSet {
+    masked_workers(CpuSet::all(), num_cpus)
 }
 
 #[cfg(feature = "std")]
@@ -144,6 +72,24 @@ pub unsafe fn set_num_cpu(num_cpu: usize) {
 #[inline(always)]
 pub fn num_cpu() -> usize {
     NUM_CPU.load(Ordering::Relaxed)
+}
+
+/// Verify the CPU count invariant during kernel initialization.
+///
+/// Awkernel reserves CPU 0 as the primary core and runs tasks on the worker
+/// cores `1..num_cpu()`, so it requires at least two CPUs: with a single CPU
+/// there is no worker core and no task can ever be scheduled. This panics if
+/// the invariant does not hold, making `num_cpu() >= 2` a guarantee for the
+/// rest of the kernel.
+///
+/// Must be called on the primary CPU after [`set_num_cpu`].
+pub fn sanity_check() {
+    let n = num_cpu();
+    assert!(
+        n >= 2,
+        "Awkernel requires at least 2 CPUs (primary core 0 plus at least one worker core), but num_cpu() = {n}"
+    );
+    log::info!("cpu: {n} CPUs available ({} worker cores).", n - 1);
 }
 
 pub trait SleepCpu {
@@ -193,4 +139,81 @@ pub fn wait_init_sleep() {
 #[cfg(not(feature = "std"))]
 pub(crate) fn reset_wakeup_timer() {
     sleep_cpu_no_std::reset_wakeup_timer();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// Collect the CPUs contained in `set`, in ascending order.
+    fn cpus(set: CpuSet) -> Vec<usize> {
+        set.iter().collect()
+    }
+
+    #[test]
+    fn all_workers_excludes_cpu0_and_sizes() {
+        // Only CPU 0 exists, so there is no worker core.
+        assert!(all_workers(1).is_empty());
+
+        assert_eq!(cpus(all_workers(2)), [1]);
+        assert_eq!(cpus(all_workers(4)), [1, 2, 3]);
+
+        // Word boundary: num_cpus 64 keeps CPUs 1..=63 (CPU 0 dropped).
+        let w64 = all_workers(64);
+        assert_eq!(cpus(w64), (1..64).collect::<Vec<_>>());
+
+        // num_cpus 65 spills one bit (CPU 64) into the second word.
+        let w65 = all_workers(65);
+        assert_eq!(cpus(w65), (1..65).collect::<Vec<_>>());
+
+        // Two full words minus CPU 0.
+        let w128 = all_workers(128);
+        assert_eq!(cpus(w128), (1..128).collect::<Vec<_>>());
+
+        // CPU 0 is never a worker, at any size.
+        for n in [1, 2, 4, 64, 65, 128] {
+            assert!(!all_workers(n).contains(0), "num_cpus={n}");
+        }
+    }
+
+    #[test]
+    fn all_workers_iter_is_ascending_across_words() {
+        // The 63 -> 64 transition crosses the first word boundary.
+        let v = cpus(all_workers(65));
+        assert_eq!(v.first(), Some(&1));
+        assert_eq!(v.last(), Some(&64));
+        assert!(
+            v.windows(2).all(|w| w[0] < w[1]),
+            "must be strictly ascending"
+        );
+    }
+
+    #[test]
+    fn masked_workers_normalizes() {
+        // CPU 0 is stripped even when explicitly present.
+        let s = CpuSet::empty().with(0).with(1).with(2);
+        assert_eq!(cpus(masked_workers(s, 4)), [1, 2]);
+
+        // Out-of-range CPUs are trimmed.
+        let s = CpuSet::empty().with(1).with(100);
+        assert_eq!(cpus(masked_workers(s, 4)), [1]);
+
+        // Around a word boundary: with num_cpus=65, valid CPUs are 0..=64,
+        // so CPU 65 is out of range and dropped.
+        let s = CpuSet::empty().with(64).with(65);
+        assert_eq!(cpus(masked_workers(s, 65)), [64]);
+    }
+
+    #[test]
+    fn masked_workers_is_idempotent_on_valid_sets() {
+        // An already-normalized set is a fixed point. This is the invariant
+        // `clustered_edf::wake_task` relies on (`masked_workers(s, n) != s`
+        // is false for a valid set).
+        let s = all_workers(64);
+        assert_eq!(masked_workers(s, 64), s);
+
+        let s = CpuSet::empty().with(1).with(2);
+        assert_eq!(masked_workers(s, 4), s);
+    }
 }

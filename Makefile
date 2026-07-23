@@ -55,7 +55,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2026-06-13
+RUSTV=nightly-2026-07-20
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
@@ -262,6 +262,7 @@ test: FORCE
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
 	cargo test_smoltcp
+	cargo test_affinity_btree_queue
 	cargo test_rd_gen_to_dags
 
 # Format
