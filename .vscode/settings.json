@@ -5,7 +5,7 @@
     // For AArch64 Virt
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
-    //     "+nightly-2026-06-13",
+    //     "+nightly-2026-07-20",
     //     "check_no_std",
     //     "--target=targets/aarch64-kernel.json",
     // ],
