@@ -35,7 +35,7 @@ pub extern "C" fn handle_data_abort() {
 fn print_hex(num: u64) {
     let hex = to_hex(num);
 
-    let mut msg = [b'0'];
+    let mut msg = *b"0";
 
     for n in hex.iter().rev() {
         msg[0] = *n;

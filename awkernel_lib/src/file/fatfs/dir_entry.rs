@@ -2,7 +2,6 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::char;
-use core::convert::TryInto;
 use core::fmt::{self, Debug};
 #[cfg(not(feature = "unicode"))]
 use core::iter;
@@ -417,9 +416,8 @@ impl DirEntryData {
             };
             // divide the name into order and LFN name_0
             data.order = name[0];
-            for (dst, src) in data.name_0.iter_mut().zip(name[1..].chunks_exact(2)) {
-                // unwrap cannot panic because src has exactly 2 values
-                *dst = u16::from_le_bytes(src.try_into().unwrap());
+            for (dst, src) in data.name_0.iter_mut().zip(name[1..].as_chunks::<2>().0) {
+                *dst = u16::from_le_bytes(*src);
             }
 
             data.entry_type = rdr.read_u8()?;
