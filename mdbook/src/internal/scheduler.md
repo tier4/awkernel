@@ -24,7 +24,7 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 | function                                      | description                   |
 | --------------------------------------------- | ----------------------------- |
 | `fn get_next_task()`                          | Get the next executable task. |
-| `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.              |
+| `fn get_scheduler(sched_type: &SchedulerType)` | Get a scheduler.              |
 
 `SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
@@ -68,7 +68,7 @@ $ ls awkernel_async_lib/src/scheduler
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
 Each scheduler must be registered in the following three locations.
-`fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
+`fn get_next_task()`, `fn get_scheduler(sched_type: &SchedulerType)` and `pub enum SchedulerType`.
 
 ### ClusteredEDF Scheduler
 

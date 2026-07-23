@@ -151,7 +151,7 @@ at your option.
 
 ## Test Coverage
 
-[coverage.txt](coverage.txt) contains line-by-line coverage data from `cargo llvm-cov` for the latest test run.
+Line-by-line coverage data can be generated locally with `cargo llvm-cov`:
 
 ```bash
 cargo llvm-cov --workspace --all-features --text --output-path coverage.txt
