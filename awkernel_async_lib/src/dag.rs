@@ -67,6 +67,13 @@ use crate::{
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+
+#[cfg(feature = "period-index-propagation")]
+use crate::task::perf::{
+    get_period_index, increment_period_index, record_subscribe_timestamp,
+    update_cycle_end_timestamp, update_cycle_start_timestamp,
+};
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -926,10 +933,31 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
-                subscribers.recv_all().await;
-            let results = f(args);
-            publishers.send_all(results).await;
+            #[cfg(feature = "period-index-propagation")]
+            {
+                let (args, period_index): (
+                    <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
+                    u32,
+                ) = subscribers.recv_all_with_period_index().await;
+
+                // [end] pubsub communication latency
+                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
+
+                let results = f(args);
+                publishers
+                    .send_all_with_period_index(results, 1, period_index as usize, dag_info.node_id)
+                    .await;
+            }
+
+            #[cfg(not(feature = "period-index-propagation"))]
+            {
+                let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                    subscribers.recv_all().await;
+
+                let results = f(args);
+                publishers.send_all(results).await;
+            }
         }
     };
 
@@ -966,13 +994,31 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period);
+        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
         loop {
-            let results = f();
-            publishers.send_all(results).await;
+            #[cfg(feature = "period-index-propagation")]
+            {
+                let index = get_period_index(dag_info.dag_id) as usize;
+                if index != 0 {
+                    // [start] cycle deviation index >= 1
+                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    update_cycle_start_timestamp(index, release_time, dag_info.dag_id);
+                }
+                let results = f();
+                publishers
+                    .send_all_with_period_index(results, 0, index, dag_info.node_id)
+                    .await;
+                increment_period_index(dag_info.dag_id);
+            }
+
+            #[cfg(not(feature = "period-index-propagation"))]
+            {
+                let results = f();
+                publishers.send_all(results).await;
+            }
 
             #[cfg(feature = "perf")]
             periodic_measure();
@@ -1006,8 +1052,29 @@ where
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <Args::Subscribers as MultipleReceiver>::Item = subscribers.recv_all().await;
-            f(args);
+            #[cfg(feature = "period-index-propagation")]
+            {
+                let (args, period_index): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
+                    subscribers.recv_all_with_period_index().await;
+
+                // [end] pubsub communication latency
+                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
+
+                let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                if period_index != 0 {
+                    update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
+                }
+
+                f(args);
+            }
+
+            #[cfg(not(feature = "period-index-propagation"))]
+            {
+                let args: <Args::Subscribers as MultipleReceiver>::Item =
+                    subscribers.recv_all().await;
+                f(args);
+            }
         }
     };
 

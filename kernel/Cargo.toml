@@ -80,6 +80,7 @@ default = ["x86"]
 heap-tlsf = ["awkernel_lib/heap-tlsf"]
 heap-wf-alloc = ["awkernel_lib/heap-wf-alloc"]
 perf = ["awkernel_async_lib/perf", "userland/perf"]
+period-index-propagation = ["perf", "awkernel_async_lib/period-index-propagation"]
 no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
 x86 = [
@@ -95,6 +96,7 @@ x86 = [
     "heap-wf-alloc",
 ]
 rv32 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv32",
     "dep:ns16550a",
@@ -102,6 +104,7 @@ rv32 = [
     "heap-tlsf",
 ]
 rv64 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv64",
     "dep:ns16550a",

@@ -489,8 +489,29 @@ fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
 
 #[cfg(feature = "perf")]
 pub mod perf {
+    //! Per-CPU time accounting by a state machine.
+    //!
+    //! Measurement definitions (agreed 2026-07-18):
+    //! - `ContextSwitch` / `ContextSwitchMain` measure **only the exchange
+    //!   itself** (from just before `context_switch()` on the yielding side to
+    //!   the first hook after it returns on the resumed side). `ContextSwitch`
+    //!   is the preemption route (`yield_preempted_and_wake_task`);
+    //!   `ContextSwitchMain` is the queued-resume route (`yield_and_pool`).
+    //!   The two are symmetric and directly comparable.
+    //! - Preemption *decision* work (`do_preemption` bookkeeping) is covered
+    //!   by `Interrupt` on the IPI route (`start_interrupt` already brackets
+    //!   the handler) and leaks into `Task` on the voluntary-checkpoint route
+    //!   (known, small). Dispatch bookkeeping in `run_main` stays in `Kernel`.
+    //! - Switch aftermath on the resumed side (`set_current_context`,
+    //!   `re_schedule`) is accounted to `Kernel`; `Task` starts only when the
+    //!   resumed task returns to its own code, keeping per-task execution
+    //!   times (measured WCET inputs) clean.
+
+    use alloc::boxed::Box;
+    use alloc::string::{String, ToString};
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{read_volatile, write_volatile};
+    use core::sync::atomic::AtomicU32;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(u8)]
@@ -499,6 +520,7 @@ pub mod perf {
         Kernel,
         Task,
         ContextSwitch,
+        ContextSwitchMain,
         Interrupt,
         Idle,
     }
@@ -510,8 +532,9 @@ pub mod perf {
                 1 => Self::Kernel,
                 2 => Self::Task,
                 3 => Self::ContextSwitch,
-                4 => Self::Interrupt,
-                5 => Self::Idle,
+                4 => Self::ContextSwitchMain,
+                5 => Self::Interrupt,
+                6 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
         }
@@ -525,6 +548,7 @@ pub mod perf {
     static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -532,6 +556,7 @@ pub mod perf {
     static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -539,8 +564,411 @@ pub mod perf {
     static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_MAIN_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    use alloc::{collections::BTreeMap, vec::Vec};
+    use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
+    // NOTE: When logging evaluation results, this value can be adjusted based on awkernel's execution time.
+    // This value matches the one actually used in the awkernel evaluation branch, and it is a ring buffer.
+    const MAX_LOGS: usize = 2048;
+
+    type DagTimestampMap = BTreeMap<u32, u64>;
+    type DagTimestampTable = [DagTimestampMap; MAX_LOGS];
+
+    static SEND_OUTER_TIMESTAMP: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static RECV_OUTER_TIMESTAMP: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static ABSOLUTE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+    static RELATIVE_DEADLINE: Mutex<Option<Box<DagTimestampTable>>> = Mutex::new(None);
+
+    pub static PERIOD_INDEX: Mutex<BTreeMap<u32, AtomicU32>> = Mutex::new(BTreeMap::new());
+
+    pub fn get_period_index(dag_id: u32) -> u32 {
+        let mut node = MCSNode::new();
+        let period_count = PERIOD_INDEX.lock(&mut node);
+        period_count
+            .get(&dag_id)
+            .map(|count| count.load(core::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0)
+    }
+
+    pub fn increment_period_index(dag_id: u32) -> u32 {
+        let mut node = MCSNode::new();
+        let mut period_count = PERIOD_INDEX.lock(&mut node);
+        let count = period_count
+            .entry(dag_id)
+            .or_insert_with(|| AtomicU32::new(0));
+        count.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
+    }
+    // This value represents the type of pubsub (publish only, subscribe only, or both publish and subscribe)
+    // and is a fixed value.
+    const MAX_PUBSUB: usize = 3;
+    // This value indicates the maximum number of nodes in the DAG
+    // and can be adjusted based on the structure of the DAG used for evaluation.
+    const MAX_NODES: usize = 5;
+    #[derive(Clone)]
+    struct PubSubTable {
+        timestamps: [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
+        used_indices: Vec<usize>,
+    }
+
+    impl Default for PubSubTable {
+        fn default() -> Self {
+            Self {
+                timestamps: [[[0; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
+                used_indices: Vec::new(),
+            }
+        }
+    }
+
+    impl PubSubTable {
+        #[inline(always)]
+        fn flat_index(index: usize, pub_id: usize, node_id: usize) -> usize {
+            (index * MAX_PUBSUB * MAX_NODES) + (pub_id * MAX_NODES) + node_id
+        }
+
+        #[inline(always)]
+        fn decode_flat_index(flat_index: usize) -> (usize, usize, usize) {
+            let per_log = MAX_PUBSUB * MAX_NODES;
+            let index = flat_index / per_log;
+            let rem = flat_index % per_log;
+            let pub_id = rem / MAX_NODES;
+            let node_id = rem % MAX_NODES;
+            (index, pub_id, node_id)
+        }
+
+        #[inline(always)]
+        fn mark_used(&mut self, index: usize, pub_id: usize, node_id: usize) {
+            self.used_indices
+                .push(Self::flat_index(index, pub_id, node_id));
+        }
+    }
+
+    static PUBLISH: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
+    static SUBSCRIBE: Mutex<Option<Box<PubSubTable>>> = Mutex::new(None);
+
+    #[inline(always)]
+    fn to_ring_buffer_index(period_index: usize) -> usize {
+        period_index % MAX_LOGS
+    }
+
+    pub fn update_cycle_start_timestamp(period_index: usize, new_timestamp: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SEND_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
+
+        recorder[log_index].entry(dag_id).or_insert(new_timestamp);
+    }
+
+    pub fn update_cycle_end_timestamp(period_index: usize, new_timestamp: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RECV_OUTER_TIMESTAMP.lock(&mut node);
+
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
+
+        recorder[log_index].insert(dag_id, new_timestamp);
+    }
+
+    pub fn update_absolute_deadline_timestamp(period_index: usize, deadline: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = ABSOLUTE_DEADLINE.lock(&mut node);
+
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
+
+        recorder[log_index].entry(dag_id).or_insert(deadline);
+    }
+
+    pub fn update_relative_deadline_timestamp(period_index: usize, deadline: u64, dag_id: u32) {
+        let log_index = to_ring_buffer_index(period_index);
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = RELATIVE_DEADLINE.lock(&mut node);
+
+        let recorder =
+            recorder_opt.get_or_insert_with(|| Box::new(core::array::from_fn(|_| BTreeMap::new())));
+
+        recorder[log_index].entry(dag_id).or_insert(deadline);
+    }
+
+    pub fn record_publish_timestamp(
+        period_index: usize,
+        new_timestamp: u64,
+        pub_id: u32,
+        node_id: u32,
+    ) {
+        let log_index = to_ring_buffer_index(period_index);
+        if (pub_id as usize) >= MAX_PUBSUB {
+            log::warn!(
+                "Publish ID out of bounds: {} (max {})",
+                pub_id as usize,
+                MAX_PUBSUB
+            );
+            return;
+        }
+
+        let node_id_usize = node_id as usize;
+        if node_id_usize >= MAX_NODES {
+            log::warn!(
+                "Publish node ID out of bounds: {} (max {})",
+                node_id_usize,
+                MAX_NODES
+            );
+            return;
+        }
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = PUBLISH.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let pub_id = pub_id as usize;
+
+        if recorder.timestamps[log_index][pub_id][node_id_usize] == 0 {
+            recorder.timestamps[log_index][pub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(log_index, pub_id, node_id_usize);
+        }
+    }
+
+    pub fn record_subscribe_timestamp(
+        period_index: usize,
+        new_timestamp: u64,
+        sub_id: u32,
+        node_id: u32,
+    ) {
+        let log_index = to_ring_buffer_index(period_index);
+        if (sub_id as usize) >= MAX_PUBSUB {
+            log::warn!(
+                "Subscribe ID out of bounds: {} (max {})",
+                sub_id as usize,
+                MAX_PUBSUB
+            );
+            return;
+        }
+
+        let node_id_usize = node_id as usize;
+        if node_id_usize >= MAX_NODES {
+            log::warn!(
+                "Subscribe node ID out of bounds: {} (max {})",
+                node_id_usize,
+                MAX_NODES
+            );
+            return;
+        }
+
+        let mut node = MCSNode::new();
+        let mut recorder_opt = SUBSCRIBE.lock(&mut node);
+
+        let recorder = recorder_opt.get_or_insert_with(|| Box::new(PubSubTable::default()));
+        let sub_id = sub_id as usize;
+
+        if recorder.timestamps[log_index][sub_id][node_id_usize] == 0 {
+            recorder.timestamps[log_index][sub_id][node_id_usize] = new_timestamp;
+            recorder.mark_used(log_index, sub_id, node_id_usize);
+        }
+    }
+
+    // For precision of the cycle
+    pub fn print_timestamp_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+        let mut node3 = MCSNode::new();
+        let mut node4 = MCSNode::new();
+        const MAX_ROWS_TO_PRINT: usize = 256;
+
+        let send_outer_opt = SEND_OUTER_TIMESTAMP.lock(&mut node1);
+        let recv_outer_opt = RECV_OUTER_TIMESTAMP.lock(&mut node2);
+        let absolute_deadline_opt = ABSOLUTE_DEADLINE.lock(&mut node3);
+        let relative_deadline_opt = RELATIVE_DEADLINE.lock(&mut node4);
+
+        let mut rows = Vec::new();
+        let mut truncated = false;
+        'collect_rows: for i in 0..MAX_LOGS {
+            let mut dag_ids = Vec::new();
+            if let Some(arr) = &*send_outer_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*recv_outer_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*absolute_deadline_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+            if let Some(arr) = &*relative_deadline_opt {
+                dag_ids.extend(arr[i].keys().copied());
+            }
+
+            dag_ids.sort_unstable();
+            dag_ids.dedup();
+
+            for dag_id in dag_ids {
+                let pre_send_outer = match &*send_outer_opt {
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+                let fin_recv_outer = match &*recv_outer_opt {
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+                let absolute_deadline = match &*absolute_deadline_opt {
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+                let relative_deadline = match &*relative_deadline_opt {
+                    Some(arr) => arr[i].get(&dag_id).copied().unwrap_or(0),
+                    None => 0,
+                };
+
+                if pre_send_outer != 0
+                    || fin_recv_outer != 0
+                    || absolute_deadline != 0
+                    || relative_deadline != 0
+                {
+                    if rows.len() >= MAX_ROWS_TO_PRINT {
+                        truncated = true;
+                        break 'collect_rows;
+                    }
+                    rows.push((
+                        i,
+                        dag_id,
+                        pre_send_outer,
+                        fin_recv_outer,
+                        absolute_deadline,
+                        relative_deadline,
+                    ));
+                }
+            }
+        }
+        drop(relative_deadline_opt);
+        drop(absolute_deadline_opt);
+        drop(recv_outer_opt);
+        drop(send_outer_opt);
+
+        log::info!("--- Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^5} | {: ^14} | {: ^14} | {: ^14} | {: ^14} | {: ^14}",
+            "Index",
+            "DAG-ID",
+            "Send-Outer",
+            "Recv-Outer",
+            "Latency",
+            "Absolute Deadline",
+            "Relative Deadline"
+        );
+
+        log::info!("-----|--------|----------------|----------------|----------------|--------------------|--------------------");
+
+        for (i, dag_id, pre_send_outer, fin_recv_outer, absolute_deadline, relative_deadline) in
+            rows
+        {
+            let format_ts = |ts: u64| -> String {
+                if ts == 0 {
+                    "-".to_string()
+                } else {
+                    ts.to_string()
+                }
+            };
+
+            let latency_str = if pre_send_outer != 0 && fin_recv_outer != 0 {
+                fin_recv_outer.saturating_sub(pre_send_outer).to_string()
+            } else {
+                "-".to_string()
+            };
+
+            log::info!(
+                "{: >5} | {: >5} | {: >14} | {: >14} | {: >14} | {: >20} | {: >20}",
+                i,
+                format_ts(dag_id as u64),
+                format_ts(pre_send_outer),
+                format_ts(fin_recv_outer),
+                latency_str,
+                format_ts(absolute_deadline),
+                format_ts(relative_deadline),
+            );
+        }
+        if truncated {
+            log::warn!(
+                "Timestamp Summary truncated to {} rows; call print_timestamp_table() again to continue inspection",
+                MAX_ROWS_TO_PRINT
+            );
+        }
+        log::info!("----------------------------------------------------------");
+    }
+
+    // For pubsub communication latency
+    pub fn print_pubsub_table() {
+        let mut node1 = MCSNode::new();
+        let mut node2 = MCSNode::new();
+
+        let publish_opt = PUBLISH.lock(&mut node1);
+        let subscribe_opt = SUBSCRIBE.lock(&mut node2);
+
+        let mut indices = Vec::new();
+        if let Some(publish) = publish_opt.as_ref() {
+            indices.extend_from_slice(&publish.used_indices);
+        }
+        if let Some(subscribe) = subscribe_opt.as_ref() {
+            indices.extend_from_slice(&subscribe.used_indices);
+        }
+        indices.sort_unstable();
+        indices.dedup();
+
+        log::info!("--- Pub/Sub Timestamp Summary (in nanoseconds) ---");
+        log::info!(
+            "{: ^5} | {: ^10} | {: ^7} | {: ^14} | {: ^14}",
+            "Index",
+            "Pub/Sub ID",
+            "Node ID",
+            "Publish Time",
+            "Subscribe Time"
+        );
+        log::info!("-----|------------|---------|----------------|----------------");
+        for flat_index in indices {
+            let (i, j, k) = PubSubTable::decode_flat_index(flat_index);
+            // Skip if decoded indices are out of bounds
+            if i >= MAX_LOGS || j >= MAX_PUBSUB || k >= MAX_NODES {
+                log::warn!("Decoded index out of bounds: ({}, {}, {})", i, j, k);
+                continue;
+            }
+            let publish_time = match &*publish_opt {
+                Some(table) => table.timestamps[i][j][k],
+                None => 0,
+            };
+            let subscribe_time = match &*subscribe_opt {
+                Some(table) => table.timestamps[i][j][k],
+                None => 0,
+            };
+
+            if publish_time != 0 || subscribe_time != 0 {
+                let format_ts = |ts: u64| -> String {
+                    if ts == 0 {
+                        "-".to_string()
+                    } else {
+                        ts.to_string()
+                    }
+                };
+
+                log::info!(
+                    "{: >5} | {: >10} | {: >7} | {: >14} | {: >14}",
+                    i,
+                    j,
+                    k,
+                    format_ts(publish_time),
+                    format_ts(subscribe_time),
+                );
+            }
+        }
+        log::info!("--------------------------------------------------------------");
+    }
 
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
@@ -588,6 +1016,14 @@ pub mod perf {
                     write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
                     let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
+                },
+                PerfState::ContextSwitchMain => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_MAIN_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
@@ -644,6 +1080,7 @@ pub mod perf {
             PerfState::Kernel => start_kernel(),
             PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
+            PerfState::ContextSwitchMain => start_context_switch_main(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
@@ -654,6 +1091,11 @@ pub mod perf {
     #[inline(always)]
     pub(crate) fn start_context_switch() {
         update_time_and_state(PerfState::ContextSwitch);
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_context_switch_main() {
+        update_time_and_state(PerfState::ContextSwitchMain);
     }
 
     #[inline(always)]
@@ -679,6 +1121,11 @@ pub mod perf {
     #[inline(always)]
     pub fn get_context_switch_time(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_context_switch_main_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_TIME[cpu_id]) }
     }
 
     #[inline(always)]
@@ -720,6 +1167,13 @@ pub mod perf {
     }
 
     #[inline(always)]
+    pub fn get_ave_context_switch_main_time(cpu_id: usize) -> Option<f64> {
+        let total = get_context_switch_main_time(cpu_id);
+        let count = unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
     pub fn get_ave_idle_time(cpu_id: usize) -> Option<f64> {
         let total = get_idle_time(cpu_id);
         let count = unsafe { read_volatile(&IDLE_COUNT[cpu_id]) };
@@ -754,6 +1208,10 @@ pub mod perf {
         unsafe { read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]) }
     }
     #[inline(always)]
+    pub fn get_context_switch_main_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_MAIN_WCET[cpu_id]) }
+    }
+    #[inline(always)]
     pub fn get_perf_wcet(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_WCET[cpu_id]) }
     }
@@ -779,15 +1237,19 @@ pub fn run_main() {
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
+                // ContextSwitchMain starts here, so the dispatch bookkeeping
+                // below (update_last_executed/drop) is accounted to the
+                // exchange, not to Kernel; it closes in yield_and_pool().
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
                 if let Some(ctx) = info.take_preempt_context() {
+                    // [start] context_switch_main
+                    #[cfg(feature = "perf")]
+                    perf::start_context_switch_main();
+
                     info.update_last_executed();
                     drop(info);
-
-                    #[cfg(feature = "perf")]
-                    perf::start_context_switch();
 
                     unsafe { preempt::yield_and_pool(ctx) };
 
