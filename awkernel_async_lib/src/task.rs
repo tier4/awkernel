@@ -1237,12 +1237,17 @@ pub fn run_main() {
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
-                // The exchange itself is measured as ContextSwitchMain inside
-                // yield_and_pool(); the dispatch bookkeeping here stays in Kernel.
+                // ContextSwitchMain starts here, so the dispatch bookkeeping
+                // below (update_last_executed/drop) is accounted to the
+                // exchange, not to Kernel; it closes in yield_and_pool().
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
                 if let Some(ctx) = info.take_preempt_context() {
+                    // [start] context_switch_main
+                    #[cfg(feature = "perf")]
+                    perf::start_context_switch_main();
+
                     info.update_last_executed();
                     drop(info);
 

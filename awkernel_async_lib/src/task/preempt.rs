@@ -39,10 +39,6 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_ctx.get_cpu_context();
 
-    // [start] context_switch_main
-    #[cfg(feature = "perf")]
-    super::perf::start_context_switch_main();
-
     unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
 
     // [resume] This (previously pooled) worker thread was switched to. Close
@@ -78,10 +74,6 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     }
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
-
-    // [start] context_switch
-    #[cfg(feature = "perf")]
-    super::perf::start_context_switch();
 
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_thread.get_cpu_context();
@@ -262,6 +254,10 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 ///
 /// Do not call this function during mutex locking.
 pub unsafe fn preemption() {
+    // [start] context_switch
+    #[cfg(feature = "perf")]
+    super::perf::start_context_switch();
+
     let _int_guard = InterruptGuard::new();
 
     let _heap_guard = {
