@@ -1,0 +1,11 @@
+[package]
+name = "ekf_localizer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libm = "0.2"
+nalgebra = { version = "0.32", default-features = false}
+approx = "0.5" 
+common_types = { path = "../common_types", default-features = false }
+vehicle_velocity_converter = { path = "../vehicle_velocity_converter", default-features = false}
