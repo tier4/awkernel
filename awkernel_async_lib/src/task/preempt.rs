@@ -255,6 +255,14 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 /// Do not call this function during mutex locking.
 pub unsafe fn preemption() {
     // [start] context_switch
+    // NOTE(nokosaaan): Placed here rather than at the call site: calling into
+    // the perf module from there would create a circular dependency between
+    // crates. Placing it in architecture-specific interrupt-handling code was
+    // also considered, but that would skip this accounting on architectures
+    // other than the one handled there. This location runs for every
+    // architecture and is reached immediately after the call site, so it is
+    // judged appropriate for now; this may need to change if the surrounding
+    // structure changes in the future.
     #[cfg(feature = "perf")]
     super::perf::start_context_switch();
 
