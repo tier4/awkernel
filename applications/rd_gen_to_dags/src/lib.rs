@@ -2,6 +2,7 @@
 extern crate alloc;
 
 mod build_dag;
+mod dag_stats;
 mod parse_yaml;
 mod time_unit;
 

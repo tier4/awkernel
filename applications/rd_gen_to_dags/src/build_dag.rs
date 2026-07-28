@@ -1,3 +1,4 @@
+use crate::dag_stats::compute_dag_stats;
 use crate::parse_yaml::{DagData, NodeData};
 use crate::time_unit::{convert_duration, simulated_execution_time};
 
@@ -254,6 +255,30 @@ pub(super) async fn build_dag(
     sched_type: SchedulerType,
 ) -> Result<Arc<Dag>, LinkNumError> {
     let dag = create_dag();
+    let dag_id = dag.get_id();
+
+    let stats = compute_dag_stats(&dag_data);
+    log::debug!(
+        "DAG#{dag_id}: volume(C)={}, critical_path(L)={}",
+        stats.volume,
+        stats.critical_path
+    );
+
+    let end_to_end_deadline = dag_data
+        .get_nodes()
+        .iter()
+        .find(|node| node.is_sink())
+        .and_then(NodeData::get_end_to_end_deadline);
+    if let Some(deadline) = end_to_end_deadline {
+        if stats.critical_path > deadline {
+            log::warn!(
+                "DAG#{dag_id}: critical_path(L)={} exceeds end-to-end deadline(D)={}; \
+                 this DAG cannot meet its deadline under any scheduler",
+                stats.critical_path,
+                deadline
+            );
+        }
+    }
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
