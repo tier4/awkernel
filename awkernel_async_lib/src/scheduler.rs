@@ -128,6 +128,15 @@ impl SchedulerType {
     pub const fn is_clustered(&self) -> bool {
         matches!(self, SchedulerType::ClusteredEDF(_, _))
     }
+
+    /// True if this scheduler carries DAG light-pool work (currently just
+    /// GEDF). Update this function when adding a second DAG-oriented global
+    /// scheduler; it is the single source of truth for the DAG-pool slice of
+    /// `PRIORITY_LIST` immediately following the clustered prefix (see
+    /// `federated::is_dag_pool_core`).
+    pub const fn is_dag_pool_scheduler(&self) -> bool {
+        matches!(self, SchedulerType::GEDF(_))
+    }
 }
 
 /// # Priority
@@ -165,15 +174,45 @@ const fn get_num_clustered_schedulers() -> usize {
     count
 }
 
-// `get_next_task` and `NUM_TASK_IN_QUEUE` accounting rely on the clustered
-// schedulers forming a strict prefix of `PRIORITY_LIST`. Reject any reorder
-// at compile time.
+// `get_next_task` and its per-pool queue-counter accounting rely on the
+// clustered schedulers forming a strict prefix of `PRIORITY_LIST`. Reject
+// any reorder at compile time.
 const _: () = {
     let mut i = get_num_clustered_schedulers();
     while i < PRIORITY_LIST.len() {
         assert!(
             !PRIORITY_LIST[i].is_clustered(),
             "clustered schedulers must form a strict prefix of PRIORITY_LIST"
+        );
+        i += 1;
+    }
+};
+
+/// Return the number of DAG-pool schedulers (currently just GEDF)
+/// immediately following the clustered prefix of `PRIORITY_LIST`.
+const fn get_num_dag_pool_schedulers() -> usize {
+    let mut count = 0;
+    let start = get_num_clustered_schedulers();
+    while start + count < PRIORITY_LIST.len() {
+        if PRIORITY_LIST[start + count].is_dag_pool_scheduler() {
+            count += 1;
+        } else {
+            break;
+        }
+    }
+    count
+}
+
+// `get_next_task`'s DAG-pool/regular-pool split relies on the DAG-pool
+// schedulers forming a strict prefix of PRIORITY_LIST's non-clustered tail.
+// Reject any reorder at compile time, mirroring the clustered-prefix check
+// above.
+const _: () = {
+    let mut i = get_num_clustered_schedulers() + get_num_dag_pool_schedulers();
+    while i < PRIORITY_LIST.len() {
+        assert!(
+            !PRIORITY_LIST[i].is_dag_pool_scheduler(),
+            "DAG-pool schedulers must form a strict prefix of PRIORITY_LIST immediately after the clustered prefix"
         );
         i += 1;
     }
@@ -258,7 +297,8 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     // traffic could occupy a core another DAG's schedulability analysis
     // already counted on being exclusive. Global-policy tasks therefore run
     // only on the complement of every reserved core.
-    if crate::task::is_cpu_reserved(awkernel_lib::cpu::cpu_id()) {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    if crate::task::is_cpu_reserved(cpu_id) {
         return None;
     }
 
@@ -266,17 +306,46 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     // None (the queue state cannot change in between because both `wake_task`
     // and `get_next_task` hold `GLOBAL_WAKE_GET_MUTEX`), or the counter was 0
     // and its queues are empty. This also structurally guarantees that the
-    // `NUM_TASK_IN_QUEUE` decrement below never applies to a clustered task,
-    // which is counted by `NUM_CLUSTERED_TASKS_IN_QUEUE` instead.
-    let task = PRIORITY_LIST[get_num_clustered_schedulers()..]
+    // per-pool decrements below never apply to a clustered task, which is
+    // counted by `NUM_CLUSTERED_TASKS_IN_QUEUE` instead.
+    //
+    // Within that remainder, the DAG pool (GEDF) and the regular pool
+    // (PrioritizedFIFO/RR/Panicked) are further split by cpu_id (see
+    // `federated::is_dag_pool_core`/`is_regular_pool_core`): a DAG-pool core
+    // may only serve DAG-pool entries, a regular-pool core only regular-pool
+    // entries. While the split is inactive (too few workers), both
+    // predicates are true everywhere, so every entry is tried on every core
+    // — identical to the pre-split behavior.
+    let dag_pool_start = get_num_clustered_schedulers();
+    let dag_pool_end = dag_pool_start + get_num_dag_pool_schedulers();
+    let may_run_dag_pool = federated::is_dag_pool_core(cpu_id);
+    let may_run_regular_pool = federated::is_regular_pool_core(cpu_id);
+
+    PRIORITY_LIST[dag_pool_start..]
         .iter()
-        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+        .enumerate()
+        .find_map(|(offset, scheduler_type)| {
+            let is_dag_pool_entry = dag_pool_start + offset < dag_pool_end;
+            if is_dag_pool_entry {
+                if !may_run_dag_pool {
+                    return None;
+                }
+            } else if !may_run_regular_pool {
+                return None;
+            }
 
-    if task.is_some() {
-        crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
-    }
+            let task = get_scheduler(scheduler_type).get_next(execution_ensured)?;
 
-    task
+            // Decrement whichever counter this task was queued under (see
+            // `Task::wake`), matching the pool it just came from.
+            if is_dag_pool_entry {
+                crate::task::NUM_DAG_POOL_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+            } else {
+                crate::task::NUM_REGULAR_POOL_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+            }
+
+            Some(task)
+        })
 }
 
 /// Get a scheduler.

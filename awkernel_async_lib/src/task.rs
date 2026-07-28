@@ -53,8 +53,17 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
+// Split by DAG-pool/regular-pool membership (see
+// `scheduler::federated::is_dag_pool_core`/`is_regular_pool_core`) instead of
+// one combined counter, so `wake_workers` can budget wakeups per pool: a
+// woken DAG-pool core can only ever dequeue a DAG-pool (GEDF) task, so
+// counting it against a combined budget could exhaust the budget on cores
+// that can't actually serve a pending regular-pool (FIFO/RR/Panicked) task,
+// leaving the one core that could serve it never woken.
 #[cfg(target_pointer_width = "64")]
-pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
+pub(crate) static NUM_DAG_POOL_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
+#[cfg(target_pointer_width = "64")]
+pub(crate) static NUM_REGULAR_POOL_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 /// Total number of tasks in the clustered schedulers' queues.
 /// Which CPUs those tasks are runnable on is tracked exactly by the run
@@ -80,7 +89,9 @@ pub(crate) fn is_cpu_reserved(cpu_id: usize) -> bool {
 }
 
 #[cfg(target_pointer_width = "32")]
-pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
+pub(crate) static NUM_DAG_POOL_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
+#[cfg(target_pointer_width = "32")]
+pub(crate) static NUM_REGULAR_POOL_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU];
@@ -174,11 +185,19 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
-        // Panicked tasks go to the global panicked scheduler, so always use the global counter.
+        // Panicked tasks go to the global panicked scheduler (regular pool).
         // Non-panicked clustered tasks: counters are managed inside clustered_edf::wake_task.
-        // Non-panicked non-clustered tasks: increment the global counter here.
-        if panicked || self.cpu_set.is_none() {
-            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+        // Non-panicked non-clustered tasks: increment the DAG-pool or
+        // regular-pool counter here, matching which pool their scheduler
+        // belongs to (see `scheduler::SchedulerType::is_dag_pool_scheduler`).
+        if panicked {
+            NUM_REGULAR_POOL_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+        } else if self.cpu_set.is_none() {
+            if self.scheduler_name().is_dag_pool_scheduler() {
+                NUM_DAG_POOL_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+            } else {
+                NUM_REGULAR_POOL_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+            }
         }
 
         if panicked {
@@ -1246,7 +1265,8 @@ impl Ord for PriorityInfo {
 /// Wake workers up.
 pub fn wake_workers() {
     let num_cpus = awkernel_lib::cpu::num_cpu();
-    let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
+    let mut num_dag_pool_tasks = NUM_DAG_POOL_TASK_IN_QUEUE.load(Ordering::Relaxed);
+    let mut num_regular_pool_tasks = NUM_REGULAR_POOL_TASK_IN_QUEUE.load(Ordering::Relaxed);
 
     // The exact set of CPUs for which a clustered task is queued, read from
     // the clustered schedulers' run queues.
@@ -1258,15 +1278,29 @@ pub fn wake_workers() {
             continue;
         }
 
-        // Even if there are no global tasks left, keep scanning: a
-        // higher-numbered CPU may still have clustered tasks waiting and
-        // skipping the rest would leave it asleep (lost wakeup).
-        if num_tasks == 0 {
+        // A woken DAG-pool core can only ever dequeue a DAG-pool task, and
+        // likewise for a regular-pool core (see
+        // `scheduler::federated::is_dag_pool_core`/`is_regular_pool_core`),
+        // so each pool's budget is only spent on a core eligible for it.
+        let serves_dag_pool =
+            crate::scheduler::federated::is_dag_pool_core(i) && num_dag_pool_tasks > 0;
+        let serves_regular_pool =
+            crate::scheduler::federated::is_regular_pool_core(i) && num_regular_pool_tasks > 0;
+
+        // Even if neither budget currently applies to this CPU, keep
+        // scanning: a higher-numbered CPU may still have clustered tasks
+        // waiting and skipping the rest would leave it asleep (lost wakeup).
+        if !serves_dag_pool && !serves_regular_pool {
             continue;
         }
 
         if awkernel_lib::cpu::wake_cpu(i) {
-            num_tasks -= 1;
+            if serves_dag_pool {
+                num_dag_pool_tasks -= 1;
+            }
+            if serves_regular_pool {
+                num_regular_pool_tasks -= 1;
+            }
         }
     }
 }

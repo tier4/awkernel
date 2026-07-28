@@ -119,8 +119,12 @@ impl PrioritizedFIFOScheduler {
 
         let preemption_target = tasks_running
             .iter()
-            // CPUs reserved by clustered tasks must not be preempted by global tasks.
-            .filter(|rt| !crate::task::is_cpu_reserved(rt.cpu_id))
+            // CPUs reserved by clustered tasks must not be preempted by global tasks,
+            // and a regular-pool task must never target a DAG-pool core.
+            .filter(|rt| {
+                !crate::task::is_cpu_reserved(rt.cpu_id)
+                    && crate::scheduler::federated::is_regular_pool_core(rt.cpu_id)
+            })
             .filter_map(|rt| {
                 get_task(rt.task_id).map(|t| {
                     let highest_pending = peek_preemption_pending(rt.cpu_id).unwrap_or(t.clone());
