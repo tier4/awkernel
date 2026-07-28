@@ -18,6 +18,7 @@ use awkernel_lib::{
 use alloc::boxed::Box;
 
 mod clustered_edf;
+pub mod federated;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
@@ -247,6 +248,18 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
         if task.is_some() {
             return task;
         }
+    }
+
+    // A CPU reserved by a clustered task's cpu_set (see
+    // `task::NUM_CLUSTERED_TASKS_ALIVE`/`task::is_cpu_reserved`) — e.g. a
+    // Federated heavy DAG's exclusive cluster — must never run a
+    // global-policy (GEDF/PrioritizedFIFO/PrioritizedRR/Panicked) task, even
+    // while its clustered queue is momentarily empty. Otherwise unrelated
+    // traffic could occupy a core another DAG's schedulability analysis
+    // already counted on being exclusive. Global-policy tasks therefore run
+    // only on the complement of every reserved core.
+    if crate::task::is_cpu_reserved(awkernel_lib::cpu::cpu_id()) {
+        return None;
     }
 
     // Skip the clustered prefix: it was either just tried above and returned

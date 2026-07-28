@@ -87,7 +87,7 @@ path = "../applications/tests/test_clustered_dag"
 optional = true
 
 [features]
-default = ["test_clustered_dag"]
+default = ["rd_gen_to_dags"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications

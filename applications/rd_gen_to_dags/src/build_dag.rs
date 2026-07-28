@@ -5,7 +5,10 @@ use crate::time_unit::{convert_duration, simulated_execution_time};
 use alloc::{borrow::Cow, format, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
     dag::{Dag, create_dag},
-    scheduler::SchedulerType,
+    scheduler::{
+        federated::{admit_dag, DagMetrics, FederatedError, FederatedTiming},
+        SchedulerType,
+    },
 };
 
 /// Represents errors related to the number of links for a node.
@@ -29,6 +32,41 @@ impl core::fmt::Display for LinkNumError {
                 write!(f, "DAG#{dag_id} Node#{node_id} has no links")
             }
         }
+    }
+}
+
+/// Errors that can prevent a DAG from being built, from either link-arity
+/// validation or Federated Scheduling admission.
+pub(crate) enum BuildDagError {
+    LinkNum(LinkNumError),
+    Federated(FederatedError),
+    /// The DAG's source node has no `period`, or its sink node has no
+    /// `end_to_end_deadline` — both are required to run Federated admission.
+    MissingDagTiming(u32),
+}
+
+impl core::fmt::Display for BuildDagError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BuildDagError::LinkNum(e) => write!(f, "{e}"),
+            BuildDagError::Federated(e) => write!(f, "{e}"),
+            BuildDagError::MissingDagTiming(dag_id) => write!(
+                f,
+                "DAG#{dag_id} has no source period or no sink end-to-end deadline"
+            ),
+        }
+    }
+}
+
+impl From<LinkNumError> for BuildDagError {
+    fn from(e: LinkNumError) -> Self {
+        BuildDagError::LinkNum(e)
+    }
+}
+
+impl From<FederatedError> for BuildDagError {
+    fn from(e: FederatedError) -> Self {
+        BuildDagError::Federated(e)
     }
 }
 
@@ -250,10 +288,7 @@ async fn register_intermediate_node(
     }
 }
 
-pub(super) async fn build_dag(
-    dag_data: DagData,
-    sched_type: SchedulerType,
-) -> Result<Arc<Dag>, LinkNumError> {
+pub(super) async fn build_dag(dag_data: DagData) -> Result<Arc<Dag>, BuildDagError> {
     let dag = create_dag();
     let dag_id = dag.get_id();
 
@@ -264,21 +299,31 @@ pub(super) async fn build_dag(
         stats.critical_path
     );
 
-    let end_to_end_deadline = dag_data
+    let period = dag_data
+        .get_nodes()
+        .iter()
+        .find(|node| node.is_source())
+        .and_then(NodeData::get_period)
+        .ok_or(BuildDagError::MissingDagTiming(dag_id))?;
+    let relative_deadline = dag_data
         .get_nodes()
         .iter()
         .find(|node| node.is_sink())
-        .and_then(NodeData::get_end_to_end_deadline);
-    if let Some(deadline) = end_to_end_deadline {
-        if stats.critical_path > deadline {
-            log::warn!(
-                "DAG#{dag_id}: critical_path(L)={} exceeds end-to-end deadline(D)={}; \
-                 this DAG cannot meet its deadline under any scheduler",
-                stats.critical_path,
-                deadline
-            );
-        }
-    }
+        .and_then(NodeData::get_end_to_end_deadline)
+        .ok_or(BuildDagError::MissingDagTiming(dag_id))?;
+
+    let assignment = admit_dag(
+        DagMetrics::Static {
+            volume: stats.volume,
+            critical_path: stats.critical_path,
+        },
+        FederatedTiming {
+            period,
+            relative_deadline,
+        },
+    )?;
+    let sched_type = assignment.scheduler_type;
+    log::info!("DAG#{dag_id}: admitted as {:?} -> {sched_type:?}", assignment.class);
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
