@@ -329,7 +329,7 @@ impl Dag {
                         subscribe_topic_names,
                         publish_topic_names,
                         sched_type,
-                        DagInfo { dag_id, node_id },
+                        DagInfo::new(dag_id, node_id),
                     )
                     .await
                 })
@@ -380,7 +380,7 @@ impl Dag {
                         sched_type,
                         period,
                         measure_f,
-                        DagInfo { dag_id, node_id },
+                        DagInfo::new(dag_id, node_id),
                     )
                     .await
                 })
@@ -438,7 +438,7 @@ impl Dag {
                         measure_f,
                         subscribe_topic_names,
                         sched_type,
-                        DagInfo { dag_id, node_id },
+                        DagInfo::new(dag_id, node_id),
                     )
                     .await
                 })
@@ -949,6 +949,13 @@ where
     Ret::Publishers: Send,
     Args::Subscribers: Send,
 {
+    // A separate handle to the same counter as `dag_info.period_index`: the
+    // closure below only touches this field, so capturing the Arc directly
+    // (rather than the whole `dag_info`) leaves `dag_info` itself intact for
+    // the `spawn_with_dag_info` call after the closure is built.
+    #[cfg(feature = "period-index-propagation")]
+    let period_index_cell = dag_info.period_index.clone();
+
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
             publish_topic_names,
@@ -965,10 +972,11 @@ where
                     <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item,
                     u32,
                 ) = subscribers.recv_all_with_period_index().await;
+                period_index_cell.store(period_index, core::sync::atomic::Ordering::Relaxed);
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
+                record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id);
 
                 let results = f(args);
                 publishers
@@ -1013,6 +1021,11 @@ where
         }
     };
 
+    // See `spawn_reactor` for why this is cloned out separately instead of
+    // referenced via `dag_info` from inside the closure.
+    #[cfg(feature = "period-index-propagation")]
+    let period_index_cell = dag_info.period_index.clone();
+
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -1028,6 +1041,7 @@ where
             #[cfg(feature = "period-index-propagation")]
             {
                 let index = get_period_index(dag_info.dag_id) as usize;
+                period_index_cell.store(index as u32, core::sync::atomic::Ordering::Relaxed);
                 if index != 0 {
                     // [start] cycle deviation index >= 1
                     let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
@@ -1073,6 +1087,11 @@ where
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
 {
+    // See `spawn_reactor` for why this is cloned out separately instead of
+    // referenced via `dag_info` from inside the closure.
+    #[cfg(feature = "period-index-propagation")]
+    let period_index_cell = dag_info.period_index.clone();
+
     let future = async move {
         let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
@@ -1082,10 +1101,11 @@ where
             {
                 let (args, period_index): (<Args::Subscribers as MultipleReceiver>::Item, u32) =
                     subscribers.recv_all_with_period_index().await;
+                period_index_cell.store(period_index, core::sync::atomic::Ordering::Relaxed);
 
                 // [end] pubsub communication latency
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
-                record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
+                record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id);
 
                 let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 if period_index != 0 {

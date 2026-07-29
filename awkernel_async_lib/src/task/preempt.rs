@@ -64,6 +64,18 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     // (and even a different CPU on migration), corrupting the Gantt chart.
     let task_id = current_task.id;
 
+    // Read once, before `current_task` is moved into `PREEMPTED_TASKS` below,
+    // so both the pause (END) and resume (START) trace events below get the
+    // same, correct period label (see `task.rs`'s run loop for the same
+    // pattern on the non-preempted path).
+    #[cfg(feature = "perf")]
+    let period_index: Option<u32> = {
+        let mut node = MCSNode::new();
+        let info = current_task.info.lock(&mut node);
+        info.get_dag_info()
+            .map(|d| d.period_index.load(Ordering::Relaxed))
+    };
+
     // An IPI can also land while `RUNNING` is still set but the task's poll
     // is not executing (the run loop's bookkeeping just before/after
     // `poll_unpin`).  Recording a pause/resume pair there would emit
@@ -96,7 +108,7 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
         super::POLLING[cpu_id].store(0, Ordering::Relaxed);
 
         #[cfg(feature = "perf")]
-        super::trace::record(task_id, super::trace::KIND_END);
+        super::trace::record(task_id, super::trace::KIND_END, period_index);
     }
 
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
@@ -117,7 +129,7 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
             #[cfg(feature = "perf")]
             {
-                super::trace::record(task_id, super::trace::KIND_START);
+                super::trace::record(task_id, super::trace::KIND_START, period_index);
                 super::perf::start_task();
             }
         } else {

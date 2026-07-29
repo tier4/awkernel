@@ -314,6 +314,31 @@ struct Tasks {
 pub struct DagInfo {
     pub dag_id: u32,
     pub node_id: u32,
+    /// Which period (job) this node's *current* work belongs to.
+    ///
+    /// Updated by the DAG reactor body (`dag::spawn_reactor`/
+    /// `spawn_periodic_reactor`/`spawn_sink_reactor`) each time it learns the
+    /// true value: the per-DAG release counter for a periodic (source) node,
+    /// or the value carried on the received pubsub message for an
+    /// intermediate/sink node (see the `period-index-propagation` feature).
+    /// Read by the generic poll-boundary trace hook in [`inner_spawn`]'s
+    /// caller so `TRACE_EV` can be labeled with the actual period a slice
+    /// belongs to, instead of a host-side guess from release-marker timing.
+    ///
+    /// `Arc` so every clone of a task's `DagInfo` (e.g. from
+    /// [`TaskInfo::get_dag_info`]) shares the same counter as the one stored
+    /// in the task's own future.
+    pub period_index: Arc<AtomicU32>,
+}
+
+impl DagInfo {
+    pub(crate) fn new(dag_id: u32, node_id: u32) -> Self {
+        Self {
+            dag_id,
+            node_id,
+            period_index: Arc::new(AtomicU32::new(0)),
+        }
+    }
 }
 
 impl Tasks {
@@ -681,7 +706,7 @@ pub mod perf {
     const MAX_PUBSUB: usize = 3;
     // This value indicates the maximum number of nodes in the DAG
     // and can be adjusted based on the structure of the DAG used for evaluation.
-    const MAX_NODES: usize = 5;
+    const MAX_NODES: usize = 15;
     #[derive(Clone)]
     struct PubSubTable {
         timestamps: [[[u64; MAX_NODES]; MAX_PUBSUB]; MAX_LOGS],
@@ -1379,6 +1404,18 @@ pub fn run_main() {
                 #[cfg(feature = "perf")]
                 let task_id = task.id;
 
+                // The period this task is *currently* about to process, read
+                // once here (not inside `trace::record`, which must stay
+                // lock-free) so both the start and end trace events of this
+                // poll get the same, correct label. `None` for non-DAG tasks.
+                #[cfg(feature = "perf")]
+                let period_index: Option<u32> = {
+                    let mut node = MCSNode::new();
+                    let info = task.info.lock(&mut node);
+                    info.get_dag_info()
+                        .map(|d| d.period_index.load(Ordering::Relaxed))
+                };
+
                 // Invoke a task.
                 catch_unwind(|| {
                     #[cfg(all(
@@ -1393,7 +1430,7 @@ pub fn run_main() {
                     perf::start_task();
 
                     #[cfg(feature = "perf")]
-                    trace::record(task_id, trace::KIND_START);
+                    trace::record(task_id, trace::KIND_START, period_index);
 
                     // Set strictly inside the trace S/E bracket so the
                     // preemption path never records a pause without a
@@ -1408,7 +1445,7 @@ pub fn run_main() {
                     POLLING[awkernel_lib::cpu::cpu_id()].store(0, Ordering::Relaxed);
 
                     #[cfg(feature = "perf")]
-                    trace::record(task_id, trace::KIND_END);
+                    trace::record(task_id, trace::KIND_END, period_index);
 
                     #[cfg(feature = "perf")]
                     perf::start_kernel();

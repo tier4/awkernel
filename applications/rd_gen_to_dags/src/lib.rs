@@ -13,7 +13,7 @@ use build_dag::build_dag;
 
 // A newline is required at the end due to yaml_peg specification.
 // If you have multiple files, define a `const` for each.
-const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=2/DAGs/dag_0.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=3/DAGs/dag_0.yaml"), "\n");
 const DAG_FILE_1: &str = concat!(include_str!("/home/nokosan/azumi-lab/RD-Gen/test/TU=1/DAGs/dag_1.yaml"), "\n");
 
 pub async fn run() {

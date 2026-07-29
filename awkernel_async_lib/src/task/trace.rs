@@ -24,8 +24,10 @@ pub const TRACE_CAP: usize = 32768;
 
 pub const KIND_START: u8 = 0;
 pub const KIND_END: u8 = 1;
-/// Marker recorded by a DAG periodic reactor at the top of every period, so
-/// the host can attribute execution intervals to period (job) indices.
+/// Unused: no producer emits this anymore now that `period_index` is
+/// recorded directly on each event (see `TraceEvent::period_index`). Kept
+/// only so `dump_to_console`'s event-kind match stays exhaustive against
+/// old callers/log readers that still expect the `R` character.
 pub const KIND_RELEASE: u8 = 2;
 
 #[derive(Clone, Copy, Default)]
@@ -35,6 +37,11 @@ pub struct TraceEvent {
     pub task_id: u32,
     /// `KIND_START` or `KIND_END`.
     pub kind: u8,
+    /// Which period (job) this slice belongs to, from `DagInfo::period_index`
+    /// at the moment this event was recorded. `None` for a non-DAG task, or
+    /// when the `period-index-propagation` feature is disabled.
+    #[cfg(feature = "period-index-propagation")]
+    pub period_index: Option<u32>,
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -53,8 +60,12 @@ static CAL_END_US: AtomicU64 = AtomicU64::new(0);
 /// Lock-free: only the current CPU writes to its own buffer, and the slot is
 /// claimed atomically, so a preempting context on the same CPU cannot corrupt
 /// an event nor deadlock.
+/// `period_index` is the DAG period this event belongs to (see
+/// `DagInfo::period_index`), or `None` for a non-DAG task. Ignored when the
+/// `period-index-propagation` feature is off, since `TraceEvent` then has no
+/// field to hold it.
 #[inline]
-pub(crate) fn record(task_id: u32, kind: u8) {
+pub(crate) fn record(task_id: u32, kind: u8, period_index: Option<u32>) {
     if !ENABLED.load(Ordering::Acquire) {
         return;
     }
@@ -70,21 +81,21 @@ pub(crate) fn record(task_id: u32, kind: u8) {
     unsafe {
         let bufs = &mut *core::ptr::addr_of_mut!(BUFS);
         if let Some(buf) = bufs[cpu_id].as_mut() {
-            buf[i] = TraceEvent { tsc, task_id, kind };
+            #[cfg(feature = "period-index-propagation")]
+            {
+                buf[i] = TraceEvent {
+                    tsc,
+                    task_id,
+                    kind,
+                    period_index,
+                };
+            }
+            #[cfg(not(feature = "period-index-propagation"))]
+            {
+                let _ = period_index;
+                buf[i] = TraceEvent { tsc, task_id, kind };
+            }
         }
-    }
-}
-
-/// Record a [`KIND_RELEASE`] marker for the task currently running on this
-/// CPU.  Called from the DAG periodic reactor at the start of every period.
-#[inline]
-pub(crate) fn mark_release_current() {
-    if !ENABLED.load(Ordering::Acquire) {
-        return;
-    }
-
-    if let Some(task_id) = super::get_current_task(awkernel_lib::cpu::cpu_id()) {
-        record(task_id, KIND_RELEASE);
     }
 }
 
@@ -233,6 +244,25 @@ pub fn dump_to_console() {
                 KIND_END => 'E',
                 _ => 'R',
             };
+
+            // TRACE_EV,<cpu>,<task_id>,<S|E>,<tsc>[,<period_index|->]
+            // The 6th field is only emitted under `period-index-propagation`,
+            // matching `plot_trace.py`'s backward-compatible parsing (an
+            // older 5-field line is still accepted).
+            #[cfg(feature = "period-index-propagation")]
+            {
+                match e.period_index {
+                    Some(p) => out.push_str(&format!(
+                        "TRACE_EV,{cpu_id},{},{kind},{},{p}\r\n",
+                        e.task_id, e.tsc
+                    )),
+                    None => out.push_str(&format!(
+                        "TRACE_EV,{cpu_id},{},{kind},{},-\r\n",
+                        e.task_id, e.tsc
+                    )),
+                }
+            }
+            #[cfg(not(feature = "period-index-propagation"))]
             out.push_str(&format!("TRACE_EV,{cpu_id},{},{kind},{}\r\n", e.task_id, e.tsc));
 
             // Flush in chunks so a single huge String is not required.
