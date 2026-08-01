@@ -16,9 +16,10 @@ use csv_core::{ReadRecordResult, Reader};
 pub use common_types::Header;
 use core::slice;
 use ekf_localizer::{
-    get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
+    apply_twist_observability_gate, get_or_initialize_default_module, EKFOdometry, EKFParameters,
+    Point3D, Pose, PoseWithCovariance, PoseWithCovarianceStamped, Quaternion,
 };
-use imu_corrector::{ImuCorrector, ImuWithCovariance};
+use imu_corrector::{ImuCorrector, ImuWithCovariance, Transform};
 use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
 use vehicle_velocity_converter::{
     build_velocity_report_from_csv_row, reactor_helpers, Twist, TwistWithCovariance,
@@ -268,35 +269,74 @@ pub async fn run() {
 
     dag.register_reactor::<_, (Pose, TwistWithCovarianceStamped), (Pose, EKFOdometry)>(
         "ekf_localizer".into(),
-        |(pose, twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
+        |(pose, mut twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
             let ekf = get_or_initialize_default_module();
+            let current_time = get_awkernel_uptime_timestamp();
 
+            // `pose_dummy_generator` has no real localization source behind it yet (an NDT
+            // scan matcher port is out of scope here), so this covariance is a small fixed
+            // placeholder, not a calibrated sensor value.
+            let mut pose_covariance = [0.0; 36];
+            pose_covariance[0] = 0.01; // X_X
+            pose_covariance[7] = 0.01; // Y_Y
+            pose_covariance[14] = 0.01; // Z_Z
+            pose_covariance[21] = 0.01; // ROLL_ROLL
+            pose_covariance[28] = 0.01; // PITCH_PITCH
+            pose_covariance[35] = 0.01; // YAW_YAW
+
+            let pose_stamped = PoseWithCovarianceStamped {
+                header: common_types::Header {
+                    frame_id: "map",
+                    timestamp: current_time,
+                },
+                pose: PoseWithCovariance {
+                    pose,
+                    covariance: pose_covariance,
+                },
+            };
+
+            // Seeded once from the first pose, matching upstream's node-layer `initialize()`
+            // call; every later pose feeds `measurement_update_pose` instead. No TF listener
+            // is wired in yet, so the transform is the identity (see
+            // `EKFModule::initialize`'s doc comment).
             static mut INITIALIZED: bool = false;
-            unsafe {
-                if !INITIALIZED {
-                    ekf.initialize(pose);
+            let just_initialized = unsafe {
+                if INITIALIZED {
+                    false
+                } else {
+                    ekf.initialize(&pose_stamped, &Transform::identity());
                     INITIALIZED = true;
+                    true
                 }
-            }
+            };
 
-            // Use a fixed 50ms timestep to match the Autoware publisher cadence.
+            // Fixed 50ms timestep to match the periodic "start_dummy_data" trigger cadence.
+            // Both calls are required every predict tick -- `predict_with_delay` does not
+            // age the delay-time buffer itself (see its doc comment).
             const FIXED_DT: f64 = 0.05;
-            let dt = FIXED_DT;
+            ekf.accumulate_delay_time(FIXED_DT);
+            ekf.predict_with_delay(FIXED_DT);
 
-            if dt > 0.0 {
-                ekf.predict(dt);
+            if !just_initialized {
+                ekf.measurement_update_pose(&pose_stamped, current_time);
             }
 
-            let vx = twist.twist.twist.linear.x;
-            let wz = twist.twist.twist.angular.z;
-            ekf.update_velocity(vx, wz);
+            // Below `threshold_observable_velocity_mps` (0.0 by default, matching upstream's
+            // shipped config), vx is inflated as unreliable before fusing; wiring the gate
+            // unconditionally here matches upstream's `callback_twist_with_covariance`, even
+            // though the default threshold makes it a no-op today.
+            apply_twist_observability_gate(
+                &mut twist,
+                EKFParameters::default().threshold_observable_velocity_mps,
+            );
+            ekf.measurement_update_twist(&twist, current_time);
 
-            let ekf_pose = ekf.get_current_pose(false);
+            let ekf_pose = ekf.get_current_pose(false, current_time);
 
             let pose_covariance = ekf.get_current_pose_covariance();
             let twist_covariance = ekf.get_current_twist_covariance();
 
-            let ekf_twist = ekf.get_current_twist();
+            let ekf_twist = ekf.get_current_twist(current_time);
 
             let odometry = EKFOdometry {
                 header: common_types::Header {
@@ -305,27 +345,27 @@ pub async fn run() {
                 },
                 child_frame_id: "base_link",
                 pose: PoseWithCovariance {
-                    pose: ekf_pose,
+                    pose: ekf_pose.pose,
                     covariance: pose_covariance,
                 },
                 twist: TwistWithCovariance {
                     twist: Twist {
                         linear: common_types::Vector3::new(
-                            ekf_twist.linear.x,
-                            ekf_twist.linear.y,
-                            ekf_twist.linear.z,
+                            ekf_twist.twist.linear.x,
+                            ekf_twist.twist.linear.y,
+                            ekf_twist.twist.linear.z,
                         ),
                         angular: common_types::Vector3::new(
-                            ekf_twist.angular.x,
-                            ekf_twist.angular.y,
-                            ekf_twist.angular.z,
+                            ekf_twist.twist.angular.x,
+                            ekf_twist.twist.angular.y,
+                            ekf_twist.twist.angular.z,
                         ),
                     },
                     covariance: twist_covariance,
                 },
             };
 
-            (ekf_pose, odometry)
+            (ekf_pose.pose, odometry)
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
