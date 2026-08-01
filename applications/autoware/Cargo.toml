@@ -17,4 +17,5 @@ imu_driver = { path = "./imu_driver", default-features = false }
 imu_corrector = { path = "./imu_corrector", default-features = false }
 vehicle_velocity_converter = { path = "./vehicle_velocity_converter", default-features = false }
 gyro_odometer = { path = "./gyro_odometer", default-features = false}
+ekf_localizer = { path = "./ekf_localizer", default-features = false }
 
