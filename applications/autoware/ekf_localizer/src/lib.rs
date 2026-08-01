@@ -46,12 +46,16 @@ pub use common_types::Header;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 use libm::{atan2, cos, sin};
-use nalgebra::{DMatrix, DVector, Matrix6, Quaternion as NQuaternion, Unit, UnitQuaternion, Vector3, Vector6};
+use nalgebra::{
+    DMatrix, DVector, Matrix6, Quaternion as NQuaternion, Unit, UnitQuaternion, Vector3, Vector6,
+};
 
 pub use imu_corrector::Transform;
 pub use vehicle_velocity_converter::{TwistWithCovariance, TwistWithCovarianceStamped};
 
-use covariance::{ekf_covariance_to_pose_message_covariance, ekf_covariance_to_twist_message_covariance};
+use covariance::{
+    ekf_covariance_to_pose_message_covariance, ekf_covariance_to_twist_message_covariance,
+};
 use kalman_filter::DelayCompensatedKalmanFilter;
 use mahalanobis::mahalanobis;
 use measurement::{
@@ -403,8 +407,11 @@ impl EKFModule {
         p0[(StateIndex::Vx as usize, StateIndex::Vx as usize)] = 0.01;
         p0[(StateIndex::Wz as usize, StateIndex::Wz as usize)] = 0.01;
 
-        self.kf
-            .init(&to_dvector(&x0), &to_dmatrix(&p0), self.params.extend_state_step);
+        self.kf.init(
+            &to_dvector(&x0),
+            &to_dmatrix(&p0),
+            self.params.extend_state_step,
+        );
 
         let z = initial_pose.pose.pose.position.z;
         let (roll, pitch, _yaw) = self.quaternion_to_rpy(initial_pose.pose.pose.orientation);
@@ -526,8 +533,14 @@ impl EKFModule {
     /// invoked. `measurement_update_twist` keeps running throughout (Dead Reckoning
     /// explicitly still uses twist). That decision belongs entirely to the pub/sub wiring
     /// layer, not to `EKFModule`.
-    pub fn measurement_update_pose(&mut self, pose: &PoseWithCovarianceStamped, t_curr: u64) -> bool {
-        if pose.header.frame_id != self.params.pose_frame_id && self.pose_frame_id_warn.should_emit(t_curr) {
+    pub fn measurement_update_pose(
+        &mut self,
+        pose: &PoseWithCovarianceStamped,
+        t_curr: u64,
+    ) -> bool {
+        if pose.header.frame_id != self.params.pose_frame_id
+            && self.pose_frame_id_warn.should_emit(t_curr)
+        {
             log::warn!(
                 "pose frame_id is {}, but pose_frame is set as {}. They must be same.",
                 pose.header.frame_id,
@@ -535,8 +548,8 @@ impl EKFModule {
             );
         }
 
-        let mut delay_time =
-            nanos_to_seconds_delta(t_curr, pose.header.timestamp) + self.params.pose_additional_delay;
+        let mut delay_time = nanos_to_seconds_delta(t_curr, pose.header.timestamp)
+            + self.params.pose_additional_delay;
         if delay_time < 0.0 && self.pose_delay_time_warn.should_emit(t_curr) {
             log::warn!("[EKF] pose delay time is negative: {delay_time}. Treated as 0.");
         }
@@ -587,7 +600,8 @@ impl EKFModule {
             return false;
         }
 
-        let r = pose_measurement_covariance(&pose.pose.covariance, self.params.pose_smoothing_steps);
+        let r =
+            pose_measurement_covariance(&pose.pose.covariance, self.params.pose_smoothing_steps);
 
         if !self
             .kf
@@ -648,7 +662,11 @@ impl EKFModule {
         pose_with_delay
     }
 
-    fn update_simple_1d_filters(&mut self, pose: &PoseWithCovarianceStamped, smoothing_step: usize) {
+    fn update_simple_1d_filters(
+        &mut self,
+        pose: &PoseWithCovarianceStamped,
+        smoothing_step: usize,
+    ) {
         let z = pose.pose.pose.position.z;
         let (roll, pitch, _yaw) = self.quaternion_to_rpy(pose.pose.pose.orientation);
 
@@ -666,9 +684,16 @@ impl EKFModule {
     /// Mahalanobis gate, matching upstream. Callers that want the "don't trust vx at low
     /// speed" behaviour must call `apply_twist_observability_gate` on `twist` first. This
     /// keeps running during MRM Dead Reckoning -- see the note on `measurement_update_pose`.
-    pub fn measurement_update_twist(&mut self, twist: &TwistWithCovarianceStamped, t_curr: u64) -> bool {
+    pub fn measurement_update_twist(
+        &mut self,
+        twist: &TwistWithCovarianceStamped,
+        t_curr: u64,
+    ) -> bool {
         if twist.header.frame_id != "base_link" && self.twist_frame_id_warn.should_emit(t_curr) {
-            log::warn!("twist frame_id must be base_link, got {}", twist.header.frame_id);
+            log::warn!(
+                "twist frame_id must be base_link, got {}",
+                twist.header.frame_id
+            );
         }
 
         self.last_angular_velocity = Vector3::zeros();
@@ -718,7 +743,10 @@ impl EKFModule {
             return false;
         }
 
-        let r = twist_measurement_covariance(&twist.twist.covariance, self.params.twist_smoothing_steps);
+        let r = twist_measurement_covariance(
+            &twist.twist.covariance,
+            self.params.twist_smoothing_steps,
+        );
 
         if !self
             .kf
@@ -938,7 +966,13 @@ mod tests {
         pose_stamped_at(0.0, 0.0, 0.0, 0.0, timestamp)
     }
 
-    fn pose_stamped_at(x: f64, y: f64, z: f64, yaw: f64, timestamp: u64) -> PoseWithCovarianceStamped {
+    fn pose_stamped_at(
+        x: f64,
+        y: f64,
+        z: f64,
+        yaw: f64,
+        timestamp: u64,
+    ) -> PoseWithCovarianceStamped {
         let mut covariance = [0.0; 36];
         covariance[POSE_COV_X_X] = 0.01;
         covariance[POSE_COV_Y_Y] = 0.01;

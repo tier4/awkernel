@@ -73,14 +73,14 @@ pub struct DelayCompensatedKalmanFilter {
     ap11: DMatrix<f64>,        // dim_x x dim_x
 
     // --- update_with_delay scratch (sized in `init()`) ---
-    x_d: DVector<f64>,          // dim_x
-    e: DVector<f64>,            // MAX_DIM_Y, use rows(0, dim_y)
-    c_transpose: DMatrix<f64>,  // dim_x x MAX_DIM_Y
-    c_p_dd: DMatrix<f64>,       // MAX_DIM_Y x dim_x
-    s: DMatrix<f64>,            // MAX_DIM_Y x MAX_DIM_Y
-    p_ct: DMatrix<f64>,         // dim_x_ex x MAX_DIM_Y
-    k_transpose: DMatrix<f64>,  // MAX_DIM_Y x dim_x_ex
-    k: DMatrix<f64>,            // dim_x_ex x MAX_DIM_Y
+    x_d: DVector<f64>,         // dim_x
+    e: DVector<f64>,           // MAX_DIM_Y, use rows(0, dim_y)
+    c_transpose: DMatrix<f64>, // dim_x x MAX_DIM_Y
+    c_p_dd: DMatrix<f64>,      // MAX_DIM_Y x dim_x
+    s: DMatrix<f64>,           // MAX_DIM_Y x MAX_DIM_Y
+    p_ct: DMatrix<f64>,        // dim_x_ex x MAX_DIM_Y
+    k_transpose: DMatrix<f64>, // MAX_DIM_Y x dim_x_ex
+    k: DMatrix<f64>,           // dim_x_ex x MAX_DIM_Y
 }
 
 impl DelayCompensatedKalmanFilter {
@@ -130,7 +130,8 @@ impl DelayCompensatedKalmanFilter {
         for i in 0..max_delay_step {
             let offset = i * dim_x;
             x_ex.rows_mut(offset, dim_x).copy_from(x);
-            p_ex.view_mut((offset, offset), (dim_x, dim_x)).copy_from(p0);
+            p_ex.view_mut((offset, offset), (dim_x, dim_x))
+                .copy_from(p0);
         }
 
         self.dim_x = dim_x;
@@ -160,7 +161,9 @@ impl DelayCompensatedKalmanFilter {
 
     /// Current-time state covariance (the first `dim_x x dim_x` block).
     pub fn latest_p(&self) -> DMatrix<f64> {
-        self.p_ex.view((0, 0), (self.dim_x, self.dim_x)).clone_owned()
+        self.p_ex
+            .view((0, 0), (self.dim_x, self.dim_x))
+            .clone_owned()
     }
 
     /// Reads a single element of the state as it was `delay_step` predict-ticks ago.
@@ -182,7 +185,12 @@ impl DelayCompensatedKalmanFilter {
     ///   blocks, plus one O(dim_x_ex^2) `copy_from` (a memcpy, not an allocation) to carry
     ///   the untouched history forward.
     /// - Does not log, format, block, or call unknown code.
-    pub fn predict_with_delay(&mut self, x_next: &DVector<f64>, a: &DMatrix<f64>, q: &DMatrix<f64>) {
+    pub fn predict_with_delay(
+        &mut self,
+        x_next: &DVector<f64>,
+        a: &DMatrix<f64>,
+        q: &DMatrix<f64>,
+    ) {
         let dim_x = self.dim_x;
         let dim_x_ex = dim_x * self.max_delay_step;
         let d_dim_x = dim_x_ex - dim_x;
@@ -644,7 +652,9 @@ mod tests {
                 .view_mut((0, 0), (dim_x, dim_x))
                 .copy_from(&(a * &p00 * a.transpose() + q));
             let p0d = p_ex.view((0, 0), (dim_x, d)).clone_owned();
-            p_tmp.view_mut((0, dim_x), (dim_x, d)).copy_from(&(a * &p0d));
+            p_tmp
+                .view_mut((0, dim_x), (dim_x, d))
+                .copy_from(&(a * &p0d));
             let pd0 = p_ex.view((0, 0), (d, dim_x)).clone_owned();
             p_tmp
                 .view_mut((dim_x, 0), (d, dim_x))
@@ -773,7 +783,10 @@ mod tests {
             }
 
             let p_check = self.kf.latest_p();
-            let p_gt = self.p_ex_gt.view((0, 0), (GT_DIM_X, GT_DIM_X)).clone_owned();
+            let p_gt = self
+                .p_ex_gt
+                .view((0, 0), (GT_DIM_X, GT_DIM_X))
+                .clone_owned();
             for i in 0..GT_DIM_X {
                 for j in 0..GT_DIM_X {
                     assert!(
@@ -837,7 +850,11 @@ mod tests {
 
         for i in 0..3 {
             let scale = (i + 1) as f64;
-            fixture.predict(&DVector::from_vec(alloc::vec![2.0 * scale, 4.0 * scale, 6.0 * scale]));
+            fixture.predict(&DVector::from_vec(alloc::vec![
+                2.0 * scale,
+                4.0 * scale,
+                6.0 * scale
+            ]));
         }
 
         let y = DVector::from_vec(alloc::vec![1.0, 2.0, 3.0]);
