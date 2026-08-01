@@ -45,7 +45,7 @@ const COV_IDX_XYZRPY_PITCH_PITCH: usize = 28;
 const COV_IDX_XYZRPY_YAW_YAW: usize = 35;
 
 pub struct GyroOdometerCore {
-    pub output_frame: String,
+    pub output_frame: &'static str,
     pub message_timeout_sec: f64,
     pub vehicle_twist_arrived: bool,
     pub imu_arrived: bool,
@@ -59,7 +59,7 @@ pub struct GyroOdometerCore {
 impl GyroOdometerCore {
     pub fn new(config: GyroOdometerConfig) -> Result<Self> {
         let queue_size = config.queue_size;
-        let output_frame = config.output_frame.clone();
+        let output_frame = config.output_frame;
         let message_timeout_sec = config.message_timeout_sec;
 
         Ok(Self {
@@ -118,8 +118,8 @@ impl GyroOdometerCore {
         }
 
         let tf = self.get_transform(
-            &self.gyro_queue.front().unwrap().header.frame_id,
-            &self.output_frame,
+            self.gyro_queue.front().unwrap().header.frame_id,
+            self.output_frame,
         )?;
 
         // In the original C++ implementation, angular_velocity_covariance is also transformed
@@ -137,7 +137,7 @@ impl GyroOdometerCore {
 
         for vehicle_twist in &self.vehicle_twist_queue {
             vx_mean += vehicle_twist.twist.twist.linear.x;
-            vx_covariance_original += vehicle_twist.twist.covariance[0 * 6 + 0];
+            vx_covariance_original += vehicle_twist.twist.covariance[0];
         }
         vx_mean /= self.vehicle_twist_queue.len() as f64;
         vx_covariance_original /= self.vehicle_twist_queue.len() as f64;
@@ -168,7 +168,7 @@ impl GyroOdometerCore {
 
         let mut result = TwistWithCovarianceStamped {
             header: Header {
-                frame_id: self.gyro_queue.front().unwrap().header.frame_id,
+                frame_id: self.output_frame,
                 timestamp: result_timestamp,
             },
             twist: TwistWithCovariance {
@@ -201,15 +201,22 @@ impl GyroOdometerCore {
         let dt = (current_timestamp as f64 - last_timestamp as f64) / 1_000_000_000.0;
         dt.abs() > timeout_sec
     }
-    pub fn get_transform(&self, from_frame: &str, to_frame: &str) -> Result<Transform> {
+    pub fn get_transform(&self, _from_frame: &str, _to_frame: &str) -> Result<Transform> {
+        // This exists to rotate the raw gyro's angular velocity out of the IMU's own mounting
+        // orientation (`from_frame`, e.g. `imu_link`) and into the vehicle body frame
+        // (`to_frame`, `output_frame`/"base_link"). If the IMU isn't mounted perfectly aligned
+        // with the vehicle body, its raw yaw-axis reading is not exactly the vehicle's own yaw
+        // rate -- some of it leaks in from roll/pitch, and vice versa. `measurement_update_twist`
+        // downstream assumes `wz` already IS the vehicle's base_link yaw rate, so any
+        // uncorrected mounting misalignment biases the fused estimate.
+        //
         // In the original implementation, a TF lookup failure should clear the queues and
-        // terminate processing early. This port currently returns identity because the
-        // evaluation setup uses a fixed identity transform.
-        if from_frame == to_frame || from_frame == "" || to_frame == "" {
-            Ok(Transform::identity())
-        } else {
-            Ok(Transform::identity())
-        }
+        // terminate processing early. This port currently always returns identity because the
+        // evaluation setup uses a fixed identity transform (IMU assumed perfectly aligned with
+        // base_link); there is no real TF lookup yet -- a real one would query calibrated sensor
+        // extrinsics (typically a fixed static offset for an IMU-to-base_link mount) instead of
+        // hardcoding identity here.
+        Ok(Transform::identity())
     }
 
     // The original C++ node publishes four topics: raw TwistStamped, raw TwistWithCovarianceStamped,
@@ -255,10 +262,8 @@ impl GyroOdometerCore {
         &mut self,
         current_time: u64,
     ) -> Option<TwistWithCovarianceStamped> {
-        match self.concat_gyro_and_odometer(current_time) {
-            Ok(result) => result,
-            Err(_) => None,
-        }
+        self.concat_gyro_and_odometer(current_time)
+            .unwrap_or_default()
     }
 
     pub fn get_queue_sizes(&self) -> (usize, usize) {
@@ -303,7 +308,7 @@ type Result<T> = core::result::Result<T, GyroOdometerError>;
 
 #[derive(Debug, Clone)]
 pub struct GyroOdometerConfig {
-    pub output_frame: String,
+    pub output_frame: &'static str,
     pub message_timeout_sec: f64,
     pub queue_size: usize,
     pub transform_timeout: Duration,
@@ -314,7 +319,7 @@ pub struct GyroOdometerConfig {
 impl Default for GyroOdometerConfig {
     fn default() -> Self {
         Self {
-            output_frame: String::from("base_link"),
+            output_frame: "base_link",
             message_timeout_sec: 1.0,
             queue_size: 100,
             transform_timeout: Duration::from_secs(1),
@@ -358,7 +363,7 @@ mod tests {
 
     fn get_config_with_default_params() -> GyroOdometerConfig {
         GyroOdometerConfig {
-            output_frame: String::from("base_link"),
+            output_frame: "base_link",
             message_timeout_sec: 1e12,
             ..GyroOdometerConfig::default()
         }

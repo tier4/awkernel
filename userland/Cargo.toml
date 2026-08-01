@@ -83,7 +83,7 @@ path = "../applications/tests/test_clustered_edf"
 optional = true
 
 [features]
-default = []
+default = ["autoware"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications

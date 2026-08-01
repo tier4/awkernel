@@ -246,7 +246,7 @@ impl Simple1DFilter {
 
         let kalman_gain = self.var / (self.var + obs_var);
         self.x += kalman_gain * (obs - self.x);
-        self.var = (1.0 - kalman_gain) * self.var;
+        self.var *= 1.0 - kalman_gain;
     }
 
     pub fn set_proc_var(&mut self, proc_var: f64) {
