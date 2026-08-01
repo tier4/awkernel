@@ -201,15 +201,22 @@ impl GyroOdometerCore {
         let dt = (current_timestamp as f64 - last_timestamp as f64) / 1_000_000_000.0;
         dt.abs() > timeout_sec
     }
-    pub fn get_transform(&self, from_frame: &str, to_frame: &str) -> Result<Transform> {
+    pub fn get_transform(&self, _from_frame: &str, _to_frame: &str) -> Result<Transform> {
+        // This exists to rotate the raw gyro's angular velocity out of the IMU's own mounting
+        // orientation (`from_frame`, e.g. `imu_link`) and into the vehicle body frame
+        // (`to_frame`, `output_frame`/"base_link"). If the IMU isn't mounted perfectly aligned
+        // with the vehicle body, its raw yaw-axis reading is not exactly the vehicle's own yaw
+        // rate -- some of it leaks in from roll/pitch, and vice versa. `measurement_update_twist`
+        // downstream assumes `wz` already IS the vehicle's base_link yaw rate, so any
+        // uncorrected mounting misalignment biases the fused estimate.
+        //
         // In the original implementation, a TF lookup failure should clear the queues and
-        // terminate processing early. This port currently returns identity because the
-        // evaluation setup uses a fixed identity transform.
-        if from_frame == to_frame || from_frame == "" || to_frame == "" {
-            Ok(Transform::identity())
-        } else {
-            Ok(Transform::identity())
-        }
+        // terminate processing early. This port currently always returns identity because the
+        // evaluation setup uses a fixed identity transform (IMU assumed perfectly aligned with
+        // base_link); there is no real TF lookup yet -- a real one would query calibrated sensor
+        // extrinsics (typically a fixed static offset for an IMU-to-base_link mount) instead of
+        // hardcoding identity here.
+        Ok(Transform::identity())
     }
 
     // The original C++ node publishes four topics: raw TwistStamped, raw TwistWithCovarianceStamped,
