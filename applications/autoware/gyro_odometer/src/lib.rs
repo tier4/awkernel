@@ -45,7 +45,7 @@ const COV_IDX_XYZRPY_PITCH_PITCH: usize = 28;
 const COV_IDX_XYZRPY_YAW_YAW: usize = 35;
 
 pub struct GyroOdometerCore {
-    pub output_frame: String,
+    pub output_frame: &'static str,
     pub message_timeout_sec: f64,
     pub vehicle_twist_arrived: bool,
     pub imu_arrived: bool,
@@ -59,7 +59,7 @@ pub struct GyroOdometerCore {
 impl GyroOdometerCore {
     pub fn new(config: GyroOdometerConfig) -> Result<Self> {
         let queue_size = config.queue_size;
-        let output_frame = config.output_frame.clone();
+        let output_frame = config.output_frame;
         let message_timeout_sec = config.message_timeout_sec;
 
         Ok(Self {
@@ -119,7 +119,7 @@ impl GyroOdometerCore {
 
         let tf = self.get_transform(
             self.gyro_queue.front().unwrap().header.frame_id,
-            &self.output_frame,
+            self.output_frame,
         )?;
 
         // In the original C++ implementation, angular_velocity_covariance is also transformed
@@ -168,7 +168,7 @@ impl GyroOdometerCore {
 
         let mut result = TwistWithCovarianceStamped {
             header: Header {
-                frame_id: self.gyro_queue.front().unwrap().header.frame_id,
+                frame_id: self.output_frame,
                 timestamp: result_timestamp,
             },
             twist: TwistWithCovariance {
@@ -301,7 +301,7 @@ type Result<T> = core::result::Result<T, GyroOdometerError>;
 
 #[derive(Debug, Clone)]
 pub struct GyroOdometerConfig {
-    pub output_frame: String,
+    pub output_frame: &'static str,
     pub message_timeout_sec: f64,
     pub queue_size: usize,
     pub transform_timeout: Duration,
@@ -312,7 +312,7 @@ pub struct GyroOdometerConfig {
 impl Default for GyroOdometerConfig {
     fn default() -> Self {
         Self {
-            output_frame: String::from("base_link"),
+            output_frame: "base_link",
             message_timeout_sec: 1.0,
             queue_size: 100,
             transform_timeout: Duration::from_secs(1),
@@ -356,7 +356,7 @@ mod tests {
 
     fn get_config_with_default_params() -> GyroOdometerConfig {
         GyroOdometerConfig {
-            output_frame: String::from("base_link"),
+            output_frame: "base_link",
             message_timeout_sec: 1e12,
             ..GyroOdometerConfig::default()
         }

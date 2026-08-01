@@ -3,22 +3,24 @@
 extern crate alloc;
 
 use alloc::{borrow::Cow, format, string::String, vec, vec::Vec};
+use awkernel_async_lib::channel::bounded;
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::net::IpAddr;
+use awkernel_async_lib::pubsub::Lifespan;
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::net::Ipv4Addr;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::time::Duration;
 use csv_core::{ReadRecordResult, Reader};
 
 pub use common_types::Header;
 use core::slice;
 use ekf_localizer::{
-    get_or_initialize_default_module, EKFOdometry, Point3D, Pose, PoseWithCovariance, Quaternion,
+    apply_twist_observability_gate, get_or_initialize_default_module, EKFOdometry, EKFParameters,
+    Point3D, Pose, PoseWithCovariance, PoseWithCovarianceStamped, Quaternion,
 };
-use imu_corrector::{ImuCorrector, ImuWithCovariance};
+use imu_corrector::{ImuCorrector, ImuWithCovariance, Transform};
 use imu_driver::{build_imu_msg_from_csv_row, ImuCsvRow, ImuMsg, TamagawaImuParser};
 use vehicle_velocity_converter::{
     build_velocity_report_from_csv_row, reactor_helpers, Twist, TwistWithCovariance,
@@ -31,10 +33,6 @@ const INTERFACE_ID: u64 = 0;
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 const UDP_DST_PORT: u16 = 26099;
-
-static mut LATEST_JSON_DATA: Option<String> = None;
-static JSON_DATA_READY: AtomicBool = AtomicBool::new(false);
-static JSON_DATA_LENGTH: AtomicUsize = AtomicUsize::new(0);
 
 include!(concat!(env!("OUT_DIR"), "/csv_data.rs"));
 
@@ -51,6 +49,18 @@ pub async fn run() {
     }
 
     log::info!("Starting Autoware test application with simplified TCP networking");
+
+    // Latest-value handoff from the (synchronous) sink reactor to the independent async UDP
+    // sender task. `queue_size: 1` + `flow_control: false` makes `try_send` overwrite the
+    // previous (not-yet-sent) entry instead of blocking or erroring -- matching the "only the
+    // newest odometry matters, dropping intermediate ticks is fine" semantics this bridge needs.
+    // This replaces the earlier unsynchronized `static mut` handoff (a genuine data race, since
+    // the sink reactor and the UDP task can run concurrently on different cores).
+    let (json_sender, json_receiver) = bounded::new::<String>(bounded::Attribute {
+        queue_size: 1,
+        flow_control: false,
+        lifespan: Lifespan::Permanent,
+    });
 
     let dag = create_dag();
     let _dag_id = dag.get_id();
@@ -268,35 +278,74 @@ pub async fn run() {
 
     dag.register_reactor::<_, (Pose, TwistWithCovarianceStamped), (Pose, EKFOdometry)>(
         "ekf_localizer".into(),
-        |(pose, twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
+        |(pose, mut twist): (Pose, TwistWithCovarianceStamped)| -> (Pose, EKFOdometry) {
             let ekf = get_or_initialize_default_module();
+            let current_time = get_awkernel_uptime_timestamp();
 
+            // `pose_dummy_generator` has no real localization source behind it yet (an NDT
+            // scan matcher port is out of scope here), so this covariance is a small fixed
+            // placeholder, not a calibrated sensor value.
+            let mut pose_covariance = [0.0; 36];
+            pose_covariance[0] = 0.01; // X_X
+            pose_covariance[7] = 0.01; // Y_Y
+            pose_covariance[14] = 0.01; // Z_Z
+            pose_covariance[21] = 0.01; // ROLL_ROLL
+            pose_covariance[28] = 0.01; // PITCH_PITCH
+            pose_covariance[35] = 0.01; // YAW_YAW
+
+            let pose_stamped = PoseWithCovarianceStamped {
+                header: common_types::Header {
+                    frame_id: "map",
+                    timestamp: current_time,
+                },
+                pose: PoseWithCovariance {
+                    pose,
+                    covariance: pose_covariance,
+                },
+            };
+
+            // Seeded once from the first pose, matching upstream's node-layer `initialize()`
+            // call; every later pose feeds `measurement_update_pose` instead. No TF listener
+            // is wired in yet, so the transform is the identity (see
+            // `EKFModule::initialize`'s doc comment).
             static mut INITIALIZED: bool = false;
-            unsafe {
-                if !INITIALIZED {
-                    ekf.initialize(pose);
+            let just_initialized = unsafe {
+                if INITIALIZED {
+                    false
+                } else {
+                    ekf.initialize(&pose_stamped, &Transform::identity());
                     INITIALIZED = true;
+                    true
                 }
-            }
+            };
 
-            // Use a fixed 50ms timestep to match the Autoware publisher cadence.
+            // Fixed 50ms timestep to match the periodic "start_dummy_data" trigger cadence.
+            // Both calls are required every predict tick -- `predict_with_delay` does not
+            // age the delay-time buffer itself (see its doc comment).
             const FIXED_DT: f64 = 0.05;
-            let dt = FIXED_DT;
+            ekf.accumulate_delay_time(FIXED_DT);
+            ekf.predict_with_delay(FIXED_DT);
 
-            if dt > 0.0 {
-                ekf.predict(dt);
+            if !just_initialized {
+                ekf.measurement_update_pose(&pose_stamped, current_time);
             }
 
-            let vx = twist.twist.twist.linear.x;
-            let wz = twist.twist.twist.angular.z;
-            ekf.update_velocity(vx, wz);
+            // Below `threshold_observable_velocity_mps` (0.0 by default, matching upstream's
+            // shipped config), vx is inflated as unreliable before fusing; wiring the gate
+            // unconditionally here matches upstream's `callback_twist_with_covariance`, even
+            // though the default threshold makes it a no-op today.
+            apply_twist_observability_gate(
+                &mut twist,
+                EKFParameters::default().threshold_observable_velocity_mps,
+            );
+            ekf.measurement_update_twist(&twist, current_time);
 
-            let ekf_pose = ekf.get_current_pose(false);
+            let ekf_pose = ekf.get_current_pose(false, current_time);
 
             let pose_covariance = ekf.get_current_pose_covariance();
             let twist_covariance = ekf.get_current_twist_covariance();
 
-            let ekf_twist = ekf.get_current_twist();
+            let ekf_twist = ekf.get_current_twist(current_time);
 
             let odometry = EKFOdometry {
                 header: common_types::Header {
@@ -305,27 +354,27 @@ pub async fn run() {
                 },
                 child_frame_id: "base_link",
                 pose: PoseWithCovariance {
-                    pose: ekf_pose,
+                    pose: ekf_pose.pose,
                     covariance: pose_covariance,
                 },
                 twist: TwistWithCovariance {
                     twist: Twist {
                         linear: common_types::Vector3::new(
-                            ekf_twist.linear.x,
-                            ekf_twist.linear.y,
-                            ekf_twist.linear.z,
+                            ekf_twist.twist.linear.x,
+                            ekf_twist.twist.linear.y,
+                            ekf_twist.twist.linear.z,
                         ),
                         angular: common_types::Vector3::new(
-                            ekf_twist.angular.x,
-                            ekf_twist.angular.y,
-                            ekf_twist.angular.z,
+                            ekf_twist.twist.angular.x,
+                            ekf_twist.twist.angular.y,
+                            ekf_twist.twist.angular.z,
                         ),
                     },
                     covariance: twist_covariance,
                 },
             };
 
-            (ekf_pose, odometry)
+            (ekf_pose.pose, odometry)
         },
         vec![Cow::from("dummy_pose"), Cow::from("twist_with_covariance")],
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
@@ -359,7 +408,9 @@ pub async fn run() {
                 ekf_odom.twist.covariance.iter().map(|&x| format!("{:.6}", x)).collect::<Vec<_>>().join(",")
             );
 
-            save_json_data_to_global(json_data);
+            if let Err(e) = json_sender.try_send(json_data) {
+                log::warn!("ekf_sink: failed to hand off JSON data to the UDP sender: {e:?}");
+            }
         },
         vec![Cow::from("estimated_pose"), Cow::from("ekf_odometry")],
         SchedulerType::GEDF(5),
@@ -398,21 +449,7 @@ pub async fn run() {
     awkernel_async_lib::sleep(Duration::from_secs(2)).await;
 
     log::info!("Starting periodic UDP sender task");
-    start_periodic_udp_sender().await;
-
-    log::info!("Waiting for JSON data to become ready...");
-    let mut wait_count = 0;
-    const MAX_WAIT_COUNT: u32 = 3;
-
-    while !JSON_DATA_READY.load(Ordering::Relaxed) && wait_count < MAX_WAIT_COUNT {
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-        wait_count += 1;
-    }
-
-    if JSON_DATA_READY.load(Ordering::Relaxed) {
-    } else {
-        log::warn!("JSON data was not ready. Periodic UDP sender task remains waiting");
-    }
+    start_periodic_udp_sender(json_receiver).await;
 
     log::info!("Autoware test application completed");
 }
@@ -575,16 +612,16 @@ fn get_awkernel_uptime_timestamp() -> u64 {
     }
 }
 
-pub async fn start_periodic_udp_sender() {
+pub async fn start_periodic_udp_sender(receiver: bounded::Receiver<String>) {
     awkernel_async_lib::spawn(
         "periodic_udp_sender".into(),
-        periodic_udp_sender_task(),
+        periodic_udp_sender_task(receiver),
         awkernel_async_lib::scheduler::SchedulerType::GEDF(5),
     )
     .await;
 }
 
-async fn periodic_udp_sender_task() {
+async fn periodic_udp_sender_task(receiver: bounded::Receiver<String>) {
     let socket_result = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
         &Default::default(),
@@ -605,15 +642,8 @@ async fn periodic_udp_sender_task() {
     let mut counter = 0;
 
     loop {
-        if !JSON_DATA_READY.load(Ordering::Relaxed) {
-            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-            continue;
-        }
-
-        let json_data = unsafe { LATEST_JSON_DATA.clone() };
-
-        if let Some(data) = json_data {
-            match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
+        match receiver.try_recv() {
+            Ok(data) => match socket.send(data.as_bytes(), &dst_addr, UDP_DST_PORT).await {
                 Ok(_) => {
                     counter += 1;
                     log::info!(
@@ -642,19 +672,17 @@ async fn periodic_udp_sender_task() {
                 Err(e) => {
                     log::warn!("Periodic UDP sender task: send failed: {:?}", e);
                 }
+            },
+            // Normal in steady state: `ekf_sink` only ticks every ~50ms, so the channel is
+            // frequently empty between sends. Fall through to the same 5ms poll cadence as the
+            // success path instead of a long sleep, so a fresh value is picked up promptly.
+            Err(bounded::RecvErr::NoData) => {}
+            Err(bounded::RecvErr::ChannelClosed) => {
+                log::warn!("Periodic UDP sender task: channel closed, stopping");
+                return;
             }
-        } else {
-            log::warn!("Periodic UDP sender task: failed to get JSON data");
         }
 
         awkernel_async_lib::sleep(Duration::from_millis(5)).await;
     }
-}
-
-fn save_json_data_to_global(json_data: String) {
-    unsafe {
-        LATEST_JSON_DATA = Some(json_data.clone());
-    }
-    JSON_DATA_READY.store(true, Ordering::Relaxed);
-    JSON_DATA_LENGTH.store(json_data.len(), Ordering::Relaxed);
 }
