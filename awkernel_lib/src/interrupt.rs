@@ -343,8 +343,8 @@ pub fn handle_irq(irq: u16) {
 }
 
 /// Handle all pending interrupt requests.
-/// This function will be used by only aarch64 and called from CPU's interrupt handlers.
-#[cfg(feature = "aarch64")]
+/// This is used by aarch64 and RISC-V, and called from CPU's interrupt handlers.
+#[cfg(any(feature = "aarch64", target_arch = "riscv32", target_arch = "riscv64"))]
 pub fn handle_irqs(is_task: bool) {
     use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;

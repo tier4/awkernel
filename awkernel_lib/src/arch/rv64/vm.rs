@@ -5,7 +5,9 @@ use crate::addr::{virt_addr::VirtAddr, Addr};
 use crate::{console::unsafe_puts, paging::PAGESIZE};
 use alloc::vec::Vec;
 use core::arch::asm;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[allow(dead_code)]
 extern "C" {
     fn stext();
     fn etext();
@@ -248,30 +250,22 @@ impl MemorySet {
             None,
         );
 
-        unsafe {
-            unsafe_puts("Mapping physical memory...\r\n");
-        }
-        memory_set.push(
-            MapArea::new(
-                VirtAddr::from_usize(ekernel as *const () as usize),
-                VirtAddr::from_usize(super::address::MEMORY_END as usize),
-                MapType::Identical,
-                MapPermission::R | MapPermission::W,
-            ),
-            None,
-        );
-
+        // Note: The page-table-frame and heap regions are mapped separately when
+        // init_kernel_space() calls map_identity_region() / map_heap_region().
         memory_set
     }
 
     pub fn activate(&self) {
         let satp = self.page_table.token();
         unsafe {
-            asm!("csrw satp, {}", in(reg) satp);
-            asm!("sfence.vma");
+            asm!(
+                "csrw satp, {satp}",
+                "sfence.vma",
+                satp = in(reg) satp,
+            );
         }
     }
-    #[allow(dead_code)]
+
     pub fn translate(&mut self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
@@ -300,16 +294,88 @@ impl MapArea {
     }
 }
 
-// Static kernel memory set
+// Static kernel memory set and heap size tracking
 use crate::sync::mcs::MCSNode;
 use crate::sync::mutex::Mutex;
 
 pub static KERNEL_SPACE: Mutex<Option<MemorySet>> = Mutex::new(None);
+static HEAP_SIZE: AtomicUsize = AtomicUsize::new(0);
 
-pub fn init_kernel_space() {
+/// Initialize the kernel page table.
+///
+/// `[pt_start, heap_start)` is the frame allocator's region (page table frames)
+/// and `[heap_start, memory_end)` is the heap region. The page-table-frame
+/// region must be identity-mapped too: page table code dereferences those
+/// frames via their physical addresses (e.g. `PhysPageNum::get_pte_array()`),
+/// which must remain valid once translation is enabled.
+pub fn init_kernel_space(pt_start: usize, heap_start: usize, memory_end: usize) {
     let mut node = MCSNode::new();
     let mut kernel_space = KERNEL_SPACE.lock(&mut node);
-    *kernel_space = Some(MemorySet::new_kernel());
+    let mut memory_set = MemorySet::new_kernel();
+
+    map_identity_region(&mut memory_set, pt_start, heap_start, "Page table frame");
+    map_heap_region(&mut memory_set, heap_start, memory_end);
+    HEAP_SIZE.store(memory_end - heap_start, Ordering::Relaxed);
+
+    *kernel_space = Some(memory_set);
+}
+
+/// Identity-map `[start, end)` with read/write permissions into the kernel page table.
+fn map_identity_region(memory_set: &mut MemorySet, start: usize, end: usize, name: &str) {
+    if end <= start {
+        return;
+    }
+
+    unsafe {
+        unsafe_puts(name);
+        unsafe_puts(" mapping:\r\n  start: 0x");
+        crate::console::unsafe_print_hex_u64(start as u64);
+        unsafe_puts("\r\n  end:   0x");
+        crate::console::unsafe_print_hex_u64(end as u64);
+        unsafe_puts("\r\n");
+    }
+
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(start),
+            VirtAddr::from_usize(end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
+}
+
+/// Map the heap physical region `[heap_start, memory_end)` into the kernel page table.
+///
+/// Uses identity mapping so physical addresses equal virtual addresses (M-mode compatible).
+/// Page table node frames come from the frame allocator, which must be initialised over a
+/// *separate* region before this is called — that is the guarantee that prevents overlap.
+fn map_heap_region(memory_set: &mut MemorySet, heap_start: usize, memory_end: usize) {
+    if memory_end <= heap_start {
+        unsafe { unsafe_puts("Warning: No memory available for heap\r\n") };
+        return;
+    }
+
+    unsafe {
+        unsafe_puts("Heap mapping:\r\n  start: 0x");
+        crate::console::unsafe_print_hex_u64(heap_start as u64);
+        unsafe_puts("\r\n  end:   0x");
+        crate::console::unsafe_print_hex_u64(memory_end as u64);
+        unsafe_puts("\r\n  size:  0x");
+        crate::console::unsafe_print_hex_u64((memory_end - heap_start) as u64);
+        unsafe_puts("\r\n");
+    }
+
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(heap_start),
+            VirtAddr::from_usize(memory_end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
 }
 
 pub fn activate_kernel_space() {
@@ -319,7 +385,7 @@ pub fn activate_kernel_space() {
         kernel_space.activate();
     }
 }
-#[allow(dead_code)]
+
 pub fn kernel_token() -> usize {
     let mut node = MCSNode::new();
     let kernel_space = KERNEL_SPACE.lock(&mut node);
@@ -328,4 +394,8 @@ pub fn kernel_token() -> usize {
     } else {
         panic!("Kernel space not initialized")
     }
+}
+
+pub fn get_heap_size() -> usize {
+    HEAP_SIZE.load(Ordering::Relaxed)
 }
