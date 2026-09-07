@@ -6,7 +6,7 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::{
         gedf::calculate_and_update_dag_deadline, get_priority, peek_preemption_pending,
-        push_preemption_pending, PartitionedTask, GLOBAL_WAKE_GET_MUTEX,
+        push_preemption_pending, PartitionedTask, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
         get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
@@ -164,6 +164,10 @@ pub static SCHEDULER: PartitionedEDFScheduler = PartitionedEDFScheduler {
 
 impl PartitionedEDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let cpu_id = task.partitioned_core.expect("Task has no partitioned core") as usize;
 
         let task_running = get_task_running(cpu_id);

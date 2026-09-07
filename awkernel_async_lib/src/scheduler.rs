@@ -149,6 +149,10 @@ const fn get_num_partitioned_schedulers() -> usize {
     count
 }
 
+/// Preemption requests hand the woken task to the preemption IPI handler instead of the run queue.
+/// The `no_preempt` feature compiles that handler out, so the task would never run.
+pub(crate) const PREEMPTION_ENABLED: bool = cfg!(not(feature = "no_preempt"));
+
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
 /// In order to resolve priority inversion in multiple priority-based schedulers,
 /// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
