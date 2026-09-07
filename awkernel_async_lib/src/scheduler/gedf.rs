@@ -193,16 +193,17 @@ impl GEDFScheduler {
     }
 }
 
-fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
+/// The sink's relative deadline in microseconds, the unit of `awkernel_lib::delay::uptime()`.
+fn get_dag_sink_relative_deadline_us(dag_id: u32) -> u64 {
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
     dag.get_sink_relative_deadline()
-        .map(|deadline| deadline.as_millis() as u64)
+        .map(|deadline| deadline.as_micros() as u64)
         .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"))
 }
 
 fn calculate_and_set_dag_deadline(dag_id: u32, wake_time: u64) -> u64 {
-    let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
-    let dag_absolute_deadline = wake_time + relative_deadline_ms;
+    let relative_deadline_us = get_dag_sink_relative_deadline_us(dag_id);
+    let dag_absolute_deadline = wake_time + relative_deadline_us;
     set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
     dag_absolute_deadline
 }
