@@ -4,8 +4,10 @@
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 
-use crate::task::Task;
-use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use crate::{
+    task::{get_current_task, get_scheduler_type_by_task_id, Task},
+    time::Time,
+};
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
@@ -340,25 +342,35 @@ impl<T> Drop for ClusteredTask<T> {
 /// Maintain sleeping tasks by a delta list.
 struct SleepingTasks {
     delta_list: DeltaList<Box<dyn FnOnce() + Send>>,
-    base_time: awkernel_lib::time::Time,
+    base_time: Time,
 }
 
 impl SleepingTasks {
     const fn new() -> Self {
         Self {
             delta_list: DeltaList::Nil,
-            base_time: awkernel_lib::time::Time::zero(),
+            base_time: Time::zero(),
         }
     }
 
     /// `dur` is a Duration.
     fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: Duration) {
         if self.delta_list.is_empty() {
-            self.base_time = awkernel_lib::time::Time::now();
+            self.base_time = Time::now();
         } else {
             let diff = self.base_time.elapsed();
             dur += diff;
         }
+
+        self.delta_list.insert(dur.as_nanos() as u64, handler);
+    }
+
+    /// Sleep until `next` (no relative duration).
+    fn sleep_until_task(&mut self, handler: Box<dyn FnOnce() + Send>, next: Time) {
+        if self.delta_list.is_empty() {
+            self.base_time = Time::now();
+        }
+        let dur = next - self.base_time;
 
         self.delta_list.insert(dur.as_nanos() as u64, handler);
     }
@@ -403,6 +415,17 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
         let mut node = MCSNode::new();
         let mut guard = SLEEPING.lock(&mut node);
         guard.sleep_task(sleep_handler, dur);
+    }
+
+    awkernel_lib::cpu::wake_cpu(0);
+}
+
+/// After reaching `next` time, `sleep_until_handler` will be invoked.
+pub(crate) fn sleep_until_task(sleep_handler: Box<dyn FnOnce() + Send>, next: Time) {
+    {
+        let mut node = MCSNode::new();
+        let mut guard = SLEEPING.lock(&mut node);
+        guard.sleep_until_task(sleep_handler, next);
     }
 
     awkernel_lib::cpu::wake_cpu(0);
