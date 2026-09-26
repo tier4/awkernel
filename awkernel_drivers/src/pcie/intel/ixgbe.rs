@@ -1831,21 +1831,16 @@ impl Ixgbe {
 
         // Pluggable optics-related interrupt
         if inner.is_sfp() {
-            let mod_mask;
-            let msf_mask;
-            if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
-                mod_mask = IXGBE_EICR_GPI_SDP0_X540;
-                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+            let (mod_mask, msf_mask) = if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
+                (IXGBE_EICR_GPI_SDP0_X540, IXGBE_EICR_GPI_SDP1_X540)
             } else if inner.hw.mac.mac_type == MacType::IxgbeMacX540
                 || inner.hw.mac.mac_type == MacType::IxgbeMacX550
                 || inner.hw.mac.mac_type == MacType::IxgbeMacX550EMX
             {
-                mod_mask = IXGBE_EICR_GPI_SDP2_X540;
-                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+                (IXGBE_EICR_GPI_SDP2_X540, IXGBE_EICR_GPI_SDP1_X540)
             } else {
-                mod_mask = IXGBE_EICR_GPI_SDP2;
-                msf_mask = IXGBE_EICR_GPI_SDP1;
-            }
+                (IXGBE_EICR_GPI_SDP2, IXGBE_EICR_GPI_SDP1)
+            };
             if reg_eicr & mod_mask != 0 {
                 // Clear the interrupt
                 ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, mod_mask)?;

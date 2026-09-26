@@ -115,7 +115,7 @@ pub static SCHEDULER: PrioritizedRRScheduler = PrioritizedRRScheduler {
     // Time quantum (4 ms)
     interval: 4_000,
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::PrioritizedRR(0)),
+    priority: get_priority(&SchedulerType::PrioritizedRR(0)),
 };
 
 impl PrioritizedRRScheduler {

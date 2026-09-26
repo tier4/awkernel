@@ -2,6 +2,7 @@
 
 [workspace]
 members = [
+    "affinity_btree_queue",
     "kernel",
     "userland",
     "x86bootdisk",

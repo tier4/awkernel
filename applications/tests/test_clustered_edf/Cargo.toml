@@ -1,5 +1,5 @@
 [package]
-name = "test_partitioned_edf"
+name = "test_clustered_edf"
 version = "0.1.0"
 edition = "2021"
 
