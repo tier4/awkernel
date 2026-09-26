@@ -178,7 +178,7 @@ const _: () = {
     }
 };
 
-/// When false, every `invoke_preemption*` returns early and `wake_task` enqueues the woken task.
+/// When false, no scheduler requests preemption, and `wake_task` enqueues the woken task.
 /// `no_preempt` compiles out the IPI handler that runs preemption-pending tasks.
 /// Without this flag, a pending task waits until its target CPU goes idle and starves while every worker keeps polling.
 pub(crate) const PREEMPTION_ENABLED: bool = cfg!(not(feature = "no_preempt"));
