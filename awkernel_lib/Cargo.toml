@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+affinity_btree_queue = { path = "../affinity_btree_queue" }
 log = "0.4"
 rlsf = "0.2"
 bitflags = "2.3"

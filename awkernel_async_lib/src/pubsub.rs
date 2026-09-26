@@ -52,11 +52,16 @@ use core::{
 use futures::Future;
 use pin_project::pin_project;
 
+#[cfg(feature = "period-index-propagation")]
+use crate::task::perf::record_publish_timestamp;
+
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
     pub timestamp: awkernel_lib::time::Time,
     pub data: T,
+    #[cfg(feature = "period-index-propagation")]
+    pub period_index: u32,
 }
 
 /// Publisher.
@@ -260,6 +265,8 @@ struct Sender<'a, T: 'static + Send> {
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
     timestamp: awkernel_lib::time::Time,
+    #[cfg(feature = "period-index-propagation")]
+    period_index: u32,
 }
 
 enum SenderState {
@@ -276,7 +283,15 @@ impl<'a, T: Send> Sender<'a, T> {
             subscribers: Default::default(),
             state: SenderState::Start,
             timestamp: awkernel_lib::time::Time::now(),
+            #[cfg(feature = "period-index-propagation")]
+            period_index: 0,
         }
+    }
+
+    #[cfg(feature = "period-index-propagation")]
+    pub(super) fn with_period_index(mut self, index: u32) -> Self {
+        self.period_index = index;
+        self
     }
 }
 
@@ -309,6 +324,8 @@ where
                             if let Err(data) = guard.push(Data {
                                 timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
+                                #[cfg(feature = "period-index-propagation")]
+                                period_index: *this.period_index,
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
                                 guard.pop();
@@ -342,6 +359,8 @@ where
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
+                            #[cfg(feature = "period-index-propagation")]
+                            period_index: *this.period_index,
                         }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
@@ -386,8 +405,98 @@ where
         sender.await;
         r#yield().await;
     }
+
+    #[cfg(feature = "period-index-propagation")]
+    pub async fn send_with_period_index(&self, data: T, pub_id: u32, index: usize, node_id: u32) {
+        // [start] pubsub communication latency
+        let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+        record_publish_timestamp(index, start, pub_id, node_id);
+        let period_index = match u32::try_from(index) {
+            Ok(period_index) => period_index,
+            Err(_) => {
+                log::warn!(
+                    "Period index {} exceeds u32::MAX; saturating period index",
+                    index
+                );
+                u32::MAX
+            }
+        };
+        let sender = Sender::new(self, data).with_period_index(period_index);
+        sender.await;
+        r#yield().await;
+    }
 }
 
+#[cfg(all(test, feature = "period-index-propagation"))]
+mod period_index_propagation_tests {
+    use super::*;
+    use core::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    };
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn wake(_: *const ()) {}
+            fn wake_by_ref(_: *const ()) {}
+            fn drop(_: *const ()) {}
+
+            RawWaker::new(
+                core::ptr::null(),
+                &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
+            )
+        }
+
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut future = Box::pin(future);
+
+        // Since `wake` is an operation that does nothing, returning `Poll::Pending` would normally cause a deadlock.
+        // However, this test runs in a single thread and follows the “send → receive” order (where `send` always completes before `recv`).
+        // In practice, it should not hang.
+        loop {
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(&mut future).poll(&mut context) {
+                Poll::Ready(output) => return output,
+                Poll::Pending => {}
+            }
+        }
+    }
+
+    #[test]
+    fn send_with_period_index_propagates_period_index_to_receiver() {
+        block_on(async {
+            let (publisher, subscriber) = create_pubsub::<u32>(Attribute::default());
+            publisher.send_with_period_index(42, 1, 7, 99).await;
+
+            let received = subscriber.recv().await;
+            assert_eq!(received.data, 42);
+            assert_eq!(received.period_index, 7);
+        });
+    }
+
+    #[test]
+    fn tuple_recv_all_with_period_index_returns_shared_period_index() {
+        block_on(async {
+            let (publisher1, subscriber1) = create_pubsub::<u32>(Attribute::default());
+            let (publisher2, subscriber2) = create_pubsub::<u32>(Attribute::default());
+
+            publisher1.send_with_period_index(10, 11, 3, 21).await;
+            publisher2.send_with_period_index(20, 12, 3, 22).await;
+
+            let ((value1, value2), period_index) = (subscriber1, subscriber2)
+                .recv_all_with_period_index()
+                .await;
+
+            assert_eq!(value1, 10);
+            assert_eq!(value2, 20);
+            assert_eq!(period_index, 3);
+        });
+    }
+}
 /// Create an anonymous publisher and an anonymous subscriber.
 /// This channel works as a channel of multiple producers and multiple consumers.
 ///
@@ -756,12 +865,26 @@ pub trait MultipleReceiver {
     type Item;
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+
+    #[cfg(feature = "period-index-propagation")]
+    fn recv_all_with_period_index(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>>;
 }
 
 pub trait MultipleSender {
     type Item;
 
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+
+    #[cfg(feature = "period-index-propagation")]
+    fn send_all_with_period_index(
+        &self,
+        item: Self::Item,
+        pub_id: u32,
+        index: usize,
+        node_id: u32,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 pub trait VectorToPublishers {
     type Publishers: MultipleSender;
@@ -834,12 +957,30 @@ macro_rules! impl_async_receiver_for_tuple {
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
                 Box::pin(async move{})
             }
+
+            #[cfg(feature = "period-index-propagation")]
+            fn recv_all_with_period_index(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                Box::pin(async move { ((), 0) })
+            }
         }
 
         impl MultipleSender for () {
             type Item = ();
 
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move{})
+            }
+
+            #[cfg(feature = "period-index-propagation")]
+            fn send_all_with_period_index(
+                &self,
+                _item: Self::Item,
+                _pub_id: u32,
+                _index: usize,
+                _node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
         }
@@ -854,6 +995,40 @@ macro_rules! impl_async_receiver_for_tuple {
                     ($($idx.recv().await.data,)+)
                 })
             }
+
+            #[cfg(feature = "period-index-propagation")]
+            fn recv_all_with_period_index(
+                &self,
+            ) -> Pin<Box<dyn Future<Output = (Self::Item, u32)> + Send + '_>> {
+                let ($($idx,)+) = self;
+                Box::pin(async move {
+                    let mut period_index: Option<u32> = None;
+                    $(
+                        let item = $idx.recv().await;
+                        match period_index {
+                            // Multiple upstream nodes may not produce the same period_index
+                            // at the same time because of startup skew, delayed or dropped
+                            // messages, or DAG branches with different path lengths.
+                            // Treating this as a panic would be too disruptive here, so we
+                            // keep the first period_index and only warn on mismatches.
+                            Some(expected) => {
+                                if expected != item.period_index {
+                                    log::warn!(
+                                        "recv_all_with_period_index received mismatched periods: expected {}, got {}",
+                                        expected,
+                                        item.period_index
+                                    );
+                                }
+                            }
+                            None => {
+                                period_index = Some(item.period_index);
+                            }
+                        }
+                        let $idx2 = item.data;
+                    )+
+                    (($($idx2,)+), period_index.expect("recv_all_with_period_index requires at least one subscriber"))
+                })
+            }
         }
 
         impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
@@ -865,6 +1040,23 @@ macro_rules! impl_async_receiver_for_tuple {
                 Box::pin(async move {
                     $(
                         $idx.send($idx2).await;
+                    )+
+                })
+            }
+
+            #[cfg(feature = "period-index-propagation")]
+            fn send_all_with_period_index(
+                &self,
+                item: Self::Item,
+                pub_id: u32,
+                index: usize,
+                node_id: u32,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)+) = self;
+                let ($($idx2,)+) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send_with_period_index($idx2, pub_id, index, node_id).await;
                     )+
                 })
             }

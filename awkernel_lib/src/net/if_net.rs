@@ -514,7 +514,7 @@ impl IfNet {
             // If some task will poll, this task need not to poll.
             if self
                 .will_poll
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     if n > 0 {
                         None
                     } else {
