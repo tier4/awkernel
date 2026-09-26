@@ -202,23 +202,12 @@ impl Dag {
         graph.externals(Direction::Outgoing).collect()
     }
 
-    pub fn is_source_node(&self, node_index: NodeIndex) -> bool {
-        let source_nodes = self.get_source_nodes();
-        source_nodes.contains(&node_index)
-    }
-
     // Returns the relative deadline of the first sink node, if it exists.
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
-        let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
-
-        if let Some(sink_node_index) = sink_nodes.first() {
-            self.graph
-                .lock(&mut MCSNode::new())
-                .node_weight(*sink_node_index)?
-                .relative_deadline
-        } else {
-            None
-        }
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        let sink_node_index = graph.externals(Direction::Outgoing).next()?;
+        graph.node_weight(sink_node_index)?.relative_deadline
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -519,13 +508,16 @@ impl Dag {
     }
 
     /// Records that the node at `node_idx` finished its current instance.
-    fn finish_instance(&self, node_idx: NodeIndex) {
+    /// Returns true if the next instance of the node is already released.
+    fn finish_instance(&self, node_idx: NodeIndex) -> bool {
         let mut node = MCSNode::new();
         let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
 
         let mut graph_node = MCSNode::new();
         let mut graph = self.graph.lock(&mut graph_node);
-        graph.node_weight_mut(node_idx).unwrap().num_finished += 1;
+        let node_info = graph.node_weight_mut(node_idx).unwrap();
+        node_info.num_finished += 1;
+        let next_instance = node_info.num_finished;
 
         if let Some(oldest_unfinished) = graph
             .node_indices()
@@ -543,6 +535,8 @@ impl Dag {
         while absolute_deadlines.len() > max_unfinished {
             absolute_deadlines.pop_first();
         }
+
+        absolute_deadlines.contains_key(&next_instance)
     }
 }
 
@@ -1000,11 +994,12 @@ where
                 publishers.send_all(results).await;
             }
 
-            dag.finish_instance(node_idx);
-
-            // Wake through the scheduler, so that the next instance runs with its own deadline
-            // even if its input is already in the queue.
-            crate::r#yield().await;
+            // If the next instance is released, its input can already be in the queue. Then
+            // `recv_all` returns without `wake_task`, so wake through the scheduler to get the
+            // deadline of that instance.
+            if dag.finish_instance(node_idx) {
+                crate::r#yield().await;
+            }
         }
     };
 
@@ -1133,11 +1128,12 @@ where
                 f(args);
             }
 
-            dag.finish_instance(node_idx);
-
-            // Wake through the scheduler, so that the next instance runs with its own deadline
-            // even if its input is already in the queue.
-            crate::r#yield().await;
+            // If the next instance is released, its input can already be in the queue. Then
+            // `recv_all` returns without `wake_task`, so wake through the scheduler to get the
+            // deadline of that instance.
+            if dag.finish_instance(node_idx) {
+                crate::r#yield().await;
+            }
         }
     };
 
@@ -1167,7 +1163,8 @@ mod tests {
             10
         );
 
-        dag.finish_instance(source);
+        // Instance 1 is not released yet.
+        assert!(!dag.finish_instance(source));
 
         // A preempted source node resumes before the next period and does not release instance 1.
         assert_eq!(
@@ -1182,7 +1179,8 @@ mod tests {
         // The sink node wakes for instance 0 after the release of instance 1.
         assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 21), 10);
 
-        dag.finish_instance(sink);
+        // The source node released instance 1.
+        assert!(dag.finish_instance(sink));
         assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 22), 20);
         assert!(!dag
             .absolute_deadlines
@@ -1252,7 +1250,11 @@ mod tests {
 
         let mut node = MCSNode::new();
         let absolute_deadlines = dag.absolute_deadlines.lock(&mut node);
-        assert!(absolute_deadlines.len() < 100);
+        // The cap for two nodes.
+        assert_eq!(
+            absolute_deadlines.len(),
+            2 * (Attribute::default().queue_size + 1) + 1
+        );
         assert_eq!(absolute_deadlines.last_key_value(), Some((&99, &99)));
     }
 }

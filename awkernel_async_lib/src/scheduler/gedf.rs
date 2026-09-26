@@ -193,6 +193,13 @@ impl GEDFScheduler {
     }
 }
 
+/// Returns the absolute deadline of the DAG instance that the node of `dag_info` processes next.
+/// A wake of the source node in any `state` except `State::Preempted` releases that instance
+/// with `wake_time` plus the sink relative deadline, if it is not released yet.
+///
+/// # Panics
+///
+/// Panics if the DAG does not exist or has no sink relative deadline.
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, state: State) -> u64 {
     let dag_id = dag_info.dag_id;
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
