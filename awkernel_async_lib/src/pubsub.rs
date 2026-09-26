@@ -893,7 +893,7 @@ pub trait VectorToPublishers {
 }
 
 pub trait VectorToSubscribers {
-    type Subscribers: MultipleReceiver;
+    type Subscribers: MultipleReceiver + 'static;
 
     fn create_subscribers(
         topics: Vec<Cow<'static, str>>,

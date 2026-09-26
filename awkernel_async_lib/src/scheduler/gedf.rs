@@ -71,7 +71,7 @@ impl Scheduler for GEDFScheduler {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
-                        calculate_and_update_dag_deadline(dag_info, wake_time)
+                        calculate_and_update_dag_deadline(dag_info, wake_time, info.state)
                     } else {
                         // If dag_info is not present, the task is treated as a regular task, and
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.
@@ -193,20 +193,21 @@ impl GEDFScheduler {
     }
 }
 
-pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
+pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, state: State) -> u64 {
     let dag_id = dag_info.dag_id;
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
 
-    // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
-    let relative_deadline_us = dag
-        .get_sink_relative_deadline()
-        .map(|deadline| deadline.as_micros() as u64)
-        .unwrap_or_else(|| {
-            panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
-        });
+    // The wake of a preempted task resumes it and does not release an instance.
+    let release = state != State::Preempted;
 
-    dag.get_or_release_absolute_deadline(
-        to_node_index(dag_info.node_id),
-        wake_time + relative_deadline_us,
-    )
+    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
+        // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+        let relative_deadline_us = dag
+            .get_sink_relative_deadline()
+            .map(|deadline| deadline.as_micros() as u64)
+            .unwrap_or_else(|| {
+                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
+            });
+        wake_time + relative_deadline_us
+    })
 }
