@@ -1223,7 +1223,7 @@ pub fn run_main() {
         perf::start_kernel();
 
         let cpu_id = awkernel_lib::cpu::cpu_id();
-        if RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
+        if scheduler::PREEMPTION_ENABLED && RUNNING[cpu_id].load(Ordering::Relaxed) == 0 {
             // Re-wake all preemption-pending tasks, because the preemption is no longer required.
             while let Some(p) = pop_preemption_pending(cpu_id) {
                 p.scheduler.wake_task(p);

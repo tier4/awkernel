@@ -121,10 +121,6 @@ pub static SCHEDULER: PrioritizedRRScheduler = PrioritizedRRScheduler {
 impl PrioritizedRRScheduler {
     // Invoke a preemption if the task exceeds the time quantum
     pub fn invoke_preemption_tick(&self, cpu_id: usize, task_id: u32) {
-        if !PREEMPTION_ENABLED {
-            return;
-        }
-
         if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
             let elapsed = last_executed.elapsed().as_micros() as u64;
             if elapsed > self.interval {
