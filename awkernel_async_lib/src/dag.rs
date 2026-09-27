@@ -227,6 +227,7 @@ impl Dag {
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
             num_finished: 0,
+            deadline_instance: None,
         };
 
         let mut node = MCSNode::new();
@@ -486,14 +487,19 @@ impl Dag {
         let mut node = MCSNode::new();
         let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
 
-        let (instance, is_source) = {
+        let (instance, release) = {
             let mut graph_node = MCSNode::new();
-            let graph = self.graph.lock(&mut graph_node);
-            let mut incoming = graph.neighbors_directed(node_idx, Direction::Incoming);
-            (
-                graph.node_weight(node_idx).unwrap().num_finished,
-                incoming.next().is_none(),
-            )
+            let mut graph = self.graph.lock(&mut graph_node);
+            let is_source = graph
+                .neighbors_directed(node_idx, Direction::Incoming)
+                .next()
+                .is_none();
+            let node_info = graph.node_weight_mut(node_idx).unwrap();
+            let instance = node_info.num_finished;
+            let release = release && is_source;
+            node_info.deadline_instance =
+                (release || absolute_deadlines.contains_key(&instance)).then_some(instance);
+            (instance, release)
         };
 
         if let Some(&deadline) = absolute_deadlines.get(&instance) {
@@ -501,15 +507,28 @@ impl Dag {
         }
 
         let release_deadline = release_deadline();
-        if release && is_source {
+        if release {
             absolute_deadlines.insert(instance, release_deadline);
         }
         release_deadline
     }
 
+    /// Returns true if the instance that the node at `node_idx` processes is released, but the
+    /// last wake of the node did not get its deadline. This occurs if `recv_all` finds the input
+    /// in the queue and returns without `wake_task`. A yield then gives the node the deadline.
+    fn has_stale_deadline(&self, node_idx: NodeIndex) -> bool {
+        let mut node = MCSNode::new();
+        let absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+
+        let mut graph_node = MCSNode::new();
+        let graph = self.graph.lock(&mut graph_node);
+        let node_info = graph.node_weight(node_idx).unwrap();
+        node_info.deadline_instance != Some(node_info.num_finished)
+            && absolute_deadlines.contains_key(&node_info.num_finished)
+    }
+
     /// Records that the node at `node_idx` finished its current instance.
-    /// Returns true if the next instance of the node is already released.
-    fn finish_instance(&self, node_idx: NodeIndex) -> bool {
+    fn finish_instance(&self, node_idx: NodeIndex) {
         let mut node = MCSNode::new();
         let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
 
@@ -517,7 +536,6 @@ impl Dag {
         let mut graph = self.graph.lock(&mut graph_node);
         let node_info = graph.node_weight_mut(node_idx).unwrap();
         node_info.num_finished += 1;
-        let next_instance = node_info.num_finished;
 
         if let Some(oldest_unfinished) = graph
             .node_indices()
@@ -535,8 +553,6 @@ impl Dag {
         while absolute_deadlines.len() > max_unfinished {
             absolute_deadlines.pop_first();
         }
-
-        absolute_deadlines.contains_key(&next_instance)
     }
 }
 
@@ -563,6 +579,7 @@ struct NodeInfo {
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
     num_finished: u64, // Number of DAG instances that this node finished.
+    deadline_instance: Option<u64>, // Instance whose deadline the last wake of this node got.
 }
 
 pub fn to_node_index(index: u32) -> NodeIndex {
@@ -979,6 +996,10 @@ where
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 let results = f(args);
                 publishers
                     .send_all_with_period_index(results, 1, period_index as usize, dag_info.node_id)
@@ -990,16 +1011,15 @@ where
                 let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 let results = f(args);
                 publishers.send_all(results).await;
             }
 
-            // If the next instance is released, its input can already be in the queue. Then
-            // `recv_all` returns without `wake_task`, so wake through the scheduler to get the
-            // deadline of that instance.
-            if dag.finish_instance(node_idx) {
-                crate::r#yield().await;
-            }
+            dag.finish_instance(node_idx);
         }
     };
 
@@ -1118,6 +1138,10 @@ where
                     update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 f(args);
             }
 
@@ -1125,15 +1149,15 @@ where
             {
                 let args: <Args::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;
+
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 f(args);
             }
 
-            // If the next instance is released, its input can already be in the queue. Then
-            // `recv_all` returns without `wake_task`, so wake through the scheduler to get the
-            // deadline of that instance.
-            if dag.finish_instance(node_idx) {
-                crate::r#yield().await;
-            }
+            dag.finish_instance(node_idx);
         }
     };
 
@@ -1163,8 +1187,10 @@ mod tests {
             10
         );
 
-        // Instance 1 is not released yet.
-        assert!(!dag.finish_instance(source));
+        // The input of instance 0 can reach the sink node without a wake.
+        assert!(dag.has_stale_deadline(sink));
+
+        dag.finish_instance(source);
 
         // A preempted source node resumes before the next period and does not release instance 1.
         assert_eq!(
@@ -1178,10 +1204,13 @@ mod tests {
 
         // The sink node wakes for instance 0 after the release of instance 1.
         assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 21), 10);
+        assert!(!dag.has_stale_deadline(sink));
 
         // The source node released instance 1.
-        assert!(dag.finish_instance(sink));
+        dag.finish_instance(sink);
+        assert!(dag.has_stale_deadline(sink));
         assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 22), 20);
+        assert!(!dag.has_stale_deadline(sink));
         assert!(!dag
             .absolute_deadlines
             .lock(&mut MCSNode::new())

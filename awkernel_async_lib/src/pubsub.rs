@@ -862,7 +862,7 @@ impl Default for Attribute {
 }
 
 pub trait MultipleReceiver {
-    type Item;
+    type Item: Send;
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 
