@@ -193,8 +193,8 @@ impl GEDFScheduler {
     }
 }
 
-/// Returns the absolute deadline of the DAG instance that the node of `dag_info` processes next.
-/// A wake of the source node in any `state` except `State::Preempted` releases that instance
+/// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
+/// A wake of the source node in any `state` except `State::Preempted` releases that job
 /// with `wake_time` plus the sink relative deadline, if it is not released yet. Any other wake
 /// before the release gets that value without a release.
 ///
@@ -206,9 +206,9 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, sta
     let dag_id = dag_info.dag_id;
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
 
-    // The wake of a preempted task resumes it and does not release an instance. Any other wake
-    // of the source node at an unreleased instance must come from its `Interval` tick. After the
-    // source node finishes an instance, it waits only for that tick, because it has no subscriber.
+    // The wake of a preempted task resumes it and does not release a job. Any other wake
+    // of the source node at an unreleased job must come from its `Interval` tick. After the
+    // source node finishes a job, it waits only for that tick, because it has no subscriber.
     let release = state != State::Preempted;
 
     dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
