@@ -342,6 +342,26 @@ It will takes several minutes.
 $ make loom
 ```
 
+## CI Checks
+
+`scripts/ci.sh` runs the same checks as the CI.
+It requires cargo-udeps in addition to the compiler tools.
+
+```text
+$ cargo binstall cargo-udeps
+$ scripts/ci.sh
+```
+
+Cargo.lock is not tracked, so the CI uses the latest compatible dependencies.
+If a check fails only on your machine, run `cargo update` and try again.
+
+To run the checks with [pre-commit](https://pre-commit.com/), install the hooks.
+The pre-commit hook runs `cargo fmt --check`, and the pre-push hook runs `scripts/ci.sh`.
+
+```text
+$ pre-commit install
+```
+
 ## Publications
 
 [Publications](./PUBLICATIONS.md)
