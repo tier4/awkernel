@@ -6,7 +6,7 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::{
         get_next_task, get_priority, peek_preemption_pending, push_preemption_pending,
-        GLOBAL_WAKE_GET_MUTEX,
+        GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
         get_last_executed_by_task_id, get_task, get_tasks_running, set_current_task,
@@ -135,6 +135,10 @@ impl PrioritizedRRScheduler {
     }
 
     fn invoke_preemption_wake(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let tasks_running = get_tasks_running()
             .into_iter()
             .filter(|rt| rt.task_id != 0) // Filter out idle CPUs

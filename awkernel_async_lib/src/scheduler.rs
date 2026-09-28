@@ -178,6 +178,11 @@ const _: () = {
     }
 };
 
+/// When false, no scheduler requests preemption, and `wake_task` enqueues the woken task.
+/// `no_preempt` compiles out the IPI handler that runs preemption-pending tasks.
+/// Without this flag, a pending task waits until its target CPU goes idle and starves while every worker keeps polling.
+pub(crate) const PREEMPTION_ENABLED: bool = cfg!(not(feature = "no_preempt"));
+
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
 /// In order to resolve priority inversion in multiple priority-based schedulers,
 /// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
@@ -415,10 +420,14 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
 /// If there are no sleeping tasks, this function returns `None`.
 pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
-    for cpu_id in 1..num_cpu() {
-        if let Some(task_id) = get_current_task(cpu_id) {
-            if let Some(SchedulerType::PrioritizedRR(_)) = get_scheduler_type_by_task_id(task_id) {
-                prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
+    if PREEMPTION_ENABLED {
+        for cpu_id in 1..num_cpu() {
+            if let Some(task_id) = get_current_task(cpu_id) {
+                if let Some(SchedulerType::PrioritizedRR(_)) =
+                    get_scheduler_type_by_task_id(task_id)
+                {
+                    prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
+                }
             }
         }
     }
