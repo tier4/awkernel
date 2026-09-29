@@ -5,6 +5,11 @@ set -eux
 
 export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-nightly-2026-07-20}"
 
+# Forwarded to `make` (and its recursive invocation in kernel/asm/x86) so that
+# building mpboot.S works on hosts without a native 32-bit ELF gcc/ld, e.g.
+# macOS: CROSS_COMPILE=x86_64-elf- ./scripts/ci.sh (see README.md).
+export CROSS_COMPILE="${CROSS_COMPILE:-}"
+
 cargo fmt --check
 
 for bsp in aarch64_virt raspi5 raspi4 raspi3; do
