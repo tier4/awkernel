@@ -199,8 +199,8 @@ fn help_ffi() {
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
     lines.push_str("(netdump id); dump device registers\r\n");
-    lines.push_str("(reboot)    ; reboot x86_64 systems\r\n");
-    lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
+    lines.push_str("(reboot)    ; reboot (raspi and x86_64 systems)\r\n");
+    lines.push_str("(shutdown)  ; power off (raspi and x86_64 systems)\r\n");
 
     #[cfg(feature = "perf")]
     lines.push_str("(perf)      ; print performance information\r\n");
@@ -268,28 +268,12 @@ fn netdump_ffi(interface_id: BigInt) {
 
 #[embedded]
 fn reboot_ffi() {
-    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
-    {
-        awkernel_lib::arch::x86_64::power::reboot();
-    }
-
-    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
-    {
-        console::print("reboot is unsupported on this architecture\r\n");
-    }
+    awkernel_lib::power::reboot();
 }
 
 #[embedded]
 fn shutdown_ffi() {
-    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
-    {
-        awkernel_lib::arch::x86_64::power::shutdown();
-    }
-
-    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
-    {
-        console::print("shutdown is unsupported on this architecture\r\n");
-    }
+    awkernel_lib::power::shutdown();
 }
 
 #[cfg(feature = "perf")]
