@@ -4,7 +4,9 @@ impl CPU for super::RV64 {
     fn cpu_id() -> usize {
         let hartid: usize;
         unsafe {
-            core::arch::asm!("csrr {}, mhartid", out(reg) hartid);
+            // In M-mode, read from tp register (set during boot)
+            // This avoids repeatedly accessing mhartid CSR
+            core::arch::asm!("mv {}, tp", out(reg) hartid);
         }
         hartid
     }
