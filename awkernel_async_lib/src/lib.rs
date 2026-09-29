@@ -21,6 +21,7 @@ pub mod scheduler;
 pub mod service;
 pub mod session_types;
 mod sleep_task;
+mod sleep_until_task;
 pub mod sync;
 pub mod task;
 pub mod time;
@@ -126,6 +127,34 @@ pub trait Cancel: Future + Unpin {
 /// ```
 pub async fn sleep(duration: Duration) -> sleep_task::State {
     sleep_task::Sleep::new(duration).await
+}
+
+/// Sleep until `next`.
+/// Useful for periodic tasks that need to sleep until a specific time, rather than for a specific duration.
+///
+/// # Note
+///
+/// If the `next` time is in the past, the task will yield the CPU and
+/// return `State::Finished` without triggering the sleep handler.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_async_lib::{sleep_until, time::Time};
+/// let _ = async {
+///     // Sleep until a specific time.
+///     let next = Time::now() + core::time::Duration::from_secs(1);
+///     // Do some work here...
+///     sleep_until(next).await; // ... then sleep until the next time.
+/// };
+/// ```
+pub async fn sleep_until(next: time::Time) -> sleep_until_task::State {
+    if next <= time::Time::now() {
+        r#yield().await;
+        sleep_until_task::State::Finished
+    } else {
+        sleep_until_task::SleepUntil::new(next).await
+    }
 }
 
 /// Yield the CPU to the next executable task.
