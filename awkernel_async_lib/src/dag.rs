@@ -537,14 +537,13 @@ impl Dag {
         let node_info = graph.node_weight_mut(node_idx).unwrap();
         node_info.num_finished += 1;
 
-        if let Some(oldest_unfinished) = graph
+        let oldest_unfinished = graph
             .node_indices()
             .filter_map(|idx| graph.node_weight(idx))
             .map(|node_info| node_info.num_finished)
             .min()
-        {
-            absolute_deadlines.retain(|&job, _| job >= oldest_unfinished);
-        }
+            .unwrap();
+        absolute_deadlines.retain(|&job, _| job >= oldest_unfinished);
 
         // A node whose task ended, for example by a panic, stops counting. Flow control keeps
         // every running node at most `queue_size + 1` jobs behind its upstream node, so an
