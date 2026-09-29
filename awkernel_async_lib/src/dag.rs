@@ -587,21 +587,6 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-#[inline(always)]
-pub fn get_dag_absolute_deadline(dag_id: u32) -> Option<u64> {
-    get_dag(dag_id)?.get_absolute_deadline()
-}
-
-#[inline(always)]
-pub fn set_dag_absolute_deadline(dag_id: u32, deadline: u64) -> bool {
-    if let Some(dag) = get_dag(dag_id) {
-        dag.set_absolute_deadline(deadline);
-        true
-    } else {
-        false
-    }
-}
-
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     match validate_all_rules(dags) {
         Ok(()) => {
