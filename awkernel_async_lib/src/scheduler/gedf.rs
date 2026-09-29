@@ -6,7 +6,9 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     dag::{get_dag, to_node_index, Dag},
     scheduler::GLOBAL_WAKE_GET_MUTEX,
-    scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
+    scheduler::{
+        get_priority, peek_preemption_pending, push_preemption_pending, PREEMPTION_ENABLED,
+    },
     task::{
         get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
         MAX_TASK_PRIORITY,
@@ -154,6 +156,10 @@ pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
 
 impl GEDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let tasks_running = get_tasks_running()
             .into_iter()
             .filter(|rt| rt.task_id != 0) // Filter out idle CPUs

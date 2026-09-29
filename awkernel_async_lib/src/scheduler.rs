@@ -4,8 +4,10 @@
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 
-use crate::task::Task;
-use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use crate::{
+    task::{get_current_task, get_scheduler_type_by_task_id, Task},
+    time::Time,
+};
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
@@ -178,6 +180,11 @@ const _: () = {
     }
 };
 
+/// When false, no scheduler requests preemption, and `wake_task` enqueues the woken task.
+/// `no_preempt` compiles out the IPI handler that runs preemption-pending tasks.
+/// Without this flag, a pending task waits until its target CPU goes idle and starves while every worker keeps polling.
+pub(crate) const PREEMPTION_ENABLED: bool = cfg!(not(feature = "no_preempt"));
+
 /// For exclusion execution of `wake_task` and `get_next` across all schedulers.
 /// In order to resolve priority inversion in multiple priority-based schedulers,
 /// the decision to preempt, dequeuing, enqueuing, and updating of RUNNING must be executed exclusively.
@@ -335,25 +342,35 @@ impl<T> Drop for ClusteredTask<T> {
 /// Maintain sleeping tasks by a delta list.
 struct SleepingTasks {
     delta_list: DeltaList<Box<dyn FnOnce() + Send>>,
-    base_time: awkernel_lib::time::Time,
+    base_time: Time,
 }
 
 impl SleepingTasks {
     const fn new() -> Self {
         Self {
             delta_list: DeltaList::Nil,
-            base_time: awkernel_lib::time::Time::zero(),
+            base_time: Time::zero(),
         }
     }
 
     /// `dur` is a Duration.
     fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: Duration) {
         if self.delta_list.is_empty() {
-            self.base_time = awkernel_lib::time::Time::now();
+            self.base_time = Time::now();
         } else {
             let diff = self.base_time.elapsed();
             dur += diff;
         }
+
+        self.delta_list.insert(dur.as_nanos() as u64, handler);
+    }
+
+    /// Sleep until `next` (no relative duration).
+    fn sleep_until_task(&mut self, handler: Box<dyn FnOnce() + Send>, next: Time) {
+        if self.delta_list.is_empty() {
+            self.base_time = Time::now();
+        }
+        let dur = next - self.base_time;
 
         self.delta_list.insert(dur.as_nanos() as u64, handler);
     }
@@ -403,6 +420,17 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
     awkernel_lib::cpu::wake_cpu(0);
 }
 
+/// After reaching `next` time, `sleep_until_handler` will be invoked.
+pub(crate) fn sleep_until_task(sleep_handler: Box<dyn FnOnce() + Send>, next: Time) {
+    {
+        let mut node = MCSNode::new();
+        let mut guard = SLEEPING.lock(&mut node);
+        guard.sleep_until_task(sleep_handler, next);
+    }
+
+    awkernel_lib::cpu::wake_cpu(0);
+}
+
 /// Wake executable tasks up.
 /// Waked tasks will be enqueued to their scheduler's queue.
 ///
@@ -415,10 +443,14 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
 /// If there are no sleeping tasks, this function returns `None`.
 pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
-    for cpu_id in 1..num_cpu() {
-        if let Some(task_id) = get_current_task(cpu_id) {
-            if let Some(SchedulerType::PrioritizedRR(_)) = get_scheduler_type_by_task_id(task_id) {
-                prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
+    if PREEMPTION_ENABLED {
+        for cpu_id in 1..num_cpu() {
+            if let Some(task_id) = get_current_task(cpu_id) {
+                if let Some(SchedulerType::PrioritizedRR(_)) =
+                    get_scheduler_type_by_task_id(task_id)
+                {
+                    prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
+                }
             }
         }
     }

@@ -171,6 +171,7 @@ impl super::SoC for Raspi {
         self.init_spi()?;
         self.init_pwm()?;
         self.init_uarts();
+        self.init_power()?;
 
         let _ = self.init_ethernet();
 
@@ -556,6 +557,21 @@ impl Raspi {
         unsafe { hal::raspi::clock::set_clock_frequency(clock_freq as usize) };
 
         unsafe { hal::raspi::clock::set_clk_base(base_addr as usize) };
+
+        Ok(())
+    }
+
+    fn init_power(&self) -> Result<(), &'static str> {
+        let power_node = self
+            .get_device_from_symbols("watchdog")
+            .or(Err(err_msg!("could not find WATCHDOG's device node")))?;
+        let base_addr = power_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find WATCHDOG's base address")))?;
+
+        log::info!("WATCHDOG: 0x{base_addr:016x}");
+
+        unsafe { awkernel_drivers::hal::raspi::power::set_power_base(base_addr as usize) };
 
         Ok(())
     }

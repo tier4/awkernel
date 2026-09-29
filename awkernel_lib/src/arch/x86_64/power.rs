@@ -131,6 +131,18 @@ pub fn reboot() -> ! {
     legacy_reboot();
 }
 
+// The `x86_reboot` and `x86_shutdown` functions are defined here to provide
+// strong definitions of the `__awkernel_reboot` and `__awkernel_shutdown` symbols.
+#[export_name = "__awkernel_reboot"]
+extern "Rust" fn x86_reboot() -> ! {
+    reboot()
+}
+
+#[export_name = "__awkernel_shutdown"]
+extern "Rust" fn x86_shutdown() -> ! {
+    shutdown()
+}
+
 fn init_power_control(acpi: &AcpiTables<AcpiMapper>) -> Result<PowerControl, &'static str> {
     let fadt = acpi
         .find_table::<Fadt>()

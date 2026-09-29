@@ -9,7 +9,7 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::{
         gedf::calculate_and_update_dag_deadline, get_priority, peek_preemption_pending,
-        push_preemption_pending, ClusteredTask, GLOBAL_WAKE_GET_MUTEX,
+        push_preemption_pending, ClusteredTask, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
         get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
@@ -154,6 +154,10 @@ pub static SCHEDULER: ClusteredEDFScheduler = ClusteredEDFScheduler {
 
 impl ClusteredEDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let cpu_set = task.cpu_set.expect("Task has no CPU set");
 
         // Find the CPU whose target (running or pending-preemption) task has

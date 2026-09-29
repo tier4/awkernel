@@ -35,45 +35,5 @@ jobs:
       - name: Install cargo-udeps
         run: cargo binstall cargo-udeps -y
 
-      - name: Cargo fmt
-        run: cargo fmt && git diff --exit-code
-
-      - name: Build aarch64_virt
-        run: make check_aarch64 BSP=aarch64_virt
-      - name: Build aarch64 raspi5
-        run: make check_aarch64 BSP=raspi5
-      - name: Build aarch64 raspi4
-        run: make check_aarch64 BSP=raspi4
-      - name: Build aarch64 raspi3
-        run: make check_aarch64 BSP=raspi3
-      - name: Build x86_64
-        run: make check_x86_64
-      - name: Build RISCV32
-        run: make check_riscv32
-      - name: Build RISCV64
-        run: make check_riscv64
-      - name: Build std
-        run: make check_std
-
-      - name: Clippy aarch64_virt
-        run: cargo clippy_aarch64_virt -- --deny warnings
-      - name: Clippy raspi
-        run: cargo clippy_raspi -- --deny warnings
-      - name: Cliipy raspi5
-        run: cargo clippy_raspi5 -- --deny warnings
-      - name: Clippy x86_64
-        run: cargo clippy_x86 -- --deny warnings
-      - name: Clippy RISCV32
-        run: cargo clippy_rv32 -- --deny warnings
-      - name: Clippy RISCV64
-        run: cargo clippy_rv64 -- --deny warnings
-      - name: Clippy std
-        run: cargo clippy_std -- --deny warnings
-      - name: Clippy rd_gen_to_dags
-        run: cargo clippy_rd_gen_to_dags -- --deny warnings
-
-      - name: udeps
-        run: make udeps
-
-      - name: test
-        run: RUSTFLAGS="-D warnings" make test
+      - name: Check
+        run: scripts/ci.sh
