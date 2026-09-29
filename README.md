@@ -385,6 +385,26 @@ The pre-commit hook runs `cargo fmt --check`, and the pre-push hook runs `script
 $ pre-commit install
 ```
 
+### Running CI Checks on macOS
+
+`scripts/ci.sh` invokes `x86_64` builds via `make check_x86_64` and `make udeps`.
+As `cargo-udeps` checks the `x86` feature against the `x86_64-unknown-linux-gnu` target,
+that target must also be installed for the pinned nightly toolchain:
+
+```text
+$ rustup target add x86_64-unknown-linux-gnu
+```
+
+Therefore, as done for compiling x86 projects, you mut define the `CROSS_COMPILE` variable:
+
+```text
+$ CROSS_COMPILE=x86_64-elf- scripts/ci.sh
+```
+
+> [!IMPORTANT]
+>
+> Do not remove the trailing `-` of `x86_64-elf-`
+
 ## Publications
 
 [Publications](./PUBLICATIONS.md)
