@@ -1,5 +1,4 @@
 pub(super) mod address;
-pub mod barrier;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod dvfs;
