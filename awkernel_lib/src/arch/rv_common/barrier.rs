@@ -1,50 +1,41 @@
-//! Memory barrier implementations for RISC-V 64-bit architecture
+//! Memory barrier implementations for RISC-V
+
+use super::ArchImpl;
+use crate::barrier::Barrier;
 use core::arch::asm;
 
 /// Bus space barrier flags (from OpenBSD)
 pub const BUS_SPACE_BARRIER_READ: u32 = 0x01;
 pub const BUS_SPACE_BARRIER_WRITE: u32 = 0x02;
 
-impl crate::barrier::Barrier for super::RV64 {
+impl Barrier for ArchImpl {
     #[inline(always)]
     fn membar_enter() {
-        unsafe {
-            asm!("fence w,rw");
-        }
+        unsafe { asm!("fence w,rw") };
     }
 
     #[inline(always)]
     fn membar_exit() {
-        unsafe {
-            asm!("fence rw,w");
-        }
+        unsafe { asm!("fence rw,w") };
     }
 
     #[inline(always)]
     fn membar_producer() {
-        unsafe {
-            asm!("fence w,w");
-        }
+        unsafe { asm!("fence w,w") };
     }
 
     #[inline(always)]
     fn membar_consumer() {
-        unsafe {
-            asm!("fence r,r");
-        }
+        unsafe { asm!("fence r,r") };
     }
 
     #[inline(always)]
     fn membar_sync() {
-        unsafe {
-            asm!("fence rw,rw");
-        }
+        unsafe { asm!("fence rw,rw") };
     }
 
     #[inline(always)]
     fn bus_space_barrier(_flags: u32) {
-        unsafe {
-            asm!("fence iorw,iorw");
-        }
+        unsafe { asm!("fence iorw,iorw") };
     }
 }
