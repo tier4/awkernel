@@ -494,7 +494,9 @@ impl Dag {
                 .neighbors_directed(node_idx, Direction::Incoming)
                 .next()
                 .is_none();
-            let node_info = graph.node_weight_mut(node_idx).unwrap();
+            let node_info = graph
+                .node_weight_mut(node_idx)
+                .unwrap_or_else(|| panic!("DAG {}: node {} not found", self.id, node_idx.index()));
             let job = node_info.num_finished;
             let release = release && is_source;
             node_info.deadline_job =
@@ -516,13 +518,17 @@ impl Dag {
     /// Returns true if the job that the node at `node_idx` processes is released, but the
     /// last wake of the node did not get its deadline. This occurs if `recv_all` finds the input
     /// in the queue and returns without `wake_task`. A yield then gives the node the deadline.
+    /// The yield costs one more pass through the scheduler, and a task with an earlier deadline
+    /// can run before the node resumes.
     fn has_stale_deadline(&self, node_idx: NodeIndex) -> bool {
         let mut node = MCSNode::new();
         let absolute_deadlines = self.absolute_deadlines.lock(&mut node);
 
         let mut graph_node = MCSNode::new();
         let graph = self.graph.lock(&mut graph_node);
-        let node_info = graph.node_weight(node_idx).unwrap();
+        let node_info = graph
+            .node_weight(node_idx)
+            .unwrap_or_else(|| panic!("DAG {}: node {} not found", self.id, node_idx.index()));
         node_info.deadline_job != Some(node_info.num_finished)
             && absolute_deadlines.contains_key(&node_info.num_finished)
     }
@@ -534,15 +540,18 @@ impl Dag {
 
         let mut graph_node = MCSNode::new();
         let mut graph = self.graph.lock(&mut graph_node);
-        let node_info = graph.node_weight_mut(node_idx).unwrap();
+        let node_info = graph
+            .node_weight_mut(node_idx)
+            .unwrap_or_else(|| panic!("DAG {}: node {} not found", self.id, node_idx.index()));
         node_info.num_finished += 1;
+        let finished = node_info.num_finished;
 
         let oldest_unfinished = graph
             .node_indices()
             .filter_map(|idx| graph.node_weight(idx))
             .map(|node_info| node_info.num_finished)
             .min()
-            .unwrap();
+            .unwrap_or(finished);
         absolute_deadlines.retain(|&job, _| job >= oldest_unfinished);
 
         // A node whose task ended, for example by a panic, stops counting. Flow control keeps
@@ -969,7 +978,8 @@ where
     Ret::Publishers: Send,
     Args::Subscribers: Send,
 {
-    let dag = get_dag(dag_info.dag_id).unwrap();
+    let dag =
+        get_dag(dag_info.dag_id).unwrap_or_else(|| panic!("DAG {} not found", dag_info.dag_id));
     let node_idx = to_node_index(dag_info.node_id);
 
     // Subscribe before `spawn_dag` spawns the source node. A message published before the
@@ -1048,7 +1058,8 @@ where
         }
     };
 
-    let dag = get_dag(dag_info.dag_id).unwrap();
+    let dag =
+        get_dag(dag_info.dag_id).unwrap_or_else(|| panic!("DAG {} not found", dag_info.dag_id));
     let node_idx = to_node_index(dag_info.node_id);
 
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
@@ -1113,7 +1124,8 @@ where
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
 {
-    let dag = get_dag(dag_info.dag_id).unwrap();
+    let dag =
+        get_dag(dag_info.dag_id).unwrap_or_else(|| panic!("DAG {} not found", dag_info.dag_id));
     let node_idx = to_node_index(dag_info.node_id);
 
     // Subscribe before `spawn_dag` spawns the source node. A message published before the
