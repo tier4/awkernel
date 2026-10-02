@@ -862,7 +862,7 @@ impl Default for Attribute {
 }
 
 pub trait MultipleReceiver {
-    type Item;
+    type Item: Send;
 
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 
@@ -893,7 +893,7 @@ pub trait VectorToPublishers {
 }
 
 pub trait VectorToSubscribers {
-    type Subscribers: MultipleReceiver;
+    type Subscribers: MultipleReceiver + 'static;
 
     fn create_subscribers(
         topics: Vec<Cow<'static, str>>,

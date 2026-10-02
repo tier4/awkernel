@@ -176,7 +176,10 @@ impl core::fmt::Display for DagError {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
-    absolute_deadline: Mutex<Option<u64>>,
+
+    /// Absolute deadline of each released job that a node has not finished, keyed by job number.
+    /// A job is one run of the DAG. It starts when the source node wakes for a new release.
+    absolute_deadlines: Mutex<BTreeMap<u64, u64>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -199,23 +202,12 @@ impl Dag {
         graph.externals(Direction::Outgoing).collect()
     }
 
-    pub fn is_source_node(&self, node_index: NodeIndex) -> bool {
-        let source_nodes = self.get_source_nodes();
-        source_nodes.contains(&node_index)
-    }
-
     // Returns the relative deadline of the first sink node, if it exists.
     pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
-        let sink_nodes: Vec<NodeIndex> = self.get_sink_nodes();
-
-        if let Some(sink_node_index) = sink_nodes.first() {
-            self.graph
-                .lock(&mut MCSNode::new())
-                .node_weight(*sink_node_index)?
-                .relative_deadline
-        } else {
-            None
-        }
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        let sink_node_index = graph.externals(Direction::Outgoing).next()?;
+        graph.node_weight(sink_node_index)?.relative_deadline
     }
 
     fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
@@ -234,6 +226,8 @@ impl Dag {
             subscribe_topic_names: subscribe_topic_names.to_vec(),
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
+            num_finished: 0,
+            deadline_job: None,
         };
 
         let mut node = MCSNode::new();
@@ -481,18 +475,83 @@ impl Dag {
         }
     }
 
-    #[inline(always)]
-    pub fn set_absolute_deadline(&self, deadline: u64) {
+    /// Returns the absolute deadline of the job that the node at `node_idx` processes next.
+    /// If that job is not released and `release` is true, the source node releases it with
+    /// the value of `release_deadline`. Any other wake gets that value without a release.
+    pub(crate) fn get_or_release_absolute_deadline(
+        &self,
+        node_idx: NodeIndex,
+        release: bool,
+        release_deadline: impl FnOnce() -> u64,
+    ) -> u64 {
         let mut node = MCSNode::new();
-        let mut absolute_deadline = self.absolute_deadline.lock(&mut node);
-        *absolute_deadline = Some(deadline);
+        let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+
+        let (job, release) = {
+            let mut graph_node = MCSNode::new();
+            let mut graph = self.graph.lock(&mut graph_node);
+            let is_source = graph
+                .neighbors_directed(node_idx, Direction::Incoming)
+                .next()
+                .is_none();
+            let node_info = graph.node_weight_mut(node_idx).unwrap();
+            let job = node_info.num_finished;
+            let release = release && is_source;
+            node_info.deadline_job =
+                (release || absolute_deadlines.contains_key(&job)).then_some(job);
+            (job, release)
+        };
+
+        if let Some(&deadline) = absolute_deadlines.get(&job) {
+            return deadline;
+        }
+
+        let release_deadline = release_deadline();
+        if release {
+            absolute_deadlines.insert(job, release_deadline);
+        }
+        release_deadline
     }
 
-    #[inline(always)]
-    pub fn get_absolute_deadline(&self) -> Option<u64> {
+    /// Returns true if the job that the node at `node_idx` processes is released, but the
+    /// last wake of the node did not get its deadline. This occurs if `recv_all` finds the input
+    /// in the queue and returns without `wake_task`. A yield then gives the node the deadline.
+    fn has_stale_deadline(&self, node_idx: NodeIndex) -> bool {
         let mut node = MCSNode::new();
-        let absolute_deadline = self.absolute_deadline.lock(&mut node);
-        *absolute_deadline
+        let absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+
+        let mut graph_node = MCSNode::new();
+        let graph = self.graph.lock(&mut graph_node);
+        let node_info = graph.node_weight(node_idx).unwrap();
+        node_info.deadline_job != Some(node_info.num_finished)
+            && absolute_deadlines.contains_key(&node_info.num_finished)
+    }
+
+    /// Records that the node at `node_idx` finished its current job.
+    fn finish_job(&self, node_idx: NodeIndex) {
+        let mut node = MCSNode::new();
+        let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+
+        let mut graph_node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut graph_node);
+        let node_info = graph.node_weight_mut(node_idx).unwrap();
+        node_info.num_finished += 1;
+
+        let oldest_unfinished = graph
+            .node_indices()
+            .filter_map(|idx| graph.node_weight(idx))
+            .map(|node_info| node_info.num_finished)
+            .min()
+            .unwrap();
+        absolute_deadlines.retain(|&job, _| job >= oldest_unfinished);
+
+        // A node whose task ended, for example by a panic, stops counting. Flow control keeps
+        // every running node at most `queue_size + 1` jobs behind its upstream node, so an
+        // entry beyond this cap belongs only to such a node.
+        let max_unfinished = graph.node_count() * (Attribute::default().queue_size + 1) + 1;
+        while absolute_deadlines.len() > max_unfinished {
+            absolute_deadlines.pop_first();
+        }
     }
 }
 
@@ -518,6 +577,8 @@ struct NodeInfo {
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
+    num_finished: u64,         // Number of DAG jobs that this node finished.
+    deadline_job: Option<u64>, // Job whose deadline the last wake of this node got.
 }
 
 pub fn to_node_index(index: u32) -> NodeIndex {
@@ -550,7 +611,7 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
-                    absolute_deadline: Mutex::new(None),
+                    absolute_deadlines: Mutex::new(BTreeMap::new()),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -908,14 +969,19 @@ where
     Ret::Publishers: Send,
     Args::Subscribers: Send,
 {
+    let dag = get_dag(dag_info.dag_id).unwrap();
+    let node_idx = to_node_index(dag_info.node_id);
+
+    // Subscribe before `spawn_dag` spawns the source node. A message published before the
+    // subscription is lost.
+    let subscribers: <Args as VectorToSubscribers>::Subscribers =
+        Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
             publish_topic_names,
             Attribute::default(),
         );
-
-        let subscribers: <Args as VectorToSubscribers>::Subscribers =
-            Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
             #[cfg(feature = "period-index-propagation")]
@@ -929,6 +995,10 @@ where
                 let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 let results = f(args);
                 publishers
                     .send_all_with_period_index(results, 1, period_index as usize, dag_info.node_id)
@@ -940,9 +1010,15 @@ where
                 let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 let results = f(args);
                 publishers.send_all(results).await;
             }
+
+            dag.finish_job(node_idx);
         }
     };
 
@@ -971,6 +1047,9 @@ where
             unreachable!("Measure function must be provided for performance tracking.");
         }
     };
+
+    let dag = get_dag(dag_info.dag_id).unwrap();
+    let node_idx = to_node_index(dag_info.node_id);
 
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
@@ -1005,6 +1084,8 @@ where
                 publishers.send_all(results).await;
             }
 
+            dag.finish_job(node_idx);
+
             #[cfg(feature = "perf")]
             periodic_measure();
 
@@ -1032,10 +1113,15 @@ where
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
 {
-    let future = async move {
-        let subscribers: <Args as VectorToSubscribers>::Subscribers =
-            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+    let dag = get_dag(dag_info.dag_id).unwrap();
+    let node_idx = to_node_index(dag_info.node_id);
 
+    // Subscribe before `spawn_dag` spawns the source node. A message published before the
+    // subscription is lost.
+    let subscribers: <Args as VectorToSubscribers>::Subscribers =
+        Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+    let future = async move {
         loop {
             #[cfg(feature = "period-index-propagation")]
             {
@@ -1051,6 +1137,10 @@ where
                     update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }
 
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 f(args);
             }
 
@@ -1058,10 +1148,141 @@ where
             {
                 let args: <Args::Subscribers as MultipleReceiver>::Item =
                     subscribers.recv_all().await;
+
+                if dag.has_stale_deadline(node_idx) {
+                    crate::r#yield().await;
+                }
+
                 f(args);
             }
+
+            dag.finish_job(node_idx);
         }
     };
 
     crate::task::spawn_with_dag_info(reactor_name, future, sched_type, dag_info)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn late_node_keeps_the_deadline_of_its_job() {
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &["deadline_test_topic".into()]);
+        let sink = dag.add_node_with_topic_edges(&["deadline_test_topic".into()], &[]);
+
+        // A non-source node does not release a job.
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 5), 5);
+
+        // The source node releases job 0. A later wake in job 0 keeps the deadline.
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 10),
+            10
+        );
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 11),
+            10
+        );
+
+        // The input of job 0 can reach the sink node without a wake.
+        assert!(dag.has_stale_deadline(sink));
+
+        dag.finish_job(source);
+
+        // A preempted source node resumes before the next period and does not release job 1.
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, false, || 15),
+            15
+        );
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 20),
+            20
+        );
+
+        // The sink node wakes for job 0 after the release of job 1.
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 21), 10);
+        assert!(!dag.has_stale_deadline(sink));
+
+        // The source node released job 1.
+        dag.finish_job(sink);
+        assert!(dag.has_stale_deadline(sink));
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 22), 20);
+        assert!(!dag.has_stale_deadline(sink));
+        assert!(!dag
+            .absolute_deadlines
+            .lock(&mut MCSNode::new())
+            .contains_key(&0));
+    }
+
+    #[test]
+    fn deadline_stays_until_every_node_finishes_its_job() {
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &["retention_test_a".into()]);
+        let middle = dag
+            .add_node_with_topic_edges(&["retention_test_a".into()], &["retention_test_b".into()]);
+        let sink = dag.add_node_with_topic_edges(&["retention_test_b".into()], &[]);
+
+        // The source node releases jobs 0, 1, and 2.
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 10),
+            10
+        );
+        dag.finish_job(source);
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 20),
+            20
+        );
+        dag.finish_job(source);
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(source, true, || 30),
+            30
+        );
+
+        // The sink node finishes job 0 before the middle node records its finish.
+        dag.finish_job(sink);
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(middle, true, || 31),
+            10
+        );
+
+        dag.finish_job(middle);
+        assert_eq!(
+            dag.get_or_release_absolute_deadline(middle, true, || 32),
+            20
+        );
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 33), 20);
+
+        let mut node = MCSNode::new();
+        let jobs: Vec<u64> = dag
+            .absolute_deadlines
+            .lock(&mut node)
+            .keys()
+            .copied()
+            .collect();
+        assert_eq!(jobs, [1, 2]);
+    }
+
+    #[test]
+    fn deadlines_of_a_stopped_node_are_capped() {
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &["cap_test_topic".into()]);
+        let _sink = dag.add_node_with_topic_edges(&["cap_test_topic".into()], &[]);
+
+        // The sink node stopped, for example by a panic, and the source node keeps releasing.
+        for deadline in 0..100 {
+            dag.get_or_release_absolute_deadline(source, true, || deadline);
+            dag.finish_job(source);
+        }
+
+        let mut node = MCSNode::new();
+        let absolute_deadlines = dag.absolute_deadlines.lock(&mut node);
+        // The cap for two nodes.
+        assert_eq!(
+            absolute_deadlines.len(),
+            2 * (Attribute::default().queue_size + 1) + 1
+        );
+        assert_eq!(absolute_deadlines.last_key_value(), Some((&99, &99)));
+    }
 }
