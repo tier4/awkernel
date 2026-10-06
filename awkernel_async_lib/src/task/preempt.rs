@@ -153,7 +153,11 @@ unsafe fn do_preemption() {
     {
         let current_task = get_task(current_task_id).unwrap();
 
-        if current_task > next {
+        // The running task may have changed since the IPI was requested. Only
+        // a strictly higher-priority pending task preempts it; on equal
+        // priority the pending task is re-queued instead (FIFO within a
+        // priority level).
+        if !next.preempts(&current_task) {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;

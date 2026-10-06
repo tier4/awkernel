@@ -98,7 +98,7 @@ The PrioritizedFIFO scheduler is implemented in [prioritized_fifo.rs](https://gi
 
 The scheduler uses a `PriorityQueue<PrioritizedFIFOTask>` as its run queue. When a task is enqueued through `wake_task()`, the priority is extracted from `SchedulerType::PrioritizedFIFO(priority)` and used to insert the task into the priority queue. The get_next() method retrieves the task at the head of the highest-priority non-empty queue.
 
-The scheduler implements preemption via `invoke_preemption()`, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue.
+The scheduler implements preemption via `invoke_preemption()`, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue. Preemption requires a strictly higher priority (`Task::preempts()`): a task woken while an equal-priority task is running is enqueued behind it, so the FIFO order within a priority level also holds against running tasks. The same rule applies to the other schedulers and to the preemption handler itself, which re-queues a pending task if the task running on the target CPU no longer has a strictly lower priority.
 
 ### PrioritizedRR Scheduler
 

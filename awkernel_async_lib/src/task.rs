@@ -80,6 +80,24 @@ impl Task {
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
     }
+
+    /// True if `self` must preempt `other`, i.e. `self` has a strictly higher
+    /// priority (scheduler priority, then task priority; see `PriorityInfo`).
+    ///
+    /// Equal priorities never preempt. Within a priority level the schedulers
+    /// are FIFO (PrioritizedFIFO, ClusteredEDF/GEDF on equal deadlines) or
+    /// rotate by their own time quantum (PrioritizedRR), so a task woken while
+    /// an equal-priority task is running waits in the run queue instead of
+    /// displacing it.
+    ///
+    /// This is deliberately not `self > other`: [`Ord`] for `Task` breaks
+    /// priority ties by task ID to give the preemption-pending heaps a total
+    /// order, and that tie-break must not decide whether a running task is
+    /// preempted.
+    #[inline(always)]
+    pub(crate) fn preempts(&self, other: &Self) -> bool {
+        self.priority > other.priority
+    }
 }
 
 impl PartialEq for Task {
