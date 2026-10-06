@@ -67,6 +67,21 @@ pub trait InterruptController: Sync + Send {
 
 type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
+// Lock order: `IRQ_HANDLERS` before `INTERRUPT_CONTROLLER`. The IRQ dispatchers
+// (`handle_irq` on x86, `handle_irqs` on aarch64) hold `IRQ_HANDLERS` (read)
+// while the handlers run, and handlers may call `send_ipi`, `enable_irq`, etc.
+// (`INTERRUPT_CONTROLLER` write); `handle_irqs` also asks the controller for the
+// pending IRQs under it. Never take `IRQ_HANDLERS` while holding
+// `INTERRUPT_CONTROLLER`: the RwLock is writer-preferring, so a pending
+// controller writer blocks new controller readers, and the opposite order
+// deadlocks (controller reader waiting for `IRQ_HANDLERS`, `IRQ_HANDLERS`
+// readers waiting for the controller behind the pending writer).
+//
+// Neither guard may be held across a context switch. A guard parked on a
+// preempted task's stack keeps the lock held until that task is resumed, and a
+// pending `IRQ_HANDLERS` writer then blocks every CPU that takes an IRQ in
+// `IRQ_HANDLERS.read()` with interrupts disabled, so no CPU is left to resume
+// the task. `handle_irqs` therefore drops its guard before `preemption()`.
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
 
@@ -172,12 +187,15 @@ pub fn register_handler<F>(
 where
     F: Fn(u16) + Send + 'static,
 {
-    let controller = INTERRUPT_CONTROLLER.read();
-    let (min, max) = if let Some(ctrl) = controller.as_ref() {
-        ctrl.irq_range()
-    } else {
-        log::warn!("Interrupt controller is not yet enabled.");
-        return Err("Interrupt controller is not yet enabled.");
+    let (min, max) = {
+        let controller = INTERRUPT_CONTROLLER.read();
+        if let Some(ctrl) = controller.as_ref() {
+            ctrl.irq_range()
+        } else {
+            log::warn!("Interrupt controller is not yet enabled.");
+            return Err("Interrupt controller is not yet enabled.");
+        }
+        // The controller lock is released here; see the lock order above.
     };
 
     if min <= irq && irq < max {
@@ -267,16 +285,20 @@ pub fn register_handler_pcie_msi<F>(
 where
     F: Fn(u16) + Send + 'static,
 {
-    let mut controller = INTERRUPT_CONTROLLER.write();
+    // Lock order: `IRQ_HANDLERS` first, then `INTERRUPT_CONTROLLER` (see above).
+    // A read lock on the controller is enough: `irq_range_for_pnp` and
+    // `set_pcie_msi` take `&self`, and waiting for the write lock here would
+    // stall every CPU that takes an IRQ meanwhile behind the pending
+    // `IRQ_HANDLERS` writer.
+    let mut handlers = IRQ_HANDLERS.write();
+    let controller = INTERRUPT_CONTROLLER.read();
 
-    let (min, max) = if let Some(ctrl) = controller.as_ref() {
-        ctrl.irq_range_for_pnp()
-    } else {
+    let Some(ctrl) = controller.as_ref() else {
         log::warn!("Interrupt controller is not yet enabled.");
         return Err("Interrupt controller is not yet enabled.");
     };
+    let (min, max) = ctrl.irq_range_for_pnp();
 
-    let mut handlers = IRQ_HANDLERS.write();
     let mut irq = None;
     for i in min..max {
         let entry = handlers.entry(i);
@@ -289,11 +311,6 @@ where
     }
 
     let irq = irq.ok_or("There is no vacant IRQ.")?;
-
-    let Some(ctrl) = controller.as_mut() else {
-        log::warn!("Interrupt controller is not yet enabled.");
-        return Err("Interrupt controller is not yet enabled.");
-    };
 
     let result = ctrl.set_pcie_msi(
         segment_number,
@@ -380,6 +397,10 @@ pub fn handle_irqs(is_task: bool) {
             }
         }
     }
+
+    // `preemption()` may context-switch this task away; the guard must not be
+    // parked on its stack (see the lock order comment at `IRQ_HANDLERS`).
+    drop(handlers);
 
     if need_preemption && is_task {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
