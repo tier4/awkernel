@@ -1,6 +1,8 @@
 use super::address::{PhysPageNum, MEMORY_END};
-use crate::addr::{phy_addr::PhyAddr, Addr};
-use crate::sync::mcs::MCSNode;
+use crate::{
+    addr::{phy_addr::PhyAddr, Addr},
+    sync::mcs::MCSNode,
+};
 use alloc::vec::Vec;
 
 type FrameAllocatorImpl = PageAllocator;
