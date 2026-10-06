@@ -67,6 +67,14 @@ pub trait InterruptController: Sync + Send {
 
 type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
+// Lock order: `IRQ_HANDLERS` before `INTERRUPT_CONTROLLER`. `handle_irqs` holds
+// `IRQ_HANDLERS` (read) while it asks the controller for the pending IRQs and
+// while the handlers run, and handlers may call `send_ipi`, `enable_irq`, etc.
+// (`INTERRUPT_CONTROLLER` write). Never take `IRQ_HANDLERS` while holding
+// `INTERRUPT_CONTROLLER`: the RwLock is writer-preferring, so a pending
+// controller writer blocks new controller readers, and the opposite order
+// deadlocks (controller reader waiting for `IRQ_HANDLERS`, `IRQ_HANDLERS`
+// readers waiting for the controller behind the pending writer).
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
 
@@ -172,12 +180,15 @@ pub fn register_handler<F>(
 where
     F: Fn(u16) + Send + 'static,
 {
-    let controller = INTERRUPT_CONTROLLER.read();
-    let (min, max) = if let Some(ctrl) = controller.as_ref() {
-        ctrl.irq_range()
-    } else {
-        log::warn!("Interrupt controller is not yet enabled.");
-        return Err("Interrupt controller is not yet enabled.");
+    let (min, max) = {
+        let controller = INTERRUPT_CONTROLLER.read();
+        if let Some(ctrl) = controller.as_ref() {
+            ctrl.irq_range()
+        } else {
+            log::warn!("Interrupt controller is not yet enabled.");
+            return Err("Interrupt controller is not yet enabled.");
+        }
+        // The controller lock is released here; see the lock order above.
     };
 
     if min <= irq && irq < max {
@@ -267,6 +278,8 @@ pub fn register_handler_pcie_msi<F>(
 where
     F: Fn(u16) + Send + 'static,
 {
+    // Lock order: `IRQ_HANDLERS` first, then `INTERRUPT_CONTROLLER` (see above).
+    let mut handlers = IRQ_HANDLERS.write();
     let mut controller = INTERRUPT_CONTROLLER.write();
 
     let (min, max) = if let Some(ctrl) = controller.as_ref() {
@@ -276,7 +289,6 @@ where
         return Err("Interrupt controller is not yet enabled.");
     };
 
-    let mut handlers = IRQ_HANDLERS.write();
     let mut irq = None;
     for i in min..max {
         let entry = handlers.entry(i);
