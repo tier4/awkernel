@@ -120,27 +120,32 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        if let Some(dma) =
-            ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
-        {
-            let bus_addr = dma.get_bus_addr() as usize;
-            let phy_addr = bus_addr & 0x3FFFFFFF;
-            let start = PhyAddr::new(phy_addr);
-            let end = PhyAddr::new(phy_addr + DMA_SIZE);
+        match ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT) {
+            Ok(dma) => {
+                let bus_addr = dma.get_bus_addr() as usize;
+                let phy_addr = bus_addr & 0x3FFFFFFF;
+                let start = PhyAddr::new(phy_addr);
+                let end = PhyAddr::new(phy_addr + DMA_SIZE);
 
-            let _ = vm.remove_heap(start, end);
-            if vm.push_device_range(start, end).is_ok() {
-                unsafe_puts("DMA: BUS address = ");
-                unsafe_print_hex_u64(bus_addr as u64);
-                unsafe_puts(", Physical address = ");
-                unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
-                unsafe_puts("\r\n");
+                let _ = vm.remove_heap(start, end);
+                if vm.push_device_range(start, end).is_ok() {
+                    unsafe_puts("DMA: BUS address = ");
+                    unsafe_print_hex_u64(bus_addr as u64);
+                    unsafe_puts(", Physical address = ");
+                    unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
+                    unsafe_puts("\r\n");
 
-                self.dma_pool = Some(VirtAddr::new(start.as_usize()));
+                    self.dma_pool = Some(VirtAddr::new(start.as_usize()));
 
-                unsafe {
-                    DMA = Some(dma);
+                    unsafe {
+                        DMA = Some(dma);
+                    }
                 }
+            }
+            Err(error) => {
+                unsafe_puts("Failed to initialize DMA pool: ");
+                unsafe_puts(error.description());
+                unsafe_puts("\r\n");
             }
         };
 
@@ -629,8 +634,10 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if ic::raspi::lfb::lfb_init(640, 360).is_err() {
-                unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
+            if let Err(e) = ic::raspi::lfb::lfb_init(640, 360) {
+                unsafe_puts("Failed to initialize the linear framebuffer: ");
+                unsafe_puts(e.description());
+                unsafe_puts("\r\n");
             }
         }
     }

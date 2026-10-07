@@ -150,3 +150,4 @@ aarch64_virt = [
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
 test_clustered_edf = ["userland/test_clustered_edf"]
+test_raspi_dvfs = ["userland/test_raspi_dvfs"]
