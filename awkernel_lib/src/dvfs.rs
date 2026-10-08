@@ -1,152 +1,98 @@
+/// Error type for DVFS operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DesiredPerformance {
-    Desired(u8),
-    Auto,
+#[non_exhaustive]
+pub enum Error {
+    NotImplemented,
+    NotSupported,
+    InvalidArgument,
+    InternalError,
+    Other,
 }
+
+impl Error {
+    /// Returns a string slice describing the error.
+    pub const fn description(&self) -> &'static str {
+        match self {
+            Error::NotImplemented => "Not implemented",
+            Error::NotSupported => "Not supported",
+            Error::InvalidArgument => "Invalid argument",
+            Error::InternalError => "Internal error",
+            Error::Other => "Other error",
+        }
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
+impl core::error::Error for Error {}
+
+pub type Result<T> = core::result::Result<T, Error>;
 
 #[allow(unused_variables)]
 pub trait Dvfs {
     /// Fix the frequency of the current CPU in Hz.
-    ///
-    /// If current driver does not support this operation, it will return `false`.
     #[inline(always)]
-    fn fix_freq(freq: u64) -> bool {
-        false
+    fn set_cpu_freq(freq: u64) -> Result<()> {
+        Err(Error::NotImplemented)
+    }
+
+    /// Set the frequency of all CPUs in the system.
+    ///
+    /// # Safety
+    ///
+    /// This function may have unintended side effects. Use with caution.
+    #[inline(always)]
+    unsafe fn set_global_freq(freq: u64) -> Result<()> {
+        Err(Error::NotImplemented)
     }
 
     /// Get the maximum frequency of the current CPU in Hz.
-    ///
-    /// If current driver does not support this operation, it will return `None`.
     #[inline(always)]
-    fn get_max_freq() -> Option<u64> {
-        None
+    fn get_max_cpu_freq() -> Result<u64> {
+        Err(Error::NotImplemented)
     }
 
     /// Get the minimum frequency of the current CPU in Hz.
-    ///
-    /// If current driver does not support this operation, it will return `None`.
     #[inline(always)]
-    fn get_min_freq() -> Option<u64> {
-        None
+    fn get_min_cpu_freq() -> Result<u64> {
+        Err(Error::NotImplemented)
     }
 
     /// Get the frequency of the current CPU in Hz.
-    ///
-    /// If current driver does not support this operation, it will return `None`.
     #[inline(always)]
-    fn get_curr_freq() -> Option<u64> {
-        None
-    }
-
-    /// Select the Minimum Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `false`.
-    fn set_min_performance(min: u8) -> bool {
-        false
-    }
-
-    /// Get the Minimum Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `None`.
-    fn get_min_performance() -> Option<u8> {
-        None
-    }
-
-    /// Set the Maximum Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `false`.
-    fn set_max_performance(max: u8) -> bool {
-        false
-    }
-
-    /// Get the Maximum Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `None`.
-    fn get_max_performance() -> Option<u8> {
-        None
-    }
-
-    /// Select the Minimum and Maximum Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `false`.
-    fn set_min_max_performance(min: u8) -> bool {
-        false
-    }
-
-    /// Set the Energy Efficiency Preference (from 0, highest performance, through 100, highest energy efficient).
-    ///
-    /// If current driver does not support this operation, it will return `false`.
-    fn set_energy_efficiency(val: u8) -> bool {
-        false
-    }
-
-    /// Set the Desired Performance (from 0, lowest performance, to 100, highest performance).
-    ///
-    /// If current driver does not support this operation, it will return `false`.
-    fn set_desired_performance(val: DesiredPerformance) -> bool {
-        false
+    fn get_curr_cpu_freq() -> Result<u64> {
+        Err(Error::NotImplemented)
     }
 }
 
-/// Fix the frequency of the current CPU.
+/// Set the frequency of the current CPU in Hz and returns the actual frequency set in Hz.
 #[inline(always)]
-pub fn fix_freq(freq: u64) {
-    crate::arch::ArchImpl::fix_freq(freq);
+pub fn set_cpu_freq(freq: u64) -> Result<()> {
+    crate::arch::ArchImpl::set_cpu_freq(freq)
 }
 
-/// Get the maximum frequency of the current CPU.
-#[inline(always)]
-pub fn get_max_freq() -> Option<u64> {
-    crate::arch::ArchImpl::get_max_freq()
-}
-
-/// Get the frequency of the current CPU.
-#[inline(always)]
-pub fn get_curr_freq() -> Option<u64> {
-    crate::arch::ArchImpl::get_curr_freq()
-}
-
-/// Set Maximum Performance.
-/// (range from 0, lowest performance, through 100, highest performance)
+/// Set the frequency of all CPUs in the system in Hz and returns the actual frequency set in Hz.
 ///
-/// If the driver does not support `set_max_performance()`, `false` will be returned.
+/// # Safety
+///
+/// This function may have unintended side effects. Use with caution.
 #[inline(always)]
-pub fn set_max_performance(max: u8) -> bool {
-    crate::arch::ArchImpl::set_max_performance(max)
+pub unsafe fn set_global_freq(freq: u64) -> Result<()> {
+    crate::arch::ArchImpl::set_global_freq(freq)
 }
 
-/// Set Minimum Performance.
-/// (range from 0, lowest performance, through 100, highest performance)
-///
-/// If the driver does not support `set_min_performance()`, `false` will be returned.
+/// Get the maximum frequency of the current CPU in Hz.
 #[inline(always)]
-pub fn set_min_performance(min: u8) -> bool {
-    crate::arch::ArchImpl::set_min_performance(min)
+pub fn get_max_cpu_freq() -> Result<u64> {
+    crate::arch::ArchImpl::get_max_cpu_freq()
 }
 
-/// Set the Energy Efficiency Preference.
-/// (range from 0, highest performance, through 100, highest energy efficient)
-///
-/// If the driver does not support `set_energy_efficiency()`, `false` will be returned.
+/// Get the frequency of the current CPU in Hz.
 #[inline(always)]
-pub fn set_energy_efficiency(val: u8) -> bool {
-    crate::arch::ArchImpl::set_energy_efficiency(val)
-}
-
-/// Set the Desired Performance.
-/// (range from 0, lowest performance, through 100, highest performance)
-///
-/// If the driver does not support `set_desired_performance()`, `false` will be returned.
-#[inline(always)]
-pub fn set_desired_performance(val: DesiredPerformance) -> bool {
-    crate::arch::ArchImpl::set_desired_performance(val)
-}
-
-/// Set Minimum and Maximum Performance.
-/// (range from 0, lowest performance, through 100, highest performance)
-///
-/// If the driver does not support `set_min_max_performance()`, `false` will be returned.
-#[inline(always)]
-pub fn set_min_max_performance(percent: u8) -> bool {
-    crate::arch::ArchImpl::set_min_max_performance(percent)
+pub fn get_curr_cpu_freq() -> Result<u64> {
+    crate::arch::ArchImpl::get_curr_cpu_freq()
 }

@@ -19,11 +19,20 @@ pub async fn run() {
 
 async fn test_dvfs() {
     loop {
-        let max = awkernel_lib::dvfs::get_max_freq();
         let cpuid = awkernel_lib::cpu::cpu_id();
+        let max = match awkernel_lib::dvfs::get_max_cpu_freq() {
+            Ok(freq) => freq,
+            Err(e) => {
+                log::error!("Failed to get max CPU frequency: {:?}", e);
+                return;
+            }
+        };
 
         // Maximum frequency.
-        awkernel_lib::dvfs::fix_freq(max);
+        if let Err(e) = awkernel_lib::dvfs::set_cpu_freq(max) {
+            log::error!("Failed to set CPU frequency: {:?}", e);
+            return;
+        }
 
         let start = awkernel_async_lib::time::Time::now();
 
@@ -33,14 +42,23 @@ async fn test_dvfs() {
 
         let t = start.elapsed();
 
-        let current = awkernel_lib::dvfs::get_curr_freq();
+        let current = match awkernel_lib::dvfs::get_curr_cpu_freq() {
+            Ok(freq) => freq,
+            Err(e) => {
+                log::error!("Failed to get current CPU frequency: {:?}", e);
+                return;
+            }
+        };
 
         log::debug!(
             "cpuid = {cpuid}, max = {max}, current = {current}, expected = {max}, time = {t:?}"
         );
 
         // Maximum / 2 frequency.
-        awkernel_lib::dvfs::fix_freq(max / 2);
+        if let Err(e) = awkernel_lib::dvfs::set_cpu_freq(max / 2) {
+            log::error!("Failed to set CPU frequency: {:?}", e);
+            return;
+        }
 
         let start = awkernel_async_lib::time::Time::now();
 
@@ -50,7 +68,13 @@ async fn test_dvfs() {
 
         let t = start.elapsed();
 
-        let current = awkernel_lib::dvfs::get_curr_freq();
+        let current = match awkernel_lib::dvfs::get_curr_cpu_freq() {
+            Ok(freq) => freq,
+            Err(e) => {
+                log::error!("Failed to get current CPU frequency: {:?}", e);
+                return;
+            }
+        };
 
         log::debug!(
             "cpuid = {cpuid}, max = {max}, current = {current}, expected = {}, time = {t:?}",
