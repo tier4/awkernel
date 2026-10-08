@@ -1,5 +1,12 @@
 #![no_std]
 
+use awkernel_lib::{
+    dvfs::{
+        Result, get_curr_cpu_freq, get_max_cpu_freq, get_min_cpu_freq, set_cpu_freq,
+        set_global_freq,
+    },
+    time::Time,
+};
 use core::time::Duration;
 
 extern crate alloc;
@@ -7,6 +14,7 @@ extern crate alloc;
 const APP_NAME: &str = "test DVFS";
 
 const NUM_LOOP: usize = 1000000;
+const SEMI_PERIOD: Duration = Duration::from_secs(5);
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -17,19 +25,41 @@ pub async fn run() {
     .await;
 }
 
+unsafe fn try_set_cpu_freq(freq: u64) -> Result<()> {
+    match set_cpu_freq(freq) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            log::warn!(
+                "Failed to set CPU frequency: {:?}. Trying with global frequency...",
+                e
+            );
+            unsafe { set_global_freq(freq) }
+        }
+    }
+}
+
 async fn test_dvfs() {
+    let max = match get_max_cpu_freq() {
+        Ok(freq) => freq,
+        Err(e) => {
+            log::error!("Failed to get max CPU frequency: {:?}", e);
+            return;
+        }
+    };
+    let min = match get_min_cpu_freq() {
+        Ok(freq) => freq,
+        Err(e) => {
+            log::error!("Failed to get min CPU frequency: {:?}", e);
+            return;
+        }
+    };
+
+    let mut now = Time::now();
     loop {
         let cpuid = awkernel_lib::cpu::cpu_id();
-        let max = match awkernel_lib::dvfs::get_max_cpu_freq() {
-            Ok(freq) => freq,
-            Err(e) => {
-                log::error!("Failed to get max CPU frequency: {:?}", e);
-                return;
-            }
-        };
 
         // Maximum frequency.
-        if let Err(e) = awkernel_lib::dvfs::set_cpu_freq(max) {
+        if let Err(e) = unsafe { try_set_cpu_freq(max) } {
             log::error!("Failed to set CPU frequency: {:?}", e);
             return;
         }
@@ -42,7 +72,7 @@ async fn test_dvfs() {
 
         let t = start.elapsed();
 
-        let current = match awkernel_lib::dvfs::get_curr_cpu_freq() {
+        let current = match get_curr_cpu_freq() {
             Ok(freq) => freq,
             Err(e) => {
                 log::error!("Failed to get current CPU frequency: {:?}", e);
@@ -50,12 +80,14 @@ async fn test_dvfs() {
             }
         };
 
-        log::debug!(
-            "cpuid = {cpuid}, max = {max}, current = {current}, expected = {max}, time = {t:?}"
-        );
+        log::debug!("cpuid = {cpuid}, current = {current}, expected = {max}, time = {t:?}");
 
-        // Maximum / 2 frequency.
-        if let Err(e) = awkernel_lib::dvfs::set_cpu_freq(max / 2) {
+        awkernel_async_lib::sleep_until(now + SEMI_PERIOD).await;
+
+        let cpuid = awkernel_lib::cpu::cpu_id();
+
+        // Minimum frequency.
+        if let Err(e) = unsafe { try_set_cpu_freq(min) } {
             log::error!("Failed to set CPU frequency: {:?}", e);
             return;
         }
@@ -68,7 +100,7 @@ async fn test_dvfs() {
 
         let t = start.elapsed();
 
-        let current = match awkernel_lib::dvfs::get_curr_cpu_freq() {
+        let current = match get_curr_cpu_freq() {
             Ok(freq) => freq,
             Err(e) => {
                 log::error!("Failed to get current CPU frequency: {:?}", e);
@@ -76,11 +108,9 @@ async fn test_dvfs() {
             }
         };
 
-        log::debug!(
-            "cpuid = {cpuid}, max = {max}, current = {current}, expected = {}, time = {t:?}",
-            max / 2
-        );
+        log::debug!("cpuid = {cpuid}, current = {current}, expected = {min}, time = {t:?}");
 
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        awkernel_async_lib::sleep_until(now + 2 * SEMI_PERIOD).await;
+        now += 2 * SEMI_PERIOD;
     }
 }
