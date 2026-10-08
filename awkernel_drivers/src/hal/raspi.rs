@@ -1,6 +1,7 @@
 use core::arch::asm;
 
 pub mod clock;
+pub mod dvfs;
 pub mod gpio;
 pub mod i2c;
 pub mod power;
