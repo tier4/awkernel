@@ -1,12 +1,24 @@
-use super::address::{PhysPageNum, VirtPageNum, PAGE_SIZE, PPN_WIDTH};
-use super::frame_allocator::{frame_alloc, FrameTracker};
-use crate::addr::{phy_addr::PhyAddr, virt_addr::VirtAddr};
+use crate::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+    arch::rv_common::{
+        address::{PhysPageNum, VirtPageNum, PAGE_SIZE, PPN_WIDTH, VPN_LEVELS},
+        frame_allocator::{frame_alloc, FrameTracker},
+    },
+    paging::{self, Frame, FrameAllocator},
+};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+use riscv::register::satp::{self, Mode};
+
+#[cfg(feature = "rv32")]
+pub const SATP_MODE: Mode = Mode::Sv32;
+
+#[cfg(feature = "rv64")]
+pub const SATP_MODE: Mode = Mode::Sv39;
 
 bitflags! {
-    /// PTE Flags for RISC-V Sv32 page table
+    /// PTE Flags for RISC-V Sv32 and Sv39 page tables
     /// Based on RISC-V Privileged Architecture Specification
     ///
     /// V - Valid: The PTE is valid
@@ -89,30 +101,26 @@ impl PageTable {
     fn find_pte(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
-        let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 1 {
-                result = Some(pte);
-                break;
+            if i == VPN_LEVELS - 1 {
+                return Some(pte);
             }
             if !pte.is_valid() {
                 return None;
             }
             ppn = pte.ppn();
         }
-        result
+        None
     }
 
     fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
-        let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 1 {
-                result = Some(pte);
-                break;
+            if i == VPN_LEVELS - 1 {
+                return Some(pte);
             }
             if !pte.is_valid() {
                 let frame = frame_alloc().unwrap();
@@ -121,7 +129,7 @@ impl PageTable {
             }
             ppn = pte.ppn();
         }
-        result
+        None
     }
 
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) -> bool {
@@ -150,48 +158,23 @@ impl PageTable {
         self.translate(vpn)
     }
 
-    /// Generate SATP (Supervisor Address Translation and Protection) register value
-    ///
-    /// RISC-V SATP register format for RV32 (Sv32):
-    /// Bits 31: MODE field (1 bit)
-    ///   - 0: Bare (no translation)
-    ///   - 1: Sv32 (32-bit virtual addressing, 2-level page tables)
-    ///     Bits 30-22: ASID (Address Space Identifier, 9 bits)
-    ///     Bits 21-0: PPN (Physical Page Number of root page table, 22 bits)
-    ///
-    /// For Sv32, MODE=1 enables virtual memory translation with 2-level page tables
-    /// and supports 32-bit virtual addresses with 4KB pages.
     pub fn token(&self) -> usize {
-        (1usize << 31)        // MODE = 1 (Sv32 paging mode)
-        | self.root_ppn.0 // PPN = Physical Page Number of the root page table
+        let mut satp = satp::Satp::from_bits(self.root_ppn.0);
+        satp.set_mode(SATP_MODE);
+        satp.bits()
     }
 }
 
 /// Get the current page table from SATP register
 pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {
-    use core::arch::asm;
-
-    // Read SATP register
-    let satp: usize;
-    unsafe {
-        asm!("csrr {}, satp", out(reg) satp);
+    let satp = satp::read();
+    match satp.mode() {
+        Mode::Bare => None, // Bare mode - no translation
+        _ => Some(PageTable {
+            root_ppn: PhysPageNum::from(satp.ppn()),
+            frames: vec![], // Don't manage frames for current page table
+        }),
     }
-
-    // Extract PPN from SATP (bits 21:0 for Sv32)
-    let root_ppn = PhysPageNum(satp & ((1usize << 22) - 1));
-
-    // Check if paging is enabled (MODE field in bit 31)
-    let mode = (satp >> 31) & 0x1;
-    if mode == 0 {
-        // Bare mode - no translation
-        return None;
-    }
-
-    // Return page table with current root
-    Some(PageTable {
-        root_ppn,
-        frames: vec![], // Don't manage frames for current page table
-    })
 }
 
 // Frame type for integration with common paging interface
@@ -199,7 +182,7 @@ pub struct Page {
     addr: PhyAddr,
 }
 
-impl crate::paging::Frame for Page {
+impl Frame for Page {
     fn start_address(&self) -> PhyAddr {
         self.addr
     }
@@ -214,9 +197,9 @@ impl crate::paging::Frame for Page {
 }
 
 // Page allocator for integration with common paging interface
-pub struct RV32PageAllocator;
+pub struct RvPageAllocator;
 
-impl crate::paging::FrameAllocator<Page, &'static str> for RV32PageAllocator {
+impl FrameAllocator<Page, &'static str> for RvPageAllocator {
     fn allocate_frame(&mut self) -> Result<Page, &'static str> {
         if let Some(tracker) = frame_alloc() {
             let addr = PhyAddr::new((tracker.ppn.0) << 12); // Convert PPN to physical address
@@ -228,13 +211,13 @@ impl crate::paging::FrameAllocator<Page, &'static str> for RV32PageAllocator {
     }
 }
 
-impl crate::paging::PageTable<Page, RV32PageAllocator, &'static str> for PageTable {
+impl paging::PageTable<Page, RvPageAllocator, &'static str> for PageTable {
     unsafe fn map_to(
         &mut self,
         virt_addr: VirtAddr,
         phy_addr: PhyAddr,
-        flags: crate::paging::Flags,
-        _page_allocator: &mut RV32PageAllocator,
+        flags: paging::Flags,
+        _page_allocator: &mut RvPageAllocator,
     ) -> Result<(), &'static str> {
         let vpn = VirtPageNum::from(virt_addr);
         let ppn = PhysPageNum::from(phy_addr);

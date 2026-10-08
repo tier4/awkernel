@@ -120,16 +120,16 @@ unsafe fn primary_hart(hartid: usize) {
     log::info!("Detected {num_cpu} CPU cores");
 
     // Initialize memory management (page allocator)
-    awkernel_lib::arch::rv32::init_page_allocator();
+    awkernel_lib::arch::rv_common::init_page_allocator();
 
     // Initialize virtual memory system
-    awkernel_lib::arch::rv32::init_kernel_space();
+    awkernel_lib::arch::rv_common::init_kernel_space();
 
     // Activate virtual memory (enable MMU and page tables)
-    awkernel_lib::arch::rv32::activate_kernel_space();
+    awkernel_lib::arch::rv_common::activate_kernel_space();
 
     // Verify VM system is working by getting kernel token
-    let _kernel_token = awkernel_lib::arch::rv32::kernel_token();
+    let _kernel_token = awkernel_lib::arch::rv_common::kernel_token();
 
     let kernel_info = KernelInfo {
         info: (),
