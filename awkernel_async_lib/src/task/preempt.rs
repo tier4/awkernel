@@ -1,5 +1,7 @@
 use crate::{
-    scheduler::{move_preemption_pending, peek_preemption_pending, remove_preemption_pending},
+    scheduler::{
+        move_preemption_pending, peek_preemption_pending, remove_preemption_pending, SchedulerType,
+    },
     task::{get_current_task, get_task, set_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
@@ -157,7 +159,23 @@ unsafe fn do_preemption() {
         // a strictly higher-priority pending task preempts it; on equal
         // priority the pending task is re-queued instead (FIFO within a
         // priority level).
-        if !next.preempts(&current_task) {
+        //
+        // The one exception is the PrioritizedRR time quantum. Every wake
+        // path requires a strictly higher priority (`Task::preempts`), so a
+        // pending task of equal priority can only come from
+        // `PrioritizedRRScheduler::invoke_preemption_tick`, which pushes the
+        // next runnable task without a priority check when the quantum of
+        // the running task has expired. Let it through when the running task
+        // is PrioritizedRR so that the quantum rotates equal-priority tasks.
+        // `PriorityInfo` includes the scheduler priority, so equal priority
+        // implies that `next` is a PrioritizedRR task too.
+        let quantum_rotation = !current_task.preempts(&next)
+            && matches!(
+                current_task.scheduler_name(),
+                SchedulerType::PrioritizedRR(_)
+            );
+
+        if !next.preempts(&current_task) && !quantum_rotation {
             remove_preemption_pending(cpu_id, next.id);
             next.scheduler.wake_task(next);
             return;

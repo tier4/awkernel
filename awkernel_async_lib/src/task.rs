@@ -90,6 +90,13 @@ impl Task {
     /// an equal-priority task is running waits in the run queue instead of
     /// displacing it.
     ///
+    /// The one exception is the PrioritizedRR time quantum:
+    /// `PrioritizedRRScheduler::invoke_preemption_tick` pushes the next
+    /// runnable task to the preemption-pending heap without a priority check,
+    /// and `preempt::do_preemption` lets such an equal-priority pending task
+    /// preempt a running PrioritizedRR task so that the quantum rotates tasks
+    /// of the same priority.
+    ///
     /// This is deliberately not `self > other`: [`Ord`] for `Task` breaks
     /// priority ties by task ID to give the preemption-pending heaps a total
     /// order, and that tie-break must not decide whether a running task is
