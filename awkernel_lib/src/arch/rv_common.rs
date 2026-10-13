@@ -7,9 +7,12 @@ use super::rv64::RV64 as ArchImpl;
 
 pub(super) mod address;
 pub mod barrier;
+pub mod clint;
 pub(super) mod cpu;
+pub(super) mod delay;
 pub(super) mod frame_allocator;
 pub(super) mod interrupt;
+pub mod interrupt_controller;
 pub(super) mod page_table;
 pub(super) mod paging;
 pub(super) mod vm;
