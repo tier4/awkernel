@@ -221,7 +221,7 @@ impl Scheduler for DpWrapScheduler {
                     let wake_time = awkernel_lib::delay::uptime();
                     let (absolute_deadline, node_priority) = if let Some(ref dag_info) = dag_info {
                         (
-                            calculate_and_update_dag_deadline(dag_info, wake_time),
+                            calculate_and_update_dag_deadline(dag_info, wake_time, info.state),
                             crate::dag::get_node_priority(dag_info.dag_id, dag_info.node_id),
                         )
                     } else {

@@ -296,11 +296,11 @@ impl Scheduler for ActiveVpScheduler {
                 SchedulerType::ActiveVp(cpu_set, leading_cpu) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let (absolute_deadline, node_priority) = if let Some(ref dag_info) = dag_info {
-                        if is_job_release_wake(dag_info) {
+                        if is_job_release_wake(dag_info, info.state) {
                             replenish(cpu_set);
                         }
                         (
-                            calculate_and_update_dag_deadline(dag_info, wake_time),
+                            calculate_and_update_dag_deadline(dag_info, wake_time, info.state),
                             crate::dag::get_node_priority(dag_info.dag_id, dag_info.node_id),
                         )
                     } else {

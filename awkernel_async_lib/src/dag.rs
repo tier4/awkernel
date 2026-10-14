@@ -63,7 +63,7 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    task::DagInfo,
+    task::{DagInfo, State},
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -83,7 +83,7 @@ use alloc::{
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::{future::Future, pin::Pin, sync::atomic::Ordering, time::Duration};
+use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -338,7 +338,6 @@ impl core::fmt::Display for DagError {
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
-    job_table: Mutex<DagJobTable>,
 
     /// Absolute deadline of each released job that a node has not finished, keyed by job number.
     /// A job is one run of the DAG. It starts when the source node wakes for a new release.
@@ -346,63 +345,6 @@ pub struct Dag {
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
-}
-
-/// Number of concurrent job (DAG instance) absolute deadlines a single
-/// [`Dag`] can track at once, indexed by `job_index % DAG_JOB_TABLE_SIZE`.
-///
-/// A DAG whose relative deadline `D` exceeds its period `T` ("arbitrary
-/// deadline") can have more than one instance in flight at the same time —
-/// up to roughly `ceil(D / T)` of them, since the source releases a new
-/// instance every `T` while an older instance's downstream nodes may still
-/// be running. Sizing this per-DAG would need a dynamic allocation on the
-/// scheduling-critical wake path, so it is instead one fixed, generous bound
-/// shared by every DAG (bounded WCET, allocation-free lookups). If a DAG's
-/// `D / T` ratio ever exceeds this, [`calculate_and_update_dag_deadline`]
-/// logs a warning and falls back to an approximation rather than silently
-/// reusing a stale entry.
-const DAG_JOB_TABLE_SIZE: usize = 16;
-
-/// Per-DAG-instance ("job") absolute deadlines, keyed by a monotonically
-/// increasing job index. Replaces a single `Mutex<Option<u64>>` shared by
-/// every node of a DAG, which corrupted the deadline of an older, still
-/// in-flight instance whenever a newer instance's source node recomputed and
-/// overwrote it (see [`DAG_JOB_TABLE_SIZE`]).
-///
-/// Each slot stores the job index it was last written for alongside its
-/// deadline, so [`DagJobTable::get`] can tell a genuine hit apart from a
-/// slot that a *different* job index happens to map to (mod
-/// `DAG_JOB_TABLE_SIZE`) — a plain occupancy check (`Some`/`None`) cannot
-/// distinguish the two, since after the ring's first lap every slot is
-/// always occupied by *some* job's deadline.
-struct DagJobTable {
-    entries: [Option<(u64, u64)>; DAG_JOB_TABLE_SIZE],
-}
-
-impl DagJobTable {
-    const fn new() -> Self {
-        Self {
-            entries: [None; DAG_JOB_TABLE_SIZE],
-        }
-    }
-
-    fn slot(job_index: u64) -> usize {
-        (job_index % DAG_JOB_TABLE_SIZE as u64) as usize
-    }
-
-    fn set(&mut self, job_index: u64, deadline: u64) {
-        self.entries[Self::slot(job_index)] = Some((job_index, deadline));
-    }
-
-    /// Returns the deadline recorded for `job_index`, or `None` if that
-    /// exact job's entry was never written or has since been overwritten by
-    /// a different job sharing the same slot (see [`DAG_JOB_TABLE_SIZE`]).
-    fn get(&self, job_index: u64) -> Option<u64> {
-        match self.entries[Self::slot(job_index)] {
-            Some((stored_job_index, deadline)) if stored_job_index == job_index => Some(deadline),
-            _ => None,
-        }
-    }
 }
 
 impl Dag {
@@ -738,26 +680,6 @@ impl Dag {
         }
     }
 
-    /// Record `deadline` as the absolute deadline of job `job_index` of this
-    /// DAG. Called once per instance, by that instance's source node.
-    #[inline(always)]
-    fn set_job_absolute_deadline(&self, job_index: u64, deadline: u64) {
-        let mut node = MCSNode::new();
-        let mut job_table = self.job_table.lock(&mut node);
-        job_table.set(job_index, deadline);
-    }
-
-    /// Look up the absolute deadline previously recorded for job `job_index`
-    /// of this DAG. Returns `None` if the source has not recorded it yet, or
-    /// if it was already overwritten by a later job wrapping around the
-    /// fixed-size ring (see [`DAG_JOB_TABLE_SIZE`]).
-    #[inline(always)]
-    fn get_job_absolute_deadline(&self, job_index: u64) -> Option<u64> {
-        let mut node = MCSNode::new();
-        let job_table = self.job_table.lock(&mut node);
-        job_table.get(job_index)
-    }
-
     /// Returns the absolute deadline of the job that the node at `node_idx` processes next.
     /// If that job is not released and `release` is true, the source node releases it with
     /// the value of `release_deadline`. Any other wake gets that value without a release.
@@ -794,6 +716,29 @@ impl Dag {
             absolute_deadlines.insert(job, release_deadline);
         }
         release_deadline
+    }
+
+    /// Returns true if a wake of the node at `node_idx` in `state` releases a new job, i.e. the
+    /// same condition under which [`Dag::get_or_release_absolute_deadline`] releases one.
+    /// Call it before that function, which records the release.
+    fn is_job_release(&self, node_idx: NodeIndex, state: State) -> bool {
+        if state == State::Preempted {
+            return false;
+        }
+
+        let mut node = MCSNode::new();
+        let absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+
+        let mut graph_node = MCSNode::new();
+        let graph = self.graph.lock(&mut graph_node);
+        let is_source = graph
+            .neighbors_directed(node_idx, Direction::Incoming)
+            .next()
+            .is_none();
+        is_source
+            && graph
+                .node_weight(node_idx)
+                .is_some_and(|node_info| !absolute_deadlines.contains_key(&node_info.num_finished))
     }
 
     /// Returns true if the job that the node at `node_idx` processes is released, but the
@@ -901,7 +846,6 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
-                    job_table: Mutex::new(DagJobTable::new()),
                     absolute_deadlines: Mutex::new(BTreeMap::new()),
 
                     #[cfg(feature = "perf")]
@@ -937,6 +881,97 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+/// Look up the scheduling-policy priority set via [`Dag::set_node_priority`]
+/// for `(dag_id, node_id)`, defaulting to `0` (lowest) if unset, or if the
+/// DAG or node cannot be found. Used by the GEDF/ClusteredEDF run queues to
+/// order same-deadline nodes; regular (non-DAG) tasks are never looked up
+/// here and are treated as priority `0` by their callers instead.
+pub fn get_node_priority(dag_id: u32, node_id: u32) -> u64 {
+    let Some(dag) = get_dag(dag_id) else {
+        return 0;
+    };
+    let node_idx = to_node_index(node_id);
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    graph
+        .node_weight(node_idx)
+        .and_then(|info| info.priority)
+        .unwrap_or(0)
+}
+
+/// `(dag_id, src_node_id, dst_node_id)` of every edge of every registered DAG.
+///
+/// Used by the trace dump (`task::trace::dump_to_console`) so the host can
+/// reconstruct the DAG topology (e.g. critical-path analysis) from a serial
+/// log alone.  Node ids match `DagInfo::node_id`.
+pub fn get_all_dag_edges() -> Vec<(u32, u32, u32)> {
+    let dags = {
+        let mut node = MCSNode::new();
+        let dags = DAGS.lock(&mut node);
+        dags.id_to_dag
+            .iter()
+            .map(|(id, dag)| (*id, dag.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    let mut edges = Vec::new();
+    for (id, dag) in dags {
+        let mut node = MCSNode::new();
+        let graph = dag.graph.lock(&mut node);
+        for e in graph.edge_references() {
+            edges.push((id, e.source().index() as u32, e.target().index() as u32));
+        }
+    }
+    edges
+}
+
+/// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
+/// A wake of the source node in any `state` except `State::Preempted` releases that job
+/// with `wake_time` plus the sink relative deadline, if it is not released yet. Any other wake
+/// before the release gets that value without a release.
+///
+/// Each job keeps its own deadline (see [`Dag::get_or_release_absolute_deadline`]), so two jobs
+/// of an arbitrary-deadline DAG (relative deadline `D` > period `T`) in flight at once do not
+/// clobber each other's deadline.
+///
+/// # Panics
+///
+/// Panics if the DAG does not exist, has no node `dag_info.node_id`, or has no sink relative
+/// deadline.
+pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, state: State) -> u64 {
+    let dag_id = dag_info.dag_id;
+    let dag = get_dag(dag_id).unwrap_or_else(|| panic!("DAG {dag_id} not found"));
+
+    // The wake of a preempted task resumes it and does not release a job. Any other wake
+    // of the source node at an unreleased job must come from its `Interval` tick. After the
+    // source node finishes a job, it waits only for that tick, because it has no subscriber.
+    let release = state != State::Preempted;
+
+    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
+        // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+        let relative_deadline_us = dag
+            .get_sink_relative_deadline()
+            .map(|deadline| deadline.as_micros() as u64)
+            .unwrap_or_else(|| panic!("DAG {dag_id} has no sink relative deadline set"));
+        wake_time + relative_deadline_us
+    })
+}
+
+/// True if this wake is the moment `dag_info`'s DAG releases a new job, i.e. the same
+/// condition under which [`calculate_and_update_dag_deadline`] releases one: the source
+/// node wakes in any `state` except `State::Preempted` at a job that is not released yet.
+/// Exposed so scheduler mechanisms that must react to "a new job just started" (e.g.
+/// `scheduler::active_vp`'s per-job budget replenishment) do not have to duplicate this
+/// DAG-structure lookup. Call it before [`calculate_and_update_dag_deadline`], which
+/// records the release. Returns `false` if the DAG is unknown rather than panicking, since
+/// a scheduler's wake path must not panic on this check.
+pub(crate) fn is_job_release_wake(dag_info: &DagInfo, state: State) -> bool {
+    let Some(dag) = get_dag(dag_info.dag_id) else {
+        return false;
+    };
+    dag.is_job_release(to_node_index(dag_info.node_id), state)
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
@@ -1438,10 +1473,6 @@ where
     // referenced via `dag_info` from inside the closure.
     #[cfg(feature = "period-index-propagation")]
     let period_index_cell = dag_info.period_index.clone();
-
-    let future = async move {
-        let subscribers: <Args as VectorToSubscribers>::Subscribers =
-            Args::create_subscribers(subscribe_topic_names, Attribute::default());
     let dag = get_dag(dag_info.dag_id).unwrap();
     let node_idx = to_node_index(dag_info.node_id);
 
@@ -1550,6 +1581,26 @@ mod tests {
             .absolute_deadlines
             .lock(&mut MCSNode::new())
             .contains_key(&0));
+    }
+
+    #[test]
+    fn job_release_matches_the_release_of_the_deadline() {
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &["release_test_topic".into()]);
+        let sink = dag.add_node_with_topic_edges(&["release_test_topic".into()], &[]);
+
+        // A non-source node and a preempted source node never release a job.
+        assert!(!dag.is_job_release(sink, State::Runnable));
+        assert!(!dag.is_job_release(source, State::Preempted));
+
+        // The source node releases job 0. A later wake in job 0 does not release it again.
+        assert!(dag.is_job_release(source, State::Runnable));
+        dag.get_or_release_absolute_deadline(source, true, || 10);
+        assert!(!dag.is_job_release(source, State::Runnable));
+
+        // After the source node finishes job 0, its next wake releases job 1.
+        dag.finish_job(source);
+        assert!(dag.is_job_release(source, State::Runnable));
     }
 
     #[test]

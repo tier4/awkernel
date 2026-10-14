@@ -58,9 +58,11 @@ impl Scheduler for ClusteredEDFScheduler {
             match info.scheduler_type {
                 SchedulerType::ClusteredEDF(relative_deadline, _) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    
-                    let absolute_deadline = if let Some(ref dag_info) = dag_info {
-                        calculate_and_update_dag_deadline(dag_info, wake_time, info.state)
+                    let (absolute_deadline, node_priority) = if let Some(ref dag_info) = dag_info {
+                        (
+                            calculate_and_update_dag_deadline(dag_info, wake_time, info.state),
+                            crate::dag::get_node_priority(dag_info.dag_id, dag_info.node_id),
+                        )
                     } else {
                         // If dag_info is not present, the task is treated as a regular task, and
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.

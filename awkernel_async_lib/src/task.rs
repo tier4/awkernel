@@ -332,8 +332,8 @@ struct Tasks {
 /// released (as a source) or consumed (as an intermediate/sink) any job's
 /// data." Distinct from every real period index (which starts at `0` and
 /// only increases), so a freshly spawned node's first wake is never
-/// indistinguishable from "period 0 was already processed" — see
-/// `dag::next_job_index`, which is the only place this is interpreted.
+/// indistinguishable from "period 0 was already processed" (see
+/// `dag_sched::dp_partition`).
 pub(crate) const NO_PERIOD_YET: u32 = u32::MAX;
 
 #[derive(Clone)]
