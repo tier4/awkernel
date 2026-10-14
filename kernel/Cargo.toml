@@ -166,3 +166,5 @@ rd_gen_dagfluid = ["userland/rd_gen_dagfluid"]
 # why bit 0 and its limits). Off by default: unset, every enabled logical
 # CPU reported by the MADT is woken as before.
 smt_disable = []
+test_dvfs = ["userland/test_dvfs"]
+test_raspi_dvfs = ["userland/test_raspi_dvfs"]

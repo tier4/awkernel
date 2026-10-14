@@ -1,11 +1,14 @@
-use super::address::{PhysPageNum, VirtPageNum};
-use super::page_table::get_page_table;
+use super::{
+    address::{PhysPageNum, VirtPageNum, PAGE_SIZE},
+    page_table::{get_page_table, Flags},
+    ArchImpl,
+};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    paging::{MapError, PAGESIZE},
+    paging::{MapError, Mapper},
 };
 
-impl crate::paging::Mapper for super::RV64 {
+impl Mapper for ArchImpl {
     unsafe fn map(
         vm_addr: VirtAddr,
         phy_addr: PhyAddr,
@@ -16,24 +19,24 @@ impl crate::paging::Mapper for super::RV64 {
             return Err(MapError::AlreadyMapped);
         }
 
-        let vm_addr_aligned = vm_addr.as_usize() & !(PAGESIZE - 1);
-        let phy_addr_aligned = phy_addr.as_usize() & !(PAGESIZE - 1);
+        let vm_addr_aligned = vm_addr.as_usize() & !(PAGE_SIZE - 1);
+        let phy_addr_aligned = phy_addr.as_usize() & !(PAGE_SIZE - 1);
 
         // Get current page table
         if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(vm_addr_aligned)) {
             let vpn = VirtPageNum::from(VirtAddr::from_usize(vm_addr_aligned));
             let ppn = PhysPageNum::from(PhyAddr::from_usize(phy_addr_aligned));
 
-            let mut rv_flags = super::page_table::Flags::V | super::page_table::Flags::A;
+            let mut rv_flags = Flags::V | Flags::A;
 
-            rv_flags |= super::page_table::Flags::R; // Always readable
+            rv_flags |= Flags::R; // Always readable
 
             if flags.write {
-                rv_flags |= super::page_table::Flags::W | super::page_table::Flags::D;
+                rv_flags |= Flags::W | Flags::D;
             }
 
             if flags.execute {
-                rv_flags |= super::page_table::Flags::X;
+                rv_flags |= Flags::X;
             }
 
             if page_table.map(vpn, ppn, rv_flags) {
@@ -47,7 +50,7 @@ impl crate::paging::Mapper for super::RV64 {
     }
 
     unsafe fn unmap(vm_addr: VirtAddr) {
-        let vm_addr_aligned = VirtAddr::from_usize(vm_addr.as_usize() & !(PAGESIZE - 1));
+        let vm_addr_aligned = VirtAddr::from_usize(vm_addr.as_usize() & !(PAGE_SIZE - 1));
         if let Some(mut page_table) = get_page_table(vm_addr_aligned) {
             let vpn = VirtPageNum::from(vm_addr_aligned);
             page_table.unmap(vpn);
@@ -55,8 +58,8 @@ impl crate::paging::Mapper for super::RV64 {
     }
 
     fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
-        let higher = vm_addr.as_usize() & !(PAGESIZE - 1);
-        let lower = vm_addr.as_usize() & (PAGESIZE - 1);
+        let higher = vm_addr.as_usize() & !(PAGE_SIZE - 1);
+        let lower = vm_addr.as_usize() & (PAGE_SIZE - 1);
 
         if let Some(mut page_table) = get_page_table(VirtAddr::from_usize(higher)) {
             let vpn = VirtPageNum::from(VirtAddr::from_usize(higher));
