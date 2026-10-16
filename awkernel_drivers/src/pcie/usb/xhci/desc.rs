@@ -22,6 +22,9 @@ const EP_NUMBER_MASK: u8 = 0x0f;
 #[derive(Clone, Copy)]
 pub struct Interface {
     pub number: u8,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
 }
 
 /// Endpoint Descriptor fields used by the drivers.
@@ -74,8 +77,13 @@ impl<'a> Iterator for Descriptors<'a> {
         self.rest = rest;
 
         Some(match *desc {
-            [_, DT_INTERFACE, number, _, _, _, _, _, _, ..] => {
-                Descriptor::Interface(Interface { number })
+            [_, DT_INTERFACE, number, _, _, class, subclass, protocol, _, ..] => {
+                Descriptor::Interface(Interface {
+                    number,
+                    class,
+                    subclass,
+                    protocol,
+                })
             }
             [_, DT_ENDPOINT, address, attributes, lo, hi, _, ..] => {
                 Descriptor::Endpoint(Endpoint {

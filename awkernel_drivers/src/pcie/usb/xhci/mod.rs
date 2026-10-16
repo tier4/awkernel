@@ -1,5 +1,5 @@
 //! xHCI host controller driver: boot-time USB enumeration and a TX-only USB
-//! serial console mirror (PL2303).
+//! serial console mirror (PL2303 / CDC-ACM).
 //!
 //! The driver is fully polled (USBCMD.INTE = 0).
 //!
@@ -26,6 +26,7 @@ use super::super::{
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
+mod cdc_acm;
 mod desc;
 mod pl2303;
 mod regs;
@@ -76,6 +77,8 @@ const SPEED_SUPER: u32 = 4;
 const SPEED_SUPER_PLUS: u32 = 5;
 const PORTSC_SPEED_SHIFT: u32 = 10;
 
+/// bDeviceClass of a CDC device.
+const USB_CLASS_CDC: u8 = 0x02;
 /// Console line settings: 115200 baud, 1 stop bit, no parity, 8 data bits.
 const CONSOLE_BAUD: u32 = 115_200;
 
@@ -223,6 +226,7 @@ struct DeviceDescriptor {
 #[derive(Clone, Copy, Debug)]
 enum SerialKind {
     Pl2303,
+    CdcAcm,
 }
 
 /// A configured USB serial adapter (TX only).
@@ -661,7 +665,7 @@ impl Controller {
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Scan all ports and keep the first PL2303 adapter found.
+    /// Scan all ports and keep the first PL2303 / CDC-ACM adapter found.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
         // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
         // PR=1 on an unpowered port is silently ignored.
@@ -997,7 +1001,13 @@ impl Controller {
     /// Returns `Ok(false)` for other devices (no transfers are issued to them:
     /// failed class probes leave stale events that corrupt later enumeration).
     fn setup_serial(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
-        if !pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+        if pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+            self.setup_pl2303(dev)?;
+        } else if dev.desc.class == USB_CLASS_CDC {
+            if !self.setup_cdcacm(dev)? {
+                return Ok(false);
+            }
+        } else {
             log::info!(
                 "xHCI: {}: {:04x}:{:04x} is not a serial adapter, skipping",
                 self.name,
@@ -1006,7 +1016,6 @@ impl Controller {
             );
             return Ok(false);
         }
-        self.setup_pl2303(dev)?;
         Ok(true)
     }
 
@@ -1145,6 +1154,54 @@ impl Controller {
             0x44
         };
         self.core.control(dev, pl2303_write(0x0002, mode))
+    }
+
+    /// CDC-ACM: find the ACM interface pair and configure 115200 8N1.
+    /// Returns `Ok(false)` when the CDC device has no ACM interface.
+    fn setup_cdcacm(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
+        let (cfg, len) = self.read_config_descriptor(dev)?;
+        let Some(info) = cfg.get(..len).and_then(cdc_acm::find_cdcacm_endpoints) else {
+            log::info!(
+                "xHCI: {}: slot {} — no CDC-ACM interface",
+                self.name,
+                dev.slot
+            );
+            return Ok(false);
+        };
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM cfg={} ctrl_if={} IN={:#04x} OUT={:#04x} max_pkt={}",
+            self.name,
+            dev.slot,
+            info.config_val,
+            info.ctrl_if_num,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        );
+
+        self.set_configuration(dev, info.config_val)?;
+        let (in_ring, out_ring, out_dci) = self.configure_bulk_endpoints(
+            dev,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?;
+        dev.serial = Some(new_serial_port(
+            SerialKind::CdcAcm,
+            in_ring,
+            out_ring,
+            out_dci,
+            info.max_pkt,
+        )?);
+        self.set_line_coding(dev, info.ctrl_if_num)?;
+        self.set_control_line_state(dev, info.ctrl_if_num)?;
+
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM ready (115200 8N1 DTR+RTS)",
+            self.name,
+            dev.slot
+        );
+        Ok(true)
     }
 
     /// CDC SET_LINE_CODING: 115200 baud, 1 stop bit, no parity, 8 data bits.
@@ -1475,5 +1532,6 @@ pub(super) fn attach(
 fn kind_name(kind: SerialKind) -> &'static str {
     match kind {
         SerialKind::Pl2303 => "PL2303",
+        SerialKind::CdcAcm => "CDC-ACM",
     }
 }
