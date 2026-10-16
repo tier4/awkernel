@@ -1,6 +1,8 @@
-use super::address::{PhysPageNum, VirtPageNum};
-use super::frame_allocator::{frame_alloc, FrameTracker};
-use super::page_table::{Flags as PTEFlags, PageTable, PageTableEntry};
+use super::{
+    address::{PhysPageNum, VirtPageNum, MEMORY_END},
+    frame_allocator::{frame_alloc, FrameTracker},
+    page_table::{Flags as PTEFlags, PageTable, PageTableEntry},
+};
 use crate::addr::{virt_addr::VirtAddr, Addr};
 use crate::{console::unsafe_puts, paging::PAGESIZE};
 use alloc::vec::Vec;
@@ -254,7 +256,7 @@ impl MemorySet {
         memory_set.push(
             MapArea::new(
                 VirtAddr::from_usize(ekernel as *const () as usize),
-                VirtAddr::from_usize(super::address::MEMORY_END as usize),
+                VirtAddr::from_usize(MEMORY_END as usize),
                 MapType::Identical,
                 MapPermission::R | MapPermission::W,
             ),
@@ -319,7 +321,6 @@ pub fn activate_kernel_space() {
         kernel_space.activate();
     }
 }
-
 #[allow(dead_code)]
 pub fn kernel_token() -> usize {
     let mut node = MCSNode::new();

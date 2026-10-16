@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "std", feature(thread_local))]
 #![feature(allocator_api)]
-#![cfg_attr(not(all(feature = "x86", not(feature = "std"))), feature(linkage))]
+#![feature(linkage)]
 #![cfg_attr(feature = "std", feature(io_error_inprogress))]
 
 use core::{cell::Cell, marker::PhantomData};

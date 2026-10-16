@@ -3,7 +3,10 @@ use core::{
     slice,
 };
 
-use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
+use super::mbox::{
+    msg::{Buffer as MboxBuffer, Tag},
+    Caching, Error, TagId,
+};
 use awkernel_lib::{
     console::{unsafe_print_hex_u64, unsafe_puts},
     graphics::{FrameBuffer, FrameBufferError},
@@ -82,99 +85,79 @@ impl FramebufferInfo {
     }
 }
 
+#[repr(C)]
+struct InitializeTag {
+    phys_display: Tag<(u32, u32), (u32, u32)>,
+    virt_display: Tag<(u32, u32), (u32, u32)>,
+    virtual_offset: Tag<(u32, u32), (u32, u32)>,
+    pixel_depth: Tag<u32, u32>,
+    pixel_order: Tag<u32, u32>,
+    allocate_buffer: Tag<u32, (u32, u32)>,
+    get_pixel_pitch: Tag<(), u32>,
+}
+
+impl InitializeTag {
+    pub const fn new(width: u32, depth: u32, pixel_depth: u32, rgb: bool, page_size: u32) -> Self {
+        Self {
+            phys_display: Tag::new(TagId::SetPhysDisplaySize, (width, depth)),
+            virt_display: Tag::new(TagId::SetVirtDisplaySize, (width, depth)),
+            virtual_offset: Tag::new(TagId::SetVirtualOffset, (0, 0)),
+            pixel_depth: Tag::new(TagId::SetFrameBufferDepth, pixel_depth),
+            pixel_order: Tag::new(TagId::SetPixelOrder, rgb as u32),
+            allocate_buffer: Tag::new(TagId::AllocateBuffer, page_size),
+            get_pixel_pitch: Tag::new(TagId::GetPixelPitch, ()),
+        }
+    }
+}
+
 /// Initializes the linear framebuffer
 ///
 /// # Safety
 ///
 /// This function must be called at initialization.
-pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
-    let channel = MboxChannel::new();
+pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), Error> {
+    let mut mbox = MboxBuffer::new(InitializeTag::new(width, height, 32, true, PAGESIZE as u32));
+    mbox.call(Caching::Uncached)?;
+    let tags = mbox.tags();
 
-    let mut mbox = Mbox::<[u32; 35]>([
-        35 * 4,
-        MBOX_REQUEST,
-        //-----------------------------------------
-        0x48003, // Set physical width and height
-        8,
-        8,
-        width,  // Width
-        height, // Height
-        //-----------------------------------------
-        0x48004, // Set virtual width and height
-        8,
-        8,
-        width,  // Virtual width
-        height, // Virtual height
-        //-----------------------------------------
-        0x48009, // Set virtual offset
-        8,
-        8,
-        0, // X offset
-        0, // Y offset
-        //-----------------------------------------
-        0x48005, // Set depth
-        4,
-        4,
-        32, // 32 bits per pixel
-        //-----------------------------------------
-        0x48006, // Set pixel order
-        4,
-        4,
-        1, // 0: BGR, 1: RGB
-        //-----------------------------------------
-        0x40001, // Get framebuffer
-        8,
-        8,
-        PAGESIZE as u32, // request: align 4096 bytes, responce: frame buffer base address
-        0,               // responce: frame buffer size
-        //-----------------------------------------
-        0x40008, // Get pitch
-        4,
-        4,
-        0, // Pitch
-        //-----------------------------------------
-        MBOX_TAG_LAST,
-    ]);
-
-    if channel.mbox_call(&mut mbox) && mbox.0[20] == 32 && mbox.0[28] != 0 {
-        let framebuffer_address = mbox.0[28] & 0x3FFFFFFF; // Convert GPU address to ARM address
-        let framebuffer_size = mbox.0[29] as usize; // Get the frame buffer size in bytes
-        let width = mbox.0[5]; // Get actual physical width
-        let height = mbox.0[6]; // Get actual physical height
-        let pitch = mbox.0[33]; // Get number of bytes per row
-        let is_rgb = mbox.0[24] == 1; // Get actual color order
-
-        unsafe {
-            unsafe_puts("Frame buffer: addr = 0x");
-            unsafe_print_hex_u64(mbox.0[28] as u64);
-            unsafe_puts("\r\n");
-        }
-
-        let framebuffer =
-            unsafe { slice::from_raw_parts_mut(framebuffer_address as *mut u8, framebuffer_size) };
-
-        let raspi_framebuffer = RaspiFrameBuffer {
-            frame_buffer: FramebufferInfo {
-                width,
-                height,
-                pitch,
-                is_rgb,
-                framebuffer,
-                sub_buffer: slice_from_raw_parts_mut(NonNull::dangling().as_ptr(), 0),
-                framebuffer_size,
-            },
-        };
-
-        unsafe {
-            RASPI_FRAME_BUFFER = Some(raspi_framebuffer);
-            let ptr = &raw mut RASPI_FRAME_BUFFER;
-            awkernel_lib::graphics::set_frame_buffer((*ptr).as_mut().unwrap());
-        }
-
-        Ok(())
-    } else {
-        Err("Unable to initialize the framebuffer.")
+    let (buffer_addr, buffer_size) = *tags.allocate_buffer.try_response()?;
+    if buffer_addr == 0 || buffer_size == 0 {
+        return Err(Error::Unsuccessful);
     }
+    let is_rgb = *tags.pixel_order.try_response()? != 0;
+    let pitch = *mbox.tags().get_pixel_pitch.try_response()?;
+
+    let buffer_addr = (buffer_addr & 0x3fff_ffff) as usize; // Convert to physical address
+    let framebuffer_size = buffer_size as usize;
+
+    unsafe {
+        unsafe_puts("Frame buffer: addr = 0x");
+        unsafe_print_hex_u64(buffer_addr as u64);
+        unsafe_puts("\r\n");
+    }
+
+    let framebuffer =
+        unsafe { slice::from_raw_parts_mut(buffer_addr as *mut u8, framebuffer_size) };
+
+    let raspi_framebuffer = RaspiFrameBuffer {
+        frame_buffer: FramebufferInfo {
+            width,
+            height,
+            pitch,
+            is_rgb,
+            framebuffer,
+            sub_buffer: slice_from_raw_parts_mut(NonNull::dangling().as_ptr(), 0),
+            framebuffer_size,
+        },
+    };
+
+    unsafe {
+        RASPI_FRAME_BUFFER = Some(raspi_framebuffer);
+        let ptr = &raw mut RASPI_FRAME_BUFFER;
+        awkernel_lib::graphics::set_frame_buffer((*ptr).as_mut().unwrap());
+    }
+
+    Ok(())
 }
 
 pub fn get_frame_buffer_region() -> Option<(usize, usize)> {
