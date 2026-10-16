@@ -57,6 +57,12 @@ impl Trb {
         let [_, _, _, code] = self.status.to_le_bytes();
         code
     }
+
+    /// Slot ID of a Command Completion event (ctrl[31:24]).
+    pub fn slot_id(&self) -> u8 {
+        let [_, _, _, slot] = self.ctrl.to_le_bytes();
+        slot
+    }
 }
 
 type RingMem = [Trb; RING_SIZE];
@@ -90,6 +96,7 @@ pub struct ProducerRing {
 }
 
 pub type CommandRing = ProducerRing;
+pub type TransferRing = ProducerRing;
 
 impl ProducerRing {
     /// Allocate a zeroed ring with its Link TRB pointing back to the start.
