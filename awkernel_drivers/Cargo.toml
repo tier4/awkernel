@@ -107,3 +107,4 @@ rp1 = []                                                     # RP1 of Raspberry 
 bcm2712 = []                                                 # Broadcom BCM2712 for Raspberry Pi 5
 virtio-net = []                                              # VirtIO Network Card
 virtio-blk = []                                              # VirtIO Block Device
+xhci = ["pcie"]                                              # xHCI USB host controller
