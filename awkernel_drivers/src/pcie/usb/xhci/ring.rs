@@ -164,6 +164,20 @@ impl ProducerRing {
     pub fn phys_base(&self) -> Result<u64, XhciErr> {
         phys_of(&self.mem)
     }
+
+    /// Physical address of the enqueue position with the DCS bit (bit 0) set to
+    /// the current cycle — the value for SET_TR_DEQUEUE_POINTER.
+    pub fn enqueue_pointer(&self) -> Result<u64, XhciErr> {
+        let offset = u64::try_from(self.enqueue_idx)
+            .ok()
+            .and_then(|i| i.checked_mul(TRB_BYTES))
+            .ok_or(XhciErr::Overflow)?;
+        let addr = self
+            .phys_base()?
+            .checked_add(offset)
+            .ok_or(XhciErr::Overflow)?;
+        Ok(addr | u64::from(self.cycle_bit))
+    }
 }
 
 // ---------------------------------------------------------------------------
