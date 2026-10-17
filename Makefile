@@ -6,6 +6,15 @@ else
 	OPT = --features debug
 endif
 
+# KVM=1 to accelerate x86_64 QEMU with KVM (requires /dev/kvm access on the host).
+# Off by default since not every environment (CI, nested virtualization without KVM
+# passthrough, non-Linux hosts) has it available.
+ifeq ($(KVM), 1)
+	QEMU_KVM_ARGS = -enable-kvm -cpu host
+else
+	QEMU_KVM_ARGS =
+endif
+
 # 2MiB Stack
 STACKSIZE = 1024 * 1024 * 2
 
@@ -143,7 +152,7 @@ check_x86_64: $(X86ASM)
 	cargo +$(RUSTV) check_x86
 
 kernel-x86_64.elf: $(X86ASM) FORCE
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" IMU_CSV_PATH=$(IMU_CSV_PATH) VELOCITY_CSV_PATH=$(VELOCITY_CSV_PATH) cargo +$(RUSTV) x86 $(OPT)
 	python3 scripts/embed_debug_info.py $@
 
 x86_64_boot.img: kernel-x86_64.elf
@@ -157,10 +166,14 @@ $(X86ASM): FORCE
 
 OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
+IMU_CSV_PATH ?= $(CURDIR)/../awkernel_script/sensor_inputs/imu_raw.csv
+VELOCITY_CSV_PATH ?= $(CURDIR)/../awkernel_script/sensor_inputs/velocity_status.csv
+
 QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
 QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
 QEMU_X86_ARGS+= -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
+QEMU_X86_ARGS+= $(QEMU_KVM_ARGS)
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 QEMU_X86_ARGS+= -m 4G -smp cpus=16
 QEMU_X86_ARGS+= -object memory-backend-ram,size=1G,id=m0
