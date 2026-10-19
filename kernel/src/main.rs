@@ -78,14 +78,14 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         unsafe { awkernel_lib::cpu::init_sleep() };
 
         #[cfg(feature = "period-index-propagation")]
-        let mut last_print = awkernel_lib::time::Time::now();
+        let mut last_print = awkernel_lib::time::Instant::now();
 
         loop {
             #[cfg(feature = "period-index-propagation")]
             if last_print.elapsed().as_secs() >= PERF_PRINT_INTERVAL_SECS {
                 awkernel_async_lib::task::perf::print_timestamp_table();
 
-                last_print = awkernel_lib::time::Time::now();
+                last_print = awkernel_lib::time::Instant::now();
             }
             // handle IRQs
             {

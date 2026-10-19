@@ -35,7 +35,7 @@ pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
     fn sleep(&self, timeout: Option<Duration>) {
-        let start = crate::time::Time::now();
+        let start = crate::time::Instant::now();
 
         let _timer = if let Some(timeout) = timeout.as_ref() {
             crate::timer::reset(*timeout);

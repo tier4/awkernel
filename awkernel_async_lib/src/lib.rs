@@ -140,16 +140,16 @@ pub async fn sleep(duration: Duration) -> sleep_task::State {
 /// # Example
 ///
 /// ```
-/// use awkernel_async_lib::{sleep_until, time::Time};
+/// use awkernel_async_lib::{sleep_until, time::Instant};
 /// let _ = async {
 ///     // Sleep until a specific time.
-///     let next = Time::now() + core::time::Duration::from_secs(1);
+///     let next = Instant::now() + core::time::Duration::from_secs(1);
 ///     // Do some work here...
 ///     sleep_until(next).await; // ... then sleep until the next time.
 /// };
 /// ```
-pub async fn sleep_until(next: time::Time) -> sleep_until_task::State {
-    if next <= time::Time::now() {
+pub async fn sleep_until(next: time::Instant) -> sleep_until_task::State {
+    if next <= time::Instant::now() {
         r#yield().await;
         sleep_until_task::State::Finished
     } else {

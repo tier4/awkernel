@@ -5,16 +5,16 @@
 /// # Example
 ///
 /// ```
-/// use awkernel_lib::time::Time;
+/// use awkernel_lib::time::Instant;
 ///
-/// let time = Time::now();
+/// let time = Instant::now();
 /// log::info!("Uptime: {} [ms]", time.uptime().as_millis());
 /// ```
 ///
 /// ```
-/// use awkernel_lib::time::Time;
+/// use awkernel_lib::time::Instant;
 ///
-/// let time = Time::now();
+/// let time = Instant::now();
 /// for _ in 0..10 {
 ///    // Do something
 /// }
@@ -29,11 +29,11 @@ use core::{
 
 /// Monotonically increasing time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Time {
+pub struct Instant {
     uptime: u128,
 }
 
-impl Time {
+impl Instant {
     #[inline]
     pub fn now() -> Self {
         Self {
@@ -51,9 +51,9 @@ impl Time {
     /// # Example
     ///
     /// ```
-    /// use awkernel_lib::time::Time;
+    /// use awkernel_lib::time::Instant;
     ///
-    /// let time = Time::now();
+    /// let time = Instant::now();
     /// log::info!("Uptime: {} [ms]", time.uptime().as_millis());
     /// ```
     #[inline]
@@ -66,9 +66,9 @@ impl Time {
     /// # Example
     ///
     /// ```
-    /// use awkernel_lib::time::Time;
+    /// use awkernel_lib::time::Instant;
     ///
-    /// let time = Time::now();
+    /// let time = Instant::now();
     /// for _ in 0..10 {
     ///     // Do something
     /// }
@@ -101,14 +101,14 @@ impl Time {
 
     /// If the `duration` is greater than the uptime, return `None`.
     /// Otherwise, return the past time after subtracting the `duration` from the uptime.
-    pub fn checked_sub(&self, duration: Duration) -> Option<Time> {
+    pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.uptime
             .checked_sub(duration.as_nanos())
-            .map(|uptime| Time { uptime })
+            .map(|uptime| Instant { uptime })
     }
 }
 
-impl Add<Duration> for Time {
+impl Add<Duration> for Instant {
     type Output = Self;
 
     fn add(self, dur: Duration) -> Self {
@@ -118,14 +118,14 @@ impl Add<Duration> for Time {
     }
 }
 
-impl AddAssign<Duration> for Time {
+impl AddAssign<Duration> for Instant {
     fn add_assign(&mut self, dur: Duration) {
         self.uptime += dur.as_nanos();
     }
 }
 
-impl Sub<Duration> for Time {
-    type Output = Time;
+impl Sub<Duration> for Instant {
+    type Output = Instant;
 
     /// Returns a past time after subtracting the `duration` from the uptime.
     ///
@@ -138,16 +138,16 @@ impl Sub<Duration> for Time {
     }
 }
 
-impl SubAssign<Duration> for Time {
+impl SubAssign<Duration> for Instant {
     fn sub_assign(&mut self, other: Duration) {
         *self = *self - other;
     }
 }
 
-impl Sub<Time> for Time {
+impl Sub<Instant> for Instant {
     type Output = Duration;
 
-    fn sub(self, other: Time) -> Duration {
+    fn sub(self, other: Instant) -> Duration {
         self.saturating_duration_since(other)
     }
 }
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(dur1 + dur2, Duration::from_secs(3));
         assert_eq!(dur2 - dur1, dur1);
 
-        let earlier = Time::zero();
+        let earlier = Instant::zero();
         let middle = earlier + dur1;
         let later = middle + dur2;
 
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "overflow when subtracting duration from instant")]
     fn test_time_sub_overflow() {
-        let earlier = Time::zero();
+        let earlier = Instant::zero();
         let dur = Duration::from_secs(1);
         let _ = earlier - dur;
     }

@@ -188,7 +188,7 @@ pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
-    last_executed_time: awkernel_lib::time::Time,
+    last_executed_time: awkernel_lib::time::Instant,
     absolute_deadline: Option<u64>,
     need_sched: bool,
     pub(crate) need_preemption: bool,
@@ -229,11 +229,11 @@ impl TaskInfo {
 
     #[inline(always)]
     pub fn update_last_executed(&mut self) {
-        self.last_executed_time = awkernel_lib::time::Time::now();
+        self.last_executed_time = awkernel_lib::time::Instant::now();
     }
 
     #[inline(always)]
-    pub fn get_last_executed(&self) -> awkernel_lib::time::Time {
+    pub fn get_last_executed(&self) -> awkernel_lib::time::Instant {
         self.last_executed_time
     }
 
@@ -339,7 +339,7 @@ impl Tasks {
                     scheduler_type,
                     state: State::Initialized,
                     num_preempt: 0,
-                    last_executed_time: awkernel_lib::time::Time::now(),
+                    last_executed_time: awkernel_lib::time::Instant::now(),
                     absolute_deadline: None,
                     need_sched: false,
                     need_preemption: false,
@@ -1506,7 +1506,7 @@ pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
 }
 
 #[inline(always)]
-pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Time> {
+pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Instant> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
