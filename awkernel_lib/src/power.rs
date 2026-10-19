@@ -68,3 +68,21 @@ extern "Rust" fn default_reboot() -> Result<!> {
 extern "Rust" fn default_shutdown() -> Result<!> {
     crate::arch::ArchImpl::shutdown()
 }
+
+/// Overrides the weak default power functions with the [`Power`] implementation of `$ty`.
+///
+/// `$ty` must implement [`Power`]. Invoke it once, in a crate linked into the final binary.
+#[macro_export]
+macro_rules! impl_power {
+    ($ty:ty) => {
+        #[export_name = "__awkernel_reboot"]
+        extern "Rust" fn __awkernel_bsp_reboot() -> $crate::power::Result<!> {
+            <$ty as $crate::power::Power>::reboot()
+        }
+
+        #[export_name = "__awkernel_shutdown"]
+        extern "Rust" fn __awkernel_bsp_shutdown() -> $crate::power::Result<!> {
+            <$ty as $crate::power::Power>::shutdown()
+        }
+    };
+}
