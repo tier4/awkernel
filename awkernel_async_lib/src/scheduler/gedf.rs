@@ -217,14 +217,14 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, sta
     // source node finishes a job, it waits only for that tick, because it has no subscriber.
     let release = state != State::Preempted;
 
-    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
-        // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
-        let relative_deadline_us = dag
-            .get_sink_relative_deadline()
-            .map(|deadline| deadline.as_micros() as u64)
-            .unwrap_or_else(|| {
-                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
-            });
-        wake_time + relative_deadline_us
-    })
+    // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+    let relative_deadline_us = dag
+        .get_sink_relative_deadline()
+        .map(|deadline| deadline.as_micros() as u64)
+        .unwrap_or_else(|_| {
+            panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
+        });
+
+    dag.get_or_release_time(to_node_index(dag_info.node_id), release, || wake_time)
+        + relative_deadline_us
 }
