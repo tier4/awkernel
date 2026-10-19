@@ -20,10 +20,12 @@ use awkernel_lib::{
 use alloc::boxed::Box;
 
 mod clustered_edf;
+mod dag_edf;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
 mod prioritized_rr;
+mod redf;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
@@ -85,6 +87,12 @@ pub enum SchedulerType {
     /// warning.
     ClusteredEDF(u64, CpuSet),
     GEDF(u64), // relative deadline
+    /// Relative Earliest Deadline First: `relative_deadline`.
+    ///
+    /// Like GEDF, but a task of a DAG node gets the deadline of its job release plus the
+    /// latest finish of the node, which is derived from the estimated WCETs of the DAG.
+    /// `relative_deadline` is used only by tasks that do not belong to a DAG.
+    REDF(u64),
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -95,6 +103,7 @@ impl SchedulerType {
         matches!(
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
+                | (SchedulerType::REDF(_), SchedulerType::REDF(_))
                 | (
                     SchedulerType::ClusteredEDF(_, _),
                     SchedulerType::ClusteredEDF(_, _)
@@ -140,14 +149,17 @@ impl SchedulerType {
 /// - The second highest priority.
 ///   - GEDF scheduler.
 /// - The third highest priority.
-///   - Prioritized FIFO scheduler.
+///   - REDF scheduler.
 /// - The fourth highest priority.
+///   - Prioritized FIFO scheduler.
+/// - The fifth highest priority.
 ///   - Prioritized Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 5] = [
+static PRIORITY_LIST: [SchedulerType; 6] = [
     SchedulerType::ClusteredEDF(0, CpuSet::empty()),
     SchedulerType::GEDF(0),
+    SchedulerType::REDF(0),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
@@ -283,6 +295,7 @@ pub(crate) fn get_scheduler(sched_type: &SchedulerType) -> &'static dyn Schedule
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
+        SchedulerType::REDF(_) => &redf::SCHEDULER,
         SchedulerType::ClusteredEDF(_, _) => &clustered_edf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
