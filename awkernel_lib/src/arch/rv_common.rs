@@ -15,6 +15,7 @@ pub(super) mod interrupt;
 pub mod interrupt_controller;
 pub(super) mod page_table;
 pub(super) mod paging;
+pub mod plic;
 pub(super) mod power;
 pub(super) mod vm;
 
