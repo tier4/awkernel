@@ -12,28 +12,32 @@ const LOG_ENABLE: bool = true;
 pub async fn run() {
     wait_microsec(1000000);
 
-    let period = Duration::from_nanos(1000000000);
+    let period = Duration::from_nanos(1000000000); // 1 second
     let exe_time = (period.as_micros() as f64 * 0.1) as u64;
 
     log::debug!("period is {} [ns]", period.as_nanos());
 
     let dag = create_dag();
 
-    dag.register_periodic_reactor::<_, (i32,)>(
-        "reactor_source_node".into(),
-        move || -> (i32,) {
-            wait_microsec(exe_time);
-            let number: i32 = 1;
-            if LOG_ENABLE {
-                log::debug!("value={number} in reactor_source_node");
-            }
-            (number,)
-        },
-        vec![Cow::from("topic0")],
-        SchedulerType::GEDF(5),
-        period,
-    )
-    .await;
+    let source = dag
+        .register_periodic_reactor::<_, (i32,)>(
+            "reactor_source_node".into(),
+            move || -> (i32,) {
+                wait_microsec(exe_time);
+                let number: i32 = 1;
+                if LOG_ENABLE {
+                    log::debug!("value={number} in reactor_source_node");
+                }
+                (number,)
+            },
+            vec![Cow::from("topic0")],
+            SchedulerType::GEDF(5),
+            period,
+        )
+        .await;
+    // Nodes without an estimated WCET default to zero.
+    dag.set_node_wcet(source, Duration::from_micros(exe_time))
+        .unwrap();
 
     dag.register_reactor::<_, (i32,), (i32, i32)>(
         "reactor_node1".into(),
