@@ -29,14 +29,11 @@ impl DagEdfPolicy for GedfPolicy {
     }
 
     fn dag_deadline(dag: &Dag, node_idx: NodeIndex, release: bool, wake_time: u64) -> u64 {
-        let release_time = dag.get_or_release_release_time(node_idx, release, || wake_time);
-
-        // GEDF only uses the sink node's relative deadline
+        let (release_time, _) = dag.get_or_release_job(node_idx, release, || wake_time, |_| ());
         let sink_deadline_us = dag
             .get_sink_relative_deadline()
             .map(|deadline| deadline.as_micros() as u64)
             .unwrap_or_else(|_| panic!("GEDF scheduler: DAG has no sink relative deadline set"));
-
         release_time.saturating_add(sink_deadline_us)
     }
 }

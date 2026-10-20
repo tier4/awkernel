@@ -41,8 +41,8 @@ pub trait DagEdfPolicy: 'static {
 
     /// Returns the absolute deadline of the job that the node `node_idx` of `dag` processes
     /// next. `release` is true if this wake may release that job. The policy gets the release
-    /// time of the job with `Dag::get_or_release_release_time` or
-    /// `Dag::get_or_release_absolute_deadline`, and passes `wake_time` as the release time.
+    /// time of the job and the timing parameters it needs with `Dag::get_or_release_job`,
+    /// and passes `wake_time` as the release time.
     fn dag_deadline(dag: &Dag, node_idx: NodeIndex, release: bool, wake_time: u64) -> u64;
 }
 

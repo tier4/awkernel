@@ -26,8 +26,15 @@ impl DagEdfPolicy for RedfPolicy {
             _ => None,
         }
     }
-    // REDF uses per-node relative deadlines
+
+    // REDF uses the estimated latest finish of each node.
     fn dag_deadline(dag: &Dag, node_idx: NodeIndex, release: bool, wake_time: u64) -> u64 {
-        dag.get_or_release_absolute_deadline(node_idx, release, || wake_time)
+        let (release_time, latest_finish) = dag.get_or_release_job(
+            node_idx,
+            release,
+            || wake_time,
+            |timing| timing.estimated_latest_finish.as_micros() as u64,
+        );
+        release_time.saturating_add(latest_finish)
     }
 }
