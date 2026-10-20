@@ -96,6 +96,7 @@ x86 = [
     "awkernel_drivers/x86",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/uart_16550",
+    "awkernel_drivers/xhci",
     "heap-wf-alloc",
 ]
 rv32 = [
