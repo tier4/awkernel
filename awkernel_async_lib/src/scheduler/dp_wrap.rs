@@ -66,7 +66,7 @@ use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
     sync::mutex::{MCSNode, Mutex},
-    time::Time,
+    time::Instant,
 };
 use core::{
     cmp::max,
@@ -352,7 +352,7 @@ impl DpWrapScheduler {
         let Some((target_task, target_cpu)) = preemption_target else {
             return false;
         };
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(target_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, target_cpu);
@@ -418,7 +418,7 @@ impl DpWrapScheduler {
 /// distinction matters here) -- so this shares that function's "not
 /// WCET-proven" scope note without the interrupt-context hazard its own
 /// history warns about.
-pub fn recompute_and_apply(active: &[(u32, u32, f64)], dp_start: Time, dp_end: Option<Time>) {
+pub fn recompute_and_apply(active: &[(u32, u32, f64)], dp_start: Instant, dp_end: Option<Instant>) {
     let mut slot_table: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
     let mut densities: alloc::vec::Vec<(usize, f64)> = alloc::vec::Vec::new();
     for &(dag_id, concurrency, rate) in active {
@@ -489,7 +489,7 @@ pub fn recompute_and_apply(active: &[(u32, u32, f64)], dp_start: Time, dp_end: O
 /// One planned entitlement change within the current Deadline Partition,
 /// in absolute time (`at`) -- see [`recompute_and_apply`]'s own doc.
 struct SwitchPoint {
-    at: Time,
+    at: Instant,
     dag_id: u32,
 }
 
@@ -531,7 +531,7 @@ pub(crate) fn tick_switch_plan(cpu_id: usize) {
     let due = {
         let mut node = MCSNode::new();
         let mut queue = slot.lock(&mut node);
-        let now = Time::now();
+        let now = Instant::now();
         match queue.first() {
             Some(sp) if sp.at <= now => Some(queue.remove(0)),
             _ => None,
@@ -566,7 +566,7 @@ fn apply_entitlement(cpu_id: usize, new_dag: Option<u32>) {
     }
     log::info!(
         "dp_wrap: CPU#{cpu_id} entitlement {old_dag:?} -> {new_dag:?} at {:?}",
-        Time::now()
+        Instant::now()
     );
     let Some(dag_id) = new_dag else {
         return;

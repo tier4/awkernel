@@ -205,7 +205,7 @@ impl GEDFScheduler {
         let Some((target_task, target_cpu)) = preemption_target else {
             return false;
         };
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(target_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, target_cpu);

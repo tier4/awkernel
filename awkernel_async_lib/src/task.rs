@@ -143,6 +143,31 @@ impl Task {
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
     }
+
+    /// True if `self` must preempt `other`, i.e. `self` has a strictly higher
+    /// priority (scheduler priority, then task priority; see `PriorityInfo`).
+    ///
+    /// Equal priorities never preempt. Within a priority level the schedulers
+    /// are FIFO (PrioritizedFIFO, ClusteredEDF/GEDF on equal deadlines) or
+    /// rotate by their own time quantum (PrioritizedRR), so a task woken while
+    /// an equal-priority task is running waits in the run queue instead of
+    /// displacing it.
+    ///
+    /// The one exception is the PrioritizedRR time quantum:
+    /// `PrioritizedRRScheduler::invoke_preemption_tick` pushes the next
+    /// runnable task to the preemption-pending heap without a priority check,
+    /// and `preempt::do_preemption` lets such an equal-priority pending task
+    /// preempt a running PrioritizedRR task so that the quantum rotates tasks
+    /// of the same priority.
+    ///
+    /// This is deliberately not `self > other`: [`Ord`] for `Task` breaks
+    /// priority ties by task ID to give the preemption-pending heaps a total
+    /// order, and that tie-break must not decide whether a running task is
+    /// preempted.
+    #[inline(always)]
+    pub(crate) fn preempts(&self, other: &Self) -> bool {
+        self.priority > other.priority
+    }
 }
 
 impl PartialEq for Task {
@@ -234,7 +259,7 @@ pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
-    last_executed_time: awkernel_lib::time::Time,
+    last_executed_time: awkernel_lib::time::Instant,
     absolute_deadline: Option<u64>,
     need_sched: bool,
     pub(crate) need_preemption: bool,
@@ -275,11 +300,11 @@ impl TaskInfo {
 
     #[inline(always)]
     pub fn update_last_executed(&mut self) {
-        self.last_executed_time = awkernel_lib::time::Time::now();
+        self.last_executed_time = awkernel_lib::time::Instant::now();
     }
 
     #[inline(always)]
-    pub fn get_last_executed(&self) -> awkernel_lib::time::Time {
+    pub fn get_last_executed(&self) -> awkernel_lib::time::Instant {
         self.last_executed_time
     }
 
@@ -497,7 +522,7 @@ impl Tasks {
                     scheduler_type,
                     state: State::Initialized,
                     num_preempt: 0,
-                    last_executed_time: awkernel_lib::time::Time::now(),
+                    last_executed_time: awkernel_lib::time::Instant::now(),
                     absolute_deadline: None,
                     need_sched: false,
                     need_preemption: false,
@@ -1199,7 +1224,7 @@ pub mod perf {
     /// same recording window.
     ///
     /// `TRACE_PUBSUB,<dag_id>,<node_id>,<period>,<publish_ns|->,<subscribe_ns|->`
-    /// Timestamps are already absolute uptime nanoseconds (`Time::now()`),
+    /// Timestamps are already absolute uptime nanoseconds (`Instant::now()`),
     /// so unlike `TRACE_EV` no calibration conversion is needed on the host.
     #[cfg(feature = "period-index-propagation")]
     pub(crate) fn dump_pubsub_to_console() {
@@ -1837,7 +1862,7 @@ pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
 }
 
 #[inline(always)]
-pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Time> {
+pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Instant> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 

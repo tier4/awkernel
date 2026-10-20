@@ -298,7 +298,7 @@ impl<'a> Socket<'a> {
             }
             .min(state.expires_at),
         };
-        PollAt::Time(t)
+        PollAt::Instant(t)
     }
 
     pub(crate) fn process(
@@ -829,7 +829,7 @@ mod test {
 
         let mut i = 0;
 
-        while s.socket.poll_at(&mut s.cx) <= PollAt::Time(timestamp) {
+        while s.socket.poll_at(&mut s.cx) <= PollAt::Instant(timestamp) {
             let _ = s
                 .socket
                 .dispatch(&mut s.cx, |_, (mut ip_repr, udp_repr, dhcp_repr)| {

@@ -284,13 +284,19 @@ fn netdump_ffi(interface_id: BigInt) {
 }
 
 #[embedded]
+#[allow(irrefutable_let_patterns)]
 fn reboot_ffi() {
-    awkernel_lib::power::reboot();
+    if let Err(err) = awkernel_lib::power::reboot() {
+        console::print(&format!("reboot failed: {err}\r\n"));
+    }
 }
 
 #[embedded]
+#[allow(irrefutable_let_patterns)]
 fn shutdown_ffi() {
-    awkernel_lib::power::shutdown();
+    if let Err(err) = awkernel_lib::power::shutdown() {
+        console::print(&format!("shutdown failed: {err}\r\n"));
+    }
 }
 
 #[cfg(feature = "perf")]

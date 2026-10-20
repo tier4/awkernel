@@ -6,7 +6,7 @@ use core::time::Duration;
 
 use crate::{
     task::{get_current_task, get_scheduler_type_by_task_id, Task},
-    time::Time,
+    time::Instant,
 };
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
@@ -520,21 +520,21 @@ impl<T> Drop for ClusteredTask<T> {
 /// Maintain sleeping tasks by a delta list.
 struct SleepingTasks {
     delta_list: DeltaList<Box<dyn FnOnce() + Send>>,
-    base_time: Time,
+    base_time: Instant,
 }
 
 impl SleepingTasks {
     const fn new() -> Self {
         Self {
             delta_list: DeltaList::Nil,
-            base_time: Time::zero(),
+            base_time: Instant::zero(),
         }
     }
 
     /// `dur` is a Duration.
     fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: Duration) {
         if self.delta_list.is_empty() {
-            self.base_time = Time::now();
+            self.base_time = Instant::now();
         } else {
             let diff = self.base_time.elapsed();
             dur += diff;
@@ -544,9 +544,9 @@ impl SleepingTasks {
     }
 
     /// Sleep until `next` (no relative duration).
-    fn sleep_until_task(&mut self, handler: Box<dyn FnOnce() + Send>, next: Time) {
+    fn sleep_until_task(&mut self, handler: Box<dyn FnOnce() + Send>, next: Instant) {
         if self.delta_list.is_empty() {
-            self.base_time = Time::now();
+            self.base_time = Instant::now();
         }
         let dur = next - self.base_time;
 
@@ -599,7 +599,7 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
 }
 
 /// After reaching `next` time, `sleep_until_handler` will be invoked.
-pub(crate) fn sleep_until_task(sleep_handler: Box<dyn FnOnce() + Send>, next: Time) {
+pub(crate) fn sleep_until_task(sleep_handler: Box<dyn FnOnce() + Send>, next: Instant) {
     {
         let mut node = MCSNode::new();
         let mut guard = SLEEPING.lock(&mut node);

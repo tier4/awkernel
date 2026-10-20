@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use crate::{
     cpu::NUM_MAX_CPU,
     sync::{mcs::MCSNode, mutex::Mutex},
-    time::Time,
+    time::Instant,
 };
 
 static TIMER: Mutex<Option<Box<dyn Timer + Send + Sync>>> = Mutex::new(None);
@@ -52,13 +52,13 @@ pub fn reset(dur: Duration) {
 
 /// Arm the timer for an absolute future `deadline` instead of a relative
 /// duration. Layered trivially on top of [`reset`] (`deadline -
-/// Time::now()`); whether this actually achieves exact one-shot precision
+/// Instant::now()`); whether this actually achieves exact one-shot precision
 /// depends on the underlying driver (see [`TimerRequestId`]'s own doc for
 /// why a raw call to this alone isn't enough when more than one logical
 /// consumer shares the single per-core timer).
 #[inline(always)]
-pub fn arm_at(deadline: Time) {
-    reset(deadline.saturating_duration_since(Time::now()));
+pub fn arm_at(deadline: Instant) {
+    reset(deadline.saturating_duration_since(Instant::now()));
 }
 
 /// Get IRQ#.
@@ -141,7 +141,7 @@ impl TimerRequestId {
 
 #[derive(Clone, Copy)]
 struct PerCpuTimerState {
-    pending: [Option<Time>; NUM_TIMER_REQUESTS],
+    pending: [Option<Instant>; NUM_TIMER_REQUESTS],
 }
 
 impl PerCpuTimerState {
@@ -151,7 +151,7 @@ impl PerCpuTimerState {
         }
     }
 
-    fn set(&mut self, id: TimerRequestId, deadline: Time) {
+    fn set(&mut self, id: TimerRequestId, deadline: Instant) {
         self.pending[id.index()] = Some(deadline);
     }
 
@@ -160,7 +160,7 @@ impl PerCpuTimerState {
     }
 
     /// The earliest still-pending deadline across every request, if any.
-    fn soonest(&self) -> Option<Time> {
+    fn soonest(&self) -> Option<Instant> {
         self.pending.iter().filter_map(|d| *d).min()
     }
 }
@@ -230,9 +230,9 @@ fn invoke_callback(id: TimerRequestId) {
 /// here rather than calling it directly, specifically so this recheck can
 /// never be forgotten at a new call site the way it originally was at two
 /// of this function's own three call sites.
-fn arm_and_recheck(deadline: Time) {
+fn arm_and_recheck(deadline: Instant) {
     arm_at(deadline);
-    if Time::now() >= deadline {
+    if Instant::now() >= deadline {
         handle_timer_fire();
     }
 }
@@ -240,7 +240,7 @@ fn arm_and_recheck(deadline: Time) {
 /// Request (or update) a deadline for `id` on the calling CPU. If `id`'s
 /// new deadline is now the soonest pending deadline on this CPU, arms the
 /// physical timer for it (see [`arm_and_recheck`]).
-pub fn request_at(id: TimerRequestId, deadline: Time) {
+pub fn request_at(id: TimerRequestId, deadline: Instant) {
     let cpu = crate::cpu::cpu_id();
 
     let is_new_soonest = {
@@ -283,7 +283,7 @@ pub fn cancel(id: TimerRequestId) {
 /// re-arm in that case).
 pub fn handle_timer_fire() {
     let cpu = crate::cpu::cpu_id();
-    let now = Time::now();
+    let now = Instant::now();
 
     for id in TimerRequestId::ALL {
         let fired = {
@@ -332,8 +332,8 @@ mod tests {
     #[test]
     fn test_per_cpu_timer_state_soonest_picks_the_minimum() {
         let mut state = PerCpuTimerState::new();
-        let t10 = Time::zero() + Duration::from_millis(10);
-        let t5 = Time::zero() + Duration::from_millis(5);
+        let t10 = Instant::zero() + Duration::from_millis(10);
+        let t5 = Instant::zero() + Duration::from_millis(5);
         state.set(TimerRequestId::IdleWakeup, t10);
         state.set(TimerRequestId::DpBoundary, t5);
         assert_eq!(state.soonest(), Some(t5));
@@ -342,8 +342,8 @@ mod tests {
     #[test]
     fn test_per_cpu_timer_state_clear_falls_back_to_remaining() {
         let mut state = PerCpuTimerState::new();
-        let t10 = Time::zero() + Duration::from_millis(10);
-        let t5 = Time::zero() + Duration::from_millis(5);
+        let t10 = Instant::zero() + Duration::from_millis(10);
+        let t5 = Instant::zero() + Duration::from_millis(5);
         state.set(TimerRequestId::IdleWakeup, t10);
         state.set(TimerRequestId::DpBoundary, t5);
         state.clear(TimerRequestId::DpBoundary);
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_per_cpu_timer_state_clear_last_one_is_none() {
         let mut state = PerCpuTimerState::new();
-        let t5 = Time::zero() + Duration::from_millis(5);
+        let t5 = Instant::zero() + Duration::from_millis(5);
         state.set(TimerRequestId::IdleWakeup, t5);
         state.clear(TimerRequestId::IdleWakeup);
         assert_eq!(state.soonest(), None);
@@ -362,8 +362,8 @@ mod tests {
     #[test]
     fn test_per_cpu_timer_state_updating_same_id_replaces_its_own_deadline() {
         let mut state = PerCpuTimerState::new();
-        let t10 = Time::zero() + Duration::from_millis(10);
-        let t20 = Time::zero() + Duration::from_millis(20);
+        let t10 = Instant::zero() + Duration::from_millis(10);
+        let t20 = Instant::zero() + Duration::from_millis(20);
         state.set(TimerRequestId::IdleWakeup, t10);
         state.set(TimerRequestId::IdleWakeup, t20);
         assert_eq!(state.soonest(), Some(t20));

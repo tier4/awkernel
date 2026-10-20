@@ -58,7 +58,7 @@ use crate::task::perf::record_publish_timestamp;
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
-    pub timestamp: awkernel_lib::time::Time,
+    pub timestamp: awkernel_lib::time::Instant,
     pub data: T,
     #[cfg(feature = "period-index-propagation")]
     pub period_index: u32,
@@ -264,7 +264,7 @@ struct Sender<'a, T: 'static + Send> {
     data: Option<T>,
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
-    timestamp: awkernel_lib::time::Time,
+    timestamp: awkernel_lib::time::Instant,
     #[cfg(feature = "period-index-propagation")]
     period_index: u32,
 }
@@ -282,7 +282,7 @@ impl<'a, T: Send> Sender<'a, T> {
             data: Some(data),
             subscribers: Default::default(),
             state: SenderState::Start,
-            timestamp: awkernel_lib::time::Time::now(),
+            timestamp: awkernel_lib::time::Instant::now(),
             #[cfg(feature = "period-index-propagation")]
             period_index: 0,
         }
@@ -322,7 +322,7 @@ where
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
                             if let Err(data) = guard.push(Data {
-                                timestamp: awkernel_lib::time::Time::now(),
+                                timestamp: awkernel_lib::time::Instant::now(),
                                 data: data.clone(),
                                 #[cfg(feature = "period-index-propagation")]
                                 period_index: *this.period_index,
@@ -416,7 +416,7 @@ where
         node_id: u32,
     ) {
         // [start] pubsub communication latency
-        let start = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+        let start = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
         record_publish_timestamp(index, start, pub_id, dag_id, node_id);
         let period_index = match u32::try_from(index) {
             Ok(period_index) => period_index,

@@ -1416,9 +1416,9 @@ async fn build_dag_impl(
                     .collect();
             // All of this DAG's own segments share one release-time
             // baseline (see `dp_partition`'s own doc on why
-            // `Time::now()` at admission stands in for the papers'
+            // `Instant::now()` at admission stands in for the papers'
             // `r_i,j` anchor here).
-            let release = awkernel_lib::time::Time::now();
+            let release = awkernel_lib::time::Instant::now();
             for (j, (seg, offset)) in schedule.iter().zip(offsets.iter()).enumerate() {
                 log::info!(
                     "DAG#{dag_id}: segment[{j}] l={} m={} r={offset:.3} d={:.3} theta={:.3}",

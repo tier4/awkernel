@@ -245,7 +245,7 @@ impl MixedVpScheduler {
     /// possible victim is a lower-priority leftover there (exclusive core
     /// ownership rules out any other DAG's active-VP task); on a borrowed
     /// `passive_set` core, `PriorityInfo`'s packed scheduler-class tier
-    /// (`MixedVp` below `ActiveVp`) already prevents `task > target_task`
+    /// (`MixedVp` below `ActiveVp`) already prevents `task.preempts(&target_task)`
     /// from ever being true when `target_task` is that core's true
     /// active-VP owner.
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
@@ -287,7 +287,7 @@ impl MixedVpScheduler {
             return false;
         };
 
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(victim_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, victim_cpu);

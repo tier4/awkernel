@@ -97,14 +97,14 @@
 //! every DAG-Fluid task once at boot, before dispatch
 //! (`finish_create_dags`) begins — there is no live "job release" event
 //! yet to anchor to. [`register_segment`]'s caller-supplied `release`
-//! time stands in for it (by convention, `Time::now()` at admission —
+//! time stands in for it (by convention, `Instant::now()` at admission —
 //! see `rd_gen_to_dags::build_dag`'s `dagfluid` arm); this is a
 //! documented approximation, not the papers' own semantics.
 
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
-    time::Time,
+    time::Instant,
     timer::{self, TimerRequestId},
 };
 use core::{
@@ -135,7 +135,7 @@ struct BoundaryEntry {
     dag_id: u32,
     segment_index: usize,
     /// The absolute time this boundary is scheduled for.
-    scheduled: Time,
+    scheduled: Instant,
     /// `m_i,j`: this segment's own thread count (see
     /// `crate::dag_sched::policy::dag_fluid::SegmentSchedule::concurrency`).
     concurrency: u32,
@@ -212,7 +212,7 @@ fn millis_f64_to_duration(ms: f64) -> Duration {
 pub fn register_segment(
     dag_id: u32,
     segment_index: usize,
-    release: Time,
+    release: Instant,
     offset_ms: f64,
     duration_ms: f64,
     concurrency: u32,
@@ -251,7 +251,7 @@ pub fn register_segment(
 ///
 /// `dp_start`/`dp_end` bound the Deadline Partition
 /// `scheduler::dp_wrap::recompute_and_apply` computes intra-DP migration
-/// switch points within: `dp_start` is simply `Time::now()` (this DP
+/// switch points within: `dp_start` is simply `Instant::now()` (this DP
 /// starts the moment its own entitlement is being computed, not the
 /// possibly-already-passed theoretical boundary time that triggered this
 /// call — see [`advance_due_segments`]'s own doc on why a segment's real
@@ -269,7 +269,7 @@ fn apply_current_entitlement() {
             .map(|(&dag_id, &(concurrency, rate))| (dag_id, concurrency, rate))
             .collect()
     };
-    let dp_start = Time::now();
+    let dp_start = Instant::now();
     let dp_end = {
         let mut node = MCSNode::new();
         let pending = PENDING.lock(&mut node);
@@ -395,7 +395,7 @@ pub fn arm_next() {
 /// The `TimerRequestId::DpBoundary` callback (see [`install`]). Purely a
 /// measurement probe (see this module's own "Split design" doc): for
 /// every not-yet-[`logged`](BoundaryEntry::logged) entry whose scheduled
-/// time has actually arrived, logs the measured latency (`Time::now()`
+/// time has actually arrived, logs the measured latency (`Instant::now()`
 /// at fire time minus its own `scheduled` time) alongside which CPU
 /// observed it, and marks it logged so a later re-check (or the timer
 /// simply not being re-armed for it again) never logs it twice. Takes no
@@ -414,9 +414,9 @@ pub fn arm_next() {
 /// number of DAG-Fluid segments still registered (only ever shrinks,
 /// never regrows after boot admission); no DAG/task lookup, so no risk of
 /// the interrupt-context lock hazard this module's own doc describes; no
-/// panic (`Time: Ord`, no direct indexing).
+/// panic (`Instant: Ord`, no direct indexing).
 fn on_dp_boundary() {
-    let now = Time::now();
+    let now = Instant::now();
 
     let mut node = MCSNode::new();
     let mut pending = PENDING.lock(&mut node);
@@ -475,7 +475,7 @@ type DueEntry = (usize, u32, usize, Vec<u32>, Vec<Option<Arc<AtomicU32>>>);
 /// [`apply_current_entitlement`] is called once at the end if anything
 /// actually advanced.
 fn advance_due_segments() {
-    let now = Time::now();
+    let now = Instant::now();
 
     // Snapshot every due entry's own fields up front (one `PENDING` lock,
     // released before `resolve_gate_period_indices` looks up live

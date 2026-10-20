@@ -1,5 +1,15 @@
 # Publications
 
+## 2026
+
+### International Conference (peer-reviewed)
+
+- Atsushi Yano, Ryo Nishimura, Yutaro Kobayashi, Yuuki Takano, Takahiro Ishikawa-Aso, and Takuya Azumi, “Awkernel: RTOS Bridging DAG Scheduling Theory and Component-Oriented Real-Time Systems Practice”, International Conference on Real-Time Networks and Systems (RTNS), Nov. 2026 (to appear).
+
+### ArXiv
+
+- Atsushi Yano, Ryo Nishimura, Yutaro Kobayashi, Yuuki Takano, Takahiro Ishikawa-Aso, and Takuya Azumi, “Awkernel: RTOS Bridging DAG Scheduling Theory and Component-Oriented Real-Time Systems Practice”, https://arxiv.org/abs/2610.04861, October 2026.
+
 ## 2025
 
 ### ArXiv

@@ -20,7 +20,7 @@
 //! A passive-VP task can never need to preempt the active-VP owner: since
 //! `PriorityInfo` packs `(scheduler_class_priority, task_priority)` and
 //! `ActiveVp` sits above `PassiveVp` in `PRIORITY_LIST`, the generic
-//! `task > target_task` comparison [`PassiveVpScheduler::invoke_preemption`]
+//! `task.preempts(&target_task)` comparison [`PassiveVpScheduler::invoke_preemption`]
 //! reuses from `ClusteredEDF` is *never* true when `target_task` is the
 //! active-VP owner — no special case needed, the packed comparison already
 //! rules it out.
@@ -244,7 +244,7 @@ impl PassiveVpScheduler {
             return false;
         };
 
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(victim_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, victim_cpu);

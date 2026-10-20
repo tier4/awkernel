@@ -36,6 +36,7 @@ pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
+pub mod mmio;
 pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;

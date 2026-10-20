@@ -1325,7 +1325,7 @@ where
                 period_index_cell.store(period_index, core::sync::atomic::Ordering::Release);
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(
                     period_index as usize,
                     end,
@@ -1418,7 +1418,8 @@ where
                 period_index_cell.store(index as u32, core::sync::atomic::Ordering::Release);
                 if index != 0 {
                     // [start] cycle deviation index >= 1
-                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    let release_time =
+                        awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                     update_cycle_start_timestamp(index, release_time, dag_info.dag_id);
                 }
                 let results = f();
@@ -1490,7 +1491,7 @@ where
                 period_index_cell.store(period_index, core::sync::atomic::Ordering::Release);
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(
                     period_index as usize,
                     end,
@@ -1499,7 +1500,7 @@ where
                     dag_info.node_id,
                 );
 
-                let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let timenow = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
                     update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }

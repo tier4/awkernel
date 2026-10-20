@@ -39,7 +39,7 @@ pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
     fn sleep(&self, timeout: Option<Duration>) {
-        let start = crate::time::Time::now();
+        let start = crate::time::Instant::now();
 
         let _timer = if let Some(timeout) = timeout.as_ref() {
             crate::timer::request_at(crate::timer::TimerRequestId::IdleWakeup, start + *timeout);
@@ -227,7 +227,7 @@ pub(super) unsafe fn init() {
         Box::new(|| {
             crate::timer::request_at(
                 crate::timer::TimerRequestId::IdleWakeup,
-                crate::time::Time::now() + wakeup_interval(),
+                crate::time::Instant::now() + wakeup_interval(),
             );
         }),
     );
@@ -264,7 +264,7 @@ pub fn reset_wakeup_timer() {
     if state == SleepTag::Waiting as u32 || state == SleepTag::Waking as u32 {
         crate::timer::request_at(
             crate::timer::TimerRequestId::IdleWakeup,
-            crate::time::Time::now() + wakeup_interval(),
+            crate::time::Instant::now() + wakeup_interval(),
         );
     }
 }
