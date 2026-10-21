@@ -12,6 +12,7 @@
 //! - `Dag`: The central struct representing an individual task graph.
 //! - `create_dag()`: The entry point for creating a new DAG.
 //! - `register_xx_reactor()`: Methods to register different types of reactors.
+//! - `set_node_wcet()`: Method to set the estimated Worst-Case Execution Time (WCET) for a node.
 //! - `finish_create_dags()`: The function to validate the defined DAGs and start their execution.
 //! - `DagError`: Defines potential errors that can occur during DAG validation.
 //!
@@ -35,6 +36,20 @@
 //! - **No Dangling Edges**: Every published topic must be subscribed to by another node, and every subscribed topic must have a publisher.
 //! - **Globally Unique Topics (Inter-DAG)**: A topic name must be unique across all active DAGs in the system. This prevents different data pipelines from unintentionally interfering with each other.
 //!
+//! # Estimated WCET and Node Deadlines
+//!
+//! Each node has an estimated WCET, which is zero unless set with `set_node_wcet()`.
+//! The `register_xx_reactor()` methods return the `NodeIndex` of the new node for this purpose.
+//! The `finish_create_dags()` method computes the latest finish of each node  as an offset from
+//! the job release, and checks that the WCETs fit. The latest finish of the sink is its relative deadline `D`,
+//! and that of any other node is the minimum over its successors of `latest finish - WCET`.
+//!
+//! - **`SchedulerType::REDF`** gives a node the deadline `release time + latest finish`.
+//! - **GEDF and ClusteredEDF** ignore the WCETs and give every node of a job the deadline `release time + D`.
+//!
+//! - **Feasible WCETs**: The critical path, which is the sum of the WCETs along the longest path, must not exceed `D`.
+//!   Otherwise `finish_create_dags` returns `DagError::InfeasibleWcet`.
+//!
 //! # Example Usage
 //!
 //! See the `applications/tests/test_dag` example for practical usage.
@@ -54,19 +69,16 @@ mod visit;
 mod performance;
 
 use crate::{
-    dag::{
-        graph::{
-            algo::{connected_components, is_cyclic_directed},
-            direction::Direction,
-            NodeIndex,
-        },
-        visit::{EdgeRef, IntoNodeReferences, NodeRef},
-    },
-    scheduler::SchedulerType,
-    task::DagInfo,
-    time_interval::interval,
-    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
+    scheduler::SchedulerType, task::DagInfo, time_interval::interval, Attribute, MultipleReceiver,
+    MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+use graph::{
+    algo::{connected_components, is_cyclic_directed},
+    direction::Direction,
+};
+use visit::{EdgeRef, IntoNodeReferences, NodeRef};
+
+pub use graph::NodeIndex;
 
 #[cfg(feature = "period-index-propagation")]
 use crate::task::perf::{
@@ -119,8 +131,10 @@ impl_tuple_size!(T1);
 impl_tuple_size!(T1, T2);
 impl_tuple_size!(T1, T2, T3);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DagError {
+    NodeNotFound(u32, usize),
+    MissingSinkDeadline(u32),
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
     MissingPendingTasks(u32),
@@ -134,12 +148,16 @@ pub enum DagError {
     DuplicatePublish(u32, usize),
     TopicHasMultiplePublishers(u32, Cow<'static, str>),
     InterDagTopicConflict(Cow<'static, str>, Vec<u32>),
+    WcetOverflow(u32),
+    InfeasibleWcet(u32, usize),
 }
 
 #[rustfmt::skip]
 impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            DagError::NodeNotFound(dag_id, node_id) => write!(f, "DAG#{dag_id} Node#{node_id} not found"),
+            DagError::MissingSinkDeadline(dag_id) => write!(f, "DAG#{dag_id} has no sink relative deadline"),
             DagError::NotWeaklyConnected(dag_id) => write!(f, "DAG#{dag_id} is not weakly connected"),
             DagError::ContainsCycle(dag_id) => write!(f, "DAG#{dag_id} contains a cycle"),
             DagError::MissingPendingTasks(dag_id) => write!(f, "DAG#{dag_id} has missing pending tasks"),
@@ -169,17 +187,96 @@ impl core::fmt::Display for DagError {
             DagError::InterDagTopicConflict(topic_name, dag_ids) => {
                 write!(f, "Topic '{topic_name}' is used in multiple DAGs. Conflicting DAG IDs: {dag_ids:?}")
             }
+            DagError::WcetOverflow(dag_id) => write!(f, "DAG#{dag_id}: estimated WCET computation overflowed"),
+            DagError::InfeasibleWcet(dag_id, node_id) => {
+                write!(f, "DAG#{dag_id} Node#{node_id}: estimated WCETs exceed the sink relative deadline")
+            }
         }
+    }
+}
+
+type DagGraph = graph::Graph<NodeInfo, EdgeInfo>;
+
+impl DagGraph {
+    #[inline]
+    fn get_node_wcet(&self, node_idx: NodeIndex) -> Option<Duration> {
+        self.node_weight(node_idx)
+            .map(|info| info.timing.estimated_wcet)
+    }
+
+    #[inline]
+    fn set_node_wcet(&mut self, node_idx: NodeIndex, wcet: Duration) -> bool {
+        match self.node_weight_mut(node_idx) {
+            Some(info) => {
+                info.timing.estimated_wcet = wcet;
+                true
+            }
+            None => false,
+        }
+    }
+
+    #[inline]
+    fn get_sink_relative_deadline(&self) -> Option<Duration> {
+        let sink_node_index = self.externals(Direction::Outgoing).next()?;
+        self.node_weight(sink_node_index).unwrap().relative_deadline
+    }
+
+    #[inline]
+    fn set_relative_deadline(&mut self, node_idx: NodeIndex, deadline: Duration) -> bool {
+        match self.node_weight_mut(node_idx) {
+            Some(info) => {
+                info.relative_deadline = Some(deadline);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Returns the nodes in topological order: every node comes after all its predecessors.
+    /// It uses Kahn's algorithm and runs in O(|V| + |E|) time.
+    ///
+    /// On a graph with a cycle, the nodes of the cycle, and the nodes reachable only through
+    /// it, are missing from the result. Check `is_cyclic_directed` first, or compare the length
+    /// with `node_count()`.
+    fn topological_order(&self) -> Vec<NodeIndex> {
+        let mut in_degree: BTreeMap<NodeIndex, usize> = self
+            .node_indices()
+            .map(|idx| {
+                (
+                    idx,
+                    self.neighbors_directed(idx, Direction::Incoming).count(),
+                )
+            })
+            .collect();
+        let mut ready: Vec<NodeIndex> = in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(idx, _)| *idx)
+            .collect();
+        let mut order: Vec<NodeIndex> = Vec::with_capacity(in_degree.len());
+        while let Some(idx) = ready.pop() {
+            order.push(idx);
+            for succ in self.neighbors_directed(idx, Direction::Outgoing) {
+                if let Some(degree) = in_degree.get_mut(&succ) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        ready.push(succ);
+                    }
+                }
+            }
+        }
+        order
     }
 }
 
 pub struct Dag {
     id: u32,
-    graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
+    graph: Mutex<DagGraph>,
 
-    /// Absolute deadline of each released job that a node has not finished, keyed by job number.
+    /// Release time of each released job that a node has not finished, keyed by job number.
     /// A job is one run of the DAG. It starts when the source node wakes for a new release.
-    absolute_deadlines: Mutex<BTreeMap<u64, u64>>,
+    /// The absolute deadline of a node is the release time plus its `relative_deadline`.
+    release_times: Mutex<BTreeMap<u64, u64>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -203,17 +300,44 @@ impl Dag {
     }
 
     // Returns the relative deadline of the first sink node, if it exists.
-    pub fn get_sink_relative_deadline(&self) -> Option<Duration> {
+    pub fn get_sink_relative_deadline(&self) -> Result<Duration, DagError> {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
-        let sink_node_index = graph.externals(Direction::Outgoing).next()?;
-        graph.node_weight(sink_node_index)?.relative_deadline
+        graph
+            .get_sink_relative_deadline()
+            .ok_or(DagError::MissingSinkDeadline(self.id))
     }
 
-    fn set_relative_deadline(&self, node_idx: NodeIndex, deadline: Duration) {
+    fn set_relative_deadline(
+        &self,
+        node_idx: NodeIndex,
+        deadline: Duration,
+    ) -> Result<(), DagError> {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
-        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(deadline);
+        match graph.set_relative_deadline(node_idx, deadline) {
+            true => Ok(()),
+            false => Err(DagError::NodeNotFound(self.id, node_idx.index())),
+        }
+    }
+
+    pub fn get_node_wcet(&self, node_idx: NodeIndex) -> Result<Duration, DagError> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph
+            .get_node_wcet(node_idx)
+            .ok_or(DagError::NodeNotFound(self.id, node_idx.index()))
+    }
+
+    /// Sets the estimated WCET of a node. It is zero unless set.
+    /// Call it before `finish_create_dags`, which derives the node deadlines from it.
+    pub fn set_node_wcet(&self, node_idx: NodeIndex, wcet: Duration) -> Result<(), DagError> {
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+        match graph.set_node_wcet(node_idx, wcet) {
+            true => Ok(()),
+            false => Err(DagError::NodeNotFound(self.id, node_idx.index())),
+        }
     }
 
     fn add_node_with_topic_edges(
@@ -226,6 +350,7 @@ impl Dag {
             subscribe_topic_names: subscribe_topic_names.to_vec(),
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
+            timing: NodeTiming::default(),
             num_finished: 0,
             deadline_job: None,
         };
@@ -289,7 +414,8 @@ impl Dag {
         subscribe_topic_names: Vec<Cow<'static, str>>,
         publish_topic_names: Vec<Cow<'static, str>>,
         sched_type: SchedulerType,
-    ) where
+    ) -> NodeIndex
+    where
         F: Fn(
                 <Args::Subscribers as MultipleReceiver>::Item,
             ) -> <Ret::Publishers as MultipleSender>::Item
@@ -328,6 +454,8 @@ impl Dag {
                     .await
                 })
             }));
+
+        node_idx
     }
 
     pub async fn register_periodic_reactor<F, Ret>(
@@ -337,7 +465,8 @@ impl Dag {
         publish_topic_names: Vec<Cow<'static, str>>,
         sched_type: SchedulerType,
         period: Duration,
-    ) where
+    ) -> NodeIndex
+    where
         F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
@@ -380,6 +509,8 @@ impl Dag {
                 })
             }),
         );
+
+        node_idx
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -389,14 +520,16 @@ impl Dag {
         subscribe_topic_names: Vec<Cow<'static, str>>,
         sched_type: SchedulerType,
         relative_deadline: Duration,
-    ) where
+    ) -> NodeIndex
+    where
         F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
         Args: VectorToSubscribers,
         Args::Subscribers: Send,
         <Args::Subscribers as MultipleReceiver>::Item: TupleSize,
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
-        self.set_relative_deadline(node_idx, relative_deadline);
+        self.set_relative_deadline(node_idx, relative_deadline)
+            .unwrap();
         self.check_subscribe_mismatch::<Args>(&subscribe_topic_names, node_idx);
 
         let measure_f = {
@@ -437,6 +570,8 @@ impl Dag {
                     .await
                 })
             }));
+
+        node_idx
     }
 
     fn check_subscribe_mismatch<Args>(
@@ -475,19 +610,25 @@ impl Dag {
         }
     }
 
-    /// Returns the absolute deadline of the job that the node at `node_idx` processes next.
+    /// Returns the release time of the job that the node at `node_idx` processes next, and the
+    /// result of `read_timing`, which gets the timing parameters of the node. The caller takes
+    /// only the parameters it needs, with no copy of the others.
     /// If that job is not released and `release` is true, the source node releases it with
-    /// the value of `release_deadline`. Any other wake gets that value without a release.
-    pub(crate) fn get_or_release_absolute_deadline(
+    /// the value of `release_time`. Any other wake uses that value without a release.
+    ///
+    /// `read_timing` runs while the DAG locks are held, so it must be short and must not use
+    /// the DAG.
+    pub(crate) fn get_or_release_job<R>(
         &self,
         node_idx: NodeIndex,
         release: bool,
-        release_deadline: impl FnOnce() -> u64,
-    ) -> u64 {
+        release_time: impl FnOnce() -> u64,
+        read_timing: impl FnOnce(&NodeTiming) -> R,
+    ) -> (u64, R) {
         let mut node = MCSNode::new();
-        let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+        let mut release_times = self.release_times.lock(&mut node);
 
-        let (job, release) = {
+        let (job, release, read) = {
             let mut graph_node = MCSNode::new();
             let mut graph = self.graph.lock(&mut graph_node);
             let is_source = graph
@@ -497,20 +638,22 @@ impl Dag {
             let node_info = graph.node_weight_mut(node_idx).unwrap();
             let job = node_info.num_finished;
             let release = release && is_source;
-            node_info.deadline_job =
-                (release || absolute_deadlines.contains_key(&job)).then_some(job);
-            (job, release)
+            node_info.deadline_job = (release || release_times.contains_key(&job)).then_some(job);
+            (job, release, read_timing(&node_info.timing))
         };
 
-        if let Some(&deadline) = absolute_deadlines.get(&job) {
-            return deadline;
-        }
+        let release_time = match release_times.get(&job) {
+            Some(&released) => released,
+            None => {
+                let new_release_time = release_time();
+                if release {
+                    release_times.insert(job, new_release_time);
+                }
+                new_release_time
+            }
+        };
 
-        let release_deadline = release_deadline();
-        if release {
-            absolute_deadlines.insert(job, release_deadline);
-        }
-        release_deadline
+        (release_time, read)
     }
 
     /// Returns true if the job that the node at `node_idx` processes is released, but the
@@ -518,19 +661,19 @@ impl Dag {
     /// in the queue and returns without `wake_task`. A yield then gives the node the deadline.
     fn has_stale_deadline(&self, node_idx: NodeIndex) -> bool {
         let mut node = MCSNode::new();
-        let absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+        let release_times = self.release_times.lock(&mut node);
 
         let mut graph_node = MCSNode::new();
         let graph = self.graph.lock(&mut graph_node);
         let node_info = graph.node_weight(node_idx).unwrap();
         node_info.deadline_job != Some(node_info.num_finished)
-            && absolute_deadlines.contains_key(&node_info.num_finished)
+            && release_times.contains_key(&node_info.num_finished)
     }
 
     /// Records that the node at `node_idx` finished its current job.
     fn finish_job(&self, node_idx: NodeIndex) {
         let mut node = MCSNode::new();
-        let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
+        let mut release_times = self.release_times.lock(&mut node);
 
         let mut graph_node = MCSNode::new();
         let mut graph = self.graph.lock(&mut graph_node);
@@ -543,14 +686,14 @@ impl Dag {
             .map(|node_info| node_info.num_finished)
             .min()
             .unwrap();
-        absolute_deadlines.retain(|&job, _| job >= oldest_unfinished);
+        release_times.retain(|&job, _| job >= oldest_unfinished);
 
         // A node whose task ended, for example by a panic, stops counting. Flow control keeps
         // every running node at most `queue_size + 1` jobs behind its upstream node, so an
         // entry beyond this cap belongs only to such a node.
         let max_unfinished = graph.node_count() * (Attribute::default().queue_size + 1) + 1;
-        while absolute_deadlines.len() > max_unfinished {
-            absolute_deadlines.pop_first();
+        while release_times.len() > max_unfinished {
+            release_times.pop_first();
         }
     }
 }
@@ -572,12 +715,41 @@ impl PendingTask {
     }
 }
 
+/// The timing parameters of a node. All are offsets from the release of the job.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NodeTiming {
+    /// Estimated worst-case execution time of the node. It is zero unless set with `set_node_wcet()`.
+    pub estimated_wcet: Duration,
+    /// Estimated earliest start of the node, computed from the predecessors.
+    pub estimated_earliest_start: Duration,
+    /// Estimated latest finish of the node, computed from the successors.
+    pub estimated_latest_finish: Duration,
+    /// True if the node is on a critical path, that is, a longest path of the DAG by WCET.
+    /// Such a node has the least slack, which is `D` minus the length of that path.
+    pub is_critical: bool,
+}
+
+impl NodeTiming {
+    pub fn estimated_earliest_finish(&self) -> Duration {
+        self.estimated_earliest_start + self.estimated_wcet
+    }
+
+    pub fn estimated_latest_start(&self) -> Duration {
+        self.estimated_latest_finish - self.estimated_wcet
+    }
+
+    pub fn slack(&self) -> Duration {
+        self.estimated_latest_finish - self.estimated_earliest_finish()
+    }
+}
+
 struct NodeInfo {
     task_id: u32,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
-    relative_deadline: Option<Duration>,
-    num_finished: u64,         // Number of DAG jobs that this node finished.
+    relative_deadline: Option<Duration>, // Sink node's relative deadline; None for other nodes
+    timing: NodeTiming, // The WCET is declared, and `compute_timing` computes the rest.
+    num_finished: u64,  // Number of DAG jobs that this node finished.
     deadline_job: Option<u64>, // Job whose deadline the last wake of this node got.
 }
 
@@ -611,7 +783,7 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
-                    absolute_deadlines: Mutex::new(BTreeMap::new()),
+                    release_times: Mutex::new(BTreeMap::new()),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -692,6 +864,8 @@ fn validate_all_rules(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
             errors.extend(pubsub_duplicate_errors);
         } else if let Err(duplicate_error) = validate_single_publisher_per_topic(dag) {
             errors.extend(duplicate_error);
+        } else if let Err(timing_error) = compute_timing(dag) {
+            errors.push(timing_error);
         }
     }
 
@@ -915,6 +1089,93 @@ fn validate_single_publisher_per_topic(dag: &Dag) -> Result<(), Vec<DagError>> {
     } else {
         Err(errors)
     }
+}
+
+/// Computes the relative deadline of every node, as an offset from the job release, from the
+/// estimated WCETs and the sink relative deadline `D`. The earliest starts are computed only to
+/// check feasibility and to mark the nodes on a critical path.
+///
+/// - `ES(source) = 0`, and `ES(v) = max over predecessors p of (ES(p) + C(p))`.
+/// - `deadline(sink) = D`, and `deadline(v) = min over successors s of (deadline(s) - C(s))`.
+///
+/// Fails if some node cannot finish by its latest finish, that is, if the critical path
+/// exceeds `D`. It requires an acyclic DAG, which `validate_dag` ensures.
+fn compute_timing(dag: &Dag) -> Result<(), DagError> {
+    let dag_id = dag.id;
+    let mut node = MCSNode::new();
+    let mut graph = dag.graph.lock(&mut node);
+
+    let sink_deadline = graph
+        .get_sink_relative_deadline()
+        .ok_or(DagError::MissingSinkDeadline(dag_id))?;
+
+    let order = graph.topological_order();
+
+    // Forward pass to compute per-node earliest start times.
+    let mut earliest_start: BTreeMap<NodeIndex, Duration> = BTreeMap::new();
+    for &idx in &order {
+        let mut start = Duration::ZERO;
+        for pred in graph.neighbors_directed(idx, Direction::Incoming) {
+            let pred_start = earliest_start.get(&pred).copied().unwrap_or(Duration::ZERO);
+            let pred_finish = pred_start
+                .checked_add(graph.get_node_wcet(pred).unwrap_or(Duration::ZERO))
+                .ok_or(DagError::WcetOverflow(dag_id))?;
+            start = start.max(pred_finish);
+        }
+        earliest_start.insert(idx, start);
+    }
+
+    // Backward pass to compute per-node latest finish times.
+    let mut latest_finish: BTreeMap<NodeIndex, Duration> = BTreeMap::new();
+    for &idx in order.iter().rev() {
+        let mut finish = sink_deadline;
+        let mut has_successor = false;
+        for succ in graph.neighbors_directed(idx, Direction::Outgoing) {
+            let succ_finish = latest_finish.get(&succ).copied().unwrap_or(sink_deadline);
+            let succ_start = succ_finish
+                .checked_sub(graph.get_node_wcet(succ).unwrap_or(Duration::ZERO))
+                .ok_or(DagError::InfeasibleWcet(dag_id, succ.index()))?;
+            finish = if has_successor {
+                finish.min(succ_start)
+            } else {
+                succ_start
+            };
+            has_successor = true;
+        }
+        latest_finish.insert(idx, finish);
+    }
+
+    // Check feasibility, and find the slack of every node.
+    let mut slacks: BTreeMap<NodeIndex, Duration> = BTreeMap::new();
+    for &idx in &order {
+        let wcet = graph.get_node_wcet(idx).unwrap_or(Duration::ZERO);
+        let earliest_start = earliest_start.get(&idx).copied().unwrap_or(Duration::ZERO);
+        let latest_finish = latest_finish.get(&idx).copied().unwrap_or(sink_deadline);
+
+        let earliest_finish = earliest_start
+            .checked_add(wcet)
+            .ok_or(DagError::WcetOverflow(dag_id))?;
+        let slack = latest_finish
+            .checked_sub(earliest_finish)
+            .ok_or(DagError::InfeasibleWcet(dag_id, idx.index()))?;
+        slacks.insert(idx, slack);
+    }
+
+    // A node is critical if it has the least slack, which only the nodes on a longest path have.
+    let min_slack = slacks.values().min().copied().unwrap_or(Duration::ZERO);
+
+    for &idx in &order {
+        let info = graph
+            .node_weight_mut(idx)
+            .ok_or(DagError::NodeNotFound(dag_id, idx.index()))?;
+        info.timing.estimated_earliest_start =
+            earliest_start.get(&idx).copied().unwrap_or(Duration::ZERO);
+        info.timing.estimated_latest_finish =
+            latest_finish.get(&idx).copied().unwrap_or(sink_deadline);
+        info.timing.is_critical = slacks.get(&idx) == Some(&min_slack);
+    }
+
+    Ok(())
 }
 
 async fn spawn_dag(dag: &Arc<Dag>) {
@@ -1175,17 +1436,11 @@ mod tests {
         let sink = dag.add_node_with_topic_edges(&["deadline_test_topic".into()], &[]);
 
         // A non-source node does not release a job.
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 5), 5);
+        assert_eq!(dag.get_or_release_job(sink, true, || 5, |_| ()).0, 5);
 
         // The source node releases job 0. A later wake in job 0 keeps the deadline.
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 10),
-            10
-        );
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 11),
-            10
-        );
+        assert_eq!(dag.get_or_release_job(source, true, || 10, |_| ()).0, 10);
+        assert_eq!(dag.get_or_release_job(source, true, || 11, |_| ()).0, 10);
 
         // The input of job 0 can reach the sink node without a wake.
         assert!(dag.has_stale_deadline(sink));
@@ -1193,28 +1448,19 @@ mod tests {
         dag.finish_job(source);
 
         // A preempted source node resumes before the next period and does not release job 1.
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, false, || 15),
-            15
-        );
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 20),
-            20
-        );
+        assert_eq!(dag.get_or_release_job(source, false, || 15, |_| ()).0, 15);
+        assert_eq!(dag.get_or_release_job(source, true, || 20, |_| ()).0, 20);
 
         // The sink node wakes for job 0 after the release of job 1.
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 21), 10);
+        assert_eq!(dag.get_or_release_job(sink, true, || 21, |_| ()).0, 10);
         assert!(!dag.has_stale_deadline(sink));
 
         // The source node released job 1.
         dag.finish_job(sink);
         assert!(dag.has_stale_deadline(sink));
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 22), 20);
+        assert_eq!(dag.get_or_release_job(sink, true, || 22, |_| ()).0, 20);
         assert!(!dag.has_stale_deadline(sink));
-        assert!(!dag
-            .absolute_deadlines
-            .lock(&mut MCSNode::new())
-            .contains_key(&0));
+        assert!(!dag.release_times.lock(&mut MCSNode::new()).contains_key(&0));
     }
 
     #[test]
@@ -1226,42 +1472,22 @@ mod tests {
         let sink = dag.add_node_with_topic_edges(&["retention_test_b".into()], &[]);
 
         // The source node releases jobs 0, 1, and 2.
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 10),
-            10
-        );
+        assert_eq!(dag.get_or_release_job(source, true, || 10, |_| ()).0, 10);
         dag.finish_job(source);
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 20),
-            20
-        );
+        assert_eq!(dag.get_or_release_job(source, true, || 20, |_| ()).0, 20);
         dag.finish_job(source);
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 30),
-            30
-        );
+        assert_eq!(dag.get_or_release_job(source, true, || 30, |_| ()).0, 30);
 
         // The sink node finishes job 0 before the middle node records its finish.
         dag.finish_job(sink);
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(middle, true, || 31),
-            10
-        );
+        assert_eq!(dag.get_or_release_job(middle, true, || 31, |_| ()).0, 10);
 
         dag.finish_job(middle);
-        assert_eq!(
-            dag.get_or_release_absolute_deadline(middle, true, || 32),
-            20
-        );
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 33), 20);
+        assert_eq!(dag.get_or_release_job(middle, true, || 32, |_| ()).0, 20);
+        assert_eq!(dag.get_or_release_job(sink, true, || 33, |_| ()).0, 20);
 
         let mut node = MCSNode::new();
-        let jobs: Vec<u64> = dag
-            .absolute_deadlines
-            .lock(&mut node)
-            .keys()
-            .copied()
-            .collect();
+        let jobs: Vec<u64> = dag.release_times.lock(&mut node).keys().copied().collect();
         assert_eq!(jobs, [1, 2]);
     }
 
@@ -1273,17 +1499,142 @@ mod tests {
 
         // The sink node stopped, for example by a panic, and the source node keeps releasing.
         for deadline in 0..100 {
-            dag.get_or_release_absolute_deadline(source, true, || deadline);
+            dag.get_or_release_job(source, true, || deadline, |_| ()).0;
             dag.finish_job(source);
         }
 
         let mut node = MCSNode::new();
-        let absolute_deadlines = dag.absolute_deadlines.lock(&mut node);
+        let release_times = dag.release_times.lock(&mut node);
         // The cap for two nodes.
         assert_eq!(
-            absolute_deadlines.len(),
+            release_times.len(),
             2 * (Attribute::default().queue_size + 1) + 1
         );
-        assert_eq!(absolute_deadlines.last_key_value(), Some((&99, &99)));
+        assert_eq!(release_times.last_key_value(), Some((&99, &99)));
+    }
+
+    fn latest_finish_of(dag: &Dag, idx: NodeIndex) -> Duration {
+        let mut node = MCSNode::new();
+        let graph = dag.graph.lock(&mut node);
+        graph
+            .node_weight(idx)
+            .unwrap()
+            .timing
+            .estimated_latest_finish
+    }
+
+    // source -> a -> sink, and source -> b -> sink.
+    fn diamond(prefix: &str) -> (Arc<Dag>, [NodeIndex; 4]) {
+        let dag = create_dag();
+        let t = |s: &str| -> Cow<'static, str> { alloc::format!("{prefix}_{s}").into() };
+        let source = dag.add_node_with_topic_edges(&[], &[t("sa"), t("sb")]);
+        let a = dag.add_node_with_topic_edges(&[t("sa")], &[t("as")]);
+        let b = dag.add_node_with_topic_edges(&[t("sb")], &[t("bs")]);
+        let sink = dag.add_node_with_topic_edges(&[t("as"), t("bs")], &[]);
+        dag.set_relative_deadline(sink, Duration::from_millis(100))
+            .unwrap();
+        (dag, [source, a, b, sink])
+    }
+
+    #[test]
+    fn zero_wcets_give_the_sink_deadline_to_every_node() {
+        let (dag, nodes) = diamond("timing_zero");
+        assert!(compute_timing(&dag).is_ok());
+        for idx in nodes {
+            assert_eq!(latest_finish_of(&dag, idx), Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn latest_finish_follows_the_downstream_wcets() {
+        let (dag, [source, a, b, sink]) = diamond("timing_diamond");
+        dag.set_node_wcet(source, Duration::from_millis(10))
+            .unwrap();
+        dag.set_node_wcet(a, Duration::from_millis(30)).unwrap();
+        dag.set_node_wcet(b, Duration::from_millis(5)).unwrap();
+        dag.set_node_wcet(sink, Duration::from_millis(20)).unwrap();
+        assert!(compute_timing(&dag).is_ok());
+
+        assert_eq!(latest_finish_of(&dag, sink), Duration::from_millis(100));
+        assert_eq!(latest_finish_of(&dag, a), Duration::from_millis(80));
+        assert_eq!(latest_finish_of(&dag, b), Duration::from_millis(80));
+        // The slower branch `a` bounds the source.
+        assert_eq!(latest_finish_of(&dag, source), Duration::from_millis(50));
+    }
+
+    #[test]
+    fn critical_path_over_the_deadline_is_rejected() {
+        let (dag, [source, a, _b, sink]) = diamond("timing_infeasible");
+        dag.set_node_wcet(source, Duration::from_millis(50))
+            .unwrap();
+        dag.set_node_wcet(a, Duration::from_millis(40)).unwrap();
+        dag.set_node_wcet(sink, Duration::from_millis(20)).unwrap();
+        assert!(matches!(
+            compute_timing(&dag),
+            Err(DagError::InfeasibleWcet(..))
+        ));
+    }
+
+    #[test]
+    fn nodes_on_the_longest_path_are_critical() {
+        let (dag, [source, a, b, sink]) = diamond("timing_critical");
+        dag.set_node_wcet(source, Duration::from_millis(10))
+            .unwrap();
+        dag.set_node_wcet(a, Duration::from_millis(30)).unwrap();
+        dag.set_node_wcet(b, Duration::from_millis(5)).unwrap();
+        dag.set_node_wcet(sink, Duration::from_millis(20)).unwrap();
+        assert!(compute_timing(&dag).is_ok());
+
+        // The path source -> a -> sink is 60 ms, shorter than D, and still the longest.
+        let critical = |idx| {
+            dag.get_or_release_job(idx, false, || 0, |timing| timing.is_critical)
+                .1
+        };
+        assert!(critical(source));
+        assert!(critical(a));
+        assert!(!critical(b));
+        assert!(critical(sink));
+    }
+
+    #[test]
+    fn released_job_returns_release_time_and_node_timing() {
+        let (dag, [source, a, _b, sink]) = diamond("timing_job");
+        dag.set_node_wcet(sink, Duration::from_millis(20)).unwrap();
+        dag.set_node_wcet(a, Duration::from_millis(30)).unwrap();
+        dag.set_node_wcet(source, Duration::from_millis(10))
+            .unwrap();
+        assert!(compute_timing(&dag).is_ok());
+
+        let (release_time, (wcet, earliest_start, latest_finish)) = dag.get_or_release_job(
+            source,
+            true,
+            || 1_000,
+            |timing| {
+                (
+                    timing.estimated_wcet,
+                    timing.estimated_earliest_start,
+                    timing.estimated_latest_finish,
+                )
+            },
+        );
+        assert_eq!(release_time, 1_000);
+        assert_eq!(wcet, Duration::from_millis(10));
+        assert_eq!(earliest_start, Duration::ZERO);
+        assert_eq!(latest_finish, Duration::from_millis(50));
+
+        let (release_time, (earliest_start, latest_finish)) = dag.get_or_release_job(
+            sink,
+            true,
+            || 2_000,
+            |timing| {
+                (
+                    timing.estimated_earliest_start,
+                    timing.estimated_latest_finish,
+                )
+            },
+        );
+        assert_eq!(release_time, 1_000); // The job of the source node.
+        assert_eq!(earliest_start, Duration::from_millis(40));
+        assert_eq!(latest_finish, Duration::from_millis(100));
     }
 }
