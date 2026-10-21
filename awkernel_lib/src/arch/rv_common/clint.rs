@@ -1,5 +1,6 @@
 use crate::cpu::{cpu_id, num_cpu};
 use core::ptr::{read_volatile, write_volatile};
+use riscv::register::mie;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -31,6 +32,36 @@ impl Clint {
     #[inline]
     const fn mtime(&self) -> *const u64 {
         (self.base_addr + Self::MTIME_OFFSET) as *const u64
+    }
+
+    #[inline]
+    pub fn enable_soft_interrupt(&self) {
+        unsafe { mie::set_msoft() };
+    }
+
+    #[inline]
+    pub fn disable_soft_interrupt(&self) {
+        unsafe { mie::clear_msoft() };
+    }
+
+    #[inline]
+    pub fn enable_timer_interrupt(&self) {
+        unsafe { mie::set_mtimer() };
+    }
+
+    #[inline]
+    pub fn disable_timer_interrupt(&self) {
+        unsafe { mie::clear_mtimer() };
+    }
+
+    #[inline]
+    pub fn is_soft_interrupt_pending(&self) -> bool {
+        mie::read().msoft()
+    }
+
+    #[inline]
+    pub fn is_timer_interrupt_pending(&self) -> bool {
+        mie::read().mtimer()
     }
 
     /// Busy wait for a given number of microseconds.
@@ -65,7 +96,7 @@ impl Clint {
     ///
     /// The caller must ensure that the hart_id is valid.
     #[inline]
-    unsafe fn soft_interrupt_unchecked(&self, hart_id: usize) {
+    unsafe fn set_soft_interrupt_unchecked(&self, hart_id: usize) {
         // Safety: The caller must ensure that the hart_id is valid.
         unsafe { write_volatile(self.msip(hart_id), 1) };
     }
@@ -74,33 +105,41 @@ impl Clint {
     ///
     /// If the hart_id is invalid, return an error.
     #[inline]
-    pub fn soft_interrupt(&self, hart_id: usize) -> Result<(), Error> {
+    pub fn set_soft_interrupt(&self, hart_id: usize) -> Result<(), Error> {
         if hart_id >= num_cpu() {
             return Err(Error::InvalidHartId);
         }
         // Safety: hart_id is within the range of available harts
-        unsafe { self.soft_interrupt_unchecked(hart_id) };
+        unsafe { self.set_soft_interrupt_unchecked(hart_id) };
         Ok(())
     }
 
     /// Trigger a software interrupt to all harts, including the current hart.
     #[inline]
-    pub fn soft_interrupt_broadcast(&self) {
+    pub fn set_soft_interrupt_broadcast(&self) {
         for hart_id in 0..num_cpu() {
             // Safety: hart_id is within the range of available harts
-            unsafe { self.soft_interrupt_unchecked(hart_id) };
+            unsafe { self.set_soft_interrupt_unchecked(hart_id) };
         }
     }
 
     /// Trigger a software interrupt to all harts, excluding the current hart.
     #[inline]
-    pub fn soft_interrupt_broadcast_without_self(&self) {
+    pub fn set_soft_interrupt_broadcast_without_self(&self) {
         let self_hart_id = cpu_id();
         for hart_id in 0..num_cpu() {
             if hart_id != self_hart_id {
                 // Safety: hart_id is within the range of available harts
-                unsafe { self.soft_interrupt_unchecked(hart_id) };
+                unsafe { self.set_soft_interrupt_unchecked(hart_id) };
             }
         }
+    }
+
+    /// Clear the software interrupt for the current hart.
+    #[inline]
+    pub fn clear_soft_interrupt(&self) {
+        let hart_id = cpu_id();
+        // Safety: hart_id is within the range of available harts
+        unsafe { write_volatile(self.msip(hart_id), 0) };
     }
 }
