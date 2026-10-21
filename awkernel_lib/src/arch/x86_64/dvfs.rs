@@ -13,6 +13,8 @@ use super::X86;
 mod hwpstate_intel;
 
 const MSR_PLATFORM_INFO: u32 = 0xCE;
+const MSR_PLATFORM_INFO_MAX_OFFSET: u32 = 8;
+const MSR_PLATFORM_INFO_MIN_OFFSET: u32 = 40;
 const IA32_PERF_MPERF: u32 = 0xE7;
 const IA32_PERF_APERF: u32 = 0xE8;
 const IA32_PERF_CTL: u32 = 0x199;
@@ -53,10 +55,21 @@ impl Dvfs for X86 {
     fn get_max_cpu_freq() -> Result<u64> {
         unsafe {
             let platform_info = Msr::new(MSR_PLATFORM_INFO);
-            let max_ratio = (platform_info.read() >> 8) & 0xFF;
+            let max_ratio = (platform_info.read() >> MSR_PLATFORM_INFO_MAX_OFFSET) & 0xFF;
             let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
 
             Ok(max_ratio * bus_freq_mhz)
+        }
+    }
+
+    /// Get the minimum frequency of the current CPU.
+    fn get_min_cpu_freq() -> Result<u64> {
+        unsafe {
+            let platform_info = Msr::new(MSR_PLATFORM_INFO);
+            let min_ratio = (platform_info.read() >> MSR_PLATFORM_INFO_MIN_OFFSET) & 0xFF;
+            let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
+
+            Ok(min_ratio * bus_freq_mhz)
         }
     }
 
