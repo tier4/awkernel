@@ -2,18 +2,22 @@
     "rust-analyzer.showUnlinkedFileNotification": false,
     "tlaplus.tlc.modelChecker.options": "-workers auto",
     "editor.formatOnSave": true,
+    // The cargo aliases build `--package userland`, which has no default
+    // architecture: pass it explicitly (the features are forwarded to `awkernel`).
     // For AArch64 Virt
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
     //     "+nightly-2026-07-20",
     //     "check_no_std",
     //     "--target=targets/aarch64-kernel.json",
+    //     "--features=aarch64_virt",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
     //     "+nightly-2026-07-20",
     //     "check_no_std",
     //     "--target=targets/aarch64-kernel.json",
+    //     "--features=aarch64_virt",
     // ],
     // "rust-analyzer.cargo.features": [
     //     "aarch64_virt"
@@ -24,12 +28,14 @@
         "+nightly-2026-07-20",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
+        "--features=x86",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
         "+nightly-2026-07-20",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
+        "--features=x86",
     ],
     "rust-analyzer.cargo.features": [
         "x86"
@@ -39,6 +45,7 @@
     //     "cargo",
     //     "+nightly-2026-07-20",
     //     "check_std",
+    //     "--features=std",
     //     "--quiet",
     //     "--message-format=json"
     // ],
@@ -46,6 +53,7 @@
     //     "cargo",
     //     "+nightly-2026-07-20",
     //     "check_std",
+    //     "--features=std",
     //     "--quiet",
     //     "--message-format=json"
     // ],

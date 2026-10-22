@@ -33,8 +33,6 @@ ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
 ASM_OBJ_AARCH64=boot_aarch64.o
 
-X86ASM=kernel/asm/x86
-
 ifndef $(CC)
 	CC = clang
 endif
@@ -61,7 +59,7 @@ all: aarch64 x86_64 riscv32 riscv64 std
 
 check: check_aarch64 check_x86_64 check_std check_riscv32 check_riscv64
 
-clippy: $(X86ASM)
+clippy:
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
@@ -71,7 +69,7 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_std
 	cargo +$(RUSTV) clippy_rd_gen_to_dags
 
-udeps: $(X86ASM)
+udeps:
 	cargo +$(RUSTV) udeps_x86
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
@@ -139,10 +137,10 @@ gdb-aarch64-virt:
 
 x86_64: x86_64_uefi.img
 
-check_x86_64: $(X86ASM)
+check_x86_64:
 	cargo +$(RUSTV) check_x86
 
-kernel-x86_64.elf: $(X86ASM) FORCE
+kernel-x86_64.elf: FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
 	python3 scripts/embed_debug_info.py $@
 
@@ -151,9 +149,6 @@ x86_64_boot.img: kernel-x86_64.elf
 
 x86_64_uefi.img: kernel-x86_64.elf
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk --no-default-features --features uefi -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
-
-$(X86ASM): FORCE
-	$(MAKE) -C $@
 
 OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
@@ -271,9 +266,8 @@ fmt: FORCE
 # Clean
 
 clean: FORCE
-	rm -rf *.o *.elf $(AARCH64_BSP_LD) *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
+	rm -rf *.o *.elf $(AARCH64_BSP_LD) *.img x86_64_uefi_pxe_boot
 	cargo clean
-	$(MAKE) -C $(X86ASM) clean
 
 
 ## QEMU Monitor
