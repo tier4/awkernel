@@ -41,6 +41,8 @@ $ cargo binstall mdbook-mermaid
   - verified library for awkernel_async_lib
   - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_futures_macro](./awkernel_futures_macro/)
+- [awkernel_macros](./awkernel_macros/)
+  - `#[awkernel::main]` entry-point macro
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
@@ -60,7 +62,8 @@ graph TD;
     kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
     awkernel_drivers-->awkernel_lib;
-    kernel-->userland;
+    userland-->kernel;
+    kernel-->awkernel_macros;
 ```
 
 Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.

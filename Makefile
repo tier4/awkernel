@@ -247,7 +247,7 @@ check_std: FORCE
 	cargo +$(RUSTV) check_std
 
 run-std:
-	cargo +$(RUSTV) run --package awkernel --no-default-features --features std $(OPT)
+	cargo +$(RUSTV) run --package userland --no-default-features --features std $(OPT)
 
 # Docs
 docs: FORCE
