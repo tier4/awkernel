@@ -20,9 +20,16 @@ const IA32_PERF_APERF: u32 = 0xE8;
 const IA32_PERF_CTL: u32 = 0x199;
 const IA32_MISC_ENABLE: u32 = 0x1A0;
 
+fn bus_freq_mhz() -> u64 {
+    match (__cpuid(0x16).ecx & 0xffff) as u64 {
+        0 => 100, // Default to 100 MHz if bus frequency is not reported (old CPUs).
+        freq => freq,
+    }
+}
+
 impl Dvfs for X86 {
     /// Fix the frequency of the current CPU.
-    fn set_cpu_freq(freq_mhz: u64) -> Result<()> {
+    fn set_cpu_freq(freq: u64) -> Result<()> {
         unsafe {
             let mut misc_enable = Msr::new(IA32_MISC_ENABLE);
             let mut value = misc_enable.read();
@@ -33,9 +40,8 @@ impl Dvfs for X86 {
             misc_enable.write(value);
         }
 
-        let cpuid = __cpuid(0x16);
-        let bus_freq_mhz = (cpuid.ecx & 0xffff) as u64;
-        let target_pstate = ((freq_mhz / bus_freq_mhz) as u64) & 0xFFFF;
+        let bus_freq_mhz = bus_freq_mhz();
+        let target_pstate = (freq / bus_freq_mhz / 1_000_000) & 0xFFFF;
         unsafe {
             let mut perf_ctl = Msr::new(IA32_PERF_CTL);
             let mut value = perf_ctl.read();
@@ -56,9 +62,9 @@ impl Dvfs for X86 {
         unsafe {
             let platform_info = Msr::new(MSR_PLATFORM_INFO);
             let max_ratio = (platform_info.read() >> MSR_PLATFORM_INFO_MAX_OFFSET) & 0xFF;
-            let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
+            let bus_freq_mhz = bus_freq_mhz();
 
-            Ok(max_ratio * bus_freq_mhz)
+            Ok(max_ratio * bus_freq_mhz * 1_000_000)
         }
     }
 
@@ -67,9 +73,9 @@ impl Dvfs for X86 {
         unsafe {
             let platform_info = Msr::new(MSR_PLATFORM_INFO);
             let min_ratio = (platform_info.read() >> MSR_PLATFORM_INFO_MIN_OFFSET) & 0xFF;
-            let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
+            let bus_freq_mhz = bus_freq_mhz();
 
-            Ok(min_ratio * bus_freq_mhz)
+            Ok(min_ratio * bus_freq_mhz * 1_000_000)
         }
     }
 
@@ -93,7 +99,9 @@ impl Dvfs for X86 {
             let mperf_delta = mperf.read();
             let aperf_delta = aperf.read();
 
-            Ok(aperf_delta * Self::get_max_cpu_freq().unwrap() / mperf_delta)
+            let max_cpu_freq_mhz = Self::get_max_cpu_freq().unwrap() / 1_000_000;
+
+            Ok(aperf_delta * max_cpu_freq_mhz / mperf_delta * 1_000_000)
         }
     }
 }
