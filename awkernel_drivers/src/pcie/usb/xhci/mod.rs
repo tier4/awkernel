@@ -1,14 +1,14 @@
-//! xHCI host controller driver: controller bring-up (reset, rings, start).
+//! xHCI host controller driver: boot-time USB enumeration.
 //!
 //! The driver is fully polled (USBCMD.INTE = 0).
 //!
 //! Path classification:
-//! - Non-RT: [`attach`] and everything it calls (controller reset and start).
-//!   Runs once at boot; allocates DMA pages and busy-waits with bounded polling
-//!   budgets.
+//! - Non-RT: [`attach`] and everything it calls (controller reset, port reset,
+//!   enumeration).  Runs once at boot; allocates DMA pages and busy-waits with
+//!   bounded polling budgets.
 
 use alloc::{borrow::Cow, format, string::String, sync::Arc, vec::Vec};
-use core::cell::UnsafeCell;
+use core::{cell::UnsafeCell, mem::ManuallyDrop, ptr::read_volatile};
 
 use awkernel_lib::{addr::Addr, dma_pool::DMAPool};
 
@@ -21,8 +21,8 @@ use super::super::{
 mod regs;
 mod ring;
 
-use regs::{completion, trb_type};
-use ring::{publish, CommandRing, Dcbaa, EventRing, Trb};
+use regs::{completion, trb_flag, trb_type};
+use ring::{publish, CommandRing, Dcbaa, EventRing, TransferRing, Trb};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -32,6 +32,14 @@ use ring::{publish, CommandRing, Dcbaa, EventRing, Trb};
 const STATE_POLL_ITERS: u32 = 1_000_000;
 /// Polling budget for one command or transfer completion event.
 const COMPLETION_POLL_ITERS: u32 = 2_000_000;
+/// A control transfer reports at most a Short Packet (Data Stage) followed by
+/// the Status Stage event; allow one spare event.
+const MAX_CTRL_EVENTS: usize = 3;
+/// VBUS stabilization / device connect wait before scanning ports.
+const PORT_SETTLE_USEC: u64 = 500_000;
+/// USB 2.0 spec §7.1.7.3 TRSTRCY: minimum 10 ms reset recovery before the
+/// device is required to answer SET_ADDRESS.
+const PORT_RESET_RECOVERY_USEC: u64 = 10_000;
 
 /// All DMA allocations go to NUMA node 0.
 const NUMA_NODE: usize = 0;
@@ -40,6 +48,19 @@ type Page = [u8; PAGE_SIZE];
 
 /// Scratchpad pointer array: one 8-byte entry per page, in one DMA page.
 const MAX_SCRATCHPAD: usize = PAGE_SIZE / 8;
+
+/// Device Context Index of the default control endpoint (EP0).
+const EP0_DCI: u8 = 1;
+
+/// Endpoint Context DW1: CErr = 3, EP Type = Control (4).
+const EP_CTX_CONTROL: u8 = (3 << 1) | (4 << 3);
+
+/// PORTSC speed values (xHCI spec §7.2.2.1.1 default PSI).
+const SPEED_LOW: u32 = 2;
+const SPEED_HIGH: u32 = 3;
+const SPEED_SUPER: u32 = 4;
+const SPEED_SUPER_PLUS: u32 = 5;
+const PORTSC_SPEED_SHIFT: u32 = 10;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -56,6 +77,8 @@ pub(super) enum XhciErr {
     /// A command or transfer completed with this (non-success) completion code.
     Completion(u8),
     RingFull,
+    InvalidPort,
+    InvalidSlot,
 }
 
 impl From<XhciErr> for PCIeDeviceErr {
@@ -93,10 +116,92 @@ fn hi32(v: u64) -> u32 {
     u32::from_le_bytes([a, b, c, d])
 }
 
+/// TRB ctrl bits for Slot ID (ctrl[31:24]) and Endpoint ID (ctrl[20:16]).
+fn ctrl_slot_ep(slot: u8, dci: u8) -> u32 {
+    u32::from_le_bytes([0, 0, dci, slot])
+}
+
+/// Write a little-endian u32 into an Input Context page.
+fn ctx_write32(page: &mut Page, off: usize, val: u32) -> Result<(), XhciErr> {
+    let end = off.checked_add(4).ok_or(XhciErr::Overflow)?;
+    page.get_mut(off..end)
+        .ok_or(XhciErr::Overflow)?
+        .copy_from_slice(&val.to_le_bytes());
+    Ok(())
+}
+
 fn new_page() -> Result<DMAPool<Page>, XhciErr> {
     let mut page = DMAPool::<Page>::new(NUMA_NODE, 1).ok_or(XhciErr::DmaAlloc)?;
     page.as_mut().fill(0);
     Ok(page)
+}
+
+// ---------------------------------------------------------------------------
+// USB control requests
+// ---------------------------------------------------------------------------
+
+/// USB SETUP packet (USB 2.0 spec §9.3).
+#[derive(Clone, Copy)]
+struct SetupPacket {
+    request_type: u8,
+    request: u8,
+    value: u16,
+    index: u16,
+    length: u16,
+}
+
+impl SetupPacket {
+    /// Pack into the 8-byte immediate data of a Setup Stage TRB.
+    fn to_param(self) -> u64 {
+        let [rt, rq] = [self.request_type, self.request];
+        let [v0, v1] = self.value.to_le_bytes();
+        let [i0, i1] = self.index.to_le_bytes();
+        let [l0, l1] = self.length.to_le_bytes();
+        u64::from_le_bytes([rt, rq, v0, v1, i0, i1, l0, l1])
+    }
+
+    /// True when the data stage (if any) moves data from device to host.
+    fn is_in(&self) -> bool {
+        self.request_type & 0x80 != 0
+    }
+}
+
+const RT_DEV_IN: u8 = 0x80; // D→H, Standard, Device
+
+const REQ_GET_DESCRIPTOR: u8 = 6;
+
+const DESC_DEVICE: u16 = 0x0100;
+const DEVICE_DESC_LEN: u16 = 18;
+
+// ---------------------------------------------------------------------------
+// Device state
+// ---------------------------------------------------------------------------
+
+/// Device Descriptor fields kept after enumeration.
+#[derive(Clone, Copy, Default)]
+struct DeviceDescriptor {
+    vendor: u16,
+    product: u16,
+    bcd_device: u16,
+}
+
+/// One addressed USB device.
+///
+/// Always held in `ManuallyDrop`: once a slot is addressed, the controller keeps
+/// pointers to the Device Context and the rings, so freeing them would let the
+/// controller DMA into reused memory.  A few pages per enumerated device are
+/// leaked at boot instead.
+struct UsbDevice {
+    slot: u8,
+    port: u8,
+    /// PORTSC speed value (bits [13:10], already shifted down).
+    speed: u32,
+    ep0: TransferRing,
+    /// Output Device Context, referenced by DCBAA[slot].
+    _ctx: DMAPool<Page>,
+    /// Data-stage buffer shared by all control transfers of this device.
+    ctrl_buf: DMAPool<Page>,
+    desc: DeviceDescriptor,
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +214,8 @@ struct HcCore {
     db: Mmio,
     cmd_ring: CommandRing,
     evt_ring: EventRing,
+    /// Set if Command Abort fails (`CRCR.CRR` stays 1); refuses further commands.
+    cmd_ring_broken: bool,
 }
 
 impl HcCore {
@@ -126,14 +233,15 @@ impl HcCore {
         Ok(self.ir0.write32(regs::ir::ERDP_HI, hi32(erdp))?)
     }
 
-    /// Wait for the next event of type `kind`, discarding other events.
+    /// Wait for the next event for which `accept` returns true, discarding
+    /// every other event.
     ///
     /// WCET: at most `COMPLETION_POLL_ITERS` event-ring polls.
-    fn wait_event(&mut self, kind: u32) -> Result<Trb, XhciErr> {
+    fn wait_event(&mut self, mut accept: impl FnMut(&Trb) -> bool) -> Result<Trb, XhciErr> {
         for _ in 0..COMPLETION_POLL_ITERS {
             if let Some(trb) = self.evt_ring.dequeue()? {
                 self.update_erdp()?;
-                if trb.trb_type() == kind {
+                if accept(&trb) {
                     return Ok(trb);
                 }
             }
@@ -142,15 +250,203 @@ impl HcCore {
         Err(XhciErr::Timeout)
     }
 
+    /// Consume and discard every pending event (at most one ring's worth).
+    fn drain_events(&mut self) -> Result<(), XhciErr> {
+        for _ in 0..ring::RING_SIZE {
+            if self.evt_ring.dequeue()?.is_none() {
+                break;
+            }
+            self.update_erdp()?;
+        }
+        Ok(())
+    }
+
+    /// Stop the Command Ring after a command timeout and re-synchronize it at
+    /// the ring base (xHCI spec §4.6.1.2, §5.4.5).
+    ///
+    /// Writing `CRCR_CA` aborts the running command (if any) and stops the
+    /// Command Ring; the controller clears `CRCR_CRR` once any in-flight command
+    /// DMA and its `Command Aborted` / `Command Ring Stopped` events have been
+    /// posted.  Once `CRR == 0`, the ring is reset to index 0 and `CRCR` is
+    /// reprogrammed.
+    ///
+    /// WCET: at most `STATE_POLL_ITERS` polls of `CRCR_LO` plus `RING_SIZE`
+    /// TRB writes on reset.
+    fn abort_command_ring(&mut self) -> Result<(), XhciErr> {
+        // CRCR[63:6] and RCS/CS/CA read as 0 (§5.4.5); write CA alone.
+        self.op.write64(
+            regs::op::CRCR_LO,
+            regs::op::CRCR_HI,
+            u64::from(regs::op::CRCR_CA),
+        )?;
+
+        let mut stopped = false;
+        for _ in 0..STATE_POLL_ITERS {
+            if self.evt_ring.dequeue()?.is_some() {
+                self.update_erdp()?;
+            }
+            if self.op.read32(regs::op::CRCR_LO)? & regs::op::CRCR_CRR == 0 {
+                stopped = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        if !stopped {
+            self.cmd_ring_broken = true;
+            log::error!("xHCI: command ring did not stop after Command Abort (CRR=1)");
+            return Err(XhciErr::Timeout);
+        }
+
+        self.drain_events()?;
+        self.cmd_ring.reset()?;
+        let crcr = self.cmd_ring.phys_base()?;
+        publish();
+        self.op.write64(
+            regs::op::CRCR_LO,
+            regs::op::CRCR_HI,
+            crcr | u64::from(regs::op::CRCR_RCS),
+        )?;
+        Ok(())
+    }
+
     /// Submit a command and wait for its Command Completion event.
+    ///
+    /// The event is matched against the Command TRB it reports (event.param =
+    /// Command TRB Pointer, xHCI spec §6.4.2.2).  A completion for any other
+    /// TRB — e.g. one that arrives after an earlier command timed out — is
+    /// discarded, so it cannot be taken as this command's completion.  On
+    /// timeout, the Command Ring is aborted and reset before returning.
     fn command(&mut self, trb: Trb) -> Result<Trb, XhciErr> {
-        self.cmd_ring.enqueue(trb)?;
+        if self.cmd_ring_broken {
+            return Err(XhciErr::Timeout);
+        }
+        let cmd_phys = self.cmd_ring.enqueue(trb)?;
         self.ring_doorbell(0, 0)?;
-        let event = self.wait_event(trb_type::CMD_COMPLETION)?;
+        let event = match self.wait_event(|ev| {
+            if ev.trb_type() != trb_type::CMD_COMPLETION {
+                return false;
+            }
+            if ev.param != cmd_phys {
+                log::warn!(
+                    "xHCI: discarded stale completion for command TRB {:#x} \
+                     (code {}, slot {}) while waiting for {cmd_phys:#x}",
+                    ev.param,
+                    ev.completion_code(),
+                    ev.slot_id()
+                );
+                return false;
+            }
+            true
+        }) {
+            Ok(ev) => ev,
+            Err(XhciErr::Timeout) => {
+                log::warn!("xHCI: command TRB {cmd_phys:#x} timed out; aborting command ring");
+                if let Err(e) = self.abort_command_ring() {
+                    self.cmd_ring_broken = true;
+                    log::error!("xHCI: command ring abort failed: {e:?}");
+                }
+                return Err(XhciErr::Timeout);
+            }
+            Err(e) => return Err(e),
+        };
         match event.completion_code() {
             completion::SUCCESS => Ok(event),
             code => Err(XhciErr::Completion(code)),
         }
+    }
+
+    /// Wait for the Status Stage of a control transfer on (`slot`, `dci`)
+    /// (Short Packet on the Data Stage is skipped).
+    ///
+    /// Events are matched against (`slot`, `dci`) and the TRB physical addresses
+    /// of this transfer (`setup_phys`, `data_phys`, `status_phys`), so stale
+    /// events from earlier transfers or other endpoints are discarded.
+    fn wait_transfer(
+        &mut self,
+        slot: u8,
+        dci: u8,
+        setup_phys: u64,
+        data_phys: Option<u64>,
+        status_phys: u64,
+    ) -> Result<(), XhciErr> {
+        for _ in 0..MAX_CTRL_EVENTS {
+            let event = self.wait_event(|ev| {
+                if ev.trb_type() != trb_type::TRANSFER_EVENT {
+                    return false;
+                }
+                let in_td = ev.param == status_phys
+                    || ev.param == setup_phys
+                    || data_phys == Some(ev.param);
+                if ev.slot_id() != slot || ev.endpoint_id() != dci || !in_td {
+                    log::warn!(
+                        "xHCI: discarded stale transfer event (slot {}, ep {}, trb {:#x}, code {}) \
+                         while waiting for slot {slot} ep {dci}",
+                        ev.slot_id(),
+                        ev.endpoint_id(),
+                        ev.param,
+                        ev.completion_code()
+                    );
+                    return false;
+                }
+                true
+            })?;
+            let code = event.completion_code();
+            if event.param == status_phys {
+                return match code {
+                    completion::SUCCESS | completion::SHORT_PACKET => Ok(()),
+                    _ => Err(XhciErr::Completion(code)),
+                };
+            }
+            // Event from Setup or Data stage: Short Packet / Success on Data
+            // Stage is followed by the Status Stage event; any error halts EP0
+            // immediately without executing Status Stage.
+            match code {
+                completion::SHORT_PACKET | completion::SUCCESS => continue,
+                _ => return Err(XhciErr::Completion(code)),
+            }
+        }
+        Err(XhciErr::Completion(completion::SHORT_PACKET))
+    }
+
+    /// Run one control transfer on EP0 of `dev`.  The data stage (if
+    /// `setup.length > 0`) uses `dev.ctrl_buf`.
+    fn control(&mut self, dev: &mut UsbDevice, setup: SetupPacket) -> Result<(), XhciErr> {
+        let is_in = setup.is_in();
+        let has_data = setup.length > 0;
+        let trt = match (has_data, is_in) {
+            (false, _) => trb_flag::TRT_NO_DATA,
+            (true, true) => trb_flag::TRT_IN,
+            (true, false) => trb_flag::TRT_OUT,
+        };
+
+        let setup_phys = dev.ep0.enqueue(Trb {
+            param: setup.to_param(),
+            status: 8, // setup packet size
+            ctrl: trb_type::SETUP_STAGE | trb_flag::IDT | trt,
+        })?;
+        let data_phys = if has_data {
+            Some(dev.ep0.enqueue(Trb {
+                param: phys_of(&dev.ctrl_buf)?,
+                status: u32::from(setup.length),
+                ctrl: trb_type::DATA_STAGE | if is_in { trb_flag::DIR_IN } else { 0 },
+            })?)
+        } else {
+            None
+        };
+        // Status Stage runs opposite to the data stage (IN when there is none).
+        let status_dir = if has_data && is_in {
+            0
+        } else {
+            trb_flag::DIR_IN
+        };
+        let status_phys = dev.ep0.enqueue(Trb {
+            param: 0,
+            status: 0,
+            ctrl: trb_type::STATUS_STAGE | trb_flag::IOC | status_dir,
+        })?;
+
+        self.ring_doorbell(dev.slot, EP0_DCI)?;
+        self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
     }
 }
 
@@ -163,6 +459,9 @@ struct Controller {
     core: HcCore,
     dcbaa: Dcbaa,
     max_slots: u8,
+    max_ports: u8,
+    /// Context size in bytes: 32 (CSZ=0) or 64 (CSZ=1).
+    ctx_size: usize,
     max_scratchpad: usize,
     /// Scratchpad pointer array and pages; owned by the controller for its lifetime.
     _scratchpad: Vec<DMAPool<Page>>,
@@ -181,13 +480,18 @@ impl Controller {
             usize::try_from(cap.read32(regs::cap::RTSOFF)?).map_err(|_| XhciErr::Overflow)?;
 
         // HCSPARAMS1: MaxSlots[7:0], MaxIntrs[18:8], MaxPorts[31:24].
-        let [max_slots, ..] = hcsparams1.to_le_bytes();
+        let [max_slots, _, _, max_ports] = hcsparams1.to_le_bytes();
         // HCSPARAMS2 scratchpad count (§5.3.4): Hi = bits[25:21], Lo = bits[31:27];
         // total = (Hi << 5) | Lo.  (Reversing Hi/Lo is a common mistake.)
         let sp_hi = (hcsparams2 >> 21) & 0x1f;
         let sp_lo = (hcsparams2 >> 27) & 0x1f;
         let max_scratchpad =
             usize::try_from((sp_hi << 5) | sp_lo).map_err(|_| XhciErr::Overflow)?;
+        let ctx_size: usize = if hccparams1 & regs::cap::HCC_CSZ != 0 {
+            64
+        } else {
+            32
+        };
 
         log::info!(
             "xHCI: {name}: HCIVERSION={hci_version:#06x} CAPLENGTH={caplength:#04x} \
@@ -201,6 +505,7 @@ impl Controller {
             db: cap.window(dboff)?,
             cmd_ring: CommandRing::new(NUMA_NODE)?,
             evt_ring: EventRing::new(NUMA_NODE)?,
+            cmd_ring_broken: false,
         };
 
         Ok(Self {
@@ -208,6 +513,8 @@ impl Controller {
             core,
             dcbaa: Dcbaa::new(NUMA_NODE)?,
             max_slots,
+            max_ports,
+            ctx_size,
             max_scratchpad,
             _scratchpad: Vec::new(),
         })
@@ -333,11 +640,79 @@ impl Controller {
     }
 
     // -------------------------------------------------------------------------
+    // Ports
+    // -------------------------------------------------------------------------
+
+    /// PORTSC offset for 1-based port number `port`.
+    fn portsc_offset(&self, port: u8) -> Result<usize, XhciErr> {
+        if port == 0 || port > self.max_ports {
+            return Err(XhciErr::InvalidPort);
+        }
+        usize::from(port)
+            .checked_sub(1)
+            .and_then(|p| p.checked_mul(regs::port::STRIDE))
+            .and_then(|o| o.checked_add(regs::port::BASE))
+            .ok_or(XhciErr::Overflow)
+    }
+
+    fn read_portsc(&self, port: u8) -> Result<u32, XhciErr> {
+        Ok(self.core.op.read32(self.portsc_offset(port)?)?)
+    }
+
+    fn write_portsc(&self, port: u8, val: u32) -> Result<(), XhciErr> {
+        Ok(self.core.op.write32(self.portsc_offset(port)?, val)?)
+    }
+
+    /// Reset `port` and wait for Port Reset Change (RW1CS bits handled per spec).
+    fn reset_port(&mut self, port: u8) -> Result<(), XhciErr> {
+        // Pre-clear stale change bits (write 1) while setting PR; keep PP, avoid PED.
+        let portsc = self.read_portsc(port)?;
+        self.write_portsc(
+            port,
+            (portsc & !regs::port::PED) | (portsc & regs::port::CHANGE_BITS) | regs::port::PR,
+        )?;
+        self.core.op.poll32(
+            self.portsc_offset(port)?,
+            regs::port::PRC,
+            regs::port::PRC,
+            COMPLETION_POLL_ITERS,
+        )?;
+        // Clear PRC (and any other change bits) by writing 1 to them.
+        let portsc = self.read_portsc(port)?;
+        self.write_portsc(
+            port,
+            (portsc & !(regs::port::PED | regs::port::PR)) | (portsc & regs::port::CHANGE_BITS),
+        )?;
+        // A successful reset leaves the port Enabled (PED=1, §4.3.2).
+        if self.read_portsc(port)? & regs::port::PED == 0 {
+            return Err(XhciErr::InvalidPort);
+        }
+        // USB 2.0 §7.1.7.3 TRSTRCY: allow the device to recover before SET_ADDRESS.
+        awkernel_lib::delay::wait_microsec(PORT_RESET_RECOVERY_USEC);
+        self.core.drain_events()
+    }
+
+    // -------------------------------------------------------------------------
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Check that the command ring works before touching any port.
+    /// Scan all ports and enumerate every connected device.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
+        // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
+        // PR=1 on an unpowered port is silently ignored.
+        for port in 1..=self.max_ports {
+            let portsc = self.read_portsc(port)?;
+            if portsc & regs::port::PP == 0 {
+                self.write_portsc(
+                    port,
+                    (portsc & !(regs::port::PED | regs::port::PR))
+                        | (portsc & regs::port::CHANGE_BITS)
+                        | regs::port::PP,
+                )?;
+                log::info!("xHCI: {}: port {port} PP was 0, powered on", self.name);
+            }
+        }
+
         // If a No-Op times out, every later command would too.
         self.core
             .command(Trb {
@@ -350,8 +725,226 @@ impl Controller {
             "xHCI: {}: NOOP command OK — command ring is alive",
             self.name
         );
+
+        awkernel_lib::delay::wait_microsec(PORT_SETTLE_USEC);
+        self.core.drain_events()?;
+
+        // Snapshot connected ports first: resetting one port must not change
+        // which ports we visit.
+        let mut connected = Vec::new();
+        for port in 1..=self.max_ports {
+            if self.read_portsc(port)? & regs::port::CCS != 0 {
+                connected.push(port);
+            }
+        }
+        if connected.is_empty() {
+            log::info!("xHCI: {}: no device found at boot", self.name);
+            return Ok(());
+        }
+
+        for port in connected {
+            log::info!("xHCI: {}: device detected on port {port}", self.name);
+            if let Err(e) = self.enumerate_port(port) {
+                log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
+                if self.core.cmd_ring_broken {
+                    log::error!(
+                        "xHCI: {}: command ring is unresponsive; aborting enumeration",
+                        self.name
+                    );
+                    return Err(e);
+                }
+            }
+            // The device is leaked (see `UsbDevice`).  Stale transfer events
+            // would corrupt the next port's enumeration.
+            self.core.drain_events()?;
+        }
         Ok(())
     }
+
+    /// Reset `port`, enable a slot, address the device and read its Device Descriptor.
+    fn enumerate_port(&mut self, port: u8) -> Result<ManuallyDrop<UsbDevice>, XhciErr> {
+        self.reset_port(port)?;
+
+        let slot = self
+            .core
+            .command(Trb {
+                param: 0,
+                status: 0,
+                ctrl: trb_type::ENABLE_SLOT,
+            })?
+            .slot_id();
+        if slot == 0 || slot > self.max_slots {
+            return Err(XhciErr::InvalidSlot);
+        }
+        log::info!("xHCI: {}: slot {slot} assigned for port {port}", self.name);
+
+        let speed = (self.read_portsc(port)? & regs::port::SPEED_MASK) >> PORTSC_SPEED_SHIFT;
+        let ctx = new_page()?;
+        self.dcbaa.set(slot, phys_of(&ctx)?)?;
+        let mut dev = ManuallyDrop::new(UsbDevice {
+            slot,
+            port,
+            speed,
+            ep0: TransferRing::new(NUMA_NODE)?,
+            _ctx: ctx,
+            ctrl_buf: new_page()?,
+            desc: DeviceDescriptor::default(),
+        });
+
+        if let Err(e) = self.address_and_read_descriptor(&mut dev) {
+            self.cleanup_failed_slot(dev);
+            return Err(e);
+        }
+        Ok(dev)
+    }
+
+    fn address_and_read_descriptor(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        self.address_device(dev)?;
+        log::info!("xHCI: {}: slot {} addressed", self.name, dev.slot);
+        self.read_device_descriptor(dev)
+    }
+
+    /// Disable `dev.slot` after a failed enumeration attempt so the controller
+    /// stops any pending EP0 transfer and releases `DCBAA[slot]` (xHCI spec §4.6.4).
+    ///
+    /// `dev`'s DMA pages (`_ctx`, `ep0`, `ctrl_buf`) and `DCBAA[slot]` are only
+    /// reclaimed if `DISABLE_SLOT` completes; otherwise they remain leaked so
+    /// the controller cannot DMA into freed memory.
+    fn cleanup_failed_slot(&mut self, dev: ManuallyDrop<UsbDevice>) {
+        let slot = dev.slot;
+        match self.core.command(Trb {
+            param: 0,
+            status: 0,
+            ctrl: trb_type::DISABLE_SLOT | ctrl_slot_ep(slot, 0),
+        }) {
+            Ok(_) => {
+                if self.dcbaa.set(slot, 0).is_ok() {
+                    drop(ManuallyDrop::into_inner(dev));
+                }
+                log::info!("xHCI: {}: slot {slot} disabled after error", self.name);
+            }
+            Err(e) => {
+                log::warn!(
+                    "xHCI: {}: DISABLE_SLOT {slot} failed ({e:?}); leaking slot DMA pages",
+                    self.name
+                );
+            }
+        }
+    }
+
+    /// Issue Address Device (BSR=0, so the controller sends SET_ADDRESS).
+    fn address_device(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        let ctx = self.ctx_size;
+        // EP0 max packet size by speed.  Full Speed devices may use 8..=64; 64
+        // avoids Babble Detected on FS devices whose real MaxPacketSize0 is 64
+        // (e.g. PL2303HX/HXN) and is accepted for smaller ones as well.
+        let max_pkt: u16 = match dev.speed {
+            SPEED_LOW => 8,
+            SPEED_HIGH => 64,
+            SPEED_SUPER | SPEED_SUPER_PLUS => 512,
+            _ => 64,
+        };
+        let ep0_phys = dev.ep0.phys_base()?;
+
+        let mut input = ManuallyDrop::new(new_page()?);
+        {
+            let page = input.as_mut();
+            // Input Control Context: Add A0 (slot) + A1 (EP0).
+            ctx_write32(page, 4, 0b11)?;
+            // Slot Context: Speed[23:20], Context Entries[31:27] = 1, Root Hub Port[23:16].
+            let speed = u8::try_from(dev.speed).map_err(|_| XhciErr::Overflow)?;
+            ctx_write32(page, ctx, u32::from_le_bytes([0, 0, speed << 4, 1 << 3]))?;
+            ctx_write32(
+                page,
+                ctx.checked_add(4).ok_or(XhciErr::Overflow)?,
+                u32::from_le_bytes([0, 0, dev.port, 0]),
+            )?;
+            // EP0 Context (DCI 1).
+            let ep = ctx.checked_mul(2).ok_or(XhciErr::Overflow)?;
+            write_ep_context(page, ep, EP_CTX_CONTROL, max_pkt, ep0_phys, 8)?;
+        }
+
+        let result = self.core.command(Trb {
+            param: phys_of(&input)?,
+            status: 0,
+            ctrl: trb_type::ADDRESS_DEVICE | ctrl_slot_ep(dev.slot, 0),
+        });
+        release_unless_timeout(input, &result);
+        result.map(|_| ())
+    }
+
+    /// GET_DESCRIPTOR(Device) and cache the fields used later.
+    fn read_device_descriptor(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        self.core.control(
+            dev,
+            SetupPacket {
+                request_type: RT_DEV_IN,
+                request: REQ_GET_DESCRIPTOR,
+                value: DESC_DEVICE,
+                index: 0,
+                length: DEVICE_DESC_LEN,
+            },
+        )?;
+        let [_, _, usb_lo, usb_hi, class, sub, proto, _, v_lo, v_hi, p_lo, p_hi, d_lo, d_hi, ..] =
+            read_ctrl_buf::<18>(dev)?;
+        dev.desc = DeviceDescriptor {
+            vendor: u16::from_le_bytes([v_lo, v_hi]),
+            product: u16::from_le_bytes([p_lo, p_hi]),
+            bcd_device: u16::from_le_bytes([d_lo, d_hi]),
+        };
+        log::info!(
+            "xHCI: {}: slot {} — USB {:x}.{:02x} VID={:#06x} PID={:#06x} \
+             class={class:#04x}/{sub:#04x}/{proto:#04x} bcdDevice={:#06x}",
+            self.name,
+            dev.slot,
+            usb_hi,
+            usb_lo,
+            dev.desc.vendor,
+            dev.desc.product,
+            dev.desc.bcd_device,
+        );
+        Ok(())
+    }
+}
+
+/// Write one Endpoint Context (DW1..DW4) at byte offset `off` of an Input Context.
+fn write_ep_context(
+    page: &mut Page,
+    off: usize,
+    ep_type: u8,
+    max_pkt: u16,
+    ring_phys: u64,
+    avg_trb_len: u32,
+) -> Result<(), XhciErr> {
+    let at = |delta: usize| off.checked_add(delta).ok_or(XhciErr::Overflow);
+    let [mp_lo, mp_hi] = max_pkt.to_le_bytes();
+    // DW1: CErr / EP Type in the low byte, Max Packet Size in [31:16].
+    ctx_write32(page, at(4)?, u32::from_le_bytes([ep_type, 0, mp_lo, mp_hi]))?;
+    // DW2/DW3: TR Dequeue Pointer with DCS = 1 (matches the ring's initial cycle).
+    ctx_write32(page, at(8)?, lo32(ring_phys) | trb_flag::CYCLE)?;
+    ctx_write32(page, at(12)?, hi32(ring_phys))?;
+    // DW4: Average TRB Length.
+    ctx_write32(page, at(16)?, avg_trb_len)
+}
+
+/// Free a transient Input Context unless the command timed out (in which case
+/// the controller may still read it later).
+fn release_unless_timeout<T, R>(buf: ManuallyDrop<DMAPool<T>>, result: &Result<R, XhciErr>) {
+    if !matches!(result, Err(XhciErr::Timeout)) {
+        drop(ManuallyDrop::into_inner(buf));
+    }
+}
+
+/// Copy the first `N` bytes of `dev.ctrl_buf` written by the controller.
+fn read_ctrl_buf<const N: usize>(dev: &UsbDevice) -> Result<[u8; N], XhciErr> {
+    let bytes = dev
+        .ctrl_buf
+        .as_ref()
+        .first_chunk::<N>()
+        .ok_or(XhciErr::Overflow)?;
+    // SAFETY: `bytes` points into the live DMA page; volatile because the
+    // controller wrote it via DMA.
+    Ok(unsafe { read_volatile(bytes) })
 }
 
 // ---------------------------------------------------------------------------
