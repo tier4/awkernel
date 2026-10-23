@@ -11,24 +11,66 @@ RUSTC_MISC_ARGS = -C panic=unwind
 # .cargo/config.toml files do not leak into the build.
 RUSTV = $(shell sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
 
-all: x86_64 riscv32 riscv64
+all: aarch64 x86_64 riscv32 riscv64
 
-check: check_x86_64 check_riscv32 check_riscv64
+check: check_aarch64 check_x86_64 check_riscv32 check_riscv64
 
 clippy:
+	cargo +$(RUSTV) clippy_aarch64 $(AARCH64_OPT)
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_rv64
 
-cargo: kernel-x86_64.elf
+cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf
 
 FORCE:
+
+# AArch64: select the board with BSP=raspi3, raspi4, raspi5 or aarch64_virt (default).
+
+BSP ?= aarch64_virt
+
+ifeq ($(BSP),raspi3)
+  AARCH64_CPU = cortex-a53
+  AARCH64_OPT = --features raspi
+else ifeq ($(BSP),raspi4)
+  AARCH64_CPU = cortex-a72
+  AARCH64_OPT = --features raspi
+else ifeq ($(BSP),raspi5)
+  AARCH64_CPU = cortex-a76
+  AARCH64_OPT = --features raspi5
+else ifeq ($(BSP),aarch64_virt)
+  AARCH64_CPU = cortex-a72
+  AARCH64_OPT = --features aarch64_virt
+else
+  $(error unknown BSP $(BSP))
+endif
+
+aarch64: kernel8.img
+
+check_aarch64: FORCE
+	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)
+
+target/aarch64-kernel/$(BUILD)/awkernel: FORCE
+	RUSTFLAGS="-C target-cpu=$(AARCH64_CPU) $(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(OPT) $(AARCH64_OPT) $(DEBUG_OPT)
+	python3 scripts/embed_debug_info.py $@
+
+kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
+	rust-objcopy -O binary $< $@
+
+QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 -kernel kernel8.img
+QEMU_AARCH64_VIRT_ARGS+= -m 1G -smp cpus=4 -nographic
+
+qemu-aarch64-virt:
+	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
+
+debug-aarch64-virt:
+	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS) -s -S
 
 # x86_64
 
 # Debug builds enable the `debug` feature, as in the root Makefile.
 ifneq ($(RELEASE), 1)
-  X86_OPT = --features debug
+  DEBUG_OPT = --features debug
 endif
 
 x86_64: x86_64_uefi.img
@@ -37,7 +79,7 @@ check_x86_64: FORCE
 	cargo +$(RUSTV) check_x86
 
 kernel-x86_64.elf: FORCE
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT) $(X86_OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT) $(DEBUG_OPT)
 	cp target/x86_64-kernel/$(BUILD)/awkernel $@
 	python3 scripts/embed_debug_info.py $@
 
@@ -136,4 +178,4 @@ clean-tool: FORCE
 monitor: FORCE
 	telnet localhost 5556
 
-.PHONY: all check clippy cargo x86_64 riscv32 riscv64 qemu-x86_64 qemu-x86_64-net qemu-x86_64-nographic debug-x86_64 qemu-riscv32 qemu-riscv64
+.PHONY: all check clippy cargo aarch64 check_aarch64 qemu-aarch64-virt debug-aarch64-virt x86_64 riscv32 riscv64 qemu-x86_64 qemu-x86_64-net qemu-x86_64-nographic debug-x86_64 qemu-riscv32 qemu-riscv64

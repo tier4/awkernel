@@ -1,16 +1,15 @@
 # userland_template
 
 Template for a userland that lives outside the Awkernel workspace and depends
-on the `awkernel` kernel crate. One crate supports x86_64, riscv32 and riscv64
-(AArch64 is not supported yet: the kernel does not publish its linker script
-and `boot.S` for out-of-tree crates).
+on the `awkernel` kernel crate. One crate supports AArch64, x86_64, riscv32 and riscv64.
 
-- `kernel/build.rs` copies the architecture's linker script to `OUT_DIR` as
-  `awkernel.ld` and adds it to the library search path.
+- `kernel/build.rs` publishes the architecture's linker script as `awkernel.ld`
+  (for AArch64, with the board's load address filled in) and adds it to the
+  library search path. The AArch64 startup code is part of the kernel crate.
 - `build.rs` here passes `-Tawkernel.ld` to the linker.
-- `Cargo.toml` features `x86`, `rv32`, `rv64` (selected by the cargo aliases in `.cargo/config.toml`) forward to the matching
+- `Cargo.toml` features `x86`, `aarch64_virt`, `raspi`, `raspi5`, `rv32`, `rv64` (selected by the cargo aliases in `.cargo/config.toml`) forward to the matching
   `awkernel` feature; enable exactly one.
-- `targets/x86_64-kernel.json` is the x86_64 kernel target; riscv uses the
+- `targets/x86_64-kernel.json` and `targets/aarch64-kernel.json` are the kernel targets; riscv uses the
   built-in `riscv32imac`/`riscv64gc` bare-metal targets.
 - `src/main.rs` marks its entry point with `#[awkernel::main]`.
 - `scripts/embed_debug_info.py` is used for x86_64 builds (needs `pyelftools`).
@@ -20,7 +19,9 @@ and `boot.S` for out-of-tree crates).
 The interface mirrors the top-level `Makefile` (`RELEASE=1` for release):
 
 ```sh
-make                    # x86_64, riscv32 and riscv64
+make                    # aarch64, x86_64, riscv32 and riscv64
+make aarch64            # kernel8.img for BSP=aarch64_virt (default), raspi3, raspi4 or raspi5
+make qemu-aarch64-virt  # run kernel8.img (BSP=aarch64_virt)
 make x86_64             # kernel-x86_64.elf, x86_64_uefi.img, x86_64_uefi_pxe_boot/
 make riscv64            # or riscv32
 make check clippy fmt   # also check_x86_64, check_riscv32, check_riscv64
