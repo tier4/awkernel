@@ -37,6 +37,9 @@ const COMPLETION_POLL_ITERS: u32 = 2_000_000;
 const MAX_CTRL_EVENTS: usize = 3;
 /// VBUS stabilization / device connect wait before scanning ports.
 const PORT_SETTLE_USEC: u64 = 500_000;
+/// USB 2.0 spec §7.1.7.3 TRSTRCY: minimum 10 ms reset recovery before the
+/// device is required to answer SET_ADDRESS.
+const PORT_RESET_RECOVERY_USEC: u64 = 10_000;
 
 /// All DMA allocations go to NUMA node 0.
 const NUMA_NODE: usize = 0;
@@ -211,6 +214,8 @@ struct HcCore {
     db: Mmio,
     cmd_ring: CommandRing,
     evt_ring: EventRing,
+    /// Set if Command Abort fails (`CRCR.CRR` stays 1); refuses further commands.
+    cmd_ring_broken: bool,
 }
 
 impl HcCore {
@@ -228,14 +233,15 @@ impl HcCore {
         Ok(self.ir0.write32(regs::ir::ERDP_HI, hi32(erdp))?)
     }
 
-    /// Wait for the next event of type `kind`, discarding other events.
+    /// Wait for the next event for which `accept` returns true, discarding
+    /// every other event.
     ///
     /// WCET: at most `COMPLETION_POLL_ITERS` event-ring polls.
-    fn wait_event(&mut self, kind: u32) -> Result<Trb, XhciErr> {
+    fn wait_event(&mut self, mut accept: impl FnMut(&Trb) -> bool) -> Result<Trb, XhciErr> {
         for _ in 0..COMPLETION_POLL_ITERS {
             if let Some(trb) = self.evt_ring.dequeue()? {
                 self.update_erdp()?;
-                if trb.trb_type() == kind {
+                if accept(&trb) {
                     return Ok(trb);
                 }
             }
@@ -255,25 +261,148 @@ impl HcCore {
         Ok(())
     }
 
+    /// Stop the Command Ring after a command timeout and re-synchronize it at
+    /// the ring base (xHCI spec §4.6.1.2, §5.4.5).
+    ///
+    /// Writing `CRCR_CA` aborts the running command (if any) and stops the
+    /// Command Ring; the controller clears `CRCR_CRR` once any in-flight command
+    /// DMA and its `Command Aborted` / `Command Ring Stopped` events have been
+    /// posted.  Once `CRR == 0`, the ring is reset to index 0 and `CRCR` is
+    /// reprogrammed.
+    ///
+    /// WCET: at most `STATE_POLL_ITERS` polls of `CRCR_LO` plus `RING_SIZE`
+    /// TRB writes on reset.
+    fn abort_command_ring(&mut self) -> Result<(), XhciErr> {
+        // CRCR[63:6] and RCS/CS/CA read as 0 (§5.4.5); write CA alone.
+        self.op.write64(
+            regs::op::CRCR_LO,
+            regs::op::CRCR_HI,
+            u64::from(regs::op::CRCR_CA),
+        )?;
+
+        let mut stopped = false;
+        for _ in 0..STATE_POLL_ITERS {
+            if self.evt_ring.dequeue()?.is_some() {
+                self.update_erdp()?;
+            }
+            if self.op.read32(regs::op::CRCR_LO)? & regs::op::CRCR_CRR == 0 {
+                stopped = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        if !stopped {
+            self.cmd_ring_broken = true;
+            log::error!("xHCI: command ring did not stop after Command Abort (CRR=1)");
+            return Err(XhciErr::Timeout);
+        }
+
+        self.drain_events()?;
+        self.cmd_ring.reset()?;
+        let crcr = self.cmd_ring.phys_base()?;
+        publish();
+        self.op.write64(
+            regs::op::CRCR_LO,
+            regs::op::CRCR_HI,
+            crcr | u64::from(regs::op::CRCR_RCS),
+        )?;
+        Ok(())
+    }
+
     /// Submit a command and wait for its Command Completion event.
+    ///
+    /// The event is matched against the Command TRB it reports (event.param =
+    /// Command TRB Pointer, xHCI spec §6.4.2.2).  A completion for any other
+    /// TRB — e.g. one that arrives after an earlier command timed out — is
+    /// discarded, so it cannot be taken as this command's completion.  On
+    /// timeout, the Command Ring is aborted and reset before returning.
     fn command(&mut self, trb: Trb) -> Result<Trb, XhciErr> {
-        self.cmd_ring.enqueue(trb)?;
+        if self.cmd_ring_broken {
+            return Err(XhciErr::Timeout);
+        }
+        let cmd_phys = self.cmd_ring.enqueue(trb)?;
         self.ring_doorbell(0, 0)?;
-        let event = self.wait_event(trb_type::CMD_COMPLETION)?;
+        let event = match self.wait_event(|ev| {
+            if ev.trb_type() != trb_type::CMD_COMPLETION {
+                return false;
+            }
+            if ev.param != cmd_phys {
+                log::warn!(
+                    "xHCI: discarded stale completion for command TRB {:#x} \
+                     (code {}, slot {}) while waiting for {cmd_phys:#x}",
+                    ev.param,
+                    ev.completion_code(),
+                    ev.slot_id()
+                );
+                return false;
+            }
+            true
+        }) {
+            Ok(ev) => ev,
+            Err(XhciErr::Timeout) => {
+                log::warn!("xHCI: command TRB {cmd_phys:#x} timed out; aborting command ring");
+                if let Err(e) = self.abort_command_ring() {
+                    self.cmd_ring_broken = true;
+                    log::error!("xHCI: command ring abort failed: {e:?}");
+                }
+                return Err(XhciErr::Timeout);
+            }
+            Err(e) => return Err(e),
+        };
         match event.completion_code() {
             completion::SUCCESS => Ok(event),
             code => Err(XhciErr::Completion(code)),
         }
     }
 
-    /// Wait for the Status Stage of a control transfer (Short Packet on the
-    /// Data Stage is skipped).
-    fn wait_transfer(&mut self, max_events: usize) -> Result<(), XhciErr> {
-        for _ in 0..max_events {
-            match self.wait_event(trb_type::TRANSFER_EVENT)?.completion_code() {
-                completion::SUCCESS => return Ok(()),
-                completion::SHORT_PACKET => continue,
-                code => return Err(XhciErr::Completion(code)),
+    /// Wait for the Status Stage of a control transfer on (`slot`, `dci`)
+    /// (Short Packet on the Data Stage is skipped).
+    ///
+    /// Events are matched against (`slot`, `dci`) and the TRB physical addresses
+    /// of this transfer (`setup_phys`, `data_phys`, `status_phys`), so stale
+    /// events from earlier transfers or other endpoints are discarded.
+    fn wait_transfer(
+        &mut self,
+        slot: u8,
+        dci: u8,
+        setup_phys: u64,
+        data_phys: Option<u64>,
+        status_phys: u64,
+    ) -> Result<(), XhciErr> {
+        for _ in 0..MAX_CTRL_EVENTS {
+            let event = self.wait_event(|ev| {
+                if ev.trb_type() != trb_type::TRANSFER_EVENT {
+                    return false;
+                }
+                let in_td = ev.param == status_phys
+                    || ev.param == setup_phys
+                    || data_phys == Some(ev.param);
+                if ev.slot_id() != slot || ev.endpoint_id() != dci || !in_td {
+                    log::warn!(
+                        "xHCI: discarded stale transfer event (slot {}, ep {}, trb {:#x}, code {}) \
+                         while waiting for slot {slot} ep {dci}",
+                        ev.slot_id(),
+                        ev.endpoint_id(),
+                        ev.param,
+                        ev.completion_code()
+                    );
+                    return false;
+                }
+                true
+            })?;
+            let code = event.completion_code();
+            if event.param == status_phys {
+                return match code {
+                    completion::SUCCESS | completion::SHORT_PACKET => Ok(()),
+                    _ => Err(XhciErr::Completion(code)),
+                };
+            }
+            // Event from Setup or Data stage: Short Packet / Success on Data
+            // Stage is followed by the Status Stage event; any error halts EP0
+            // immediately without executing Status Stage.
+            match code {
+                completion::SHORT_PACKET | completion::SUCCESS => continue,
+                _ => return Err(XhciErr::Completion(code)),
             }
         }
         Err(XhciErr::Completion(completion::SHORT_PACKET))
@@ -290,32 +419,34 @@ impl HcCore {
             (true, false) => trb_flag::TRT_OUT,
         };
 
-        dev.ep0.enqueue(Trb {
+        let setup_phys = dev.ep0.enqueue(Trb {
             param: setup.to_param(),
             status: 8, // setup packet size
             ctrl: trb_type::SETUP_STAGE | trb_flag::IDT | trt,
         })?;
-        if has_data {
-            dev.ep0.enqueue(Trb {
+        let data_phys = if has_data {
+            Some(dev.ep0.enqueue(Trb {
                 param: phys_of(&dev.ctrl_buf)?,
                 status: u32::from(setup.length),
                 ctrl: trb_type::DATA_STAGE | if is_in { trb_flag::DIR_IN } else { 0 },
-            })?;
-        }
+            })?)
+        } else {
+            None
+        };
         // Status Stage runs opposite to the data stage (IN when there is none).
         let status_dir = if has_data && is_in {
             0
         } else {
             trb_flag::DIR_IN
         };
-        dev.ep0.enqueue(Trb {
+        let status_phys = dev.ep0.enqueue(Trb {
             param: 0,
             status: 0,
             ctrl: trb_type::STATUS_STAGE | trb_flag::IOC | status_dir,
         })?;
 
         self.ring_doorbell(dev.slot, EP0_DCI)?;
-        self.wait_transfer(MAX_CTRL_EVENTS)
+        self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
     }
 }
 
@@ -374,6 +505,7 @@ impl Controller {
             db: cap.window(dboff)?,
             cmd_ring: CommandRing::new(NUMA_NODE)?,
             evt_ring: EventRing::new(NUMA_NODE)?,
+            cmd_ring_broken: false,
         };
 
         Ok(Self {
@@ -551,6 +683,12 @@ impl Controller {
             port,
             (portsc & !(regs::port::PED | regs::port::PR)) | (portsc & regs::port::CHANGE_BITS),
         )?;
+        // A successful reset leaves the port Enabled (PED=1, §4.3.2).
+        if self.read_portsc(port)? & regs::port::PED == 0 {
+            return Err(XhciErr::InvalidPort);
+        }
+        // USB 2.0 §7.1.7.3 TRSTRCY: allow the device to recover before SET_ADDRESS.
+        awkernel_lib::delay::wait_microsec(PORT_RESET_RECOVERY_USEC);
         self.core.drain_events()
     }
 
@@ -608,6 +746,13 @@ impl Controller {
             log::info!("xHCI: {}: device detected on port {port}", self.name);
             if let Err(e) = self.enumerate_port(port) {
                 log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
+                if self.core.cmd_ring_broken {
+                    log::error!(
+                        "xHCI: {}: command ring is unresponsive; aborting enumeration",
+                        self.name
+                    );
+                    return Err(e);
+                }
             }
             // The device is leaked (see `UsbDevice`).  Stale transfer events
             // would corrupt the next port's enumeration.
@@ -646,10 +791,45 @@ impl Controller {
             desc: DeviceDescriptor::default(),
         });
 
-        self.address_device(&mut dev)?;
-        log::info!("xHCI: {}: slot {slot} addressed", self.name);
-        self.read_device_descriptor(&mut dev)?;
+        if let Err(e) = self.address_and_read_descriptor(&mut dev) {
+            self.cleanup_failed_slot(dev);
+            return Err(e);
+        }
         Ok(dev)
+    }
+
+    fn address_and_read_descriptor(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        self.address_device(dev)?;
+        log::info!("xHCI: {}: slot {} addressed", self.name, dev.slot);
+        self.read_device_descriptor(dev)
+    }
+
+    /// Disable `dev.slot` after a failed enumeration attempt so the controller
+    /// stops any pending EP0 transfer and releases `DCBAA[slot]` (xHCI spec §4.6.4).
+    ///
+    /// `dev`'s DMA pages (`_ctx`, `ep0`, `ctrl_buf`) and `DCBAA[slot]` are only
+    /// reclaimed if `DISABLE_SLOT` completes; otherwise they remain leaked so
+    /// the controller cannot DMA into freed memory.
+    fn cleanup_failed_slot(&mut self, dev: ManuallyDrop<UsbDevice>) {
+        let slot = dev.slot;
+        match self.core.command(Trb {
+            param: 0,
+            status: 0,
+            ctrl: trb_type::DISABLE_SLOT | ctrl_slot_ep(slot, 0),
+        }) {
+            Ok(_) => {
+                if self.dcbaa.set(slot, 0).is_ok() {
+                    drop(ManuallyDrop::into_inner(dev));
+                }
+                log::info!("xHCI: {}: slot {slot} disabled after error", self.name);
+            }
+            Err(e) => {
+                log::warn!(
+                    "xHCI: {}: DISABLE_SLOT {slot} failed ({e:?}); leaking slot DMA pages",
+                    self.name
+                );
+            }
+        }
     }
 
     /// Issue Address Device (BSR=0, so the controller sends SET_ADDRESS).

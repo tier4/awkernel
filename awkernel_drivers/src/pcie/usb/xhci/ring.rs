@@ -63,6 +63,12 @@ impl Trb {
         let [_, _, _, slot] = self.ctrl.to_le_bytes();
         slot
     }
+
+    /// Endpoint ID (DCI) of a Transfer Event (ctrl[20:16]).
+    pub fn endpoint_id(&self) -> u8 {
+        let [_, _, ep, _] = self.ctrl.to_le_bytes();
+        ep & 0x1f
+    }
 }
 
 type RingMem = [Trb; RING_SIZE];
@@ -101,14 +107,31 @@ pub type TransferRing = ProducerRing;
 impl ProducerRing {
     /// Allocate a zeroed ring with its Link TRB pointing back to the start.
     pub fn new(numa_id: usize) -> Result<Self, XhciErr> {
-        let mut mem = DMAPool::<RingMem>::new(numa_id, 1).ok_or(XhciErr::DmaAlloc)?;
-        let base = phys_of(&mem)?;
+        let mem = DMAPool::<RingMem>::new(numa_id, 1).ok_or(XhciErr::DmaAlloc)?;
+        let mut ring = Self {
+            mem,
+            enqueue_idx: 0,
+            cycle_bit: trb_flag::CYCLE,
+        };
+        ring.reset()?;
+        Ok(ring)
+    }
 
-        for slot in mem.as_mut().iter_mut() {
+    /// Clear all TRBs, reinstall the Link TRB and rewind to index 0 (cycle = 1).
+    ///
+    /// Caller must ensure the controller is not actively fetching from this ring
+    /// (e.g. `CRCR.CRR == 0` for the Command Ring).
+    pub fn reset(&mut self) -> Result<(), XhciErr> {
+        let base = self.phys_base()?;
+        for slot in self.mem.as_mut().iter_mut() {
             // SAFETY: `slot` is a valid, aligned &mut Trb inside the DMA page.
             unsafe { write_volatile(slot, Trb::default()) };
         }
-        let link = mem.as_mut().get_mut(LINK_IDX).ok_or(XhciErr::Overflow)?;
+        let link = self
+            .mem
+            .as_mut()
+            .get_mut(LINK_IDX)
+            .ok_or(XhciErr::Overflow)?;
         let link_trb = Trb {
             param: base,
             status: 0,
@@ -118,21 +141,29 @@ impl ProducerRing {
         // SAFETY: `link` is a valid, aligned &mut Trb inside the DMA page.
         unsafe { write_volatile(link, link_trb) };
 
-        Ok(Self {
-            mem,
-            enqueue_idx: 0,
-            cycle_bit: trb_flag::CYCLE,
-        })
+        self.enqueue_idx = 0;
+        self.cycle_bit = trb_flag::CYCLE;
+        Ok(())
     }
 
     /// Write `trb` at the enqueue position, stamping the Producer Cycle State.
     /// Wraps through the Link TRB when the last data slot is used.
     ///
     /// The caller must call [`publish`] and then ring the doorbell.
-    pub fn enqueue(&mut self, mut trb: Trb) -> Result<(), XhciErr> {
+    ///
+    /// Returns the physical address of the written TRB.  The controller reports
+    /// this address in the event it generates for the TRB (Command Completion
+    /// Event / Transfer Event, xHCI spec §6.4.2), so callers can match the event
+    /// against the TRB that produced it.
+    pub fn enqueue(&mut self, mut trb: Trb) -> Result<u64, XhciErr> {
         let idx = self.enqueue_idx;
         let pcs = self.cycle_bit;
         trb.ctrl = (trb.ctrl & !trb_flag::CYCLE) | pcs;
+        let trb_phys = u64::try_from(idx)
+            .ok()
+            .and_then(|i| i.checked_mul(TRB_BYTES))
+            .and_then(|off| self.phys_base().ok()?.checked_add(off))
+            .ok_or(XhciErr::Overflow)?;
 
         let slot = self.mem.as_mut().get_mut(idx).ok_or(XhciErr::RingFull)?;
         // SAFETY: `slot` is a valid, aligned &mut Trb inside the DMA page.
@@ -157,7 +188,7 @@ impl ProducerRing {
         } else {
             self.enqueue_idx = next;
         }
-        Ok(())
+        Ok(trb_phys)
     }
 
     /// Physical base address of the ring (CRCR / EP Context TR Dequeue Pointer).
