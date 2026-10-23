@@ -4,19 +4,21 @@
 //! It can execute async/await applications in kernel space safely.
 
 #![cfg_attr(feature = "x86", feature(abi_x86_interrupt))]
-#![no_main]
 #![allow(unused_features)]
 #![feature(allocator_api)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
-    task,
+    task::{self, TaskResult},
 };
 use core::{
     fmt::Debug,
+    future::Future,
+    pin::Pin,
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
 use kernel_info::KernelInfo;
@@ -27,6 +29,18 @@ mod kernel_info;
 
 #[cfg(not(feature = "std"))]
 mod nostd;
+
+pub use awkernel_macros::main;
+
+/// Signature of the symbol defined by `#[awkernel::main]`.
+pub type UserMain = fn() -> Pin<Box<dyn Future<Output = TaskResult> + Send>>;
+
+extern "Rust" {
+    fn __awkernel_user_main() -> Pin<Box<dyn Future<Output = TaskResult> + Send>>;
+}
+
+// Fails to compile if the extern declaration drifts from `UserMain`.
+const _: UserMain = || unsafe { __awkernel_user_main() };
 
 static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
 static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
@@ -63,7 +77,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Userland.
         task::spawn(
             "main".into(),
-            async move { userland::main().await },
+            unsafe { __awkernel_user_main() },
             SchedulerType::PrioritizedFIFO(31),
         );
 

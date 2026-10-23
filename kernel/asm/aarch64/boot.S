@@ -10,7 +10,7 @@ _start:
     and     x2, x2, #0xFF
     add     x3, x2, #1
 
-    mov     x4, #(STACKSIZE)
+    mov     x4, #({STACKSIZE})
     mul     x3, x3, x4
 
     ldr     x1, =__stack_memory
@@ -91,5 +91,3 @@ _start:
 .loop:
     wfe
     b       .loop
-
-#include "exception.S"

@@ -1,10 +1,14 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
+#![no_main]
 
 extern crate alloc;
+// Links the kernel's entry points and panic handler.
+extern crate awkernel;
 
 use alloc::borrow::Cow;
 
-pub async fn main() -> Result<(), Cow<'static, str>> {
+#[awkernel::main]
+async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_services::run().await;
 
     #[cfg(feature = "autoware")]

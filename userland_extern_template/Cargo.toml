@@ -1,0 +1,32 @@
+[package]
+name = "userland_template"
+version = "0.1.0"
+edition = "2021"
+
+# Not a member of the Awkernel workspace.
+[workspace]
+
+[[bin]]
+name = "awkernel"
+path = "src/main.rs"
+
+[features]
+debug = ["awkernel/debug"]
+# Select exactly one architecture (the Makefile does it).
+x86 = ["awkernel/x86"]
+aarch64_virt = ["awkernel/aarch64_virt"]
+raspi = ["awkernel/raspi"]
+raspi5 = ["awkernel/raspi5"]
+rv32 = ["awkernel/rv32"]
+rv64 = ["awkernel/rv64"]
+
+[dependencies]
+log = "0.4"
+
+[dependencies.awkernel]
+path = "../kernel"
+default-features = false
+
+[dependencies.awkernel_async_lib]
+path = "../awkernel_async_lib"
+default-features = false

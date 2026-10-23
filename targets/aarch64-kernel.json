@@ -12,12 +12,11 @@
             "-z",
             "norelro",
             "-T",
-            "./kernel/ld/aarch64-link-bsp.lds",
+            "awkernel.ld",
             "--static",
             "--gc-sections",
             "-m",
-            "aarch64elf",
-            "boot_aarch64.o"
+            "aarch64elf"
         ]
     },
     "llvm-target": "aarch64-unknown-none",

@@ -485,7 +485,7 @@ const CPU_ID_POS: u64 = CR3_POS + 8;
 
 fn write_boot_images(offset: u64, mpboot_start: u64) {
     // Calculate address.
-    let mpboot = include_bytes!("../../../asm/x86/mpboot.img");
+    let mpboot = include_bytes!(concat!(env!("OUT_DIR"), "/mpboot.img"));
     let mpboot_phy_addr = VirtAddr::new(mpboot_start + offset);
 
     let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset + mpboot_start);
