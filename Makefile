@@ -6,36 +6,21 @@ else
 	OPT = --features debug
 endif
 
-# 2MiB Stack
-STACKSIZE = 1024 * 1024 * 2
-
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi5)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a76
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi5
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-	INITADDR = 0x40080000
 	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
 
 RUSTC_MISC_ARGS += -C panic=unwind
-
-ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
-ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
-ASM_OBJ_AARCH64=boot_aarch64.o
-
-ifndef $(CC)
-	CC = clang
-endif
 
 ifndef $(LD)
 	LD = rust-lld -flavor gnu
@@ -47,8 +32,6 @@ QEMUPORT=5556
 
 # Link scripts
 LINKERDIR=kernel/ld
-AARCH64_LD=$(LINKERDIR)/aarch64-link.lds
-AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
@@ -82,18 +65,12 @@ aarch64: kernel8.img
 check_aarch64: FORCE
 	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)
 
-target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
+target/aarch64-kernel/$(BUILD)/awkernel: FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(AARCH64_OPT)
 	python3 scripts/embed_debug_info.py $@
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
-
-$(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
-	$(CC) --target=aarch64-elf -c $< -o $@ -DSTACKSIZE="$(STACKSIZE)"
-
-$(AARCH64_BSP_LD): $(AARCH64_LD)
-	sed "s/#INITADDR#/$(INITADDR)/" $(AARCH64_LD) > $@
 
 QEMU_AARCH64_ARGS= -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio
@@ -266,7 +243,7 @@ fmt: FORCE
 # Clean
 
 clean: FORCE
-	rm -rf *.o *.elf $(AARCH64_BSP_LD) *.img x86_64_uefi_pxe_boot
+	rm -rf *.o *.elf *.img x86_64_uefi_pxe_boot
 	cargo clean
 
 
