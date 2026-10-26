@@ -1,4 +1,8 @@
-use awkernel_lib::{delay::wait_forever, interrupt};
+use awkernel_lib::{
+    delay::wait_forever,
+    interrupt,
+    power::{Power, Result},
+};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// Base address for the power management module.
@@ -87,12 +91,15 @@ impl Default for PowerManagement {
     }
 }
 
-#[export_name = "__awkernel_reboot"]
-extern "Rust" fn raspi_reboot() -> ! {
-    PowerManagement::default().reboot()
-}
+impl Power for PowerManagement {
+    #[inline]
+    fn reboot() -> Result<!> {
+        Self::new().reboot();
+    }
 
-#[export_name = "__awkernel_shutdown"]
-extern "Rust" fn raspi_shutdown() -> ! {
-    PowerManagement::default().shutdown()
+    #[inline]
+    fn shutdown() -> Result<!> {
+        Self::new().shutdown();
+    }
 }
+awkernel_lib::impl_power!(PowerManagement);

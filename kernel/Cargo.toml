@@ -43,8 +43,8 @@ optional = true
 version = "0.2"
 optional = true
 
-[dependencies.userland]
-path = "../userland"
+[dependencies.awkernel_macros]
+path = "../awkernel_macros"
 
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
@@ -79,7 +79,7 @@ optional = true
 default = ["x86"]
 heap-tlsf = ["awkernel_lib/heap-tlsf"]
 heap-wf-alloc = ["awkernel_lib/heap-wf-alloc"]
-perf = ["awkernel_async_lib/perf", "userland/perf"]
+perf = ["awkernel_async_lib/perf"]
 period-index-propagation = [
     "perf",
     "awkernel_async_lib/period-index-propagation",
@@ -97,7 +97,7 @@ x86 = [
     "awkernel_drivers/x86",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/uart_16550",
-    "usb_serial",
+    "awkernel_drivers/xhci",
     "heap-wf-alloc",
 ]
 rv32 = [
@@ -151,6 +151,3 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
-test_clustered_edf = ["userland/test_clustered_edf"]
-test_dvfs = ["userland/test_dvfs"]
-test_raspi_dvfs = ["userland/test_raspi_dvfs"]

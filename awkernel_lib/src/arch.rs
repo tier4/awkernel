@@ -40,6 +40,7 @@ trait Arch:
     + super::paging::Mapper
     + super::dvfs::Dvfs
     + super::barrier::Barrier
+    + super::power::Power
 {
 }
 

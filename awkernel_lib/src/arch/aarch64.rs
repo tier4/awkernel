@@ -8,6 +8,7 @@ pub(super) mod interrupt;
 pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
+pub(super) mod power;
 
 pub use cpu::*;
 

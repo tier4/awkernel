@@ -1,11 +1,12 @@
 //! # Boot process
 //!
 //! 1. The entrypoint, `_start` in `kernel/asm/aarch64/boot.S`, is called.
+//!    `boot.S` and `exception.S` are assembled by `global_asm!` below.
 //! 2. [`kernel_main`] is called.
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::bsp::DeviceTreeRef;
+use super::{bsp::DeviceTreeRef, vm::STACK_SIZE};
 use crate::{
     arch::aarch64::bsp::SoC,
     config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
@@ -18,10 +19,17 @@ use awkernel_lib::{
     dma_pool, heap,
 };
 use core::{
-    arch::asm,
+    arch::{asm, global_asm},
     ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
+
+// `exception.S` is appended to `boot.S`, as `#include` did.
+global_asm!(
+    include_str!("../../../asm/aarch64/boot.S"),
+    include_str!("../../../asm/aarch64/exception.S"),
+    STACKSIZE = const STACK_SIZE,
+);
 
 static mut CPU_READY: usize = 0;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);

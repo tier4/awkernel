@@ -2,7 +2,6 @@
 
 [workspace]
 members = [
-    "affinity_btree_queue",
     "kernel",
     "userland",
     "x86bootdisk",
@@ -19,6 +18,10 @@ members = [
     "applications/tests/*",
     "smoltcp",
     "awkernel_futures_macro",
+    "awkernel_macros",
 ]
 
 resolver = "2"
+
+[workspace.dependencies]
+affinity_btree_queue = { version = "0.1.1" }

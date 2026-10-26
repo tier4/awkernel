@@ -1,6 +1,6 @@
 #![no_std]
 
-use awkernel_async_lib::{self, scheduler::SchedulerType, sleep, spawn, time::Time};
+use awkernel_async_lib::{self, scheduler::SchedulerType, sleep, spawn, time::Instant};
 use awkernel_drivers::ic::raspi::{
     clock::{self, ClockId},
     temperature,
@@ -63,7 +63,7 @@ pub async fn run() {
 
 /// Runs the fixed CPU workload and returns its elapsed time.
 fn measure_workload() -> Duration {
-    let start = Time::now();
+    let start = Instant::now();
     for _ in 0..NUM_LOOP {
         core::hint::black_box(());
     }

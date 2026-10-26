@@ -992,7 +992,7 @@ where
                 ) = subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
 
                 if dag.has_stale_deadline(node_idx) {
@@ -1068,7 +1068,8 @@ where
                 let index = get_period_index(dag_info.dag_id) as usize;
                 if index != 0 {
                     // [start] cycle deviation index >= 1
-                    let release_time = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                    let release_time =
+                        awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                     update_cycle_start_timestamp(index, release_time, dag_info.dag_id);
                 }
                 let results = f();
@@ -1129,10 +1130,10 @@ where
                     subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
 
-                let timenow = awkernel_lib::time::Time::now().uptime().as_nanos() as u64;
+                let timenow = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
                     update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }
