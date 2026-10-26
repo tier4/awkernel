@@ -141,11 +141,9 @@ impl ProducerRing {
         // SAFETY: `link` is a valid, aligned &mut Trb inside the DMA page.
         unsafe { write_volatile(link, link_trb) };
 
-        Ok(Self {
-            mem,
-            enqueue_idx: 0,
-            cycle_bit: trb_flag::CYCLE,
-        })
+        self.enqueue_idx = 0;
+        self.cycle_bit = trb_flag::CYCLE;
+        Ok(())
     }
 
     /// Write `trb` at the enqueue position, stamping the Producer Cycle State.

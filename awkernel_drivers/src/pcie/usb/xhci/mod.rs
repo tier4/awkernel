@@ -504,6 +504,50 @@ impl HcCore {
         self.ring_doorbell(dev.slot, EP0_DCI)?;
         self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
     }
+
+    /// Recover EP0 from HALTED state after a control-transfer STALL.
+    ///
+    /// 1. RESET_EP — moves EP0 from Halted → Stopped.
+    /// 2. SET_TR_DEQUEUE_POINTER — re-aligns the controller's dequeue pointer
+    ///    with the software enqueue position (xHCI spec §4.6.8).
+    fn reset_ep0_after_stall(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        match self.command(Trb {
+            param: 0,
+            status: 0,
+            ctrl: trb_type::RESET_EP | ctrl_slot_ep(dev.slot, EP0_DCI),
+        }) {
+            Ok(_) => {}
+            // Not halted after all: SET_TR_DEQUEUE_POINTER still resyncs the ring.
+            Err(XhciErr::Completion(code)) => {
+                log::warn!("xHCI: RESET_EP code={code} (slot={})", dev.slot);
+            }
+            Err(e) => return Err(e),
+        }
+        self.command(Trb {
+            param: dev.ep0.enqueue_pointer()?,
+            status: 0,
+            ctrl: trb_type::SET_TR_DEQUEUE_POINTER | ctrl_slot_ep(dev.slot, EP0_DCI),
+        })?;
+        log::info!("xHCI: EP0 STALL cleared (slot={})", dev.slot);
+        Ok(())
+    }
+
+    /// Like [`HcCore::control`], but a STALL is treated as a refused request:
+    /// EP0 is recovered and `Ok(false)` is returned.
+    fn control_or_stall(
+        &mut self,
+        dev: &mut UsbDevice,
+        setup: SetupPacket,
+    ) -> Result<bool, XhciErr> {
+        match self.control(dev, setup) {
+            Ok(()) => Ok(true),
+            Err(XhciErr::Completion(completion::STALL_ERROR)) => {
+                self.reset_ep0_after_stall(dev)?;
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -755,7 +799,7 @@ impl Controller {
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Scan all ports and enumerate every connected device.
+    /// Scan all ports and keep the first PL2303 adapter found.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
         // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
         // PR=1 on an unpowered port is silently ignored.
@@ -803,18 +847,44 @@ impl Controller {
 
         for port in connected {
             log::info!("xHCI: {}: device detected on port {port}", self.name);
-            if let Err(e) = self.enumerate_port(port) {
-                log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
-                if self.core.cmd_ring_broken {
-                    log::error!(
-                        "xHCI: {}: command ring is unresponsive; aborting enumeration",
+            let mut dev = match self.enumerate_port(port) {
+                Ok(dev) => dev,
+                Err(e) => {
+                    log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
+                    if self.core.cmd_ring_broken {
+                        log::error!(
+                            "xHCI: {}: command ring is unresponsive; aborting enumeration",
+                            self.name
+                        );
+                        return Err(e);
+                    }
+                    // Stale transfer events would corrupt the next port's enumeration.
+                    self.core.drain_events()?;
+                    continue;
+                }
+            };
+
+            match self.setup_serial(&mut dev) {
+                Ok(true) => {
+                    self.serial_dev = Some(dev);
+                    return Ok(());
+                }
+                // Not a serial adapter: `dev` stays addressed and is leaked
+                // (see `UsbDevice`).
+                Ok(false) => {}
+                Err(e) => {
+                    log::warn!(
+                        "xHCI: {}: port {port} serial setup failed: {e:?}",
                         self.name
                     );
-                    return Err(e);
+                    if self.core.cmd_ring_broken {
+                        return Err(e);
+                    }
+                    // Half-configured device: disable its slot (frees the DMA
+                    // pages only if DISABLE_SLOT succeeds).
+                    self.cleanup_failed_slot(dev);
                 }
             }
-            // The device is leaked (see `UsbDevice`).  Stale transfer events
-            // would corrupt the next port's enumeration.
             self.core.drain_events()?;
         }
         Ok(())
@@ -848,6 +918,7 @@ impl Controller {
             _ctx: ctx,
             ctrl_buf: new_page()?,
             desc: DeviceDescriptor::default(),
+            serial: None,
         });
 
         if let Err(e) = self.address_and_read_descriptor(&mut dev) {
@@ -1323,15 +1394,23 @@ impl Controller {
                 .get_mut(..chunk.len())
                 .ok_or(XhciErr::Overflow)?
                 .copy_from_slice(chunk);
-            port.out_ring.enqueue(Trb {
+            let trb_phys = port.out_ring.enqueue(Trb {
                 param: tx_phys,
                 status: u32::try_from(chunk.len()).map_err(|_| XhciErr::Overflow)?,
                 ctrl: trb_type::NORMAL | trb_flag::IOC,
             })?;
             self.core.ring_doorbell(slot, port.out_dci)?;
+            // Stale events (e.g. a late completion after an earlier timeout) are
+            // discarded; no logging here, this runs inside the console path.
+            let out_dci = port.out_dci;
             match self
                 .core
-                .wait_event(trb_type::TRANSFER_EVENT)?
+                .wait_event(|ev| {
+                    ev.trb_type() == trb_type::TRANSFER_EVENT
+                        && ev.slot_id() == slot
+                        && ev.endpoint_id() == out_dci
+                        && ev.param == trb_phys
+                })?
                 .completion_code()
             {
                 completion::SUCCESS | completion::SHORT_PACKET => {}
@@ -1472,9 +1551,10 @@ fn pl2303_write(value: u16, index: u16) -> SetupPacket {
 
 pub struct XhciDevice {
     name: String,
-    /// Controller state.  Owns the DMA memory the controller keeps using, so it
-    /// lives as long as the device; it is not accessed after `attach()`.
-    _hc: UnsafeCell<Controller>,
+    /// Controller state.  Exclusively owned by `attach()` until the device is
+    /// published in `SERIAL_DEV`; afterwards only `xhci_usb_serial_puts()`
+    /// touches it, and only while holding `SERIAL_LOCK`.
+    hc: UnsafeCell<Controller>,
 }
 
 impl PCIeDevice for XhciDevice {
