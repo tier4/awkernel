@@ -54,6 +54,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
+        init_cpu_execution_speed(kernel_info.cpu_id);
+
         // Initialize interrupts.
         #[cfg(not(feature = "std"))]
         init_interrupt();
@@ -138,6 +140,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         awkernel_lib::delay::wait_microsec(10);
     }
 
+    // Before NUM_READY_WORKER is incremented, so this CPU runs no task until its
+    // busy-work rate is measured.
+    init_cpu_execution_speed(kernel_info.cpu_id);
+
     #[cfg(not(feature = "std"))]
     {
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
@@ -153,6 +159,14 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     awkernel_lib::cpu::wait_init_sleep();
 
     unsafe { task::run() }; // Execute tasks.
+}
+
+/// Calibrate `awkernel_lib::busy_work` on this CPU.
+fn init_cpu_execution_speed(cpu_id: usize) {
+    match awkernel_lib::busy_work::calibrate_current_cpu() {
+        Some(per_ms) => log::info!("busy_work: CPU#{cpu_id} calibrated at {per_ms} iterations/ms"),
+        None => log::warn!("busy_work: CPU#{cpu_id} could not be calibrated"),
+    }
 }
 
 #[cfg(feature = "std")]

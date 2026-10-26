@@ -13,6 +13,7 @@ pub mod addr;
 pub mod allocator;
 pub mod arch;
 pub mod barrier;
+pub mod busy_work;
 pub mod config;
 pub mod console;
 pub mod cpu;
