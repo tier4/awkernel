@@ -160,15 +160,6 @@ fn federated_admit_batch(
 pub async fn run() {
     wait_millisec(1000);
 
-    // Calibrating simulated_execution_time's busy-work loop is deliberately
-    // disabled for now (by user request): RD-Gen-driven DAGs should be
-    // considered without accounting for their real busy-work cost. Leaving
-    // this call out keeps `time_unit::ITERS_PER_MS` at its default 0, which
-    // makes `busy_work_for_millisec` fall back to the old PAUSE-based
-    // `wait_millisec` (see time_unit.rs's own doc) instead of doing genuine
-    // CPU-bound work -- re-add the call below to switch back.
-    // time_unit::calibrate_busy_work();
-
     // DAG-Fluid Phase 2 (see `awkernel_async_lib::dag_sched::dp_partition`'s
     // own module doc): install the DP-boundary callback before any DAG is
     // admitted, so every segment `build_dag`'s `dagfluid` arm registers
@@ -259,15 +250,6 @@ pub async fn run() {
 #[cfg(feature = "vfed")]
 pub async fn run() {
     wait_millisec(1000);
-
-    // Calibrating simulated_execution_time's busy-work loop is deliberately
-    // disabled for now (by user request): RD-Gen-driven DAGs should be
-    // considered without accounting for their real busy-work cost. Leaving
-    // this call out keeps `time_unit::ITERS_PER_MS` at its default 0, which
-    // makes `busy_work_for_millisec` fall back to the old PAUSE-based
-    // `wait_millisec` (see time_unit.rs's own doc) instead of doing genuine
-    // CPU-bound work -- re-add the call below to switch back.
-    // time_unit::calibrate_busy_work();
 
     // Pass 1: every DAG's `DagMetrics`, computed up front -- reparses
     // `DAG_FILES` independently of the `parse_yaml::parse_dags` call below
