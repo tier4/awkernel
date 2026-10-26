@@ -166,5 +166,11 @@ rd_gen_dagfluid = ["userland/rd_gen_dagfluid"]
 # why bit 0 and its limits). Off by default: unset, every enabled logical
 # CPU reported by the MADT is woken as before.
 smt_disable = []
+
+# Pin every CPU to its own HWP Guaranteed Performance (base clock, no turbo) at
+# boot, so execution speed does not drift with turbo or thermal headroom. Each
+# core uses its own level, so hybrid P/E-cores each run at their own base clock.
+# Off by default; no effect on CPUs without HWP (e.g. QEMU).
+fix_freq = []
 test_dvfs = ["userland/test_dvfs"]
 test_raspi_dvfs = ["userland/test_raspi_dvfs"]

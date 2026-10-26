@@ -141,7 +141,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     }
 
     // Before NUM_READY_WORKER is incremented, so this CPU runs no task until its
-    // busy-work rate is measured.
+    // frequency is final and its busy-work rate is measured.
     init_cpu_execution_speed(kernel_info.cpu_id);
 
     #[cfg(not(feature = "std"))]
@@ -161,8 +161,29 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     unsafe { task::run() }; // Execute tasks.
 }
 
-/// Calibrate `awkernel_lib::busy_work` on this CPU.
+/// Pin this CPU's frequency (`fix_freq`), then calibrate `awkernel_lib::busy_work`
+/// on it. Calibration must come after pinning: the rate depends on the clock.
 fn init_cpu_execution_speed(cpu_id: usize) {
+    #[cfg(all(feature = "fix_freq", target_arch = "x86_64", not(feature = "std")))]
+    {
+        use awkernel_lib::arch::x86_64::hwp;
+
+        match hwp::pin_to_guaranteed() {
+            Ok(levels) => {
+                // HWP transitions take tens of microseconds; settle before measuring.
+                awkernel_lib::delay::wait_millisec(1);
+                let mhz = hwp::measure_freq_mhz(10_000).unwrap_or(0);
+                log::info!(
+                    "fix_freq: CPU#{cpu_id} pinned to HWP guaranteed={} (lowest={}, highest={}), measured {mhz} MHz",
+                    levels.guaranteed,
+                    levels.lowest,
+                    levels.highest,
+                );
+            }
+            Err(e) => log::warn!("fix_freq: CPU#{cpu_id} frequency not pinned: {e:?}"),
+        }
+    }
+
     match awkernel_lib::busy_work::calibrate_current_cpu() {
         Some(per_ms) => log::info!("busy_work: CPU#{cpu_id} calibrated at {per_ms} iterations/ms"),
         None => log::warn!("busy_work: CPU#{cpu_id} could not be calibrated"),

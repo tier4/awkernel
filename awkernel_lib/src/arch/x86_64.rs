@@ -7,6 +7,7 @@ pub mod cpu;
 pub mod delay;
 pub(super) mod dvfs;
 pub mod fault;
+pub mod hwp;
 pub(super) mod interrupt;
 pub mod interrupt_remap;
 pub mod kvm;
