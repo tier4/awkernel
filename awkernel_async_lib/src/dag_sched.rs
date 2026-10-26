@@ -12,9 +12,6 @@
 //!   ([`metrics::MetricsSource`]).
 //! - [`resource`]: the shared, algorithm-agnostic ledger of which cores are
 //!   claimed and how much of the shared pool's utilization is committed.
-//! - [`provision`]: [`provision::Provision`], the common shape an admission
-//!   policy's resource decision is expressed in, before it is turned into a
-//!   concrete [`crate::scheduler::SchedulerType`].
 //! - [`precondition`]: each policy's preconditions on a DAG's timing as one
 //!   table, checked into a [`crate::dag::DagError`] before admission.
 //! - [`admission`]: [`admission::AdmissionError`], the one error type every
@@ -22,8 +19,9 @@
 //! - [`graph`]: [`graph::DagGraph`], a DAG's precedence structure (node
 //!   WCETs and edges) as the structure-aware admission tests read it.
 //! - [`policy`]: one module per admission algorithm (Federated, V-Fed,
-//!   SFS, DAG-Fluid), each combining `metrics`/`graph`/`resource`/`provision`
-//!   into that algorithm's own admission test.
+//!   SFS, DAG-Fluid), each combining `metrics`/`graph`/`resource` into that
+//!   algorithm's own admission test and turning its decision into a
+//!   [`crate::scheduler::SchedulerType`].
 //! - [`dp_partition`]: system-wide Deadline-Partition boundary tracking for
 //!   DAG-Fluid's dynamic-dispatch measurement work (Phase 2) — a
 //!   measurement probe, not a scheduling mechanism; see its own module doc.
@@ -34,5 +32,4 @@ pub mod metrics;
 pub mod partition;
 pub mod policy;
 pub mod precondition;
-pub mod provision;
 pub mod resource;

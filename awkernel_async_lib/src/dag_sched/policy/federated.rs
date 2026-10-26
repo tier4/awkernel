@@ -59,8 +59,9 @@
 //! new [`crate::scheduler::Scheduler`] impl: [`SchedulerType::ClusteredEDF`]
 //! already implements "EDF restricted to a `CpuSet`" (cluster reservation,
 //! preemption, the lot), so a heavy DAG's cluster is simply a `ClusteredEDF`
-//! cpu_set; a light DAG uses plain [`SchedulerType::GEDF`] — both computed
-//! by [`Provision::into_scheduler_type`]. Both already compute a
+//! cpu_set; a light DAG uses [`SchedulerType::ClusteredEDF`] on its partition's
+//! single core under [`admit_batch`] (or plain [`SchedulerType::GEDF`] under
+//! the legacy [`admit_dag`]). Both already compute a
 //! per-job-instance absolute deadline for every node of a DAG via
 //! [`crate::dag::calculate_and_update_dag_deadline`], so this module does
 //! not duplicate that logic — it only decides *which* scheduler and *which*
@@ -85,7 +86,6 @@ use crate::{
         metrics::{DagMetrics, MetricsSource},
         partition::{self, Condition, PackingStrategy, SeqTask},
         precondition::{self, Check, Policy},
-        provision::Provision,
         resource,
     },
     scheduler::SchedulerType,
@@ -98,14 +98,11 @@ pub enum TaskClass {
     Heavy { required_cores: u16 },
 }
 
-/// The [`Provision`] (and, from it, the `SchedulerType`) that [`admit_dag`]
-/// decided a DAG's nodes should use.
+/// The `SchedulerType` (and classification metadata) that [`admit_batch`] or
+/// [`admit_dag`] decided a DAG's nodes should use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FederatedAssignment {
     pub class: TaskClass,
-    /// The resource shape this DAG was admitted with, independent of which
-    /// `SchedulerType` implements it.
-    pub provision: Provision,
     pub scheduler_type: SchedulerType,
     /// Carried over from the [`DagMetrics`] that produced this assignment,
     /// so a caller can log/display it without keeping the original config
@@ -167,23 +164,19 @@ pub fn classify_dag(config: &DagMetrics) -> Result<TaskClass, AdmissionError> {
 pub fn admit_dag(config: DagMetrics) -> Result<FederatedAssignment, AdmissionError> {
     match classify_dag(&config)? {
         TaskClass::Light => {
-            let utilization_scaled =
+            let _utilization_scaled =
                 resource::reserve_light_utilization(config.volume, density_window(&config))?;
-            let provision = Provision::Shared { utilization_scaled };
             Ok(FederatedAssignment {
                 class: TaskClass::Light,
-                scheduler_type: provision.into_scheduler_type(config.relative_deadline),
-                provision,
+                scheduler_type: SchedulerType::GEDF(config.relative_deadline),
                 source: config.source,
             })
         }
         TaskClass::Heavy { required_cores } => {
             let cores = resource::allocate_cluster(required_cores)?;
-            let provision = Provision::Dedicated { cores };
             Ok(FederatedAssignment {
                 class: TaskClass::Heavy { required_cores },
-                scheduler_type: provision.into_scheduler_type(config.relative_deadline),
-                provision,
+                scheduler_type: SchedulerType::ClusteredEDF(config.relative_deadline, cores),
                 source: config.source,
             })
         }
@@ -478,14 +471,12 @@ pub fn admit_batch(
     let mut out = Vec::with_capacity(tasks.len());
     for (task, fed_plan) in tasks.iter().zip(plan.plans.iter()) {
         let c = &task.metrics;
-        let (class, provision) = match *fed_plan {
+        let (class, cores) = match *fed_plan {
             FedPlan::Heavy { cores } => (
                 TaskClass::Heavy {
                     required_cores: cores,
                 },
-                Provision::Dedicated {
-                    cores: resource::allocate_cluster(cores)?,
-                },
+                resource::allocate_cluster(cores)?,
             ),
             FedPlan::Light { processor } => {
                 if shared_cpus.len() <= processor {
@@ -502,18 +493,12 @@ pub fn admit_batch(
                         cpu
                     }
                 };
-                (
-                    TaskClass::Light,
-                    Provision::Partitioned {
-                        cpu: CpuSet::empty().with(cpu),
-                    },
-                )
+                (TaskClass::Light, CpuSet::empty().with(cpu))
             }
         };
         out.push(FederatedAssignment {
             class,
-            scheduler_type: provision.into_scheduler_type(c.relative_deadline),
-            provision,
+            scheduler_type: SchedulerType::ClusteredEDF(c.relative_deadline, cores),
             source: c.source,
         });
     }
@@ -700,7 +685,6 @@ mod tests {
         let light = admit_dag(DagMetrics::from_static(10, 5, 100, 50)).unwrap();
         assert_eq!(light.class, TaskClass::Light);
         assert_eq!(light.source, MetricsSource::Static);
-        assert!(matches!(light.provision, Provision::Shared { .. }));
         assert!(matches!(light.scheduler_type, SchedulerType::GEDF(50)));
         resource::release_light_utilization(10, 50); // undo admit_dag's reservation before the next scenario
 

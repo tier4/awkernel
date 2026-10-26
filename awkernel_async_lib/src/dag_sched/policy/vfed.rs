@@ -710,8 +710,7 @@ pub enum VFedAssignment {
 
 impl VFedAssignment {
     /// Turn this admission decision into the `SchedulerType` every node of
-    /// the DAG it was decided for should be registered with — mirroring
-    /// `Provision::into_scheduler_type` for Federated.
+    /// the DAG it was decided for should be registered with.
     ///
     /// A [`VFedAssignment::Heavy`] whose active-VP group needed passive-VP
     /// top-up (`passive` non-empty — Theorem 4, including the fully-passive
