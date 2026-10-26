@@ -19,6 +19,7 @@ members = [
     "applications/tests/*",
     "smoltcp",
     "awkernel_futures_macro",
+    "awkernel_macros",
 ]
 
 resolver = "2"

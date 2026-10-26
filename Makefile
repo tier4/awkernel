@@ -6,38 +6,21 @@ else
 	OPT = --features debug
 endif
 
-# 2MiB Stack
-STACKSIZE = 1024 * 1024 * 2
-
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi5)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a76
-	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi5
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-	INITADDR = 0x40080000
 	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
 
 RUSTC_MISC_ARGS += -C panic=unwind
-
-ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
-ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
-ASM_OBJ_AARCH64=boot_aarch64.o
-
-X86ASM=kernel/asm/x86
-
-ifndef $(CC)
-	CC = clang
-endif
 
 ifndef $(LD)
 	LD = rust-lld -flavor gnu
@@ -49,8 +32,6 @@ QEMUPORT=5556
 
 # Link scripts
 LINKERDIR=kernel/ld
-AARCH64_LD=$(LINKERDIR)/aarch64-link.lds
-AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
@@ -61,7 +42,7 @@ all: aarch64 x86_64 riscv32 riscv64 std
 
 check: check_aarch64 check_x86_64 check_std check_riscv32 check_riscv64
 
-clippy: $(X86ASM)
+clippy:
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
@@ -71,7 +52,7 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_std
 	cargo +$(RUSTV) clippy_rd_gen_to_dags
 
-udeps: $(X86ASM)
+udeps:
 	cargo +$(RUSTV) udeps_x86
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
@@ -84,18 +65,12 @@ aarch64: kernel8.img
 check_aarch64: FORCE
 	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)
 
-target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
+target/aarch64-kernel/$(BUILD)/awkernel: FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(AARCH64_OPT)
 	python3 scripts/embed_debug_info.py $@
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
-
-$(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
-	$(CC) --target=aarch64-elf -c $< -o $@ -DSTACKSIZE="$(STACKSIZE)"
-
-$(AARCH64_BSP_LD): $(AARCH64_LD)
-	sed "s/#INITADDR#/$(INITADDR)/" $(AARCH64_LD) > $@
 
 QEMU_AARCH64_ARGS= -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio
@@ -139,10 +114,10 @@ gdb-aarch64-virt:
 
 x86_64: x86_64_uefi.img
 
-check_x86_64: $(X86ASM)
+check_x86_64:
 	cargo +$(RUSTV) check_x86
 
-kernel-x86_64.elf: $(X86ASM) FORCE
+kernel-x86_64.elf: FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
 	python3 scripts/embed_debug_info.py $@
 
@@ -151,9 +126,6 @@ x86_64_boot.img: kernel-x86_64.elf
 
 x86_64_uefi.img: kernel-x86_64.elf
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk --no-default-features --features uefi -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
-
-$(X86ASM): FORCE
-	$(MAKE) -C $@
 
 OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
@@ -247,7 +219,7 @@ check_std: FORCE
 	cargo +$(RUSTV) check_std
 
 run-std:
-	cargo +$(RUSTV) run --package awkernel --no-default-features --features std $(OPT)
+	cargo +$(RUSTV) run --package userland --no-default-features --features std $(OPT)
 
 # Docs
 docs: FORCE
@@ -271,9 +243,8 @@ fmt: FORCE
 # Clean
 
 clean: FORCE
-	rm -rf *.o *.elf $(AARCH64_BSP_LD) *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
+	rm -rf *.o *.elf *.img x86_64_uefi_pxe_boot
 	cargo clean
-	$(MAKE) -C $(X86ASM) clean
 
 
 ## QEMU Monitor
