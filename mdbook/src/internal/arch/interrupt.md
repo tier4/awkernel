@@ -70,12 +70,12 @@ For x86_64, Awkernel uses the [`x86_64`](https://docs.rs/x86_64/latest/x86_64/in
 
 ## AArch64
 
-For x86_64, the [`AArch64`](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) structure implements the `Interrupt` trait in [awkernel_lib/src/arch/aarch64/interrupt.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs) as follows.
+For aarch64, the [`AArch64`](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) structure implements the `Interrupt` trait in [awkernel_lib/src/arch/aarch64/interrupt.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs) as follows.
 
 ```rust
 impl Interrupt for super::AArch64 {
     fn get_flag() -> usize {
-        awkernel_aarch64::daif::get() as usize
+        super::utils::daif::get() as usize
     }
 
     fn disable() {
@@ -86,8 +86,13 @@ impl Interrupt for super::AArch64 {
         unsafe { core::arch::asm!("msr daifclr, #0b0010",) };
     }
 
+    fn are_enabled() -> bool {
+        let daif = super::utils::daif::get();
+        (daif & (1 << 7)) == 0
+    }
+
     fn set_flag(flag: usize) {
-        unsafe { awkernel_aarch64::daif::set(flag as u64) };
+        unsafe { super::utils::daif::set(flag as u64) };
     }
 }
 ```

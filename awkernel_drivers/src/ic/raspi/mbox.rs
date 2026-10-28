@@ -3,7 +3,7 @@
 //! Protocol details are as documented by the Mailbox property interface reference:
 //! <https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface>
 
-use awkernel_aarch64::cache::{clean_dcache_range, invalidate_dcache_range};
+use awkernel_lib::arch::aarch64::cache::{clean_dcache_range, invalidate_dcache_range};
 use core::{
     ptr::read_volatile,
     sync::atomic::{AtomicUsize, Ordering},

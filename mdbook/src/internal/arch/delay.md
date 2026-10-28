@@ -108,7 +108,7 @@ To get the cpu cycle counter, Awkernel uses the `_rdtsc` instruction.
 
 ## AArch64
 
-For x86_64, the [`AArch64`](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) structure implements the `Delay` trait in [awkernel_lib/src/arch/aarch64/delay.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs) as follows.
+For aarch64, the [`AArch64`](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) structure implements the `Delay` trait in [awkernel_lib/src/arch/aarch64/delay.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs) as follows.
 
 ```rust
 impl Delay for super::AArch64 {
@@ -117,21 +117,21 @@ impl Delay for super::AArch64 {
     }
 
     fn wait_microsec(usec: u64) {
-        let frq = awkernel_aarch64::cntfrq_el0::get();
-        let t = awkernel_aarch64::cntvct_el0::get();
+        let frq = super::utils::cntfrq_el0::get();
+        let t = super::utils::cntvct_el0::get();
 
         let end = t + ((frq / 1000) * usec) / 1000;
 
-        while awkernel_aarch64::cntvct_el0::get() < end {
-            awkernel_aarch64::isb();
+        while super::utils::cntvct_el0::get() < end {
+            super::utils::isb();
         }
     }
 
     fn uptime() -> u64 {
         let start = unsafe { read_volatile(addr_of!(COUNT_START)) };
 
-        let frq = awkernel_aarch64::cntfrq_el0::get();
-        let now = awkernel_aarch64::cntvct_el0::get();
+        let frq = super::utils::cntfrq_el0::get();
+        let now = super::utils::cntvct_el0::get();
 
         let diff = now - start;
 
@@ -139,7 +139,7 @@ impl Delay for super::AArch64 {
     }
 
     fn cpu_counter() -> u64 {
-        awkernel_aarch64::pmccntr_el0::get()
+        super::utils::pmccntr_el0::get()
     }
 }
 ```
