@@ -7,10 +7,12 @@ edition = "2021"
 [workspace]
 
 [[bin]]
+# To make sure the binary's name is always awkernel
 name = "awkernel"
 path = "src/main.rs"
 
 [features]
+perf = ["awkernel/perf"]
 debug = ["awkernel/debug"]
 # Select exactly one architecture (the Makefile does it).
 x86 = ["awkernel/x86"]
@@ -19,6 +21,7 @@ raspi = ["awkernel/raspi"]
 raspi5 = ["awkernel/raspi5"]
 rv32 = ["awkernel/rv32"]
 rv64 = ["awkernel/rv64"]
+std = ["awkernel/std"]
 
 [dependencies]
 log = "0.4"
@@ -26,6 +29,13 @@ log = "0.4"
 [dependencies.awkernel]
 path = "../kernel"
 default-features = false
+
+[dependencies.awkernel_userland]
+# As an example, you can extend the base userland crate with your own code in this crate!
+# Here, I will only use the basic awkernel services and the test_dvfs application
+path = "../userland"
+default-features = false
+features = ["test_dvfs"]
 
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
