@@ -68,9 +68,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
-        // Initialize interrupts.
         #[cfg(not(feature = "std"))]
-        init_interrupt();
+        {
+            #[cfg(feature = "dvfs")]
+            init_dvfs(kernel_info.cpu_id);
+            // Initialize interrupts.
+            init_interrupt();
+        }
 
         awkernel_lib::sanity::check();
 
@@ -146,6 +150,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     #[cfg(not(feature = "std"))]
     {
+        #[cfg(feature = "dvfs")]
+        init_dvfs(kernel_info.cpu_id);
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
         awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
 
@@ -182,4 +188,12 @@ fn init_interrupt() {
     // IRQ for wakeup CPUs.
     awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
     awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
+}
+
+#[cfg(feature = "dvfs")]
+fn init_dvfs(cpu_id: usize) {
+    match unsafe { awkernel_lib::dvfs::cpu_init() } {
+        Ok(_) => log::info!("CPU#{cpu_id} Successfully initialized DVFS"),
+        Err(e) => log::warn!("CPU#{cpu_id} Failed to initialize DVFS: {e:?}"),
+    }
 }

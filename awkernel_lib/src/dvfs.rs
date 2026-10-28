@@ -6,6 +6,7 @@ pub enum Error {
     NotSupported,
     InvalidArgument,
     InternalError,
+    FrequencyOutOfRange { requested: u64, min: u64, max: u64 },
     Other,
 }
 
@@ -17,6 +18,7 @@ impl Error {
             Error::NotSupported => "Not supported",
             Error::InvalidArgument => "Invalid argument",
             Error::InternalError => "Internal error",
+            Error::FrequencyOutOfRange { .. } => "Frequency out of range",
             Error::Other => "Other error",
         }
     }
@@ -24,7 +26,20 @@ impl Error {
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.description())
+        match self {
+            Error::FrequencyOutOfRange {
+                requested,
+                min,
+                max,
+            } => {
+                write!(
+                    f,
+                    "{}: requested {requested}, min {min}, max {max}",
+                    self.description()
+                )
+            }
+            _ => write!(f, "{}", self.description()),
+        }
     }
 }
 
@@ -34,6 +49,16 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 #[allow(unused_variables)]
 pub trait Dvfs {
+    /// Initialize the DVFS subsystem for the current CPU.
+    ///
+    /// # Safety
+    ///
+    /// Call this function only once, typically during system initialization.
+    #[inline(always)]
+    unsafe fn cpu_init() -> Result<()> {
+        Err(Error::NotImplemented)
+    }
+
     /// Fix the frequency of the current CPU in Hz.
     #[inline(always)]
     fn set_cpu_freq(freq: u64) -> Result<()> {
@@ -67,14 +92,45 @@ pub trait Dvfs {
     fn get_curr_cpu_freq() -> Result<u64> {
         Err(Error::NotImplemented)
     }
+
+    #[inline(always)]
+    fn set_min_cpu_freq() -> Result<()> {
+        let min_freq = Self::get_min_cpu_freq()?;
+        Self::set_cpu_freq(min_freq)
+    }
+
+    #[inline(always)]
+    fn set_max_cpu_freq() -> Result<()> {
+        let max_freq = Self::get_max_cpu_freq()?;
+        Self::set_cpu_freq(max_freq)
+    }
+
+    #[inline(always)]
+    fn set_cpu_freq_clamped(freq: u64) -> Result<()> {
+        let min_freq = Self::get_min_cpu_freq()?;
+        let max_freq = Self::get_max_cpu_freq()?;
+        let freq = freq.clamp(min_freq, max_freq);
+        Self::set_cpu_freq(freq)
+    }
 }
 
 unsafe extern "Rust" {
+    unsafe fn __awkernel_cpu_init() -> Result<()>;
     unsafe fn __awkernel_set_cpu_freq(freq: u64) -> Result<()>;
     unsafe fn __awkernel_set_global_freq(freq: u64) -> Result<()>;
     unsafe fn __awkernel_get_max_cpu_freq() -> Result<u64>;
     unsafe fn __awkernel_get_min_cpu_freq() -> Result<u64>;
     unsafe fn __awkernel_get_curr_cpu_freq() -> Result<u64>;
+}
+
+/// Initialize DVFS for the current CPU.
+///
+/// # Safety
+///
+/// Call this function only once per core, typically during system initialization.
+#[inline(always)]
+pub unsafe fn cpu_init() -> Result<()> {
+    unsafe { __awkernel_cpu_init() }
 }
 
 /// Set the frequency of the current CPU in Hz and returns the actual frequency set in Hz.
@@ -109,6 +165,12 @@ pub fn get_min_cpu_freq() -> Result<u64> {
 #[inline(always)]
 pub fn get_curr_cpu_freq() -> Result<u64> {
     unsafe { __awkernel_get_curr_cpu_freq() }
+}
+
+#[linkage = "weak"]
+#[export_name = "__awkernel_cpu_init"]
+unsafe extern "Rust" fn default_cpu_init() -> Result<()> {
+    crate::arch::ArchImpl::cpu_init()
 }
 
 #[linkage = "weak"]
@@ -147,6 +209,11 @@ extern "Rust" fn default_get_curr_cpu_freq() -> Result<u64> {
 #[macro_export]
 macro_rules! impl_dvfs {
     ($ty:ty) => {
+        #[export_name = "__awkernel_cpu_init"]
+        unsafe extern "Rust" fn __awkernel_bsp_cpu_init() -> $crate::dvfs::Result<()> {
+            unsafe { <$ty as $crate::dvfs::Dvfs>::cpu_init() }
+        }
+
         #[export_name = "__awkernel_set_cpu_freq"]
         extern "Rust" fn __awkernel_bsp_set_cpu_freq(freq: u64) -> $crate::dvfs::Result<()> {
             <$ty as $crate::dvfs::Dvfs>::set_cpu_freq(freq)

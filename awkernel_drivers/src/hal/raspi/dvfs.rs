@@ -7,6 +7,7 @@ use crate::ic::raspi::{
     mbox::Error as MboxError,
 };
 use awkernel_lib::{
+    cpu::cpu_id,
     dvfs::{Dvfs, Error, Result},
     impl_dvfs,
 };
@@ -22,6 +23,12 @@ fn map_err(e: MboxError) -> Error {
 }
 
 impl Dvfs for RaspiDvfs {
+    unsafe fn cpu_init() -> Result<()> {
+        match cpu_id() {
+            0 => Self::set_min_cpu_freq(),
+            _ => Ok(()),
+        }
+    }
     fn set_cpu_freq(_freq: u64) -> Result<()> {
         Err(Error::NotSupported)
     }
