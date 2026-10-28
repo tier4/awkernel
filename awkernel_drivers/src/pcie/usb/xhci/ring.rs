@@ -264,15 +264,20 @@ impl EventRing {
     pub fn dequeue(&mut self) -> Result<Option<Trb>, XhciErr> {
         let idx = self.dequeue_idx;
         let slot = self.seg_mem.as_ref().get(idx).ok_or(XhciErr::Overflow)?;
+        // Check the cycle bit before reading the rest: the controller's DMA write
+        // of a TRB is not atomic to the CPU, so a whole-TRB read can pair the new
+        // `ctrl` with a stale `param` (observed on Intel 00:14.0: every event's
+        // TRB pointer read as 0).
         // SAFETY: `slot` is a valid, aligned &Trb inside the DMA page.
-        let trb = unsafe { read_volatile(slot) };
-
-        if trb.ctrl & trb_flag::CYCLE != self.cycle_bit {
+        let ctrl = unsafe { read_volatile(&raw const slot.ctrl) };
+        if ctrl & trb_flag::CYCLE != self.cycle_bit {
             return Ok(None); // no event ready
         }
-        // Everything the controller wrote before this event (e.g. a descriptor
-        // in a data buffer) must be read after the cycle bit check.
+        // The rest of this TRB, and everything the controller wrote before it
+        // (e.g. a descriptor in a data buffer), must be read after the check.
         fence(Ordering::Acquire);
+        // SAFETY: as above.
+        let trb = unsafe { read_volatile(slot) };
 
         let next = idx.checked_add(1).ok_or(XhciErr::Overflow)?;
         if next >= RING_SIZE {
