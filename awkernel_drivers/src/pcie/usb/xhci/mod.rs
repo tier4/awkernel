@@ -191,10 +191,12 @@ impl SetupPacket {
 
 const RT_DEV_IN: u8 = 0x80; // D→H, Standard, Device
 const RT_DEV_OUT: u8 = 0x00; // H→D, Standard, Device
+const RT_EP_OUT: u8 = 0x02; // H→D, Standard, Endpoint
 const RT_CLASS_IF_OUT: u8 = 0x21; // H→D, Class, Interface
 const RT_VENDOR_IN: u8 = 0xC0; // D→H, Vendor, Device
 const RT_VENDOR_OUT: u8 = 0x40; // H→D, Vendor, Device
 
+const REQ_CLEAR_FEATURE: u8 = 1;
 const REQ_GET_DESCRIPTOR: u8 = 6;
 const REQ_SET_CONFIGURATION: u8 = 9;
 const REQ_CDC_SET_LINE_CODING: u8 = 0x20;
@@ -204,6 +206,8 @@ const REQ_PL2303HXN_VENDOR: u8 = 0x80;
 
 const DESC_DEVICE: u16 = 0x0100;
 const DESC_CONFIGURATION: u16 = 0x0200;
+/// Standard feature selector ENDPOINT_HALT (USB 2.0 Table 9-6).
+const FEATURE_ENDPOINT_HALT: u16 = 0;
 const DEVICE_DESC_LEN: u16 = 18;
 const CONFIG_DESC_HEADER_LEN: u16 = 9;
 /// Largest configuration descriptor we fetch (fits the 255-byte parse buffer).
@@ -235,6 +239,8 @@ struct SerialPort {
     /// Configured in the device context; kept alive because the controller owns it.
     _in_ring: TransferRing,
     out_dci: u8,
+    /// bEndpointAddress of the bulk OUT endpoint (wIndex of ClearFeature).
+    out_ep_addr: u8,
     /// Bytes per bulk OUT packet, in 1..=TX_BUF_SIZE.
     max_pkt: usize,
     tx_buf: DMAPool<[u8; TX_BUF_SIZE]>,
@@ -272,6 +278,12 @@ struct HcCore {
     evt_ring: EventRing,
     /// Set if Command Abort fails (`CRCR.CRR` stays 1); refuses further commands.
     cmd_ring_broken: bool,
+    /// Completions discarded as stale by `command` / `wait_transfer`, and
+    /// commands that timed out, since the last `take_diag`.  `HcCore` never logs:
+    /// it also runs inside the console's USB mirror, where a nested log call
+    /// would re-acquire the console mutex the caller already holds.
+    stale_events: u32,
+    timed_out_commands: u32,
 }
 
 impl HcCore {
@@ -304,6 +316,15 @@ impl HcCore {
             core::hint::spin_loop();
         }
         Err(XhciErr::Timeout)
+    }
+
+    /// Return and reset (stale events, timed-out commands) for logging by a
+    /// caller that does not hold the console mutex.
+    fn take_diag(&mut self) -> (u32, u32) {
+        let diag = (self.stale_events, self.timed_out_commands);
+        self.stale_events = 0;
+        self.timed_out_commands = 0;
+        diag
     }
 
     /// Consume and discard every pending event (at most one ring's worth).
@@ -349,7 +370,6 @@ impl HcCore {
         }
         if !stopped {
             self.cmd_ring_broken = true;
-            log::error!("xHCI: command ring did not stop after Command Abort (CRR=1)");
             return Err(XhciErr::Timeout);
         }
 
@@ -378,28 +398,24 @@ impl HcCore {
         }
         let cmd_phys = self.cmd_ring.enqueue(trb)?;
         self.ring_doorbell(0, 0)?;
-        let event = match self.wait_event(|ev| {
+        let mut stale: u32 = 0;
+        let result = self.wait_event(|ev| {
             if ev.trb_type() != trb_type::CMD_COMPLETION {
                 return false;
             }
             if ev.param != cmd_phys {
-                log::warn!(
-                    "xHCI: discarded stale completion for command TRB {:#x} \
-                     (code {}, slot {}) while waiting for {cmd_phys:#x}",
-                    ev.param,
-                    ev.completion_code(),
-                    ev.slot_id()
-                );
+                stale = stale.saturating_add(1);
                 return false;
             }
             true
-        }) {
+        });
+        self.stale_events = self.stale_events.saturating_add(stale);
+        let event = match result {
             Ok(ev) => ev,
             Err(XhciErr::Timeout) => {
-                log::warn!("xHCI: command TRB {cmd_phys:#x} timed out; aborting command ring");
-                if let Err(e) = self.abort_command_ring() {
+                self.timed_out_commands = self.timed_out_commands.saturating_add(1);
+                if self.abort_command_ring().is_err() {
                     self.cmd_ring_broken = true;
-                    log::error!("xHCI: command ring abort failed: {e:?}");
                 }
                 return Err(XhciErr::Timeout);
             }
@@ -426,7 +442,8 @@ impl HcCore {
         status_phys: u64,
     ) -> Result<(), XhciErr> {
         for _ in 0..MAX_CTRL_EVENTS {
-            let event = self.wait_event(|ev| {
+            let mut stale: u32 = 0;
+            let result = self.wait_event(|ev| {
                 if ev.trb_type() != trb_type::TRANSFER_EVENT {
                     return false;
                 }
@@ -434,18 +451,13 @@ impl HcCore {
                     || ev.param == setup_phys
                     || data_phys == Some(ev.param);
                 if ev.slot_id() != slot || ev.endpoint_id() != dci || !in_td {
-                    log::warn!(
-                        "xHCI: discarded stale transfer event (slot {}, ep {}, trb {:#x}, code {}) \
-                         while waiting for slot {slot} ep {dci}",
-                        ev.slot_id(),
-                        ev.endpoint_id(),
-                        ev.param,
-                        ev.completion_code()
-                    );
+                    stale = stale.saturating_add(1);
                     return false;
                 }
                 true
-            })?;
+            });
+            self.stale_events = self.stale_events.saturating_add(stale);
+            let event = result?;
             let code = event.completion_code();
             if event.param == status_phys {
                 return match code {
@@ -516,11 +528,8 @@ impl HcCore {
             status: 0,
             ctrl: trb_type::RESET_EP | ctrl_slot_ep(dev.slot, EP0_DCI),
         }) {
-            Ok(_) => {}
             // Not halted after all: SET_TR_DEQUEUE_POINTER still resyncs the ring.
-            Err(XhciErr::Completion(code)) => {
-                log::warn!("xHCI: RESET_EP code={code} (slot={})", dev.slot);
-            }
+            Ok(_) | Err(XhciErr::Completion(_)) => {}
             Err(e) => return Err(e),
         }
         self.command(Trb {
@@ -528,7 +537,6 @@ impl HcCore {
             status: 0,
             ctrl: trb_type::SET_TR_DEQUEUE_POINTER | ctrl_slot_ep(dev.slot, EP0_DCI),
         })?;
-        log::info!("xHCI: EP0 STALL cleared (slot={})", dev.slot);
         Ok(())
     }
 
@@ -608,6 +616,8 @@ impl Controller {
             cmd_ring: CommandRing::new(NUMA_NODE)?,
             evt_ring: EventRing::new(NUMA_NODE)?,
             cmd_ring_broken: false,
+            stale_events: 0,
+            timed_out_commands: 0,
         };
 
         Ok(Self {
@@ -847,7 +857,9 @@ impl Controller {
 
         for port in connected {
             log::info!("xHCI: {}: device detected on port {port}", self.name);
-            let mut dev = match self.enumerate_port(port) {
+            let enumerated = self.enumerate_port(port);
+            self.log_core_diag(port);
+            let mut dev = match enumerated {
                 Ok(dev) => dev,
                 Err(e) => {
                     log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
@@ -864,7 +876,9 @@ impl Controller {
                 }
             };
 
-            match self.setup_serial(&mut dev) {
+            let serial = self.setup_serial(&mut dev);
+            self.log_core_diag(port);
+            match serial {
                 Ok(true) => {
                     self.serial_dev = Some(dev);
                     return Ok(());
@@ -888,6 +902,24 @@ impl Controller {
             self.core.drain_events()?;
         }
         Ok(())
+    }
+
+    /// Log what `HcCore` counted instead of logging (see `HcCore::stale_events`).
+    /// Boot-time enumeration only: it runs outside the console path.
+    fn log_core_diag(&mut self, port: u8) {
+        let (stale, timed_out) = self.core.take_diag();
+        if stale > 0 {
+            log::warn!(
+                "xHCI: {}: port {port}: discarded {stale} stale completion event(s)",
+                self.name
+            );
+        }
+        if timed_out > 0 {
+            log::warn!(
+                "xHCI: {}: port {port}: {timed_out} command(s) timed out; command ring aborted",
+                self.name
+            );
+        }
     }
 
     /// Reset `port`, enable a slot, address the device and read its Device Descriptor.
@@ -1252,6 +1284,7 @@ impl Controller {
             in_ring,
             out_ring,
             out_dci,
+            info.bulk_out_addr,
             info.max_pkt,
         )?);
 
@@ -1420,41 +1453,71 @@ impl Controller {
         Ok(())
     }
 
-    /// Recover the bulk OUT endpoint after a failed or timed-out transfer.
+    /// Recover the bulk OUT endpoint after `serial_write` failed with `cause`.
     ///
-    /// - Timeout (endpoint Running, TRB pending): STOP_EP → Stopped, then
-    ///   SET_TR_DEQUEUE_POINTER skips the stale TRB.
-    /// - Halted (STALL / bus error): STOP_EP reports Context State Error; RESET_EP
-    ///   moves Halted → Stopped (a Halted endpoint ignores doorbells), then
-    ///   SET_TR_DEQUEUE_POINTER resyncs the ring.
+    /// - A Transfer Event error (`XhciErr::Completion`: STALL, USB Transaction
+    ///   Error, Babble, ...) halts the endpoint (xHCI §4.10.2), so the pipe is
+    ///   reset as in xHCI §4.6.8: RESET_EP (TSP = 0, host Data Toggle → DATA0),
+    ///   ClearFeature(ENDPOINT_HALT) to the device, then SET_TR_DEQUEUE_POINTER.
+    ///   ClearFeature clears a STALL and also reinitializes the device's toggle
+    ///   to DATA0 whether or not the Halt feature was set (USB 2.0 §9.4.5), so
+    ///   both sides stay in sync for every halting error, not only STALL.
+    /// - Otherwise (e.g. our polling timeout) the endpoint may still be Running:
+    ///   STOP_EP, then SET_TR_DEQUEUE_POINTER.  Neither touches the Data Toggle.
+    ///   If STOP_EP reports Context State Error, the endpoint halted meanwhile
+    ///   and the pipe is reset as above.
     ///
-    /// WCET: at most 3 commands, each waiting `COMPLETION_POLL_ITERS` polls.
-    fn recover_serial_out(&mut self) -> Result<(), XhciErr> {
+    /// ClearFeature is sent only after RESET_EP succeeded: an endpoint in the
+    /// Error state (TRB Error) rejects RESET_EP, and resetting only the device
+    /// toggle would desynchronize them.  Logging-free (runs inside the console
+    /// path).
+    ///
+    /// WCET: at most 4 commands and one control transfer, each bounded by
+    /// `COMPLETION_POLL_ITERS` event-ring polls.
+    fn recover_serial_out(&mut self, cause: &XhciErr) -> Result<(), XhciErr> {
         let dev = self.serial_dev.as_mut().ok_or(XhciErr::NotConfigured)?;
         let slot = dev.slot;
-        let port = dev.serial.as_mut().ok_or(XhciErr::NotConfigured)?;
-        let target = ctrl_slot_ep(slot, port.out_dci);
+        let (out_dci, out_ep_addr) = {
+            let port = dev.serial.as_ref().ok_or(XhciErr::NotConfigured)?;
+            (port.out_dci, port.out_ep_addr)
+        };
+        let target = ctrl_slot_ep(slot, out_dci);
 
-        let halted = match self.core.command(Trb {
-            param: 0,
-            status: 0,
-            ctrl: trb_type::STOP_EP | target,
-        }) {
-            Ok(_) => false,
-            Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => true,
-            Err(e) => return Err(e),
+        let halted = match cause {
+            XhciErr::Completion(_) => true,
+            _ => match self.core.command(Trb {
+                param: 0,
+                status: 0,
+                ctrl: trb_type::STOP_EP | target,
+            }) {
+                Ok(_) => false,
+                Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => true,
+                Err(e) => return Err(e),
+            },
         };
         if halted {
             match self.core.command(Trb {
                 param: 0,
                 status: 0,
-                ctrl: trb_type::RESET_EP | target,
+                ctrl: trb_type::RESET_EP | target, // TSP = 0
             }) {
-                // Context State Error: already Stopped rather than Halted — fine.
-                Ok(_) | Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => {}
+                Ok(_) => self.core.control(
+                    dev,
+                    SetupPacket {
+                        request_type: RT_EP_OUT,
+                        request: REQ_CLEAR_FEATURE,
+                        value: FEATURE_ENDPOINT_HALT,
+                        index: u16::from(out_ep_addr),
+                        length: 0,
+                    },
+                )?,
+                // Not Halted (e.g. Error state after a TRB Error): no toggle was
+                // reset on the host, so leave the device's alone too.
+                Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => {}
                 Err(e) => return Err(e),
             }
         }
+        let port = dev.serial.as_mut().ok_or(XhciErr::NotConfigured)?;
         self.core.command(Trb {
             param: port.out_ring.enqueue_pointer()?,
             status: 0,
@@ -1509,6 +1572,7 @@ fn new_serial_port(
     in_ring: TransferRing,
     out_ring: TransferRing,
     out_dci: u8,
+    out_ep_addr: u8,
     max_pkt: u16,
 ) -> Result<SerialPort, XhciErr> {
     let mut tx_buf = DMAPool::<[u8; TX_BUF_SIZE]>::new(NUMA_NODE, 1).ok_or(XhciErr::DmaAlloc)?;
@@ -1518,6 +1582,7 @@ fn new_serial_port(
         out_ring,
         _in_ring: in_ring,
         out_dci,
+        out_ep_addr,
         max_pkt: usize::from(max_pkt).clamp(1, TX_BUF_SIZE),
         tx_buf,
     })
@@ -1584,11 +1649,14 @@ static SERIAL_LOCK: AtomicBool = AtomicBool::new(false);
 /// WCET contract:
 /// - Never waits for the lock: if another CPU or a nested log call is writing,
 ///   `data` is skipped on the USB mirror.
-/// - No heap allocation, no panic, no logging, no await.
+/// - No heap allocation, no panic, no await, and no logging anywhere below it,
+///   including the recovery commands: before buffered logging starts, the
+///   caller holds the console mutex, and a nested log call would block on it.
 /// - Work: ceil(data.len() / max_pkt) bulk OUT transfers, each bounded by
 ///   `COMPLETION_POLL_ITERS` event-ring polls; on failure one endpoint recovery
-///   (≤ 3 commands, each bounded the same way).  If recovery fails the mirror
-///   is disabled permanently, so a dead adapter costs at most one timeout.
+///   (≤ 4 commands and one control transfer, each bounded the same way).  If
+///   recovery fails the mirror is disabled permanently, so a dead adapter
+///   costs at most one timeout.
 pub fn xhci_usb_serial_puts(data: &str) {
     let dev = SERIAL_DEV.load(Ordering::Acquire);
     if dev.is_null() {
@@ -1605,8 +1673,10 @@ pub fn xhci_usb_serial_puts(data: &str) {
     // released, so the device lives forever.  Holding `SERIAL_LOCK` makes this
     // the only live reference to `hc` (see `XhciDevice`).
     let hc = unsafe { &mut *(*dev).hc.get() };
-    if hc.serial_write(data.as_bytes()).is_err() && hc.recover_serial_out().is_err() {
-        SERIAL_DEV.store(ptr::null_mut(), Ordering::Release);
+    if let Err(cause) = hc.serial_write(data.as_bytes()) {
+        if hc.recover_serial_out(&cause).is_err() {
+            SERIAL_DEV.store(ptr::null_mut(), Ordering::Release);
+        }
     }
 
     SERIAL_LOCK.store(false, Ordering::Release);
