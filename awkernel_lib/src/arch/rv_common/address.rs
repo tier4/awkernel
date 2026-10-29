@@ -6,9 +6,9 @@ use core::{
 };
 
 #[cfg(feature = "rv32")]
-pub(crate) use crate::arch::rv32::address::{MEMORY_END, PA_WIDTH, VA_WIDTH, VPN_BITS, VPN_LEVELS};
+pub(crate) use crate::arch::rv32::address::{PA_WIDTH, VA_WIDTH, VPN_BITS, VPN_LEVELS};
 #[cfg(feature = "rv64")]
-pub(crate) use crate::arch::rv64::address::{MEMORY_END, PA_WIDTH, VA_WIDTH, VPN_BITS, VPN_LEVELS};
+pub(crate) use crate::arch::rv64::address::{PA_WIDTH, VA_WIDTH, VPN_BITS, VPN_LEVELS};
 
 pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
 pub const OFFSET_WIDTH: usize = 0xc; // 12 bits
