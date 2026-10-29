@@ -10,6 +10,11 @@
 
 - Atsushi Yano, Ryo Nishimura, Yutaro Kobayashi, Yuuki Takano, Takahiro Ishikawa-Aso, and Takuya Azumi, “Awkernel: RTOS Bridging DAG Scheduling Theory and Component-Oriented Real-Time Systems Practice”, https://arxiv.org/abs/2610.04861, October 2026.
 
+### International Workshop (peer-reviewed)
+
+- Ryo Nishimura, Nao Yoshimura, Hiroshi Oyama, and Takuya Azumi, “Awkernel+TECS: Component Framework for Rust-based Real-time Operating Systems”, International Workshop on Rapid System Prototyping (RSP), Oct. 2026.
+
+
 ## 2025
 
 ### ArXiv
