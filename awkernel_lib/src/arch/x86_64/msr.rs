@@ -14,7 +14,10 @@ pub mod ia32_perf_ctl;
 pub mod ia32_perf_mperf;
 pub mod ia32_perf_status;
 pub mod ia32_pm_enable;
+pub mod pkg_energy_status;
 pub mod platform_info;
+pub mod pp0_energy_status;
+pub mod rapl_power_unit;
 
 // MSR IA32_ENERGY_PERF_BIAS
 pub(super) const _IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK: u64 = 0xf;

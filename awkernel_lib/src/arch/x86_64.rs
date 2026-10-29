@@ -18,6 +18,7 @@ pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
 pub mod power;
+pub mod power_profile;
 
 pub struct X86;
 
