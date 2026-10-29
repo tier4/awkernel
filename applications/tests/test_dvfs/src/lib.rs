@@ -22,9 +22,20 @@ const DEADLINE: u64 = 1000;
 const NUM_LOOP: usize = 1000000;
 const SEMI_PERIOD: Duration = Duration::from_secs(5);
 
+#[cfg(all(target_arch = "x86_64", target_os = "none", feature = "energy"))]
+mod energy;
+
 pub async fn run() {
     let mut cpu_set = CpuSet::empty();
     cpu_set.insert(TEST_CPU);
+
+    #[cfg(all(target_arch = "x86_64", target_os = "none", feature = "energy"))]
+    awkernel_async_lib::spawn(
+        energy::APP_NAME.into(),
+        energy::measure_energy(),
+        awkernel_async_lib::scheduler::SchedulerType::ClusteredEDF(DEADLINE, cpu_set),
+    )
+    .await;
 
     awkernel_async_lib::spawn(
         APP_NAME.into(),
