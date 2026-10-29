@@ -1,5 +1,5 @@
+use super::utils::mpidr_el1;
 use crate::cpu::{CPU, NUM_MAX_CPU};
-use awkernel_aarch64::mpidr_el1;
 
 #[no_mangle]
 pub static mut AFF0_MAX: u64 = 0;
@@ -73,7 +73,7 @@ pub const AFF0_MASK: u64 = 0xff;
 
 /// Get the current CPU affinity.
 pub fn current_affinity() -> (u8, u8, u8, u8) {
-    let mpidr_el1 = awkernel_aarch64::mpidr_el1::get();
+    let mpidr_el1 = mpidr_el1::get();
     (
         ((mpidr_el1 & AFF3_MASK) >> 32) as u8,
         ((mpidr_el1 & AFF2_MASK) >> 16) as u8,

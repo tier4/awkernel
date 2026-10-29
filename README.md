@@ -44,7 +44,6 @@ $ cargo binstall mdbook-mermaid
 - [awkernel_macros](./awkernel_macros/)
   - `#[awkernel::main]` entry-point macro
 - [awkernel_drivers](./awkernel_drivers/)
-- [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
 - applications
   - [awkernel_shell](./applications/awkernel_shell/)
@@ -53,13 +52,11 @@ $ cargo binstall mdbook-mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
     awkernel_async_lib-->awkernel_futures_macro;
-    awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;
     userland-->awkernel_async_lib;
     kernel-->awkernel_lib;
     kernel-->awkernel_async_lib;
-    kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
     awkernel_drivers-->awkernel_lib;
     userland-->kernel;
