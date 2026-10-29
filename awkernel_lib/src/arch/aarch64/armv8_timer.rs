@@ -57,7 +57,7 @@ impl Armv8Timer {
 
 impl crate::timer::Timer for Armv8Timer {
     fn reset(&self, dur: Duration) {
-        let hz = awkernel_aarch64::cntfrq_el0::get() as u128;
+        let hz = super::utils::cntfrq_el0::get() as u128;
 
         let ns = dur.as_nanos();
 
@@ -69,8 +69,8 @@ impl crate::timer::Timer for Armv8Timer {
         };
 
         unsafe {
-            awkernel_aarch64::cntv_tval_el0::set(tval);
-            awkernel_aarch64::cntv_ctl_el0::set(1); // Enable interrupt.
+            super::utils::cntv_tval_el0::set(tval);
+            super::utils::cntv_ctl_el0::set(1); // Enable interrupt.
         }
     }
 
@@ -79,6 +79,6 @@ impl crate::timer::Timer for Armv8Timer {
     }
 
     fn disable(&self) {
-        unsafe { awkernel_aarch64::cntv_ctl_el0::set(0) };
+        unsafe { super::utils::cntv_ctl_el0::set(0) };
     }
 }
