@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
-    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, PHYSICAL_MEMORY_OFFSET, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use acpi::{madt::MadtEntry, platform::ProcessorState, AcpiTables};
@@ -61,7 +61,7 @@ extern "C" {
 
 pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
-    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.mappings.physical_memory = Some(Mapping::FixedAddress(PHYSICAL_MEMORY_OFFSET));
     config.kernel_stack_size = STACK_SIZE as u64;
     config
 };
