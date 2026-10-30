@@ -71,10 +71,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         init_cpu_execution_speed(kernel_info.cpu_id);
 
         #[cfg(not(feature = "std"))]
-        {
-            // Initialize interrupts.
-            init_interrupt();
-        }
+        init_interrupt();
 
         awkernel_lib::sanity::check();
 
