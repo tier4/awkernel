@@ -1,6 +1,6 @@
 //! Sleep a task until a specific time.
 
-use super::{scheduler, time::Time, Cancel};
+use super::{scheduler, time::Instant, Cancel};
 use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::task::Poll;
@@ -12,7 +12,7 @@ use alloc::boxed::Box;
 #[must_use = "use `.await` to sleep"]
 pub struct SleepUntil {
     state: Arc<Mutex<State>>,
-    next: Time,
+    next: Instant,
 }
 
 #[derive(Debug)]
@@ -79,7 +79,7 @@ impl Cancel for SleepUntil {
 
 impl SleepUntil {
     // Create a `Sleep`.
-    pub(super) fn new(next: Time) -> Self {
+    pub(super) fn new(next: Instant) -> Self {
         let state = Arc::new(Mutex::new(State::Ready));
         Self { state, next }
     }

@@ -9,7 +9,7 @@ use awkernel_lib::{
         error::{VfsError, VfsErrorKind, VfsResult},
         path::{PathLike, VfsFileType, VfsMetadata},
     },
-    time::Time,
+    time::Instant,
 };
 
 use alloc::{
@@ -238,7 +238,7 @@ impl AsyncVfsPath {
     }
 
     /// Sets the files creation timestamp at this path
-    pub async fn set_creation_time(&self, time: Time) -> VfsResult<()> {
+    pub async fn set_creation_time(&self, time: Instant) -> VfsResult<()> {
         self.fs
             .fs
             .set_creation_time(&self.path, time)
@@ -250,7 +250,7 @@ impl AsyncVfsPath {
     }
 
     /// Sets the files modification timestamp at this path
-    pub async fn set_modification_time(&self, time: Time) -> VfsResult<()> {
+    pub async fn set_modification_time(&self, time: Instant) -> VfsResult<()> {
         self.fs
             .fs
             .set_modification_time(&self.path, time)
@@ -262,7 +262,7 @@ impl AsyncVfsPath {
     }
 
     /// Sets the files access timestamp at this path
-    pub async fn set_access_time(&self, time: Time) -> VfsResult<()> {
+    pub async fn set_access_time(&self, time: Instant) -> VfsResult<()> {
         self.fs
             .fs
             .set_access_time(&self.path, time)

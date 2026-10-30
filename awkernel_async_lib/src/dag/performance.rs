@@ -1,12 +1,12 @@
 use super::{get_dag, MeasureF};
 use alloc::{sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::MCSNode;
-use awkernel_lib::time::Time;
+use awkernel_lib::time::Instant;
 use core::time::Duration;
 
 /// The assumption is that there is one sink vertex and one source vertexe.
 pub(super) struct ResponseInfo {
-    release_time: Vec<Time>,
+    release_time: Vec<Instant>,
     response_time: Vec<Duration>,
 }
 
@@ -18,7 +18,7 @@ impl ResponseInfo {
         }
     }
 
-    fn add_release_time(&mut self, current_time: Time) {
+    fn add_release_time(&mut self, current_time: Instant) {
         self.release_time.push(current_time);
     }
 
@@ -29,7 +29,7 @@ impl ResponseInfo {
 
 pub(super) fn create_release_recorder(dag_id: u32) -> MeasureF {
     let closure = move || {
-        let release_time = Time::now();
+        let release_time = Instant::now();
         let dag = get_dag(dag_id).unwrap();
         let mut node = MCSNode::new();
         let mut response_info = dag.response_info.lock(&mut node);
@@ -39,7 +39,7 @@ pub(super) fn create_release_recorder(dag_id: u32) -> MeasureF {
 }
 
 pub(super) fn record_response_time(dag_id: u32) {
-    let overhead_start = Time::now();
+    let overhead_start = Instant::now();
 
     let dag = get_dag(dag_id).unwrap();
     let mut node = MCSNode::new();

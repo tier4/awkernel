@@ -1,12 +1,20 @@
 [package]
-name = "userland"
+name = "awkernel_userland"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "awkernel"
+path = "src/main.rs"
+
 [dependencies]
 log = "0.4"
+
+[dependencies.awkernel]
+path = "../kernel"
+default-features = false
 
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
@@ -88,7 +96,23 @@ optional = true
 
 [features]
 default = []
-perf = ["awkernel_services/perf"]
+perf = ["awkernel/perf", "awkernel_services/perf"]
+
+# Kernel configuration (forwarded to the `awkernel` kernel crate)
+x86 = ["awkernel/x86"]
+aarch64 = ["awkernel/aarch64"]
+raspi = ["awkernel/raspi"]
+raspi5 = ["awkernel/raspi5"]
+aarch64_virt = ["awkernel/aarch64_virt"]
+rv32 = ["awkernel/rv32"]
+rv64 = ["awkernel/rv64"]
+std = ["awkernel/std"]
+debug = ["awkernel/debug"]
+heap-tlsf = ["awkernel/heap-tlsf"]
+heap-wf-alloc = ["awkernel/heap-wf-alloc"]
+spinlock = ["awkernel/spinlock"]
+linux = ["awkernel/linux"]
+period-index-propagation = ["awkernel/period-index-propagation"]
 
 # Evaluation applications
 rd_gen_to_dags = ["dep:rd_gen_to_dags"]

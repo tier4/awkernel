@@ -43,8 +43,8 @@ optional = true
 version = "0.2"
 optional = true
 
-[dependencies.userland]
-path = "../userland"
+[dependencies.awkernel_macros]
+path = "../awkernel_macros"
 
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
@@ -57,10 +57,6 @@ default-features = false
 [dependencies.awkernel_drivers]
 path = "../awkernel_drivers"
 default-features = false
-
-[dependencies.awkernel_aarch64]
-path = "../awkernel_aarch64"
-optional = true
 
 [dependencies.x86_64]
 version = "0.15"
@@ -79,7 +75,7 @@ optional = true
 default = ["x86"]
 heap-tlsf = ["awkernel_lib/heap-tlsf"]
 heap-wf-alloc = ["awkernel_lib/heap-wf-alloc"]
-perf = ["awkernel_async_lib/perf", "userland/perf"]
+perf = ["awkernel_async_lib/perf"]
 period-index-propagation = [
     "perf",
     "awkernel_async_lib/period-index-propagation",
@@ -120,7 +116,6 @@ std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
     "perf",
     "no_std_unwinding",
-    "dep:awkernel_aarch64",
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
 ]
@@ -151,6 +146,3 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
-test_clustered_edf = ["userland/test_clustered_edf"]
-test_dvfs = ["userland/test_dvfs"]
-test_raspi_dvfs = ["userland/test_raspi_dvfs"]

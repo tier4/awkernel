@@ -180,7 +180,7 @@ pub(super) struct IfNet {
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
-    time: crate::time::Time,
+    time: crate::time::Instant,
     will_poll: AtomicUsize,
 }
 
@@ -218,7 +218,7 @@ impl IfNetInner {
 
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
-        let time = crate::time::Time::now();
+        let time = crate::time::Instant::now();
 
         let interface = {
             let mut tx_ringq = RingQ::new(0);

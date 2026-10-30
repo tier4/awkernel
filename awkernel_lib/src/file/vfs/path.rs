@@ -4,7 +4,7 @@
 //! different VirtualFileSystem implementations (i.e. an in memory implementation for unit tests)
 
 use super::super::io::{Read, Seek, Write};
-use crate::time::Time;
+use crate::time::Instant;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -112,9 +112,9 @@ pub struct VfsMetadata {
     /// Length of the file in bytes, 0 for directories
     pub len: u64,
     /// Creation time of the file, if supported by the vfs implementation
-    pub created: Option<Time>,
+    pub created: Option<Instant>,
     /// Modification time of the file, if supported by the vfs implementation
-    pub modified: Option<Time>,
+    pub modified: Option<Instant>,
     /// Access time of the file, if supported by the vfs implementation
-    pub accessed: Option<Time>,
+    pub accessed: Option<Instant>,
 }

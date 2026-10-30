@@ -34,6 +34,8 @@ pub mod op {
 
     // CRCR bits (written to low word; high bits are ring base address)
     pub const CRCR_RCS: u32 = 1 << 0; // Ring Cycle State
+    pub const CRCR_CA: u32 = 1 << 2; // Command Abort (RW1S)
+    pub const CRCR_CRR: u32 = 1 << 3; // Command Ring Running (RO)
 }
 
 /// Interrupter Register Set offsets — relative to `ir0_base` (= rt_base + BASE). xHCI spec §5.5.2.
@@ -67,6 +69,7 @@ pub mod trb_type {
     pub const STATUS_STAGE: u32 = 4 << TRB_TYPE_SHIFT;
     pub const LINK: u32 = 6 << TRB_TYPE_SHIFT;
     pub const ENABLE_SLOT: u32 = 9 << TRB_TYPE_SHIFT;
+    pub const DISABLE_SLOT: u32 = 10 << TRB_TYPE_SHIFT;
     pub const ADDRESS_DEVICE: u32 = 11 << TRB_TYPE_SHIFT;
     pub const CONFIGURE_EP: u32 = 12 << TRB_TYPE_SHIFT;
     pub const RESET_EP: u32 = 14 << TRB_TYPE_SHIFT;

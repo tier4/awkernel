@@ -644,7 +644,7 @@ impl<'a> Socket<'a> {
             .iter()
             .flatten()
             .filter_map(|q| match &q.state {
-                State::Pending(pq) => Some(PollAt::Time(pq.retransmit_at)),
+                State::Pending(pq) => Some(PollAt::Instant(pq.retransmit_at)),
                 State::Completed(_) => None,
                 State::Failure => None,
             })

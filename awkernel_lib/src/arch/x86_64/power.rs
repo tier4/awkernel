@@ -1,7 +1,8 @@
-use super::acpi::AcpiMapper;
+use super::{acpi::AcpiMapper, X86};
 use crate::{
     delay, interrupt,
     mmio::{ReadOnlyOffset, WriteOnlyOffset},
+    power::{Error, Power},
     sync::mutex::{MCSNode, Mutex},
 };
 use acpi::{
@@ -131,16 +132,14 @@ pub fn reboot() -> ! {
     legacy_reboot();
 }
 
-// The `x86_reboot` and `x86_shutdown` functions are defined here to provide
-// strong definitions of the `__awkernel_reboot` and `__awkernel_shutdown` symbols.
-#[export_name = "__awkernel_reboot"]
-extern "Rust" fn x86_reboot() -> ! {
-    reboot()
-}
+impl Power for X86 {
+    fn reboot() -> Result<!, Error> {
+        reboot()
+    }
 
-#[export_name = "__awkernel_shutdown"]
-extern "Rust" fn x86_shutdown() -> ! {
-    shutdown()
+    fn shutdown() -> Result<!, Error> {
+        shutdown()
+    }
 }
 
 fn init_power_control(acpi: &AcpiTables<AcpiMapper>) -> Result<PowerControl, &'static str> {

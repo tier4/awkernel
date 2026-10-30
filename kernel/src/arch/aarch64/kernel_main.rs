@@ -1,27 +1,35 @@
 //! # Boot process
 //!
 //! 1. The entrypoint, `_start` in `kernel/asm/aarch64/boot.S`, is called.
+//!    `boot.S` and `exception.S` are assembled by `global_asm!` below.
 //! 2. [`kernel_main`] is called.
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::bsp::DeviceTreeRef;
+use super::{bsp::DeviceTreeRef, vm::STACK_SIZE};
 use crate::{
     arch::aarch64::bsp::SoC,
     config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
 use awkernel_lib::{
+    arch::aarch64::utils::{self, dsb_ish, dsb_ishst, dsb_sy, isb, spsel, tlbi_vmalle1is},
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
     dma_pool, heap,
 };
 use core::{
-    arch::asm,
+    arch::{asm, global_asm},
     ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
+
+// `exception.S` is appended to `boot.S`, as `#include` did.
+global_asm!(
+    include_str!("../../../asm/aarch64/boot.S"),
+    include_str!("../../../asm/aarch64/exception.S"),
+    STACKSIZE = const STACK_SIZE,
+);
 
 static mut CPU_READY: usize = 0;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -32,7 +40,7 @@ static mut TTBR0_EL1: usize = 0;
 /// The entry point from `boot.S`.
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
-    awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
+    utils::init_cpacr_el1(); // Enable floating point numbers.
 
     awkernel_lib::delay::wait_millisec(10);
 
@@ -65,7 +73,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         wait_forever();
     }
 
-    match awkernel_aarch64::get_current_el() {
+    match utils::get_current_el() {
         0 => unsafe_puts("EL0\r\n"),
         1 => unsafe_puts("EL1\r\n"),
         2 => unsafe_puts("EL2\r\n"),
@@ -157,7 +165,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         backup_size >> 20
     );
 
-    if awkernel_aarch64::spsel::get() & 1 == 0 {
+    if spsel::get() & 1 == 0 {
         log::info!("Use SP_EL0.");
     } else {
         log::info!("Use SP_ELx.");

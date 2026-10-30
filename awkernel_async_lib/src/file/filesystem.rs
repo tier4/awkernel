@@ -1,6 +1,6 @@
 //! The async filesystem trait definitions needed to implement new async virtual filesystems
 use super::path::AsyncVfsPath;
-use crate::time::Time;
+use crate::time::Instant;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
 use awkernel_lib::file::{
@@ -138,15 +138,15 @@ pub trait AsyncFileSystem: Sync + Send + Debug {
     async fn metadata(&self, path: &str) -> VfsResult<VfsMetadata>;
 
     /// Sets the files creation timestamp, if the implementation supports it
-    async fn set_creation_time(&self, _path: &str, _time: Time) -> VfsResult<()> {
+    async fn set_creation_time(&self, _path: &str, _time: Instant) -> VfsResult<()> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Sets the files modification timestamp, if the implementation supports it
-    async fn set_modification_time(&self, _path: &str, _time: Time) -> VfsResult<()> {
+    async fn set_modification_time(&self, _path: &str, _time: Instant) -> VfsResult<()> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Sets the files access timestamp, if the implementation supports it
-    async fn set_access_time(&self, _path: &str, _time: Time) -> VfsResult<()> {
+    async fn set_access_time(&self, _path: &str, _time: Instant) -> VfsResult<()> {
         Err(VfsError::from(VfsErrorKind::NotSupported))
     }
     /// Returns true if a file or directory at path exists, false otherwise

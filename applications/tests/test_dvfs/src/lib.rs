@@ -5,7 +5,7 @@ use awkernel_lib::{
         Result, get_curr_cpu_freq, get_max_cpu_freq, get_min_cpu_freq, set_cpu_freq,
         set_global_freq,
     },
-    time::Time,
+    time::Instant,
 };
 use core::time::Duration;
 
@@ -54,7 +54,7 @@ async fn test_dvfs() {
         }
     };
 
-    let mut now = Time::now();
+    let mut now = Instant::now();
     loop {
         let cpuid = awkernel_lib::cpu::cpu_id();
 
@@ -64,7 +64,7 @@ async fn test_dvfs() {
             return;
         }
 
-        let start = awkernel_async_lib::time::Time::now();
+        let start = awkernel_async_lib::time::Instant::now();
 
         for _ in 0..NUM_LOOP {
             core::hint::black_box(());
@@ -92,7 +92,7 @@ async fn test_dvfs() {
             return;
         }
 
-        let start = awkernel_async_lib::time::Time::now();
+        let start = awkernel_async_lib::time::Instant::now();
 
         for _ in 0..NUM_LOOP {
             core::hint::black_box(());

@@ -41,8 +41,9 @@ $ cargo binstall mdbook-mermaid
   - verified library for awkernel_async_lib
   - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_futures_macro](./awkernel_futures_macro/)
+- [awkernel_macros](./awkernel_macros/)
+  - `#[awkernel::main]` entry-point macro
 - [awkernel_drivers](./awkernel_drivers/)
-- [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
 - applications
   - [awkernel_shell](./applications/awkernel_shell/)
@@ -51,16 +52,15 @@ $ cargo binstall mdbook-mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
     awkernel_async_lib-->awkernel_futures_macro;
-    awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;
     userland-->awkernel_async_lib;
     kernel-->awkernel_lib;
     kernel-->awkernel_async_lib;
-    kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
     awkernel_drivers-->awkernel_lib;
-    kernel-->userland;
+    userland-->kernel;
+    kernel-->awkernel_macros;
 ```
 
 Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
@@ -95,7 +95,6 @@ etc
 ### x86_64
 
 ```text
-$ make kernel/asm/x86
 $ cargo doc_x86
 $ ls target/x86_64-kernel/doc/awkernel/index.html
 $ ls target/aarch64-kernel/doc/awkernel_lib/index.html
@@ -120,28 +119,29 @@ Debug build.
 $ make x86_64
 ```
 
-#### Developing for x86_64 on macOS
+#### Building x86_64 on Apple Silicon (or another non-x86_64 host)
 
-`kernel/asm/x86/mpboot.S` mixes 16/32/64-bit code and needs a real GNU assembler and linker.
-By default, Apple systems provide an alias so `gcc` points to `clang`.
-Also, modern Apple Silicon processors are aarch64.
-Therefore, we must install a GNU x86_64 ELF cross toolchain:
+The x86_64 build includes `kernel/asm/x86/mpboot.S`, an assembly file that mixes 16-, 32-, and 64-bit code. The build script assembles and links it with GNU tools, then uses `objcopy` to create a binary image. A Rust target alone does not provide these tools.
+
+On Apple Silicon, install an x86_64 ELF GNU toolchain:
 
 ```text
 $ brew install x86_64-elf-gcc x86_64-elf-binutils
 ```
 
-Then, when building your application, point to this specific cross toolchain:
+The build script automatically uses the `x86_64-elf-` tool prefix if `x86_64-elf-gcc` is available. Otherwise, it tries the host tools (`gcc`, `ld`, and `objcopy`), which may not support this build on a non-x86_64 host.
+
+To select a toolchain with a different prefix, pass that prefix as `CROSS_COMPILE`. For example, if its tools are named `my-x86_64-elf-gcc`, `my-x86_64-elf-ld`, and `my-x86_64-elf-objcopy`, run:
 
 ```text
-$ make x86_64 RELEASE=1 CROSS_COMPILE=x86_64-elf-
+$ make x86_64 RELEASE=1 CROSS_COMPILE=my-x86_64-elf-
 ```
 
 > [!IMPORTANT]
 >
-> Do not remove the trailing `-`
-
-This way, Awkernel will use the `x86_64-elf-gcc` compiler and the `x86_64-elf-ld` linker.
+> `CROSS_COMPILE` is a prefix, not a path to the compiler. Keep the trailing `-` so the build can append `gcc`, `ld`, and `objcopy` to it.
+>
+> For example, `CROSS_COMPILE=x86_64-elf-` selects `x86_64-elf-gcc`, `x86_64-elf-ld`, and `x86_64-elf-objcopy`.
 
 ### Boot
 

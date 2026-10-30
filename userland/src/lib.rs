@@ -1,10 +1,11 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+extern crate awkernel;
 
 use alloc::borrow::Cow;
 
-pub async fn main() -> Result<(), Cow<'static, str>> {
+pub async fn run() -> Result<(), Cow<'static, str>> {
     awkernel_services::run().await;
 
     #[cfg(feature = "autoware")]

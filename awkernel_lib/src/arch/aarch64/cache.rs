@@ -1,6 +1,6 @@
 //! Data cache maintenance by virtual address.
 
-use crate::{ctr_el0, dsb_sy};
+use super::utils::{ctr_el0, dsb_sy};
 use core::arch::asm;
 
 /// Smallest D-cache line size, in bytes, as reported by `CTR_EL0.DminLine`.
