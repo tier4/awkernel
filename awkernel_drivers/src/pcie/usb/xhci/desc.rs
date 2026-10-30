@@ -10,6 +10,10 @@
 const DT_CONFIGURATION: u8 = 2;
 const DT_INTERFACE: u8 = 4;
 const DT_ENDPOINT: u8 = 5;
+/// CDC class-specific interface descriptor (CDC 1.2 §5.2.3).
+const DT_CS_INTERFACE: u8 = 0x24;
+/// CDC functional descriptor subtype: Union (CDC 1.2 §5.2.3.2).
+const CDC_SUBTYPE_UNION: u8 = 0x06;
 
 /// bmAttributes transfer type: Bulk.
 const EP_TYPE_BULK: u8 = 2;
@@ -22,6 +26,10 @@ const EP_NUMBER_MASK: u8 = 0x0f;
 #[derive(Clone, Copy)]
 pub struct Interface {
     pub number: u8,
+    pub alternate: u8,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
 }
 
 /// Endpoint Descriptor fields used by the drivers.
@@ -50,6 +58,12 @@ pub fn endpoint_number(address: u8) -> u8 {
 pub enum Descriptor {
     Interface(Interface),
     Endpoint(Endpoint),
+    /// CDC Union functional descriptor: the controlling interface and its
+    /// first subordinate interface.
+    CdcUnion {
+        control: u8,
+        subordinate: u8,
+    },
     Other,
 }
 
@@ -74,8 +88,14 @@ impl<'a> Iterator for Descriptors<'a> {
         self.rest = rest;
 
         Some(match *desc {
-            [_, DT_INTERFACE, number, _, _, _, _, _, _, ..] => {
-                Descriptor::Interface(Interface { number })
+            [_, DT_INTERFACE, number, alternate, _, class, subclass, protocol, _, ..] => {
+                Descriptor::Interface(Interface {
+                    number,
+                    alternate,
+                    class,
+                    subclass,
+                    protocol,
+                })
             }
             [_, DT_ENDPOINT, address, attributes, lo, hi, _, ..] => {
                 Descriptor::Endpoint(Endpoint {
@@ -83,6 +103,12 @@ impl<'a> Iterator for Descriptors<'a> {
                     attributes,
                     max_packet: u16::from_le_bytes([lo, hi]),
                 })
+            }
+            [_, DT_CS_INTERFACE, CDC_SUBTYPE_UNION, control, subordinate, ..] => {
+                Descriptor::CdcUnion {
+                    control,
+                    subordinate,
+                }
             }
             _ => Descriptor::Other,
         })

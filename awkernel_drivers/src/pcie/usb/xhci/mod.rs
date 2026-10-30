@@ -1,5 +1,5 @@
 //! xHCI host controller driver: boot-time USB enumeration and a TX-only USB
-//! serial console mirror (PL2303).
+//! serial console mirror (PL2303 / CDC-ACM).
 //!
 //! The driver is fully polled (USBCMD.INTE = 0).
 //!
@@ -26,6 +26,7 @@ use super::super::{
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
+mod cdc_acm;
 mod desc;
 mod pl2303;
 mod regs;
@@ -79,6 +80,12 @@ const SPEED_SUPER: u32 = 4;
 const SPEED_SUPER_PLUS: u32 = 5;
 const PORTSC_SPEED_SHIFT: u32 = 10;
 
+/// bDeviceClass values under which a CDC-ACM function may appear: class
+/// defined per interface, CDC, and Miscellaneous (composite devices with an
+/// Interface Association Descriptor).
+const USB_CLASS_PER_INTERFACE: u8 = 0x00;
+const USB_CLASS_CDC: u8 = 0x02;
+const USB_CLASS_MISC: u8 = 0xEF;
 /// Console line settings: 115200 baud, 1 stop bit, no parity, 8 data bits.
 const CONSOLE_BAUD: u32 = 115_200;
 
@@ -230,6 +237,7 @@ struct DeviceDescriptor {
 #[derive(Clone, Copy, Debug)]
 enum SerialKind {
     Pl2303,
+    CdcAcm,
 }
 
 /// A configured USB serial adapter (TX only).
@@ -809,7 +817,7 @@ impl Controller {
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Scan all ports and keep the first PL2303 adapter found.
+    /// Scan all ports and keep the first PL2303 / CDC-ACM adapter found.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
         // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
         // PR=1 on an unpowered port is silently ignored.
@@ -1213,10 +1221,21 @@ impl Controller {
     // -------------------------------------------------------------------------
 
     /// Configure `dev` as a console if it is a supported serial adapter.
-    /// Returns `Ok(false)` for other devices (no transfers are issued to them:
-    /// failed class probes leave stale events that corrupt later enumeration).
+    /// Returns `Ok(false)` for other devices.  At most the standard
+    /// GET_DESCRIPTOR(Configuration) is issued to them, to look for a CDC-ACM
+    /// function; no class requests are (failed class probes leave stale events
+    /// that corrupt later enumeration).
     fn setup_serial(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
-        if !pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+        if pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+            self.setup_pl2303(dev)?;
+        } else if matches!(
+            dev.desc.class,
+            USB_CLASS_PER_INTERFACE | USB_CLASS_CDC | USB_CLASS_MISC
+        ) {
+            if !self.setup_cdcacm(dev)? {
+                return Ok(false);
+            }
+        } else {
             log::info!(
                 "xHCI: {}: {:04x}:{:04x} is not a serial adapter, skipping",
                 self.name,
@@ -1225,7 +1244,6 @@ impl Controller {
             );
             return Ok(false);
         }
-        self.setup_pl2303(dev)?;
         Ok(true)
     }
 
@@ -1367,26 +1385,77 @@ impl Controller {
         self.core.control(dev, pl2303_write(0x0002, mode))
     }
 
+    /// CDC-ACM: find the ACM interface pair and configure 115200 8N1.
+    /// Returns `Ok(false)` when the CDC device has no ACM interface.
+    fn setup_cdcacm(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
+        let (cfg, len) = self.read_config_descriptor(dev)?;
+        let Some(info) = cfg.get(..len).and_then(cdc_acm::find_cdcacm_endpoints) else {
+            log::info!(
+                "xHCI: {}: slot {} — no CDC-ACM interface",
+                self.name,
+                dev.slot
+            );
+            return Ok(false);
+        };
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM cfg={} ctrl_if={} IN={:#04x} OUT={:#04x} max_pkt={}",
+            self.name,
+            dev.slot,
+            info.config_val,
+            info.ctrl_if_num,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        );
+
+        self.set_configuration(dev, info.config_val)?;
+        let (in_ring, out_ring, out_dci) = self.configure_bulk_endpoints(
+            dev,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?;
+        dev.serial = Some(new_serial_port(
+            SerialKind::CdcAcm,
+            in_ring,
+            out_ring,
+            out_dci,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?);
+        // Both requests are optional for ACM (bmCapabilities); a device that
+        // refuses one still carries data, so a STALL is not fatal.
+        let line_coding = line_coding_request(dev, info.ctrl_if_num)?;
+        if !self.core.control_or_stall(dev, line_coding)? {
+            log::warn!(
+                "xHCI: {}: slot {} — CDC-ACM stalled SET_LINE_CODING",
+                self.name,
+                dev.slot
+            );
+        }
+        if !self
+            .core
+            .control_or_stall(dev, control_line_state_request(info.ctrl_if_num))?
+        {
+            log::warn!(
+                "xHCI: {}: slot {} — CDC-ACM stalled SET_CONTROL_LINE_STATE",
+                self.name,
+                dev.slot
+            );
+        }
+
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM ready (115200 8N1 DTR+RTS)",
+            self.name,
+            dev.slot
+        );
+        Ok(true)
+    }
+
     /// CDC SET_LINE_CODING: 115200 baud, 1 stop bit, no parity, 8 data bits.
     fn set_line_coding(&mut self, dev: &mut UsbDevice, interface: u8) -> Result<(), XhciErr> {
-        let [b0, b1, b2, b3] = CONSOLE_BAUD.to_le_bytes();
-        // dwDTERate, bCharFormat (0 = 1 stop bit), bParityType (0 = none), bDataBits.
-        let coding = [b0, b1, b2, b3, 0, 0, 8];
-        dev.ctrl_buf
-            .as_mut()
-            .get_mut(..coding.len())
-            .ok_or(XhciErr::Overflow)?
-            .copy_from_slice(&coding);
-        self.core.control(
-            dev,
-            SetupPacket {
-                request_type: RT_CLASS_IF_OUT,
-                request: REQ_CDC_SET_LINE_CODING,
-                value: 0,
-                index: u16::from(interface),
-                length: 7,
-            },
-        )
+        let setup = line_coding_request(dev, interface)?;
+        self.core.control(dev, setup)
     }
 
     /// CDC SET_CONTROL_LINE_STATE: assert DTR (bit 0) and RTS (bit 1).
@@ -1395,16 +1464,8 @@ impl Controller {
         dev: &mut UsbDevice,
         interface: u8,
     ) -> Result<(), XhciErr> {
-        self.core.control(
-            dev,
-            SetupPacket {
-                request_type: RT_CLASS_IF_OUT,
-                request: REQ_CDC_SET_CONTROL_LINE_STATE,
-                value: 0b11,
-                index: u16::from(interface),
-                length: 0,
-            },
-        )
+        self.core
+            .control(dev, control_line_state_request(interface))
     }
 
     // -------------------------------------------------------------------------
@@ -1588,6 +1649,37 @@ fn new_serial_port(
     })
 }
 
+/// CDC SET_LINE_CODING (115200 8N1) to `interface`; the 7-byte line coding is
+/// written into `dev.ctrl_buf` for the data stage.
+fn line_coding_request(dev: &mut UsbDevice, interface: u8) -> Result<SetupPacket, XhciErr> {
+    let [b0, b1, b2, b3] = CONSOLE_BAUD.to_le_bytes();
+    // dwDTERate, bCharFormat (0 = 1 stop bit), bParityType (0 = none), bDataBits.
+    let coding = [b0, b1, b2, b3, 0, 0, 8];
+    dev.ctrl_buf
+        .as_mut()
+        .get_mut(..coding.len())
+        .ok_or(XhciErr::Overflow)?
+        .copy_from_slice(&coding);
+    Ok(SetupPacket {
+        request_type: RT_CLASS_IF_OUT,
+        request: REQ_CDC_SET_LINE_CODING,
+        value: 0,
+        index: u16::from(interface),
+        length: 7,
+    })
+}
+
+/// CDC SET_CONTROL_LINE_STATE to `interface`: assert DTR (bit 0) and RTS (bit 1).
+fn control_line_state_request(interface: u8) -> SetupPacket {
+    SetupPacket {
+        request_type: RT_CLASS_IF_OUT,
+        request: REQ_CDC_SET_CONTROL_LINE_STATE,
+        value: 0b11,
+        index: u16::from(interface),
+        length: 0,
+    }
+}
+
 /// PL2303 vendor IN request (bRequest = 0x01, wLength = 1).
 fn pl2303_read(value: u16, index: u16) -> SetupPacket {
     SetupPacket {
@@ -1740,5 +1832,6 @@ pub(super) fn attach(
 fn kind_name(kind: SerialKind) -> &'static str {
     match kind {
         SerialKind::Pl2303 => "PL2303",
+        SerialKind::CdcAcm => "CDC-ACM",
     }
 }
