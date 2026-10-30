@@ -63,6 +63,7 @@ pub const TRB_TYPE_MASK: u32 = 0x3f << TRB_TYPE_SHIFT;
 pub mod trb_type {
     use super::TRB_TYPE_SHIFT;
 
+    pub const NORMAL: u32 = 1 << TRB_TYPE_SHIFT;
     pub const SETUP_STAGE: u32 = 2 << TRB_TYPE_SHIFT;
     pub const DATA_STAGE: u32 = 3 << TRB_TYPE_SHIFT;
     pub const STATUS_STAGE: u32 = 4 << TRB_TYPE_SHIFT;
@@ -70,6 +71,10 @@ pub mod trb_type {
     pub const ENABLE_SLOT: u32 = 9 << TRB_TYPE_SHIFT;
     pub const DISABLE_SLOT: u32 = 10 << TRB_TYPE_SHIFT;
     pub const ADDRESS_DEVICE: u32 = 11 << TRB_TYPE_SHIFT;
+    pub const CONFIGURE_EP: u32 = 12 << TRB_TYPE_SHIFT;
+    pub const RESET_EP: u32 = 14 << TRB_TYPE_SHIFT;
+    pub const STOP_EP: u32 = 15 << TRB_TYPE_SHIFT;
+    pub const SET_TR_DEQUEUE_POINTER: u32 = 16 << TRB_TYPE_SHIFT;
     pub const NOOP_CMD: u32 = 23 << TRB_TYPE_SHIFT;
     pub const TRANSFER_EVENT: u32 = 32 << TRB_TYPE_SHIFT;
     pub const CMD_COMPLETION: u32 = 33 << TRB_TYPE_SHIFT;
@@ -98,7 +103,9 @@ pub mod trb_flag {
 /// Completion codes reported in event TRBs (status[31:24]). xHCI spec §6.4.5.
 pub mod completion {
     pub const SUCCESS: u8 = 1;
+    pub const STALL_ERROR: u8 = 6;
     pub const SHORT_PACKET: u8 = 13;
+    pub const CONTEXT_STATE_ERROR: u8 = 19;
 }
 
 /// Port Status and Control Register offsets — relative to op_base. xHCI spec §5.4.8.
