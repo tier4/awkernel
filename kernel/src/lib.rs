@@ -68,7 +68,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
-        // Initialize interrupts.
+        init_cpu_execution_speed(kernel_info.cpu_id);
+
         #[cfg(not(feature = "std"))]
         init_interrupt();
 
@@ -144,6 +145,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         awkernel_lib::delay::wait_microsec(10);
     }
 
+    init_cpu_execution_speed(kernel_info.cpu_id);
+
     #[cfg(not(feature = "std"))]
     {
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
@@ -182,4 +185,14 @@ fn init_interrupt() {
     // IRQ for wakeup CPUs.
     awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
     awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
+}
+
+/// Fix initial CPU execution speed as per the active features, such as DVFS
+#[cfg_attr(not(feature = "dvfs"), allow(unused))]
+fn init_cpu_execution_speed(cpu_id: usize) {
+    #[cfg(feature = "dvfs")]
+    match unsafe { awkernel_lib::dvfs::cpu_init() } {
+        Ok(_) => log::info!("CPU#{cpu_id} Successfully initialized DVFS"),
+        Err(e) => log::warn!("CPU#{cpu_id} Failed to initialize DVFS: {e:?}"),
+    }
 }

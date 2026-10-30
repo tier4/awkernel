@@ -4,9 +4,11 @@ use ::acpi::AcpiTables;
 pub mod acpi;
 pub mod barrier;
 pub mod cpu;
+pub mod cpuid;
 pub mod delay;
-pub(super) mod dvfs;
+pub mod dvfs;
 pub mod fault;
+pub mod hwp;
 pub(super) mod interrupt;
 pub mod interrupt_remap;
 pub mod kvm;
@@ -15,6 +17,7 @@ pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
 pub mod power;
+pub mod power_profile;
 
 pub struct X86;
 
