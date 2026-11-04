@@ -1,7 +1,3 @@
-#![no_std]
-
-pub mod cache;
-
 use core::arch::asm;
 
 pub const ECTLR_SMP_BIT: u64 = 1 << 6;

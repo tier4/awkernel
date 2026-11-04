@@ -1,5 +1,6 @@
 pub mod armv8_timer;
 pub mod barrier;
+pub mod cache;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod dvfs;
@@ -9,6 +10,7 @@ pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
 pub(super) mod power;
+pub mod utils;
 
 pub use cpu::*;
 

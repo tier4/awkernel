@@ -1,14 +1,22 @@
-//! xHCI host controller driver: boot-time USB enumeration.
+//! xHCI host controller driver: boot-time USB enumeration and a TX-only USB
+//! serial console mirror (PL2303).
 //!
 //! The driver is fully polled (USBCMD.INTE = 0).
 //!
 //! Path classification:
 //! - Non-RT: [`attach`] and everything it calls (controller reset, port reset,
-//!   enumeration).  Runs once at boot; allocates DMA pages and busy-waits with
-//!   bounded polling budgets.
+//!   enumeration, device setup).  Runs once at boot; allocates DMA pages and
+//!   busy-waits with bounded polling budgets.
+//! - RT-adjacent: [`xhci_usb_serial_puts`] — called by the kernel console for
+//!   every log line on any CPU.  See its WCET contract.
 
 use alloc::{borrow::Cow, format, string::String, sync::Arc, vec::Vec};
-use core::{cell::UnsafeCell, mem::ManuallyDrop, ptr::read_volatile};
+use core::{
+    cell::UnsafeCell,
+    mem::ManuallyDrop,
+    ptr::{self, read_volatile},
+    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
+};
 
 use awkernel_lib::{addr::Addr, dma_pool::DMAPool};
 
@@ -18,6 +26,8 @@ use super::super::{
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
+mod desc;
+mod pl2303;
 mod regs;
 mod ring;
 
@@ -49,11 +59,18 @@ type Page = [u8; PAGE_SIZE];
 /// Scratchpad pointer array: one 8-byte entry per page, in one DMA page.
 const MAX_SCRATCHPAD: usize = PAGE_SIZE / 8;
 
+/// Size of the pre-allocated console TX buffer (max bulk packet for HS).
+const TX_BUF_SIZE: usize = 512;
+
 /// Device Context Index of the default control endpoint (EP0).
 const EP0_DCI: u8 = 1;
 
 /// Endpoint Context DW1: CErr = 3, EP Type = Control (4).
 const EP_CTX_CONTROL: u8 = (3 << 1) | (4 << 3);
+/// Endpoint Context DW1: CErr = 3, EP Type = Bulk OUT (2).
+const EP_CTX_BULK_OUT: u8 = (3 << 1) | (2 << 3);
+/// Endpoint Context DW1: CErr = 3, EP Type = Bulk IN (6).
+const EP_CTX_BULK_IN: u8 = (3 << 1) | (6 << 3);
 
 /// PORTSC speed values (xHCI spec §7.2.2.1.1 default PSI).
 const SPEED_LOW: u32 = 2;
@@ -61,6 +78,9 @@ const SPEED_HIGH: u32 = 3;
 const SPEED_SUPER: u32 = 4;
 const SPEED_SUPER_PLUS: u32 = 5;
 const PORTSC_SPEED_SHIFT: u32 = 10;
+
+/// Console line settings: 115200 baud, 1 stop bit, no parity, 8 data bits.
+const CONSOLE_BAUD: u32 = 115_200;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -77,8 +97,11 @@ pub(super) enum XhciErr {
     /// A command or transfer completed with this (non-success) completion code.
     Completion(u8),
     RingFull,
+    NotConfigured,
+    InvalidDescriptor,
     InvalidPort,
     InvalidSlot,
+    InvalidEndpoint,
 }
 
 impl From<XhciErr> for PCIeDeviceErr {
@@ -167,11 +190,28 @@ impl SetupPacket {
 }
 
 const RT_DEV_IN: u8 = 0x80; // D→H, Standard, Device
+const RT_DEV_OUT: u8 = 0x00; // H→D, Standard, Device
+const RT_EP_OUT: u8 = 0x02; // H→D, Standard, Endpoint
+const RT_CLASS_IF_OUT: u8 = 0x21; // H→D, Class, Interface
+const RT_VENDOR_IN: u8 = 0xC0; // D→H, Vendor, Device
+const RT_VENDOR_OUT: u8 = 0x40; // H→D, Vendor, Device
 
+const REQ_CLEAR_FEATURE: u8 = 1;
 const REQ_GET_DESCRIPTOR: u8 = 6;
+const REQ_SET_CONFIGURATION: u8 = 9;
+const REQ_CDC_SET_LINE_CODING: u8 = 0x20;
+const REQ_CDC_SET_CONTROL_LINE_STATE: u8 = 0x22;
+const REQ_PL2303_VENDOR: u8 = 0x01;
+const REQ_PL2303HXN_VENDOR: u8 = 0x80;
 
 const DESC_DEVICE: u16 = 0x0100;
+const DESC_CONFIGURATION: u16 = 0x0200;
+/// Standard feature selector ENDPOINT_HALT (USB 2.0 Table 9-6).
+const FEATURE_ENDPOINT_HALT: u16 = 0;
 const DEVICE_DESC_LEN: u16 = 18;
+const CONFIG_DESC_HEADER_LEN: u16 = 9;
+/// Largest configuration descriptor we fetch (fits the 255-byte parse buffer).
+const CONFIG_DESC_MAX: u16 = 255;
 
 // ---------------------------------------------------------------------------
 // Device state
@@ -183,6 +223,27 @@ struct DeviceDescriptor {
     vendor: u16,
     product: u16,
     bcd_device: u16,
+    class: u8,
+    max_packet0: u8,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SerialKind {
+    Pl2303,
+}
+
+/// A configured USB serial adapter (TX only).
+struct SerialPort {
+    kind: SerialKind,
+    out_ring: TransferRing,
+    /// Configured in the device context; kept alive because the controller owns it.
+    _in_ring: TransferRing,
+    out_dci: u8,
+    /// bEndpointAddress of the bulk OUT endpoint (wIndex of ClearFeature).
+    out_ep_addr: u8,
+    /// Bytes per bulk OUT packet, in 1..=TX_BUF_SIZE.
+    max_pkt: usize,
+    tx_buf: DMAPool<[u8; TX_BUF_SIZE]>,
 }
 
 /// One addressed USB device.
@@ -202,6 +263,7 @@ struct UsbDevice {
     /// Data-stage buffer shared by all control transfers of this device.
     ctrl_buf: DMAPool<Page>,
     desc: DeviceDescriptor,
+    serial: Option<SerialPort>,
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +278,12 @@ struct HcCore {
     evt_ring: EventRing,
     /// Set if Command Abort fails (`CRCR.CRR` stays 1); refuses further commands.
     cmd_ring_broken: bool,
+    /// Completions discarded as stale by `command` / `wait_transfer`, and
+    /// commands that timed out, since the last `take_diag`.  `HcCore` never logs:
+    /// it also runs inside the console's USB mirror, where a nested log call
+    /// would re-acquire the console mutex the caller already holds.
+    stale_events: u32,
+    timed_out_commands: u32,
 }
 
 impl HcCore {
@@ -248,6 +316,15 @@ impl HcCore {
             core::hint::spin_loop();
         }
         Err(XhciErr::Timeout)
+    }
+
+    /// Return and reset (stale events, timed-out commands) for logging by a
+    /// caller that does not hold the console mutex.
+    fn take_diag(&mut self) -> (u32, u32) {
+        let diag = (self.stale_events, self.timed_out_commands);
+        self.stale_events = 0;
+        self.timed_out_commands = 0;
+        diag
     }
 
     /// Consume and discard every pending event (at most one ring's worth).
@@ -293,7 +370,6 @@ impl HcCore {
         }
         if !stopped {
             self.cmd_ring_broken = true;
-            log::error!("xHCI: command ring did not stop after Command Abort (CRR=1)");
             return Err(XhciErr::Timeout);
         }
 
@@ -322,28 +398,24 @@ impl HcCore {
         }
         let cmd_phys = self.cmd_ring.enqueue(trb)?;
         self.ring_doorbell(0, 0)?;
-        let event = match self.wait_event(|ev| {
+        let mut stale: u32 = 0;
+        let result = self.wait_event(|ev| {
             if ev.trb_type() != trb_type::CMD_COMPLETION {
                 return false;
             }
             if ev.param != cmd_phys {
-                log::warn!(
-                    "xHCI: discarded stale completion for command TRB {:#x} \
-                     (code {}, slot {}) while waiting for {cmd_phys:#x}",
-                    ev.param,
-                    ev.completion_code(),
-                    ev.slot_id()
-                );
+                stale = stale.saturating_add(1);
                 return false;
             }
             true
-        }) {
+        });
+        self.stale_events = self.stale_events.saturating_add(stale);
+        let event = match result {
             Ok(ev) => ev,
             Err(XhciErr::Timeout) => {
-                log::warn!("xHCI: command TRB {cmd_phys:#x} timed out; aborting command ring");
-                if let Err(e) = self.abort_command_ring() {
+                self.timed_out_commands = self.timed_out_commands.saturating_add(1);
+                if self.abort_command_ring().is_err() {
                     self.cmd_ring_broken = true;
-                    log::error!("xHCI: command ring abort failed: {e:?}");
                 }
                 return Err(XhciErr::Timeout);
             }
@@ -370,7 +442,8 @@ impl HcCore {
         status_phys: u64,
     ) -> Result<(), XhciErr> {
         for _ in 0..MAX_CTRL_EVENTS {
-            let event = self.wait_event(|ev| {
+            let mut stale: u32 = 0;
+            let result = self.wait_event(|ev| {
                 if ev.trb_type() != trb_type::TRANSFER_EVENT {
                     return false;
                 }
@@ -378,18 +451,13 @@ impl HcCore {
                     || ev.param == setup_phys
                     || data_phys == Some(ev.param);
                 if ev.slot_id() != slot || ev.endpoint_id() != dci || !in_td {
-                    log::warn!(
-                        "xHCI: discarded stale transfer event (slot {}, ep {}, trb {:#x}, code {}) \
-                         while waiting for slot {slot} ep {dci}",
-                        ev.slot_id(),
-                        ev.endpoint_id(),
-                        ev.param,
-                        ev.completion_code()
-                    );
+                    stale = stale.saturating_add(1);
                     return false;
                 }
                 true
-            })?;
+            });
+            self.stale_events = self.stale_events.saturating_add(stale);
+            let event = result?;
             let code = event.completion_code();
             if event.param == status_phys {
                 return match code {
@@ -448,6 +516,46 @@ impl HcCore {
         self.ring_doorbell(dev.slot, EP0_DCI)?;
         self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
     }
+
+    /// Recover EP0 from HALTED state after a control-transfer STALL.
+    ///
+    /// 1. RESET_EP — moves EP0 from Halted → Stopped.
+    /// 2. SET_TR_DEQUEUE_POINTER — re-aligns the controller's dequeue pointer
+    ///    with the software enqueue position (xHCI spec §4.6.8).
+    fn reset_ep0_after_stall(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        match self.command(Trb {
+            param: 0,
+            status: 0,
+            ctrl: trb_type::RESET_EP | ctrl_slot_ep(dev.slot, EP0_DCI),
+        }) {
+            // Not halted after all: SET_TR_DEQUEUE_POINTER still resyncs the ring.
+            Ok(_) | Err(XhciErr::Completion(_)) => {}
+            Err(e) => return Err(e),
+        }
+        self.command(Trb {
+            param: dev.ep0.enqueue_pointer()?,
+            status: 0,
+            ctrl: trb_type::SET_TR_DEQUEUE_POINTER | ctrl_slot_ep(dev.slot, EP0_DCI),
+        })?;
+        Ok(())
+    }
+
+    /// Like [`HcCore::control`], but a STALL is treated as a refused request:
+    /// EP0 is recovered and `Ok(false)` is returned.
+    fn control_or_stall(
+        &mut self,
+        dev: &mut UsbDevice,
+        setup: SetupPacket,
+    ) -> Result<bool, XhciErr> {
+        match self.control(dev, setup) {
+            Ok(()) => Ok(true),
+            Err(XhciErr::Completion(completion::STALL_ERROR)) => {
+                self.reset_ep0_after_stall(dev)?;
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +573,8 @@ struct Controller {
     max_scratchpad: usize,
     /// Scratchpad pointer array and pages; owned by the controller for its lifetime.
     _scratchpad: Vec<DMAPool<Page>>,
+    /// The serial adapter found at boot, if any.
+    serial_dev: Option<ManuallyDrop<UsbDevice>>,
 }
 
 impl Controller {
@@ -506,6 +616,8 @@ impl Controller {
             cmd_ring: CommandRing::new(NUMA_NODE)?,
             evt_ring: EventRing::new(NUMA_NODE)?,
             cmd_ring_broken: false,
+            stale_events: 0,
+            timed_out_commands: 0,
         };
 
         Ok(Self {
@@ -517,6 +629,7 @@ impl Controller {
             ctx_size,
             max_scratchpad,
             _scratchpad: Vec::new(),
+            serial_dev: None,
         })
     }
 
@@ -696,7 +809,7 @@ impl Controller {
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Scan all ports and enumerate every connected device.
+    /// Scan all ports and keep the first PL2303 adapter found.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
         // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
         // PR=1 on an unpowered port is silently ignored.
@@ -744,21 +857,69 @@ impl Controller {
 
         for port in connected {
             log::info!("xHCI: {}: device detected on port {port}", self.name);
-            if let Err(e) = self.enumerate_port(port) {
-                log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
-                if self.core.cmd_ring_broken {
-                    log::error!(
-                        "xHCI: {}: command ring is unresponsive; aborting enumeration",
+            let enumerated = self.enumerate_port(port);
+            self.log_core_diag(port);
+            let mut dev = match enumerated {
+                Ok(dev) => dev,
+                Err(e) => {
+                    log::error!("xHCI: {}: port {port} enumeration failed: {e:?}", self.name);
+                    if self.core.cmd_ring_broken {
+                        log::error!(
+                            "xHCI: {}: command ring is unresponsive; aborting enumeration",
+                            self.name
+                        );
+                        return Err(e);
+                    }
+                    // Stale transfer events would corrupt the next port's enumeration.
+                    self.core.drain_events()?;
+                    continue;
+                }
+            };
+
+            let serial = self.setup_serial(&mut dev);
+            self.log_core_diag(port);
+            match serial {
+                Ok(true) => {
+                    self.serial_dev = Some(dev);
+                    return Ok(());
+                }
+                // Not a serial adapter: `dev` stays addressed and is leaked
+                // (see `UsbDevice`).
+                Ok(false) => {}
+                Err(e) => {
+                    log::warn!(
+                        "xHCI: {}: port {port} serial setup failed: {e:?}",
                         self.name
                     );
-                    return Err(e);
+                    if self.core.cmd_ring_broken {
+                        return Err(e);
+                    }
+                    // Half-configured device: disable its slot (frees the DMA
+                    // pages only if DISABLE_SLOT succeeds).
+                    self.cleanup_failed_slot(dev);
                 }
             }
-            // The device is leaked (see `UsbDevice`).  Stale transfer events
-            // would corrupt the next port's enumeration.
             self.core.drain_events()?;
         }
         Ok(())
+    }
+
+    /// Log what `HcCore` counted instead of logging (see `HcCore::stale_events`).
+    /// Boot-time enumeration only: it runs outside the console path.
+    fn log_core_diag(&mut self, port: u8) {
+        let (stale, timed_out) = self.core.take_diag();
+        if stale > 0 {
+            log::warn!(
+                "xHCI: {}: port {port}: discarded {stale} stale completion event(s)",
+                self.name
+            );
+        }
+        if timed_out > 0 {
+            log::warn!(
+                "xHCI: {}: port {port}: {timed_out} command(s) timed out; command ring aborted",
+                self.name
+            );
+        }
     }
 
     /// Reset `port`, enable a slot, address the device and read its Device Descriptor.
@@ -789,6 +950,7 @@ impl Controller {
             _ctx: ctx,
             ctrl_buf: new_page()?,
             desc: DeviceDescriptor::default(),
+            serial: None,
         });
 
         if let Err(e) = self.address_and_read_descriptor(&mut dev) {
@@ -885,12 +1047,14 @@ impl Controller {
                 length: DEVICE_DESC_LEN,
             },
         )?;
-        let [_, _, usb_lo, usb_hi, class, sub, proto, _, v_lo, v_hi, p_lo, p_hi, d_lo, d_hi, ..] =
+        let [_, _, usb_lo, usb_hi, class, sub, proto, mp0, v_lo, v_hi, p_lo, p_hi, d_lo, d_hi, ..] =
             read_ctrl_buf::<18>(dev)?;
         dev.desc = DeviceDescriptor {
             vendor: u16::from_le_bytes([v_lo, v_hi]),
             product: u16::from_le_bytes([p_lo, p_hi]),
             bcd_device: u16::from_le_bytes([d_lo, d_hi]),
+            class,
+            max_packet0: mp0,
         };
         log::info!(
             "xHCI: {}: slot {} — USB {:x}.{:02x} VID={:#06x} PID={:#06x} \
@@ -903,6 +1067,462 @@ impl Controller {
             dev.desc.product,
             dev.desc.bcd_device,
         );
+        Ok(())
+    }
+
+    /// GET_DESCRIPTOR(Configuration): returns the descriptor bytes and their length.
+    fn read_config_descriptor(
+        &mut self,
+        dev: &mut UsbDevice,
+    ) -> Result<([u8; 255], usize), XhciErr> {
+        let mut setup = SetupPacket {
+            request_type: RT_DEV_IN,
+            request: REQ_GET_DESCRIPTOR,
+            value: DESC_CONFIGURATION,
+            index: 0,
+            length: CONFIG_DESC_HEADER_LEN,
+        };
+        // First pass: 9 bytes to learn wTotalLength.
+        self.core.control(dev, setup)?;
+        let [_, _, total_lo, total_hi, ..] = read_ctrl_buf::<9>(dev)?;
+        let total = u16::from_le_bytes([total_lo, total_hi]);
+        let fetch = total.min(CONFIG_DESC_MAX);
+        log::info!(
+            "xHCI: {}: configuration descriptor wTotalLength={total} fetch={fetch}",
+            self.name
+        );
+        if fetch < CONFIG_DESC_HEADER_LEN {
+            return Err(XhciErr::InvalidDescriptor);
+        }
+
+        // Second pass: full descriptor.
+        setup.length = fetch;
+        self.core.control(dev, setup)?;
+        let page = read_ctrl_buf::<255>(dev)?;
+        Ok((page, usize::from(fetch)))
+    }
+
+    fn set_configuration(&mut self, dev: &mut UsbDevice, config_val: u8) -> Result<(), XhciErr> {
+        self.core.control(
+            dev,
+            SetupPacket {
+                request_type: RT_DEV_OUT,
+                request: REQ_SET_CONFIGURATION,
+                value: u16::from(config_val),
+                index: 0,
+                length: 0,
+            },
+        )
+    }
+
+    /// CONFIGURE_EP: add a bulk IN/OUT endpoint pair and return their rings.
+    fn configure_bulk_endpoints(
+        &mut self,
+        dev: &UsbDevice,
+        bulk_in_addr: u8,
+        bulk_out_addr: u8,
+        max_pkt: u16,
+    ) -> Result<(TransferRing, TransferRing, u8), XhciErr> {
+        let in_num = desc::endpoint_number(bulk_in_addr);
+        let out_num = desc::endpoint_number(bulk_out_addr);
+        if in_num == 0 || out_num == 0 {
+            return Err(XhciErr::InvalidEndpoint);
+        }
+        // xHCI DCI: OUT = ep_num * 2, IN = ep_num * 2 + 1.
+        let out_dci = out_num.checked_mul(2).ok_or(XhciErr::Overflow)?;
+        let in_dci = in_num
+            .checked_mul(2)
+            .and_then(|d| d.checked_add(1))
+            .ok_or(XhciErr::Overflow)?;
+        let max_dci = in_dci.max(out_dci);
+
+        let in_ring = TransferRing::new(NUMA_NODE)?;
+        let out_ring = TransferRing::new(NUMA_NODE)?;
+        let ctx = self.ctx_size;
+
+        let mut input = ManuallyDrop::new(new_page()?);
+        {
+            let page = input.as_mut();
+            // Input Control Context: add Slot (A0) + both endpoints.
+            let add = 1u32
+                | 1u32
+                    .checked_shl(u32::from(in_dci))
+                    .ok_or(XhciErr::Overflow)?
+                | 1u32
+                    .checked_shl(u32::from(out_dci))
+                    .ok_or(XhciErr::Overflow)?;
+            ctx_write32(page, 4, add)?;
+            // Slot Context: Context Entries = max_dci.
+            let speed = u8::try_from(dev.speed).map_err(|_| XhciErr::Overflow)?;
+            let entries = max_dci.checked_shl(3).ok_or(XhciErr::Overflow)?;
+            ctx_write32(page, ctx, u32::from_le_bytes([0, 0, speed << 4, entries]))?;
+            ctx_write32(
+                page,
+                ctx.checked_add(4).ok_or(XhciErr::Overflow)?,
+                u32::from_le_bytes([0, 0, dev.port, 0]),
+            )?;
+
+            let ep_off = |dci: u8| {
+                usize::from(dci)
+                    .checked_add(1)
+                    .and_then(|i| i.checked_mul(ctx))
+                    .ok_or(XhciErr::Overflow)
+            };
+            let avg = u32::from(max_pkt);
+            write_ep_context(
+                page,
+                ep_off(in_dci)?,
+                EP_CTX_BULK_IN,
+                max_pkt,
+                in_ring.phys_base()?,
+                avg,
+            )?;
+            write_ep_context(
+                page,
+                ep_off(out_dci)?,
+                EP_CTX_BULK_OUT,
+                max_pkt,
+                out_ring.phys_base()?,
+                avg,
+            )?;
+        }
+
+        let result = self.core.command(Trb {
+            param: phys_of(&input)?,
+            status: 0,
+            ctrl: trb_type::CONFIGURE_EP | ctrl_slot_ep(dev.slot, 0),
+        });
+        release_unless_timeout(input, &result);
+        if let Err(e) = result {
+            // The controller may reference the rings; never free them.
+            core::mem::forget(in_ring);
+            core::mem::forget(out_ring);
+            return Err(e);
+        }
+
+        log::info!(
+            "xHCI: {}: slot {} bulk EPs configured: IN_DCI={in_dci} OUT_DCI={out_dci} max_pkt={max_pkt}",
+            self.name,
+            dev.slot
+        );
+        Ok((in_ring, out_ring, out_dci))
+    }
+
+    // -------------------------------------------------------------------------
+    // Serial adapters
+    // -------------------------------------------------------------------------
+
+    /// Configure `dev` as a console if it is a supported serial adapter.
+    /// Returns `Ok(false)` for other devices (no transfers are issued to them:
+    /// failed class probes leave stale events that corrupt later enumeration).
+    fn setup_serial(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
+        if !pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+            log::info!(
+                "xHCI: {}: {:04x}:{:04x} is not a serial adapter, skipping",
+                self.name,
+                dev.desc.vendor,
+                dev.desc.product
+            );
+            return Ok(false);
+        }
+        self.setup_pl2303(dev)?;
+        Ok(true)
+    }
+
+    /// PL2303: identify the chip, run its init sequence and configure 115200 8N1.
+    fn setup_pl2303(&mut self, dev: &mut UsbDevice) -> Result<(), XhciErr> {
+        log::info!(
+            "xHCI: {}: slot {} — PL2303 VID={:#06x} PID={:#06x} bcdDevice={:#06x}",
+            self.name,
+            dev.slot,
+            dev.desc.vendor,
+            dev.desc.product,
+            dev.desc.bcd_device
+        );
+
+        let (cfg, len) = self.read_config_descriptor(dev)?;
+        let info = cfg
+            .get(..len)
+            .and_then(pl2303::find_bulk_endpoints)
+            .ok_or(XhciErr::InvalidDescriptor)?;
+
+        let mut chip =
+            pl2303::detect_chip_type(dev.desc.bcd_device, dev.desc.class, dev.desc.max_packet0);
+        // HX vs HXN: reading register 0x8080 STALLs on HXN.
+        if chip == pl2303::ChipType::Hx
+            && !self
+                .core
+                .control_or_stall(dev, pl2303_read(0x8080, u16::from(info.data_iface_no)))?
+        {
+            chip = pl2303::ChipType::Hxn;
+            log::info!(
+                "xHCI: {}: slot {} — PL2303HXN confirmed",
+                self.name,
+                dev.slot
+            );
+        }
+
+        log::info!(
+            "xHCI: {}: slot {} — PL2303 {chip:?} iface={} IN={:#04x} OUT={:#04x} max_pkt={}",
+            self.name,
+            dev.slot,
+            info.data_iface_no,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        );
+
+        self.set_configuration(dev, info.config_val)?;
+        let (in_ring, out_ring, out_dci) = self.configure_bulk_endpoints(
+            dev,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?;
+        dev.serial = Some(new_serial_port(
+            SerialKind::Pl2303,
+            in_ring,
+            out_ring,
+            out_dci,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?);
+
+        self.pl2303_init_seq(dev, chip, info.data_iface_no)?;
+        // PL2303 takes the CDC class requests on its data interface.
+        self.set_line_coding(dev, info.data_iface_no)?;
+        self.set_control_line_state(dev, info.data_iface_no)?;
+
+        log::info!(
+            "xHCI: {}: slot {} — PL2303 ready for TX (115200 8N1 DTR+RTS)",
+            self.name,
+            dev.slot
+        );
+        Ok(())
+    }
+
+    /// Chip-specific init sequence (FreeBSD uplcom.c `uplcom_pl2303_init()`).
+    ///
+    /// The pre-init and pipe-reset writes are not supported by every chip
+    /// revision; a STALL there is recovered and the sequence continues, as in
+    /// FreeBSD/Linux.  Any other failure is returned.
+    fn pl2303_init_seq(
+        &mut self,
+        dev: &mut UsbDevice,
+        chip: pl2303::ChipType,
+        data_iface_no: u8,
+    ) -> Result<(), XhciErr> {
+        use pl2303::ChipType;
+
+        if chip == ChipType::Hxn {
+            // HXN uses a different command set; one pre-init write is enough.
+            let setup = SetupPacket {
+                request_type: RT_VENDOR_OUT,
+                request: REQ_PL2303HXN_VENDOR,
+                value: 0x07,
+                index: 0x03,
+                length: 0,
+            };
+            self.core.control_or_stall(dev, setup)?;
+            return Ok(());
+        }
+
+        // HX / HXD: pipe-reset writes before the main reset.
+        if matches!(chip, ChipType::Hx | ChipType::Hxd) {
+            self.core.control_or_stall(dev, pl2303_write(8, 0))?;
+            self.core.control_or_stall(dev, pl2303_write(9, 0))?;
+        }
+        // Reset: wValue=0, wIndex=data_iface_no (uplcom_reset).
+        self.core
+            .control_or_stall(dev, pl2303_write(0x0000, u16::from(data_iface_no)))?;
+
+        // Common init sequence (uplcom_pl2303_init, steps 1-10); read values are unused.
+        const SEQ: [(bool, u16, u16); 10] = [
+            (false, 0x8484, 0),
+            (true, 0x0404, 0),
+            (false, 0x8484, 0),
+            (false, 0x8383, 0),
+            (false, 0x8484, 0),
+            (true, 0x0404, 1),
+            (false, 0x8484, 0),
+            (false, 0x8383, 0),
+            (true, 0x0000, 1),
+            (true, 0x0001, 0),
+        ];
+        for (write, value, index) in SEQ {
+            let setup = if write {
+                pl2303_write(value, index)
+            } else {
+                pl2303_read(value, index)
+            };
+            self.core.control(dev, setup)?;
+        }
+
+        // Step 11: mode byte — 0x24 for the original PL2303, 0x44 for HX/HXD.
+        let mode = if chip == ChipType::Original {
+            0x24
+        } else {
+            0x44
+        };
+        self.core.control(dev, pl2303_write(0x0002, mode))
+    }
+
+    /// CDC SET_LINE_CODING: 115200 baud, 1 stop bit, no parity, 8 data bits.
+    fn set_line_coding(&mut self, dev: &mut UsbDevice, interface: u8) -> Result<(), XhciErr> {
+        let [b0, b1, b2, b3] = CONSOLE_BAUD.to_le_bytes();
+        // dwDTERate, bCharFormat (0 = 1 stop bit), bParityType (0 = none), bDataBits.
+        let coding = [b0, b1, b2, b3, 0, 0, 8];
+        dev.ctrl_buf
+            .as_mut()
+            .get_mut(..coding.len())
+            .ok_or(XhciErr::Overflow)?
+            .copy_from_slice(&coding);
+        self.core.control(
+            dev,
+            SetupPacket {
+                request_type: RT_CLASS_IF_OUT,
+                request: REQ_CDC_SET_LINE_CODING,
+                value: 0,
+                index: u16::from(interface),
+                length: 7,
+            },
+        )
+    }
+
+    /// CDC SET_CONTROL_LINE_STATE: assert DTR (bit 0) and RTS (bit 1).
+    fn set_control_line_state(
+        &mut self,
+        dev: &mut UsbDevice,
+        interface: u8,
+    ) -> Result<(), XhciErr> {
+        self.core.control(
+            dev,
+            SetupPacket {
+                request_type: RT_CLASS_IF_OUT,
+                request: REQ_CDC_SET_CONTROL_LINE_STATE,
+                value: 0b11,
+                index: u16::from(interface),
+                length: 0,
+            },
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Console TX path (RT-adjacent, see `xhci_usb_serial_puts`)
+    // -------------------------------------------------------------------------
+
+    /// Send `data` on the serial adapter's bulk OUT endpoint, one packet per TRB.
+    ///
+    /// WCET: ceil(data.len() / max_pkt) transfers, each waiting at most
+    /// `COMPLETION_POLL_ITERS` event-ring polls.  No allocation, no logging.
+    fn serial_write(&mut self, data: &[u8]) -> Result<(), XhciErr> {
+        let dev = self.serial_dev.as_mut().ok_or(XhciErr::NotConfigured)?;
+        let slot = dev.slot;
+        let port = dev.serial.as_mut().ok_or(XhciErr::NotConfigured)?;
+        let tx_phys = phys_of(&port.tx_buf)?;
+
+        for chunk in data.chunks(port.max_pkt) {
+            port.tx_buf
+                .as_mut()
+                .get_mut(..chunk.len())
+                .ok_or(XhciErr::Overflow)?
+                .copy_from_slice(chunk);
+            let trb_phys = port.out_ring.enqueue(Trb {
+                param: tx_phys,
+                status: u32::try_from(chunk.len()).map_err(|_| XhciErr::Overflow)?,
+                ctrl: trb_type::NORMAL | trb_flag::IOC,
+            })?;
+            self.core.ring_doorbell(slot, port.out_dci)?;
+            // Stale events (e.g. a late completion after an earlier timeout) are
+            // discarded; no logging here, this runs inside the console path.
+            let out_dci = port.out_dci;
+            match self
+                .core
+                .wait_event(|ev| {
+                    ev.trb_type() == trb_type::TRANSFER_EVENT
+                        && ev.slot_id() == slot
+                        && ev.endpoint_id() == out_dci
+                        && ev.param == trb_phys
+                })?
+                .completion_code()
+            {
+                completion::SUCCESS | completion::SHORT_PACKET => {}
+                code => return Err(XhciErr::Completion(code)),
+            }
+        }
+        Ok(())
+    }
+
+    /// Recover the bulk OUT endpoint after `serial_write` failed with `cause`.
+    ///
+    /// - A Transfer Event error (`XhciErr::Completion`: STALL, USB Transaction
+    ///   Error, Babble, ...) halts the endpoint (xHCI §4.10.2), so the pipe is
+    ///   reset as in xHCI §4.6.8: RESET_EP (TSP = 0, host Data Toggle → DATA0),
+    ///   ClearFeature(ENDPOINT_HALT) to the device, then SET_TR_DEQUEUE_POINTER.
+    ///   ClearFeature clears a STALL and also reinitializes the device's toggle
+    ///   to DATA0 whether or not the Halt feature was set (USB 2.0 §9.4.5), so
+    ///   both sides stay in sync for every halting error, not only STALL.
+    /// - Otherwise (e.g. our polling timeout) the endpoint may still be Running:
+    ///   STOP_EP, then SET_TR_DEQUEUE_POINTER.  Neither touches the Data Toggle.
+    ///   If STOP_EP reports Context State Error, the endpoint halted meanwhile
+    ///   and the pipe is reset as above.
+    ///
+    /// ClearFeature is sent only after RESET_EP succeeded: an endpoint in the
+    /// Error state (TRB Error) rejects RESET_EP, and resetting only the device
+    /// toggle would desynchronize them.  Logging-free (runs inside the console
+    /// path).
+    ///
+    /// WCET: at most 4 commands and one control transfer, each bounded by
+    /// `COMPLETION_POLL_ITERS` event-ring polls.
+    fn recover_serial_out(&mut self, cause: &XhciErr) -> Result<(), XhciErr> {
+        let dev = self.serial_dev.as_mut().ok_or(XhciErr::NotConfigured)?;
+        let slot = dev.slot;
+        let (out_dci, out_ep_addr) = {
+            let port = dev.serial.as_ref().ok_or(XhciErr::NotConfigured)?;
+            (port.out_dci, port.out_ep_addr)
+        };
+        let target = ctrl_slot_ep(slot, out_dci);
+
+        let halted = match cause {
+            XhciErr::Completion(_) => true,
+            _ => match self.core.command(Trb {
+                param: 0,
+                status: 0,
+                ctrl: trb_type::STOP_EP | target,
+            }) {
+                Ok(_) => false,
+                Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => true,
+                Err(e) => return Err(e),
+            },
+        };
+        if halted {
+            match self.core.command(Trb {
+                param: 0,
+                status: 0,
+                ctrl: trb_type::RESET_EP | target, // TSP = 0
+            }) {
+                Ok(_) => self.core.control(
+                    dev,
+                    SetupPacket {
+                        request_type: RT_EP_OUT,
+                        request: REQ_CLEAR_FEATURE,
+                        value: FEATURE_ENDPOINT_HALT,
+                        index: u16::from(out_ep_addr),
+                        length: 0,
+                    },
+                )?,
+                // Not Halted (e.g. Error state after a TRB Error): no toggle was
+                // reset on the host, so leave the device's alone too.
+                Err(XhciErr::Completion(completion::CONTEXT_STATE_ERROR)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        let port = dev.serial.as_mut().ok_or(XhciErr::NotConfigured)?;
+        self.core.command(Trb {
+            param: port.out_ring.enqueue_pointer()?,
+            status: 0,
+            ctrl: trb_type::SET_TR_DEQUEUE_POINTER | target,
+        })?;
         Ok(())
     }
 }
@@ -947,15 +1567,59 @@ fn read_ctrl_buf<const N: usize>(dev: &UsbDevice) -> Result<[u8; N], XhciErr> {
     Ok(unsafe { read_volatile(bytes) })
 }
 
+fn new_serial_port(
+    kind: SerialKind,
+    in_ring: TransferRing,
+    out_ring: TransferRing,
+    out_dci: u8,
+    out_ep_addr: u8,
+    max_pkt: u16,
+) -> Result<SerialPort, XhciErr> {
+    let mut tx_buf = DMAPool::<[u8; TX_BUF_SIZE]>::new(NUMA_NODE, 1).ok_or(XhciErr::DmaAlloc)?;
+    tx_buf.as_mut().fill(0);
+    Ok(SerialPort {
+        kind,
+        out_ring,
+        _in_ring: in_ring,
+        out_dci,
+        out_ep_addr,
+        max_pkt: usize::from(max_pkt).clamp(1, TX_BUF_SIZE),
+        tx_buf,
+    })
+}
+
+/// PL2303 vendor IN request (bRequest = 0x01, wLength = 1).
+fn pl2303_read(value: u16, index: u16) -> SetupPacket {
+    SetupPacket {
+        request_type: RT_VENDOR_IN,
+        request: REQ_PL2303_VENDOR,
+        value,
+        index,
+        length: 1,
+    }
+}
+
+/// PL2303 vendor OUT request (bRequest = 0x01, no data stage).
+fn pl2303_write(value: u16, index: u16) -> SetupPacket {
+    SetupPacket {
+        request_type: RT_VENDOR_OUT,
+        request: REQ_PL2303_VENDOR,
+        value,
+        index,
+        length: 0,
+    }
+}
+
 // ---------------------------------------------------------------------------
-// PCIe device
+// PCIe device + console registration
 // ---------------------------------------------------------------------------
 
 pub struct XhciDevice {
     name: String,
-    /// Controller state.  Owns the DMA memory the controller keeps using, so it
-    /// lives as long as the device; it is not accessed after `attach()`.
-    _hc: UnsafeCell<Controller>,
+    /// Controller state.  Exclusively owned by `attach()` until the device is
+    /// published in `SERIAL_DEV`; afterwards only `xhci_usb_serial_puts()`
+    /// touches it, and only while holding `SERIAL_LOCK`.
+    hc: UnsafeCell<Controller>,
 }
 
 impl PCIeDevice for XhciDevice {
@@ -964,12 +1628,59 @@ impl PCIeDevice for XhciDevice {
     }
 }
 
-// SAFETY: `name` is immutable after construction and `_hc` is never accessed
-// after `attach()` returns.  The DMA pools and MMIO windows it owns are plain
-// addresses that may move between CPUs.
+// SAFETY: `name` is immutable after construction.  `hc` is accessed by exactly
+// one context at a time: by `attach()` before publication, and afterwards only
+// under `SERIAL_LOCK` (see `xhci_usb_serial_puts`).  The DMA pools and MMIO
+// windows it owns are plain addresses that may move between CPUs.
 unsafe impl Send for XhciDevice {}
-// SAFETY: see the `Send` impl; no `&self` method touches `_hc`.
+// SAFETY: see the `Send` impl; no `&self` method touches `hc`.
 unsafe impl Sync for XhciDevice {}
+
+/// The device carrying the console serial adapter (a leaked strong `Arc`
+/// reference, so it is never freed), or null.
+static SERIAL_DEV: AtomicPtr<XhciDevice> = AtomicPtr::new(ptr::null_mut());
+/// Non-blocking guard for `XhciDevice::hc` after publication.
+static SERIAL_LOCK: AtomicBool = AtomicBool::new(false);
+
+/// Mirror `data` to the USB serial adapter, if one was configured at boot.
+///
+/// The mirror is best-effort; the UART remains the authoritative console.
+///
+/// WCET contract:
+/// - Never waits for the lock: if another CPU or a nested log call is writing,
+///   `data` is skipped on the USB mirror.
+/// - No heap allocation, no panic, no await, and no logging anywhere below it,
+///   including the recovery commands: before buffered logging starts, the
+///   caller holds the console mutex, and a nested log call would block on it.
+/// - Work: ceil(data.len() / max_pkt) bulk OUT transfers, each bounded by
+///   `COMPLETION_POLL_ITERS` event-ring polls; on failure one endpoint recovery
+///   (≤ 4 commands and one control transfer, each bounded the same way).  If
+///   recovery fails the mirror is disabled permanently, so a dead adapter
+///   costs at most one timeout.
+pub fn xhci_usb_serial_puts(data: &str) {
+    let dev = SERIAL_DEV.load(Ordering::Acquire);
+    if dev.is_null() {
+        return;
+    }
+    if SERIAL_LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return;
+    }
+
+    // SAFETY: `dev` came from `Arc::into_raw` and that reference is never
+    // released, so the device lives forever.  Holding `SERIAL_LOCK` makes this
+    // the only live reference to `hc` (see `XhciDevice`).
+    let hc = unsafe { &mut *(*dev).hc.get() };
+    if let Err(cause) = hc.serial_write(data.as_bytes()) {
+        if hc.recover_serial_out(&cause).is_err() {
+            SERIAL_DEV.store(ptr::null_mut(), Ordering::Release);
+        }
+    }
+
+    SERIAL_LOCK.store(false, Ordering::Release);
+}
 
 /// Attach an xHCI host controller discovered during PCIe enumeration.
 pub(super) fn attach(
@@ -1004,8 +1715,30 @@ pub(super) fn attach(
     hc.start()?;
     hc.boot_enumerate()?;
 
-    Ok(Arc::new(XhciDevice {
+    let serial = hc
+        .serial_dev
+        .as_ref()
+        .and_then(|d| d.serial.as_ref().map(|s| (d.slot, s.kind)));
+    let dev = Arc::new(XhciDevice {
         name: hc.name.clone(),
-        _hc: UnsafeCell::new(hc),
-    }))
+        hc: UnsafeCell::new(hc),
+    });
+
+    if let Some((slot, kind)) = serial {
+        // Publish only after `hc` is fully initialized; the Release store pairs
+        // with the Acquire load in `xhci_usb_serial_puts`.
+        let raw = Arc::into_raw(Arc::clone(&dev));
+        SERIAL_DEV.store(raw.cast_mut(), Ordering::Release);
+        log::info!(
+            "xHCI: {} console writer registered (slot={slot})",
+            kind_name(kind)
+        );
+    }
+    Ok(dev)
+}
+
+fn kind_name(kind: SerialKind) -> &'static str {
+    match kind {
+        SerialKind::Pl2303 => "PL2303",
+    }
 }

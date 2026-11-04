@@ -46,10 +46,6 @@ default-features = false
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
 
-[dependencies.awkernel_aarch64]
-path = "../awkernel_aarch64"
-optional = true
-
 [dependencies.bootloader_api]
 version = "0.11"
 optional = true
@@ -73,12 +69,7 @@ features = [
 default = []
 x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64", "dep:bootloader_api"]
 rv32 = ["awkernel_lib/rv32"]
-aarch64 = [
-    "awkernel_lib/aarch64",
-    "dep:awkernel_aarch64",
-    "dep:embedded-hal",
-    "dep:embedded-hal-nb",
-]
+aarch64 = ["awkernel_lib/aarch64", "dep:embedded-hal", "dep:embedded-hal-nb"]
 spinlock = ["awkernel_lib/spinlock"]
 std = ["awkernel_lib/std"]
 
@@ -99,12 +90,21 @@ genet = ["mii"] # Broadcom GENET for Raspberry Pi
 
 ## PCIe
 pcie = []
-all_pcie = ["pcie", "igb", "ixgbe", "igc", "rp1", "bcm2712", "virtio-net", "virtio-blk"]
-igb = ["dep:memoffset"]                                      # Intel Gigabit Ethernet
-igc = []                                                     # Intel 2.5 Gigabit Ethernet
-ixgbe = ["dep:rand"]                                         # Intel 10 Gigabit Ethernet
-rp1 = []                                                     # RP1 of Raspberry Pi 5
-bcm2712 = []                                                 # Broadcom BCM2712 for Raspberry Pi 5
-virtio-net = []                                              # VirtIO Network Card
-virtio-blk = []                                              # VirtIO Block Device
-xhci = ["pcie"]                                              # xHCI USB host controller
+all_pcie = [
+    "pcie",
+    "igb",
+    "ixgbe",
+    "igc",
+    "rp1",
+    "bcm2712",
+    "virtio-net",
+    "virtio-blk",
+]
+igb = ["dep:memoffset"] # Intel Gigabit Ethernet
+igc = [] # Intel 2.5 Gigabit Ethernet
+ixgbe = ["dep:rand"] # Intel 10 Gigabit Ethernet
+rp1 = [] # RP1 of Raspberry Pi 5
+bcm2712 = [] # Broadcom BCM2712 for Raspberry Pi 5
+virtio-net = [] # VirtIO Network Card
+virtio-blk = [] # VirtIO Block Device
+xhci = ["pcie"] # xHCI USB host controller

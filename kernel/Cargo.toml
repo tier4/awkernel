@@ -58,10 +58,6 @@ default-features = false
 path = "../awkernel_drivers"
 default-features = false
 
-[dependencies.awkernel_aarch64]
-path = "../awkernel_aarch64"
-optional = true
-
 [dependencies.x86_64]
 version = "0.15"
 optional = true
@@ -86,6 +82,7 @@ period-index-propagation = [
 ]
 no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
+usb_serial = ["awkernel_drivers/xhci"]
 x86 = [
     "perf",
     "no_std_unwinding",
@@ -96,7 +93,7 @@ x86 = [
     "awkernel_drivers/x86",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/uart_16550",
-    "awkernel_drivers/xhci",
+    "usb_serial",
     "heap-wf-alloc",
 ]
 rv32 = [
@@ -119,7 +116,6 @@ std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
     "perf",
     "no_std_unwinding",
-    "dep:awkernel_aarch64",
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
 ]
