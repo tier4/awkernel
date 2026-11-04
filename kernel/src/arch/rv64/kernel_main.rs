@@ -219,8 +219,9 @@ pub unsafe extern "C" fn kernel_main() {
 /// 3. Detect CPU count from DTB (needed to reserve the boot-stack region)
 /// 4. Initialize memory management (frame allocator, heap, page tables)
 /// 5. Initialize console driver
-/// 6. Wake up secondary CPUs
-/// 7. Start the kernel main function
+/// 6. Register the interrupt controller
+/// 7. Wake up secondary CPUs
+/// 8. Start the kernel main function
 ///
 /// # Safety
 ///
@@ -245,9 +246,12 @@ unsafe fn primary_hart(hartid: usize) {
     // 5. Initialize console driver
     console::init(UART_BASE);
 
+    // 6. Register the CLINT/PLIC interrupt controller
+    awkernel_lib::arch::rv_common::interrupt_controller::init_interrupt_controller();
+
     log::info!("AWkernel RV64 primary CPU initialization complete");
 
-    // 6. Wake up secondary CPUs (NUM_CPUS was stored in step 3)
+    // 7. Wake up secondary CPUs (NUM_CPUS was stored in step 3)
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
@@ -256,7 +260,7 @@ unsafe fn primary_hart(hartid: usize) {
         num_cpu,
     };
 
-    // 7. Start the kernel main function
+    // 8. Start the kernel main function
     crate::main::<()>(kernel_info);
 }
 

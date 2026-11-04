@@ -10,6 +10,10 @@ _start:
   # Read hart ID from mhartid CSR (M-mode)
   csrr a0, mhartid
 
+  # Install the M-mode trap vector (see trap.S).
+  la t0, rv64_trap_entry
+  csrw mtvec, t0
+
   # set up the 8MB initial stack for each cpu.
   li sp, 0x80800000
   li t0, 0x00800000
