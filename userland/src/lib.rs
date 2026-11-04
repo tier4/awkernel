@@ -1,11 +1,15 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+extern crate awkernel;
 
 use alloc::borrow::Cow;
 
-pub async fn main() -> Result<(), Cow<'static, str>> {
+pub async fn run() -> Result<(), Cow<'static, str>> {
     awkernel_services::run().await;
+
+    #[cfg(feature = "autoware")]
+    autoware::run().await; // run the autoware application
 
     #[cfg(feature = "rd_gen_to_dags")]
     rd_gen_to_dags::run().await; // run the rd_gen_to_dags application
@@ -49,8 +53,14 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_dvfs")]
     test_dvfs::run().await; // test for DVFS
 
+    #[cfg(feature = "test_raspi_dvfs")]
+    test_raspi_dvfs::run().await; // test for Raspberry Pi firmware mailbox DVFS
+
     #[cfg(feature = "test_voluntary_preemption")]
     test_voluntary_preemption::run().await; // test for voluntary preemption
+
+    #[cfg(feature = "test_clustered_edf")]
+    test_clustered_edf::run().await; // test for Clustered EDF scheduler
 
     Ok(())
 }

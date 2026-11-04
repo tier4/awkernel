@@ -91,6 +91,7 @@ impl<T> RingQ<T> {
         IterRingQ {
             ringq: self,
             pos: self.head,
+            len: self.len,
         }
     }
 }
@@ -98,6 +99,7 @@ impl<T> RingQ<T> {
 /// Iterator of `RingQ`.
 pub struct IterRingQ<'a, T> {
     ringq: &'a RingQ<T>,
+    len: usize,
     pos: usize,
 }
 
@@ -105,14 +107,27 @@ impl<'a, T> Iterator for IterRingQ<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.ringq.tail == self.pos {
+        if self.len == 0 {
             None
-        } else if let Some(result) = &self.ringq.queue[self.pos] {
-            self.pos += 1;
-            Some(result)
         } else {
-            None
+            match &self.ringq.queue[self.pos] {
+                Some(result) => {
+                    self.pos += 1;
+                    if self.pos == self.ringq.queue.len() {
+                        self.pos = 0;
+                    }
+                    self.len -= 1;
+                    Some(result)
+                }
+                None => unreachable!(), // This should never happen
+            }
         }
+    }
+}
+
+impl<'a, T> ExactSizeIterator for IterRingQ<'a, T> {
+    fn len(&self) -> usize {
+        self.len
     }
 }
 
@@ -124,22 +139,63 @@ mod tests {
     fn test_ringq() {
         let mut q = RingQ::new(10);
 
-        for i in 0..10 {
-            q.push(i).unwrap();
-        }
+        for _ in 0..10 {
+            for i in 0..10 {
+                assert!(q.push(i).is_ok());
+                assert_eq!(q.len(), i + 1);
+                assert_eq!(q.head, 0);
+                assert_eq!(q.tail, (i + 1) % 10);
+            }
+            assert_eq!(q.head, 0);
+            assert_eq!(q.tail, 0);
+            assert!(q.is_full());
+            assert!(q.push(10).is_err());
 
-        for i in 0..10 {
-            let data = q.pop().unwrap();
-            assert_eq!(i, data);
+            for i in 0..10 {
+                let data = q.pop().unwrap();
+                assert_eq!(i, data);
+                assert_eq!(q.head, (i + 1) % 10);
+                assert_eq!(q.tail, 0);
+            }
+            assert_eq!(q.head, 0);
+            assert_eq!(q.tail, 0);
+            assert!(q.is_empty());
+            assert!(q.pop().is_none());
         }
+    }
 
-        for i in 0..10 {
-            q.push(i).unwrap();
-        }
+    #[test]
+    fn test_ringq_iter() {
+        let mut q = RingQ::new(10);
 
-        for i in 0..10 {
-            let data = q.pop().unwrap();
-            assert_eq!(i, data);
+        // We will test the iterator starting from all different positions of the head.
+        for i in 0..=10 {
+            // Push-pop one element to move the head and tail to the next position.
+            assert!(q.push(0).is_ok());
+            assert!(q.pop().is_some());
+
+            assert_eq!(q.head, (i + 1) % 10);
+            assert_eq!(q.tail, (i + 1) % 10);
+            assert!(q.is_empty());
+
+            // Fill the queue
+            for j in 0..10 {
+                assert!(q.push(j).is_ok());
+            }
+            assert_eq!(q.head, (i + 1) % 10);
+            assert_eq!(q.tail, (i + 1) % 10);
+            assert!(q.is_full());
+
+            // Test the iterator.
+            let mut iter = q.iter();
+            assert_eq!(iter.len(), 10);
+            for j in 0..10 {
+                let data = iter.next();
+                assert_eq!(data, Some(&j));
+            }
+
+            // Empty the queue for the next iteration
+            while let Some(_) = q.pop() {}
         }
     }
 }

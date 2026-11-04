@@ -23,6 +23,7 @@ pub(super) const IGC_SRRCTL_DESCTYPE_ADV_ONEBUF: u32 = 0x02000000;
 pub(super) union IgcAdvTxDesc {
     pub(super) read: TxDescRead,
     pub(super) wb: TxDescWb,
+    pub(super) adv_ctx: IgcAdvTxContextDesc,
 }
 
 #[derive(Debug, Clone, Copy)]

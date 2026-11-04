@@ -1,0 +1,406 @@
+use super::{
+    address::{PhysPageNum, VirtPageNum},
+    frame_allocator::{frame_alloc, FrameTracker},
+    page_table::{Flags as PTEFlags, PageTable, PageTableEntry},
+};
+use crate::addr::{virt_addr::VirtAddr, Addr};
+use crate::{console::unsafe_puts, paging::PAGESIZE};
+use alloc::vec::Vec;
+use core::arch::asm;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+#[allow(dead_code)]
+extern "C" {
+    fn stext();
+    fn etext();
+    fn srodata();
+    fn erodata();
+    fn sdata();
+    fn edata();
+    fn sbss_with_stack();
+    fn ebss();
+    fn ekernel();
+}
+
+pub struct MemorySet {
+    page_table: PageTable,
+    areas: Vec<MapArea>,
+}
+
+pub struct MapArea {
+    vpn_range: VPNRange,
+    data_frames: Vec<FrameTracker>,
+    map_type: MapType,
+    map_perm: MapPermission,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MapType {
+    Identical,
+    Framed,
+}
+
+bitflags::bitflags! {
+    pub struct MapPermission: u8 {
+        const R = 1 << 1;
+        const W = 1 << 2;
+        const X = 1 << 3;
+        const U = 1 << 4;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct VPNRange {
+    pub start: VirtPageNum,
+    pub end: VirtPageNum,
+}
+
+impl VPNRange {
+    pub fn new(start: VirtPageNum, end: VirtPageNum) -> Self {
+        Self { start, end }
+    }
+}
+
+impl IntoIterator for VPNRange {
+    type Item = VirtPageNum;
+    type IntoIter = VPNRangeIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        VPNRangeIterator {
+            current: self.start,
+            end: self.end,
+        }
+    }
+}
+
+pub struct VPNRangeIterator {
+    current: VirtPageNum,
+    end: VirtPageNum,
+}
+
+impl Iterator for VPNRangeIterator {
+    type Item = VirtPageNum;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.end {
+            let vpn = self.current;
+            self.current.0 += 1;
+            Some(vpn)
+        } else {
+            None
+        }
+    }
+}
+
+impl MapArea {
+    pub fn new(
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        map_type: MapType,
+        map_perm: MapPermission,
+    ) -> Self {
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        Self {
+            vpn_range: VPNRange::new(start_vpn, end_vpn),
+            data_frames: Vec::new(),
+            map_type,
+            map_perm,
+        }
+    }
+
+    pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
+        let ppn: PhysPageNum;
+        match self.map_type {
+            MapType::Identical => {
+                ppn = PhysPageNum(vpn.0);
+            }
+            MapType::Framed => {
+                let frame = frame_alloc().unwrap();
+                ppn = frame.ppn;
+                self.data_frames.push(frame);
+            }
+        }
+        let pte_flags = PTEFlags::from_bits(self.map_perm.bits()).unwrap();
+        page_table.map(vpn, ppn, pte_flags | PTEFlags::V);
+    }
+
+    #[allow(dead_code)]
+    pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
+        if self.map_type == MapType::Framed {
+            // Find and remove the frame
+            let ppn = page_table.translate(vpn).unwrap().ppn();
+            self.data_frames.retain(|frame| frame.ppn != ppn);
+        }
+        page_table.unmap(vpn);
+    }
+
+    pub fn map(&mut self, page_table: &mut PageTable) {
+        for vpn in self.vpn_range {
+            self.map_one(page_table, vpn);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn unmap(&mut self, page_table: &mut PageTable) {
+        for vpn in self.vpn_range {
+            self.unmap_one(page_table, vpn);
+        }
+    }
+}
+
+impl MemorySet {
+    pub fn new_bare() -> Self {
+        Self {
+            page_table: PageTable::new(),
+            areas: Vec::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn token(&self) -> usize {
+        self.page_table.token()
+    }
+
+    fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
+        map_area.map(&mut self.page_table);
+        if let Some(data) = data {
+            map_area.copy_data(&mut self.page_table, data);
+        }
+        self.areas.push(map_area);
+    }
+
+    #[allow(dead_code)]
+    pub fn insert_framed_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) {
+        self.push(
+            MapArea::new(start_va, end_va, MapType::Framed, permission),
+            None,
+        );
+    }
+
+    #[allow(dead_code)]
+    pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
+        if let Some((idx, area)) = self
+            .areas
+            .iter_mut()
+            .enumerate()
+            .find(|(_, area)| area.vpn_range.start == start_vpn)
+        {
+            area.unmap(&mut self.page_table);
+            self.areas.remove(idx);
+        }
+    }
+
+    pub fn new_kernel() -> Self {
+        let mut memory_set = Self::new_bare();
+
+        // Map kernel sections
+        unsafe {
+            unsafe_puts("Mapping kernel text section...\r\n");
+        }
+        memory_set.push(
+            MapArea::new(
+                VirtAddr::from_usize(stext as *const () as usize),
+                VirtAddr::from_usize(etext as *const () as usize),
+                MapType::Identical,
+                MapPermission::R | MapPermission::X,
+            ),
+            None,
+        );
+
+        unsafe {
+            unsafe_puts("Mapping kernel rodata section...\r\n");
+        }
+        memory_set.push(
+            MapArea::new(
+                VirtAddr::from_usize(srodata as *const () as usize),
+                VirtAddr::from_usize(erodata as *const () as usize),
+                MapType::Identical,
+                MapPermission::R,
+            ),
+            None,
+        );
+
+        unsafe {
+            unsafe_puts("Mapping kernel data section...\r\n");
+        }
+        memory_set.push(
+            MapArea::new(
+                VirtAddr::from_usize(sdata as *const () as usize),
+                VirtAddr::from_usize(edata as *const () as usize),
+                MapType::Identical,
+                MapPermission::R | MapPermission::W,
+            ),
+            None,
+        );
+
+        unsafe {
+            unsafe_puts("Mapping kernel bss section...\r\n");
+        }
+        memory_set.push(
+            MapArea::new(
+                VirtAddr::from_usize(sbss_with_stack as *const () as usize),
+                VirtAddr::from_usize(ebss as *const () as usize),
+                MapType::Identical,
+                MapPermission::R | MapPermission::W,
+            ),
+            None,
+        );
+
+        // Note: The page-table-frame and heap regions are mapped separately when
+        // init_kernel_space() calls map_identity_region() / map_heap_region().
+        memory_set
+    }
+
+    pub fn activate(&self) {
+        let satp = self.page_table.token();
+        unsafe {
+            asm!(
+                "csrw satp, {satp}",
+                "sfence.vma",
+                satp = in(reg) satp,
+            );
+        }
+    }
+
+    pub fn translate(&mut self, vpn: VirtPageNum) -> Option<PageTableEntry> {
+        self.page_table.translate(vpn)
+    }
+}
+
+impl MapArea {
+    pub fn copy_data(&mut self, page_table: &mut PageTable, data: &[u8]) {
+        assert_eq!(self.map_type, MapType::Framed);
+        let mut start: usize = 0;
+        let mut current_vpn = self.vpn_range.start;
+        let len = data.len();
+        loop {
+            let src = &data[start..len.min(start + PAGESIZE)];
+            let dst = &mut page_table
+                .translate(current_vpn)
+                .unwrap()
+                .ppn()
+                .get_bytes_array()[..src.len()];
+            dst.copy_from_slice(src);
+            start += PAGESIZE;
+            if start >= len {
+                break;
+            }
+            current_vpn.0 += 1;
+        }
+    }
+}
+
+// Static kernel memory set and heap size tracking
+use crate::sync::mcs::MCSNode;
+use crate::sync::mutex::Mutex;
+
+pub static KERNEL_SPACE: Mutex<Option<MemorySet>> = Mutex::new(None);
+static HEAP_SIZE: AtomicUsize = AtomicUsize::new(0);
+
+/// Initialize the kernel page table.
+///
+/// `[pt_start, heap_start)` is the frame allocator's region (page table frames)
+/// and `[heap_start, memory_end)` is the heap region. The page-table-frame
+/// region must be identity-mapped too: page table code dereferences those
+/// frames via their physical addresses (e.g. `PhysPageNum::get_pte_array()`),
+/// which must remain valid once translation is enabled.
+pub fn init_kernel_space(pt_start: usize, heap_start: usize, memory_end: usize) {
+    let mut node = MCSNode::new();
+    let mut kernel_space = KERNEL_SPACE.lock(&mut node);
+    let mut memory_set = MemorySet::new_kernel();
+
+    map_identity_region(&mut memory_set, pt_start, heap_start, "Page table frame");
+    map_heap_region(&mut memory_set, heap_start, memory_end);
+    HEAP_SIZE.store(memory_end.saturating_sub(heap_start), Ordering::Relaxed);
+
+    *kernel_space = Some(memory_set);
+}
+
+/// Identity-map `[start, end)` with read/write permissions into the kernel page table.
+fn map_identity_region(memory_set: &mut MemorySet, start: usize, end: usize, name: &str) {
+    if end <= start {
+        return;
+    }
+
+    unsafe {
+        unsafe_puts(name);
+        unsafe_puts(" mapping:\r\n  start: 0x");
+        crate::console::unsafe_print_hex_u64(start as u64);
+        unsafe_puts("\r\n  end:   0x");
+        crate::console::unsafe_print_hex_u64(end as u64);
+        unsafe_puts("\r\n");
+    }
+
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(start),
+            VirtAddr::from_usize(end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
+}
+
+/// Map the heap physical region `[heap_start, memory_end)` into the kernel page table.
+///
+/// Uses identity mapping so physical addresses equal virtual addresses (M-mode compatible).
+/// Page table node frames come from the frame allocator, which must be initialised over a
+/// *separate* region before this is called — that is the guarantee that prevents overlap.
+fn map_heap_region(memory_set: &mut MemorySet, heap_start: usize, memory_end: usize) {
+    if memory_end <= heap_start {
+        // An empty range means the caller does not want the heap mapped.
+        if memory_end < heap_start {
+            unsafe { unsafe_puts("Warning: No memory available for heap\r\n") };
+        }
+        return;
+    }
+
+    unsafe {
+        unsafe_puts("Heap mapping:\r\n  start: 0x");
+        crate::console::unsafe_print_hex_u64(heap_start as u64);
+        unsafe_puts("\r\n  end:   0x");
+        crate::console::unsafe_print_hex_u64(memory_end as u64);
+        unsafe_puts("\r\n  size:  0x");
+        crate::console::unsafe_print_hex_u64((memory_end - heap_start) as u64);
+        unsafe_puts("\r\n");
+    }
+
+    memory_set.push(
+        MapArea::new(
+            VirtAddr::from_usize(heap_start),
+            VirtAddr::from_usize(memory_end),
+            MapType::Identical,
+            MapPermission::R | MapPermission::W,
+        ),
+        None,
+    );
+}
+
+pub fn activate_kernel_space() {
+    let mut node = MCSNode::new();
+    let kernel_space = KERNEL_SPACE.lock(&mut node);
+    if let Some(ref kernel_space) = *kernel_space {
+        kernel_space.activate();
+    }
+}
+
+pub fn kernel_token() -> usize {
+    let mut node = MCSNode::new();
+    let kernel_space = KERNEL_SPACE.lock(&mut node);
+    if let Some(ref space) = *kernel_space {
+        space.page_table.token()
+    } else {
+        panic!("Kernel space not initialized")
+    }
+}
+
+pub fn get_heap_size() -> usize {
+    HEAP_SIZE.load(Ordering::Relaxed)
+}

@@ -1,18 +1,30 @@
 [package]
-name = "userland"
+name = "awkernel_userland"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "awkernel"
+path = "src/main.rs"
+
 [dependencies]
 log = "0.4"
+
+[dependencies.awkernel]
+path = "../kernel"
+default-features = false
 
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
 
 [dependencies.awkernel_services]
 path = "../applications/awkernel_services"
+
+[dependencies.autoware]
+path = "../applications/autoware"
+optional = true
 
 [dependencies.rd_gen_to_dags]
 path = "../applications/rd_gen_to_dags"
@@ -70,16 +82,41 @@ optional = true
 path = "../applications/tests/test_dvfs"
 optional = true
 
+[dependencies.test_raspi_dvfs]
+path = "../applications/tests/test_raspi_dvfs"
+optional = true
+
 [dependencies.test_voluntary_preemption]
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
+[dependencies.test_clustered_edf]
+path = "../applications/tests/test_clustered_edf"
+optional = true
+
 [features]
 default = []
-perf = ["awkernel_services/perf"]
+perf = ["awkernel/perf", "awkernel_services/perf"]
+
+# Kernel configuration (forwarded to the `awkernel` kernel crate)
+x86 = ["awkernel/x86"]
+aarch64 = ["awkernel/aarch64"]
+raspi = ["awkernel/raspi"]
+raspi5 = ["awkernel/raspi5"]
+aarch64_virt = ["awkernel/aarch64_virt"]
+rv32 = ["awkernel/rv32"]
+rv64 = ["awkernel/rv64"]
+std = ["awkernel/std"]
+debug = ["awkernel/debug"]
+heap-tlsf = ["awkernel/heap-tlsf"]
+heap-wf-alloc = ["awkernel/heap-wf-alloc"]
+spinlock = ["awkernel/spinlock"]
+linux = ["awkernel/linux"]
+period-index-propagation = ["awkernel/period-index-propagation"]
 
 # Evaluation applications
 rd_gen_to_dags = ["dep:rd_gen_to_dags"]
+autoware = ["dep:autoware"]
 
 # Test applications
 test_network = ["dep:test_network"]
@@ -93,4 +130,7 @@ test_gedf = ["dep:test_gedf"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_dag = ["dep:test_dag"]
+test_dvfs = ["dep:test_dvfs"]
+test_raspi_dvfs = ["dep:test_raspi_dvfs"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
+test_clustered_edf = ["dep:test_clustered_edf"]

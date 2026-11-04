@@ -1,0 +1,4 @@
+/target
+kernel-*.elf
+*.img
+/x86_64_uefi_pxe_boot

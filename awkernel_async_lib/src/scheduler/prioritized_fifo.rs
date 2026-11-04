@@ -3,7 +3,9 @@
 use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::scheduler::{peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX};
+use crate::scheduler::{
+    peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
+};
 use crate::task::{get_task, get_tasks_running, set_current_task, set_need_preemption};
 use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
@@ -107,6 +109,10 @@ impl Scheduler for PrioritizedFIFOScheduler {
 
 impl PrioritizedFIFOScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let tasks_running = get_tasks_running()
             .into_iter()
             .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
@@ -129,7 +135,7 @@ impl PrioritizedFIFOScheduler {
             .unwrap();
 
         let (target_task, target_cpu) = preemption_target;
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(target_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, target_cpu);
@@ -148,5 +154,5 @@ impl PrioritizedFIFOScheduler {
 
 pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::PrioritizedFIFO(0)),
+    priority: get_priority(&SchedulerType::PrioritizedFIFO(0)),
 };

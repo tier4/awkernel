@@ -35,7 +35,7 @@ pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
     fn sleep(&self, timeout: Option<Duration>) {
-        let start = crate::time::Time::now();
+        let start = crate::time::Instant::now();
 
         let _timer = if let Some(timeout) = timeout.as_ref() {
             crate::timer::reset(*timeout);
@@ -205,7 +205,7 @@ fn is_virtualized() -> bool {
         return true;
     }
 
-    let cpuid = unsafe { __cpuid(1) };
+    let cpuid = __cpuid(1);
     (cpuid.ecx & (1 << 31)) != 0
 }
 

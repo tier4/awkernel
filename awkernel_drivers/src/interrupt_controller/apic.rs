@@ -135,7 +135,7 @@ pub fn new(
 ) -> TypeApic {
     let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
 
-    let cpuid = unsafe { __cpuid(1) };
+    let cpuid = __cpuid(1);
 
     // 1 << 21: x2APIC
     // 1 << 31: Hypervisor present

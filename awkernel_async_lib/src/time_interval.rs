@@ -29,8 +29,10 @@
 //! SOFTWARE.
 
 use crate::sleep_task::Sleep;
+#[cfg(feature = "period-index-propagation")]
+use crate::task::perf::{get_period_index, update_cycle_start_timestamp};
 use alloc::boxed::Box;
-use awkernel_lib::time::Time;
+use awkernel_lib::time::Instant;
 use core::{
     future::Future,
     pin::Pin,
@@ -86,7 +88,7 @@ pub enum MissedTickBehavior {
 /// use crate::time_interval::interval;
 /// use core::time::Duration;
 ///
-/// let mut interval = interval(Duration::from_secs(1));
+/// let mut interval = interval(Duration::from_secs(1), 0);
 /// let mut ticks = 0;
 /// while ticks < 5 {
 ///     let tick_time = interval.tick().await;
@@ -95,13 +97,19 @@ pub enum MissedTickBehavior {
 /// }
 /// ```
 ///
-pub fn interval(period: Duration) -> Interval {
+pub(crate) fn interval(period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
-    interval_at(Time::now(), period)
+    interval_at(Instant::now(), period, _dag_id)
 }
 
-pub fn interval_at(start: Time, period: Duration) -> Interval {
+pub(crate) fn interval_at(start: Instant, period: Duration, _dag_id: u32) -> Interval {
     assert!(!period.is_zero(), "`period` must be non-zero.");
+    #[cfg(feature = "period-index-propagation")]
+    {
+        let index = get_period_index(_dag_id) as usize;
+        // [start] cycle deviation index == 0 (basis of cycle deviation)
+        update_cycle_start_timestamp(index, start.uptime().as_nanos() as u64, _dag_id);
+    }
     Interval {
         delay: None,
         next_tick_target: start,
@@ -112,7 +120,7 @@ pub fn interval_at(start: Time, period: Duration) -> Interval {
 }
 
 pub struct Interval {
-    next_tick_target: Time,
+    next_tick_target: Instant,
     delay: Option<Pin<Box<Sleep>>>,
     period: Duration,
     period_nanos: u128,
@@ -120,17 +128,17 @@ pub struct Interval {
 }
 
 impl Interval {
-    pub async fn tick(&mut self) -> Time {
+    pub async fn tick(&mut self) -> Instant {
         self.next().await.unwrap()
     }
 }
 
 impl Stream for Interval {
-    type Item = Time;
+    type Item = Instant;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.delay.is_none() {
-            let now = Time::now();
+            let now = Instant::now();
             let wait_duration = self.next_tick_target.saturating_duration_since(now);
             let sleep_future = Box::pin(Sleep::new(wait_duration));
             self.delay = Some(sleep_future);
@@ -143,7 +151,7 @@ impl Stream for Interval {
         match sleep_future.as_mut().poll(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(_) => {
-                let now = Time::now();
+                let now = Instant::now();
                 // If a tick is missed, determine the target time for the next tick.
                 let next_target = if now > tick_time {
                     match self.missed_tick_behavior {

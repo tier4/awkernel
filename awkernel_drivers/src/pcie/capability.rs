@@ -62,14 +62,13 @@ pub fn read(info: &mut PCIeInfo) {
                 let pcie_cap = pcie_cap::PCIeCap::new(info, cap_ptr);
                 info.pcie_cap = Some(pcie_cap);
             }
-            VENDOR_SPECIFIC => {
+            VENDOR_SPECIFIC
                 if info.vendor == pcie_id::VIRTIO_VENDOR_ID
                     && info.id >= 0x1000
-                    && info.id <= 0x107F
-                {
-                    let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
-                    info.virtio_caps.push(virtio_cap);
-                }
+                    && info.id <= 0x107F =>
+            {
+                let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
+                info.virtio_caps.push(virtio_cap);
             }
             _ => (),
         }

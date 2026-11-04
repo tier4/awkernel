@@ -4,6 +4,9 @@ pub mod aarch64;
 #[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod x86_64;
 
+#[cfg(all(any(feature = "rv32", feature = "rv64"), not(feature = "std")))]
+pub mod rv_common;
+
 #[cfg(all(feature = "rv32", not(feature = "std")))]
 pub mod rv32;
 
@@ -37,6 +40,7 @@ trait Arch:
     + super::paging::Mapper
     + super::dvfs::Dvfs
     + super::barrier::Barrier
+    + super::power::Power
 {
 }
 

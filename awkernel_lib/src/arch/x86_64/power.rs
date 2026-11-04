@@ -1,7 +1,8 @@
-use super::acpi::AcpiMapper;
+use super::{acpi::AcpiMapper, X86};
 use crate::{
     delay, interrupt,
     mmio::{ReadOnlyOffset, WriteOnlyOffset},
+    power::{Error, Power},
     sync::mutex::{MCSNode, Mutex},
 };
 use acpi::{
@@ -129,6 +130,16 @@ pub fn reboot() -> ! {
     }
 
     legacy_reboot();
+}
+
+impl Power for X86 {
+    fn reboot() -> Result<!, Error> {
+        reboot()
+    }
+
+    fn shutdown() -> Result<!, Error> {
+        shutdown()
+    }
 }
 
 fn init_power_control(acpi: &AcpiTables<AcpiMapper>) -> Result<PowerControl, &'static str> {

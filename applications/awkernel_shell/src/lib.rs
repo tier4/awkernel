@@ -16,6 +16,8 @@ use awkernel_async_lib::{
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::{embedded, runtime::FFI};
 use core::time::Duration;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 const SERVICE_NAME: &str = "[Awkernel] shell";
 
@@ -48,6 +50,7 @@ async fn console_handler() -> TaskResult {
         Box::new(TaskFfi),
         Box::new(InterruptFfi),
         Box::new(IfconfigFfi),
+        Box::new(NetdumpFfi),
         Box::new(RebootFfi),
         Box::new(ShutdownFfi),
     ];
@@ -169,6 +172,9 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
 
+(export netdump (interface_id) (IO (-> (Int) []))
+    (netdump_ffi interface_id))
+
 (export reboot () (IO (-> () []))
     (reboot_ffi))
 
@@ -192,8 +198,9 @@ fn help_ffi() {
     lines.push_str("(task)      ; print tasks\r\n");
     lines.push_str("(interrupt) ; print interrupt information\r\n");
     lines.push_str("(ifconfig)  ; print network interfaces\r\n");
-    lines.push_str("(reboot)    ; reboot x86_64 systems\r\n");
-    lines.push_str("(shutdown)  ; power off x86_64 systems\r\n");
+    lines.push_str("(netdump id); dump device registers\r\n");
+    lines.push_str("(reboot)    ; reboot (raspi and x86_64 systems)\r\n");
+    lines.push_str("(shutdown)  ; power off (raspi and x86_64 systems)\r\n");
 
     #[cfg(feature = "perf")]
     lines.push_str("(perf)      ; print performance information\r\n");
@@ -248,28 +255,30 @@ fn ifconfig_ffi() {
 }
 
 #[embedded]
-fn reboot_ffi() {
-    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
-    {
-        awkernel_lib::arch::x86_64::power::reboot();
-    }
+fn netdump_ffi(interface_id: BigInt) {
+    let Some(interface_id) = interface_id.to_u64() else {
+        console::print("netdump failed: interface_id must fit in u64\r\n");
+        return;
+    };
 
-    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
-    {
-        console::print("reboot is unsupported on this architecture\r\n");
+    if let Err(e) = awkernel_lib::net::debug_dump_interface(interface_id) {
+        console::print(&format!("netdump failed: {e}\r\n"));
     }
 }
 
 #[embedded]
-fn shutdown_ffi() {
-    #[cfg(all(target_arch = "x86_64", target_os = "none"))]
-    {
-        awkernel_lib::arch::x86_64::power::shutdown();
+#[allow(irrefutable_let_patterns)]
+fn reboot_ffi() {
+    if let Err(err) = awkernel_lib::power::reboot() {
+        console::print(&format!("reboot failed: {err}\r\n"));
     }
+}
 
-    #[cfg(not(all(target_arch = "x86_64", target_os = "none")))]
-    {
-        console::print("shutdown is unsupported on this architecture\r\n");
+#[embedded]
+#[allow(irrefutable_let_patterns)]
+fn shutdown_ffi() {
+    if let Err(err) = awkernel_lib::power::shutdown() {
+        console::print(&format!("shutdown failed: {err}\r\n"));
     }
 }
 
@@ -277,8 +286,8 @@ fn shutdown_ffi() {
 #[embedded]
 fn perf_ffi() {
     console::print("Perform non-primary CPU [tsc]:\r\n");
-    console::print(" cpu | Type           |   kernel_time  |    task_time   |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
-    console::print("=====|================|================|================|================|================|================|================\r\n");
+    console::print(" cpu | Type           |   kernel_time  |    task_time   |    idle_time   | interrupt_time |   context_switch   | context_switch_main|    perf_time   \r\n");
+    console::print("=====|================|================|================|================|================|================|================|================\r\n");
 
     use awkernel_async_lib::task::perf;
 
@@ -287,11 +296,12 @@ fn perf_ffi() {
         let task_time = perf::get_task_time(cpu_id);
         let idle_time = perf::get_idle_time(cpu_id);
         let interrupt_time = perf::get_interrupt_time(cpu_id);
-        let contxt_switch_time = perf::get_context_switch_time(cpu_id);
+        let context_switch_time = perf::get_context_switch_time(cpu_id);
+        let context_switch_main_time = perf::get_context_switch_main_time(cpu_id);
         let perf_time = perf::get_perf_time(cpu_id);
 
         let msg = format!(
-            "{cpu_id:>4} | Total          |{kernel_time:>15} |{task_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
+            "{cpu_id:>4} | Total          |{kernel_time:>15} |{task_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{context_switch_time:>15} |{context_switch_main_time:>15} |{perf_time:>15}\r\n"
         );
 
         console::print(&msg);
@@ -300,11 +310,13 @@ fn perf_ffi() {
         let ave_task_time = perf::get_ave_task_time(cpu_id).unwrap_or(0.0);
         let ave_idle_time = perf::get_ave_idle_time(cpu_id).unwrap_or(0.0);
         let ave_interrupt_time = perf::get_ave_interrupt_time(cpu_id).unwrap_or(0.0);
-        let ave_contxt_switch_time = perf::get_ave_context_switch_time(cpu_id).unwrap_or(0.0);
+        let ave_context_switch_time = perf::get_ave_context_switch_time(cpu_id).unwrap_or(0.0);
+        let ave_context_switch_main_time =
+            perf::get_ave_context_switch_main_time(cpu_id).unwrap_or(0.0);
         let ave_perf_time = perf::get_ave_perf_time(cpu_id).unwrap_or(0.0);
 
         let msg_ave = format!(
-            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_contxt_switch_time:>15.2} |{ave_perf_time:>15.2}\r\n",
+            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_context_switch_time:>15.2} |{ave_context_switch_main_time:>15.2} |{ave_perf_time:>15.2}\r\n",
         );
 
         console::print(&msg_ave);
@@ -313,17 +325,18 @@ fn perf_ffi() {
         let worst_task_time = perf::get_task_wcet(cpu_id);
         let worst_idle_time = perf::get_idle_wcet(cpu_id);
         let worst_interrupt_time = perf::get_interrupt_wcet(cpu_id);
-        let worst_contxt_switch_time = perf::get_context_switch_wcet(cpu_id);
+        let worst_context_switch_time = perf::get_context_switch_wcet(cpu_id);
+        let worst_context_switch_main_time = perf::get_context_switch_main_wcet(cpu_id);
         let worst_perf_time = perf::get_perf_wcet(cpu_id);
 
         let msg_worst = format!(
-            "     | Worst          | {worst_kernel_time:>14} | {worst_task_time:>14} |{worst_idle_time:>15} |{worst_interrupt_time:>15} |{worst_contxt_switch_time:>15} |{worst_perf_time:>15}\r\n",
+            "     | Worst          | {worst_kernel_time:>14} | {worst_task_time:>14} |{worst_idle_time:>15} |{worst_interrupt_time:>15} |{worst_context_switch_time:>15} |{worst_context_switch_main_time:>15} |{worst_perf_time:>15}\r\n",
         );
 
         console::print(&msg_worst);
 
         if cpu_id < awkernel_lib::cpu::num_cpu() - 1 {
-            console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+            console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
         }
     }
 }

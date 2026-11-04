@@ -9,8 +9,8 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
-$ rustup toolchain install nightly-2025-11-16
-$ rustup default nightly-2025-11-16
+$ rustup toolchain install nightly-2026-07-20
+$ rustup default nightly-2026-07-20
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf riscv32imac-unknown-none-elf
 ```
@@ -41,8 +41,9 @@ $ cargo binstall mdbook-mermaid
   - verified library for awkernel_async_lib
   - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_futures_macro](./awkernel_futures_macro/)
+- [awkernel_macros](./awkernel_macros/)
+  - `#[awkernel::main]` entry-point macro
 - [awkernel_drivers](./awkernel_drivers/)
-- [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
 - applications
   - [awkernel_shell](./applications/awkernel_shell/)
@@ -51,16 +52,15 @@ $ cargo binstall mdbook-mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
     awkernel_async_lib-->awkernel_futures_macro;
-    awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;
     userland-->awkernel_async_lib;
     kernel-->awkernel_lib;
     kernel-->awkernel_async_lib;
-    kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
     awkernel_drivers-->awkernel_lib;
-    kernel-->userland;
+    userland-->kernel;
+    kernel-->awkernel_macros;
 ```
 
 Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
@@ -95,7 +95,6 @@ etc
 ### x86_64
 
 ```text
-$ make kernel/asm/x86
 $ cargo doc_x86
 $ ls target/x86_64-kernel/doc/awkernel/index.html
 $ ls target/aarch64-kernel/doc/awkernel_lib/index.html
@@ -119,6 +118,30 @@ Debug build.
 ```text
 $ make x86_64
 ```
+
+#### Building x86_64 on Apple Silicon (or another non-x86_64 host)
+
+The x86_64 build includes `kernel/asm/x86/mpboot.S`, an assembly file that mixes 16-, 32-, and 64-bit code. The build script assembles and links it with GNU tools, then uses `objcopy` to create a binary image. A Rust target alone does not provide these tools.
+
+On Apple Silicon, install an x86_64 ELF GNU toolchain:
+
+```text
+$ brew install x86_64-elf-gcc x86_64-elf-binutils
+```
+
+The build script automatically uses the `x86_64-elf-` tool prefix if `x86_64-elf-gcc` is available. Otherwise, it tries the host tools (`gcc`, `ld`, and `objcopy`), which may not support this build on a non-x86_64 host.
+
+To select a toolchain with a different prefix, pass that prefix as `CROSS_COMPILE`. For example, if its tools are named `my-x86_64-elf-gcc`, `my-x86_64-elf-ld`, and `my-x86_64-elf-objcopy`, run:
+
+```text
+$ make x86_64 RELEASE=1 CROSS_COMPILE=my-x86_64-elf-
+```
+
+> [!IMPORTANT]
+>
+> `CROSS_COMPILE` is a prefix, not a path to the compiler. Keep the trailing `-` so the build can append `gcc`, `ld`, and `objcopy` to it.
+>
+> For example, `CROSS_COMPILE=x86_64-elf-` selects `x86_64-elf-gcc`, `x86_64-elf-ld`, and `x86_64-elf-objcopy`.
 
 ### Boot
 
@@ -341,6 +364,46 @@ It will takes several minutes.
 ```text
 $ make loom
 ```
+
+## CI Checks
+
+`scripts/ci.sh` runs the same checks as the CI.
+It requires cargo-udeps in addition to the compiler tools.
+
+```text
+$ cargo binstall cargo-udeps
+$ scripts/ci.sh
+```
+
+Cargo.lock is not tracked, so the CI uses the latest compatible dependencies.
+If a check fails only on your machine, run `cargo update` and try again.
+
+To run the checks with [pre-commit](https://pre-commit.com/), install the hooks.
+The pre-commit hook runs `cargo fmt --check`, and the pre-push hook runs `scripts/ci.sh`.
+
+```text
+$ pre-commit install
+```
+
+### Running CI Checks on macOS
+
+`scripts/ci.sh` invokes `x86_64` builds via `make check_x86_64` and `make udeps`.
+As `cargo-udeps` checks the `x86` feature against the `x86_64-unknown-linux-gnu` target,
+that target must also be installed for the pinned nightly toolchain:
+
+```text
+$ rustup target add x86_64-unknown-linux-gnu
+```
+
+Therefore, as done for compiling x86 projects, you mut define the `CROSS_COMPILE` variable:
+
+```text
+$ CROSS_COMPILE=x86_64-elf- scripts/ci.sh
+```
+
+> [!IMPORTANT]
+>
+> Do not remove the trailing `-` of `x86_64-elf-`
 
 ## Publications
 

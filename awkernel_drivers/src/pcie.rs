@@ -36,10 +36,13 @@ pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
+pub mod mmio;
 pub mod nvme;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+#[cfg(feature = "xhci")]
+pub mod usb;
 pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
@@ -355,7 +358,7 @@ impl PCIeTree {
         bridge_device_number: u8,
         bridge_function_number: u8,
     ) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.update_bridge_info(
                 bridge_bus_number,
                 bridge_device_number,
@@ -365,13 +368,13 @@ impl PCIeTree {
     }
 
     fn attach(&mut self) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.attach();
         }
     }
 
     fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
-        for (_, bus) in self.tree.iter_mut() {
+        for bus in self.tree.values_mut() {
             bus.init_base_address(ranges);
         }
     }
@@ -379,7 +382,7 @@ impl PCIeTree {
 
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (_, bus) in self.tree.iter() {
+        for bus in self.tree.values() {
             if !bus.devices.is_empty() {
                 write!(f, "{bus}")?;
             }
@@ -489,7 +492,26 @@ impl PCIeBus {
         }
     }
 
+    fn enable_bridge_forwarding(&mut self) {
+        let Some(info) = self.info.as_mut() else {
+            return;
+        };
+
+        let mut csr = info.read_status_command();
+        let before = csr;
+
+        csr.set(registers::StatusCommand::BUS_MASTER, true);
+        csr.set(registers::StatusCommand::MEMORY_SPACE, true);
+        csr.set(registers::StatusCommand::IO_SPACE, true);
+
+        if csr.bits() != before.bits() {
+            info.write_status_command(csr);
+        }
+    }
+
     fn attach(&mut self) {
+        self.enable_bridge_forwarding();
+
         for device in self.devices.iter_mut() {
             device.attach();
         }
@@ -1053,6 +1075,7 @@ impl PCIeInfo {
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
         csr.set(registers::StatusCommand::IO_SPACE, true);
+        csr.set(registers::StatusCommand::BUS_MASTER, true);
         self.write_status_command(csr);
 
         // map MMIO regions
@@ -1104,6 +1127,15 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        // Class-based detection runs before vendor matching so that USB host
+        // controllers are handled regardless of which silicon vendor made them.
+        #[cfg(feature = "xhci")]
+        if matches!(self.pcie_class, pcie_class::PCIeClass::SerialBusController)
+            && usb::is_xhci(&self)
+        {
+            return usb::attach(self);
+        }
+
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 return intel::attach(self);
@@ -1135,6 +1167,13 @@ impl PCIeInfo {
         }
 
         Ok(self.unknown_device())
+    }
+
+    pub fn enable_bus_master(&mut self) {
+        let reg = self.read_status_command();
+        self.write_status_command(
+            reg | registers::StatusCommand::BUS_MASTER | registers::StatusCommand::MEMORY_SPACE,
+        );
     }
 
     pub fn disable_legacy_interrupt(&mut self) {

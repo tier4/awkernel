@@ -302,6 +302,153 @@ pub struct PageTable {
     }
 }
 <span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-32-bit-rv32"><a class="header" href="#risc-v-32-bit-rv32">RISC-V 32-bit (RV32)</a></h2>
+<p>For RV32, the <code>PageTable</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv32/page_table.rs">awkernel_lib/src/arch/rv32/page_table.rs</a>.
+It implements the <strong>Sv32</strong> translation scheme: 32-bit virtual addresses, 4 KiB pages
+and a <strong>2-level</strong> page table. Each page table entry (PTE) holds a physical page number
+(<code>PPN</code>) and the standard RISC-V flag bits.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>bitflags! {
+    /// PTE Flags for RISC-V Sv32 page table
+    pub struct Flags: u8 {
+        const V = 1 &lt;&lt; 0; // Valid
+        const R = 1 &lt;&lt; 1; // Readable
+        const W = 1 &lt;&lt; 2; // Writable
+        const X = 1 &lt;&lt; 3; // Executable
+        const U = 1 &lt;&lt; 4; // User-accessible
+        const G = 1 &lt;&lt; 5; // Global
+        const A = 1 &lt;&lt; 6; // Accessed
+        const D = 1 &lt;&lt; 7; // Dirty
+    }
+}
+
+pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec&lt;FrameTracker&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The root page table is allocated from the physical frame allocator on <code>PageTable::new</code>,
+and every intermediate table allocated while walking the tree is tracked in <code>frames</code>
+so that it is kept alive for the lifetime of the address space.
+The virtual page number is split into two 10-bit indices (<code>VirtPageNum::indexes</code>),
+one per level of the Sv32 table.</p>
+<p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.
+The generic <code>Flags</code> are translated into RISC-V PTE flags: entries are always made valid,
+accessed and readable (<code>V | A | R</code>); writable mappings also set the dirty bit (<code>W | D</code>),
+and executable mappings set <code>X</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::PageTable&lt;Page, RV32PageAllocator, &amp;'static str&gt; for PageTable {
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &amp;mut RV32PageAllocator,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D; // Writable and dirty
+        }
+        rv_flags |= Flags::R; // Always readable
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Translation is enabled by writing the <code>satp</code> (Supervisor Address Translation and Protection)
+register. For Sv32 the <code>token</code> method returns the register value with <code>MODE = 1</code> (Sv32) in
+bit 31 and the root table's PPN in the low bits.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn token(&amp;self) -&gt; usize {
+    (1usize &lt;&lt; 31)    // MODE = 1 (Sv32 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="risc-v-64-bit-rv64"><a class="header" href="#risc-v-64-bit-rv64">RISC-V 64-bit (RV64)</a></h2>
+<p>For RV64, the <code>PageTable</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/page_table.rs">awkernel_lib/src/arch/rv64/page_table.rs</a>.
+It implements the <strong>Sv39</strong> translation scheme: 39-bit virtual addresses, 4 KiB pages
+and a <strong>3-level</strong> page table. The PTE layout and <code>Flags</code> definition are identical to RV32;
+the differences are the number of levels and the <code>satp</code> encoding.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PageTable {
+    root_ppn: PhysPageNum,
+    frames: Vec&lt;FrameTracker&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The virtual page number is split into three 9-bit indices (<code>VirtPageNum::indexes</code>),
+walked by <code>find_pte</code> / <code>find_pte_create</code>; the leaf PTE is reached at level index <code>2</code>.</p>
+<p>The <code>map_to</code> implementation is the same as RV32 — generic <code>Flags</code> are mapped to the
+RISC-V PTE flags (<code>V | A | R</code>, plus <code>W | D</code> for writable and <code>X</code> for executable pages):</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::PageTable&lt;Page, RV64PageAllocator, &amp;'static str&gt; for PageTable {
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &amp;mut RV64PageAllocator,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let vpn = VirtPageNum::from(virt_addr);
+        let ppn = PhysPageNum::from(phy_addr);
+
+        let mut rv_flags = Flags::V | Flags::A;
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D;
+        }
+        rv_flags |= Flags::R;
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>For Sv39 the <code>token</code> method encodes <code>MODE = 8</code> (Sv39) in bits 63-60 and the root PPN in
+the low 44 bits:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn token(&amp;self) -&gt; usize {
+    (8usize &lt;&lt; 60)    // MODE = 8 (Sv39 paging mode)
+    | self.root_ppn.0 // PPN of the root page table
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The kernel address space is built in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/rv64/vm.rs">awkernel_lib/src/arch/rv64/vm.rs</a>:
+<code>new_kernel</code> maps the kernel sections (<code>.text</code>, <code>.rodata</code>, <code>.data</code>, <code>.bss</code>) and an
+identity mapping for available RAM, and <code>activate</code> installs the table by writing <code>satp</code>
+and flushing the TLB:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn activate(&amp;self) {
+    let satp = self.page_table.token();
+    unsafe {
+        asm!("csrw satp, {}", in(reg) satp);
+        asm!("sfence.vma");
+    }
+}
+<span class="boring">}</span></code></pre></pre>
 
                     </main>
 

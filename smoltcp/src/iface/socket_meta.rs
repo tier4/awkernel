@@ -54,7 +54,7 @@ impl Meta {
         match *neighbor_state {
             NeighborState::Active => socket_poll_at,
             NeighborState::Waiting { neighbor, .. } if has_neighbor(neighbor) => socket_poll_at,
-            NeighborState::Waiting { silent_until, .. } => PollAt::Time(silent_until),
+            NeighborState::Waiting { silent_until, .. } => PollAt::Instant(silent_until),
         }
     }
 

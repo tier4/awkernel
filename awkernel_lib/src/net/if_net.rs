@@ -71,22 +71,28 @@ impl NetDriverRef<'_> {
 
         let capabilities = self.capabilities();
 
-        if matches!(ext.network, NetworkHdr::Ipv4(_)) && !capabilities.checksum.ipv4.tx() {
+        // TCP/UDP checksum offload is only advertised for IPv4 (CSUM_TCPv4/UDPv4), and the
+        // driver only offloads IPv4. Gate the L4 flags on IPv4 so a non-IPv4 (e.g. IPv6)
+        // TCP/UDP packet is not left with an unfilled checksum (smoltcp skips it because
+        // `cap.checksum.{tcp,udp}.tx() == false`, and the driver would not offload it).
+        let is_ipv4 = matches!(ext.network, NetworkHdr::Ipv4(_));
+
+        if is_ipv4 && !capabilities.checksum.ipv4.tx() {
             flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT); // IPv4 checksum offload
         }
 
-        match ext.transport {
-            TransportHdr::Tcp(_) => {
-                if !capabilities.checksum.tcp.tx() {
-                    flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
+        if is_ipv4 {
+            match ext.transport {
+                TransportHdr::Tcp(_) => {
+                    if !capabilities.checksum.tcp.tx() {
+                        flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
+                    }
                 }
-            }
-            TransportHdr::Udp(_) => {
-                if !capabilities.checksum.udp.tx() {
+                TransportHdr::Udp(_) if !capabilities.checksum.udp.tx() => {
                     flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         flags
@@ -109,21 +115,17 @@ impl Device for NetDriverRef<'_> {
 
         let capabilities = self.inner.capabilities();
 
+        // Capability bits determine whether TX checksum work stays in software
+        // or is handed to the NIC. Checksum::Rx means smoltcp validates on RX
+        // while the NIC inserts checksums on TX.
+
         if capabilities.contains(NetCapabilities::CSUM_IPv4) {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        // Note: Awkernel doen't yet support Ipv6.
-        // Additionally, tests for TCP functionality have not yet been conducted.
-        // Checksum offload currently only supports UDPv4.
-
-        // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
-        //     cap.checksum.tcp = Checksum::Rx;
-        // }
-
-        // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
-        //     cap.checksum.udp = Checksum::Rx;
-        // }
+        if capabilities.contains(NetCapabilities::CSUM_TCPv4) {
+            cap.checksum.tcp = Checksum::Rx;
+        }
 
         if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
             cap.checksum.udp = Checksum::Rx;
@@ -178,7 +180,7 @@ pub(super) struct IfNet {
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
-    time: crate::time::Time,
+    time: crate::time::Instant,
     will_poll: AtomicUsize,
 }
 
@@ -216,7 +218,7 @@ impl IfNetInner {
 
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
-        let time = crate::time::Time::now();
+        let time = crate::time::Instant::now();
 
         let interface = {
             let mut tx_ringq = RingQ::new(0);
@@ -512,7 +514,7 @@ impl IfNet {
             // If some task will poll, this task need not to poll.
             if self
                 .will_poll
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     if n > 0 {
                         None
                     } else {
