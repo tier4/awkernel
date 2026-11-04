@@ -1,5 +1,8 @@
 use crate::cpu::{cpu_id, num_cpu};
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    ptr::{read_volatile, write_volatile},
+    time::Duration,
+};
 use riscv::register::{mie, mip};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,7 +18,7 @@ pub struct Clint {
 
 impl Clint {
     const MSWI_BASE: usize = 0x0000;
-    // const MTIMECMP_BASE: usize = 0x4000; // TODO use this for timer interrupts
+    const MTIMECMP_BASE: usize = 0x4000;
     const MTIME_OFFSET: usize = 0xbff8;
 
     #[inline]
@@ -23,11 +26,10 @@ impl Clint {
         (self.base_addr + Self::MSWI_BASE + hart_id * 4) as *mut u32
     }
 
-    // TODO use this for timer interrupts
-    // #[inline]
-    // const fn mtimecmp(&self, hart_id: usize) -> *mut u64 {
-    //     (self.base_addr + Self::MTIMECMP_BASE + hart_id * 8) as *mut u64
-    // }
+    #[inline]
+    const fn mtimecmp(&self, hart_id: usize) -> *mut u64 {
+        (self.base_addr + Self::MTIMECMP_BASE + hart_id * 8) as *mut u64
+    }
 
     #[inline]
     const fn mtime(&self) -> *const u64 {
@@ -62,6 +64,26 @@ impl Clint {
     #[inline]
     pub fn is_timer_interrupt_pending(&self) -> bool {
         mip::read().mtimer()
+    }
+
+    /// Raise the machine timer interrupt of the current hart after `dur`.
+    #[inline]
+    pub fn set_timer(&self, dur: Duration) {
+        let ticks = dur.as_nanos() * self.mtime_freq as u128 / 1_000_000_000;
+        let ticks = u64::try_from(ticks).unwrap_or(u64::MAX);
+        // Safety: mtime is a memory-mapped register that can be read safely.
+        let now = unsafe { read_volatile(self.mtime()) };
+        // Safety: mtimecmp of the current hart is a valid memory-mapped register.
+        unsafe { write_volatile(self.mtimecmp(cpu_id()), now.saturating_add(ticks)) };
+    }
+
+    /// Cancel the machine timer interrupt of the current hart.
+    ///
+    /// This also clears a pending machine timer interrupt.
+    #[inline]
+    pub fn clear_timer(&self) {
+        // Safety: mtimecmp of the current hart is a valid memory-mapped register.
+        unsafe { write_volatile(self.mtimecmp(cpu_id()), u64::MAX) };
     }
 
     /// Busy wait for a given number of microseconds.

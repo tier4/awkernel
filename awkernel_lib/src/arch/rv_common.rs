@@ -17,6 +17,7 @@ pub(super) mod page_table;
 pub(super) mod paging;
 pub mod plic;
 pub(super) mod power;
+pub mod timer;
 pub(super) mod vm;
 
 /// Initialise the frame allocator over `[start, end)`.

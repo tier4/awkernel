@@ -219,7 +219,7 @@ pub unsafe extern "C" fn kernel_main() {
 /// 3. Detect CPU count from DTB (needed to reserve the boot-stack region)
 /// 4. Initialize memory management (frame allocator, heap, page tables)
 /// 5. Initialize console driver
-/// 6. Register the interrupt controller
+/// 6. Register the interrupt controller and timer
 /// 7. Wake up secondary CPUs
 /// 8. Start the kernel main function
 ///
@@ -246,8 +246,11 @@ unsafe fn primary_hart(hartid: usize) {
     // 5. Initialize console driver
     console::init(UART_BASE);
 
-    // 6. Register the CLINT/PLIC interrupt controller
+    // 6. Register the CLINT/PLIC interrupt controller and the CLINT timer
     awkernel_lib::arch::rv_common::interrupt_controller::init_interrupt_controller();
+    awkernel_lib::timer::register_timer(alloc::boxed::Box::new(
+        awkernel_lib::arch::rv_common::timer::ClintTimer,
+    ));
 
     log::info!("AWkernel RV64 primary CPU initialization complete");
 

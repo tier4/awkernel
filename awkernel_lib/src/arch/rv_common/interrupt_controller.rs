@@ -54,6 +54,9 @@ pub const PREEMPT_IPI_IRQ: u16 = 0;
 /// PLIC sources are numbered 1..=1023, so this number never collides with a PLIC source.
 pub const WAKEUP_IPI_IRQ: u16 = 1024;
 
+/// IRQ# of the CLINT machine timer interrupt.
+pub const TIMER_IRQ: u16 = 1025;
+
 /// Maximum number of harts that can receive IPIs (QEMU `virt` supports up to 8).
 const MAX_HARTS: usize = 8;
 
@@ -105,6 +108,8 @@ impl interrupt::InterruptController for InterruptController {
     fn enable_irq(&mut self, irq: u16) {
         if ipi_bit(irq).is_some() {
             self.clint.enable_soft_interrupt();
+        } else if irq == TIMER_IRQ {
+            self.clint.enable_timer_interrupt();
         } else {
             let _ = self.plic.enable_interrupt(plic_context(), irq);
         }
@@ -116,6 +121,7 @@ impl interrupt::InterruptController for InterruptController {
             // The software interrupt is shared, so only the preemption IPI controls it.
             PREEMPT_IPI_IRQ => self.clint.disable_soft_interrupt(),
             WAKEUP_IPI_IRQ => (),
+            TIMER_IRQ => self.clint.disable_timer_interrupt(),
             _ => {
                 let _ = self.plic.disable_interrupt(plic_context(), irq);
             }
@@ -139,6 +145,12 @@ impl interrupt::InterruptController for InterruptController {
             if pending & WAKEUP_IPI_BIT != 0 {
                 pending_irqs.push(WAKEUP_IPI_IRQ);
             }
+        }
+        if self.clint.is_timer_interrupt_pending() {
+            // The machine timer interrupt is level-triggered; cancel it until
+            // the timer is reset by its handler.
+            self.clint.clear_timer();
+            pending_irqs.push(TIMER_IRQ);
         }
         // Safety: context is in range
         while let Some(irq) = unsafe { self.plic.claim_interrupt_unchecked(context) } {
@@ -178,8 +190,9 @@ impl interrupt::InterruptController for InterruptController {
 
     #[inline]
     fn irq_range(&self) -> (u16, u16) {
-        // 0 and WAKEUP_IPI_IRQ are CLINT software IPIs, 1..=num_sources are PLIC
-        (0, WAKEUP_IPI_IRQ + 1)
+        // 0 and WAKEUP_IPI_IRQ are CLINT software IPIs, TIMER_IRQ is the CLINT timer,
+        // and 1..=num_sources are PLIC
+        (0, TIMER_IRQ + 1)
     }
 
     #[inline]
