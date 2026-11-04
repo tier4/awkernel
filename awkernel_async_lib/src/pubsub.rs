@@ -39,10 +39,12 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_async_lib_verified::ringq::RingQ;
-use awkernel_lib::sync::{
-    mutex::{MCSNode, Mutex},
-    rwlock::RwLock,
+use awkernel_lib::{
+    sync::{
+        mutex::{MCSNode, Mutex},
+        rwlock::RwLock,
+    },
+    verified::ringq::RingQ,
 };
 use core::{
     pin::Pin,

@@ -59,6 +59,8 @@ pub mod paging;
 
 extern crate alloc;
 
+pub use awkernel_lib_verified as verified;
+
 pub type PhantomUnsync = PhantomData<Cell<()>>;
 pub type PhantomUnsend = PhantomData<Rc<()>>;
 
