@@ -259,6 +259,82 @@ mod tests {
     }
 
     #[test]
+    fn try_new_rejects_zero_length_quaternion() {
+        let result = Transform::try_new(Vector3::zeros(), Quaternion::new(0.0, 0.0, 0.0, 0.0));
+
+        assert!(matches!(result, Err(Error::ZeroLengthQuaternion)));
+    }
+
+    #[test]
+    fn try_new_rejects_non_finite_quaternion_components() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for rotation in [
+                Quaternion::new(value, 0.0, 0.0, 0.0),
+                Quaternion::new(1.0, value, 0.0, 0.0),
+                Quaternion::new(1.0, 0.0, value, 0.0),
+                Quaternion::new(1.0, 0.0, 0.0, value),
+            ] {
+                let result = Transform::try_new(Vector3::zeros(), rotation);
+
+                assert!(
+                    matches!(result, Err(Error::NonFiniteQuaternion)),
+                    "expected NonFiniteQuaternion for {rotation:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn try_new_rejects_quaternion_with_underflowing_squared_norm() {
+        let rotation = Quaternion::new(f64::MIN_POSITIVE, 0.0, 0.0, 0.0);
+        let result = Transform::try_new(Vector3::zeros(), rotation);
+
+        assert!(matches!(result, Err(Error::ZeroLengthQuaternion)));
+    }
+
+    #[test]
+    fn try_new_normalizes_valid_quaternion_and_preserves_translation() {
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(2.0, 0.0, 0.0, 2.0);
+        let transform = Transform::try_new(translation, rotation).unwrap();
+
+        assert_eq!(transform.translation, translation);
+        assert_almost_eq(transform.rotation.norm(), 1.0);
+
+        let transformed = transform.apply_to_vector(Vector3::new(1.0, 0.0, 0.0));
+        assert_almost_eq(transformed.x, 1.0);
+        assert_almost_eq(transformed.y, 3.0);
+        assert_almost_eq(transformed.z, 3.0);
+    }
+
+    #[test]
+    fn identity_transform_preserves_vector() {
+        let vector = Vector3::new(1.0, -2.0, 3.0);
+        let transformed = Transform::identity().apply_to_vector(vector);
+
+        assert_almost_eq(transformed.x, vector.x);
+        assert_almost_eq(transformed.y, vector.y);
+        assert_almost_eq(transformed.z, vector.z);
+    }
+
+    #[test]
+    fn transform_rotates_then_translates_vector() {
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two);
+
+        let transform = Transform::try_new(translation, rotation);
+        assert!(transform.is_ok());
+        let transform = transform.unwrap();
+
+        let transformed = transform.apply_to_vector(Vector3::new(1.0, 0.0, 0.0));
+
+        assert_almost_eq(transformed.x, 1.0);
+        assert_almost_eq(transformed.y, 3.0);
+        assert_almost_eq(transformed.z, 3.0);
+    }
+
+    #[test]
     fn static_bias_correction_updates_angular_velocity() {
         let mut config = ImuCorrectorConfig::default();
         config.angular_velocity_offset_x = 0.05;
