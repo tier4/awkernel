@@ -24,36 +24,69 @@
 extern crate alloc;
 
 use alloc::{format, string::String};
-use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
-use nalgebra::{Quaternion as NQuaternion, UnitQuaternion, Vector3 as NVector3};
+use common_types::{Header, UnitQuaternion, Vector3};
+use imu_driver::{ImuMsg, Quaternion};
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum Error {
+    ZeroLengthQuaternion,
+    NonFiniteQuaternion,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::ZeroLengthQuaternion => write!(f, "Zero length quaternion"),
+            Error::NonFiniteQuaternion => write!(f, "Non-finite quaternion"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 #[derive(Clone, Debug)]
 pub struct Transform {
-    pub translation: Vector3,
-    pub rotation: Quaternion,
+    translation: Vector3<f64>,
+    rotation: UnitQuaternion<f64>,
 }
 
 impl Transform {
-    pub fn identity() -> Self {
+    /// Creates a new `Transform` with the given translation and rotation.
+    #[inline]
+    pub const fn new(translation: Vector3<f64>, rotation: UnitQuaternion<f64>) -> Self {
         Self {
-            translation: imu_driver::Vector3::new(0.0, 0.0, 0.0),
-            rotation: imu_driver::Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
+            translation,
+            rotation,
         }
     }
 
-    // This code is used as part of the `gyro_odometer` function processing.
-    pub fn apply_to_vector(&self, vec: Vector3) -> Vector3 {
-        let nalgebra_vec = to_nalgebra_vector3(&vec);
-        let nalgebra_quat = to_nalgebra_quaternion(&self.rotation);
-        let nalgebra_trans = to_nalgebra_vector3(&self.translation);
-        let rotated = nalgebra_quat * nalgebra_vec;
-        let result = rotated + nalgebra_trans;
-        to_imu_vector3(&result)
+    /// Tries to create a new `Transform` with the given translation and rotation.
+    /// Returns an error if the rotation quaternion is zero-length or contains non-finite values.
+    #[inline]
+    pub fn try_new(translation: Vector3<f64>, rotation: Quaternion<f64>) -> Result<Self, Error> {
+        if rotation.coords.iter().any(|value| !value.is_finite()) {
+            Err(Error::NonFiniteQuaternion)
+        } else if rotation.norm_squared() == 0.0 {
+            Err(Error::ZeroLengthQuaternion)
+        } else {
+            Ok(Self::new(
+                translation,
+                UnitQuaternion::from_quaternion(rotation),
+            ))
+        }
+    }
+
+    /// Returns the identity transform (no translation, no rotation).
+    #[inline]
+    pub fn identity() -> Self {
+        Self::new(Vector3::new(0.0, 0.0, 0.0), UnitQuaternion::identity())
+    }
+
+    /// Applies the transform to the given vector.
+    #[inline]
+    pub fn apply_to_vector(&self, vec: Vector3<f64>) -> Vector3<f64> {
+        self.rotation * vec + self.translation
     }
 }
 
@@ -109,9 +142,9 @@ impl TransformListener for MockTransformListener {
 #[derive(Clone, Debug)]
 pub struct ImuWithCovariance {
     pub header: Header,
-    pub angular_velocity: Vector3,
+    pub angular_velocity: Vector3<f64>,
     pub angular_velocity_covariance: [f64; 9],
-    pub linear_acceleration: Vector3,
+    pub linear_acceleration: Vector3<f64>,
     pub linear_acceleration_covariance: [f64; 9],
 }
 
@@ -119,9 +152,9 @@ impl ImuWithCovariance {
     pub fn from_imu_msg(imu_msg: &ImuMsg) -> Self {
         Self {
             header: imu_msg.header.clone(),
-            angular_velocity: imu_msg.angular_velocity.clone(),
+            angular_velocity: imu_msg.angular_velocity,
             angular_velocity_covariance: [0.0; 9],
-            linear_acceleration: imu_msg.linear_acceleration.clone(),
+            linear_acceleration: imu_msg.linear_acceleration,
             linear_acceleration_covariance: [0.0; 9],
         }
     }
@@ -129,8 +162,8 @@ impl ImuWithCovariance {
     pub fn to_imu_msg(&self) -> ImuMsg {
         ImuMsg {
             header: self.header.clone(),
-            angular_velocity: self.angular_velocity.clone(),
-            linear_acceleration: self.linear_acceleration.clone(),
+            angular_velocity: self.angular_velocity,
+            linear_acceleration: self.linear_acceleration,
         }
     }
 }
@@ -198,11 +231,8 @@ impl<T: TransformListener> ImuCorrector<T> {
         self.config = config;
     }
 
-    fn transform_vector3(&self, vec: &Vector3, transform: &Transform) -> Vector3 {
-        let nalgebra_vec = to_nalgebra_vector3(vec);
-        let nalgebra_quat = to_nalgebra_quaternion(&transform.rotation);
-        let rotated = nalgebra_quat * nalgebra_vec;
-        to_imu_vector3(&rotated)
+    fn transform_vector3(&self, vec: &Vector3<f64>, transform: &Transform) -> Vector3<f64> {
+        transform.rotation * vec
     }
 
     fn transform_covariance_impl(cov: &[f64; 9]) -> [f64; 9] {
@@ -313,19 +343,6 @@ impl<T: TransformListener> ImuCorrector<T> {
     }
 }
 
-fn to_nalgebra_vector3(vec: &Vector3) -> NVector3<f64> {
-    NVector3::new(vec.x, vec.y, vec.z)
-}
-
-fn to_imu_vector3(vec: &NVector3<f64>) -> Vector3 {
-    Vector3::new(vec.x, vec.y, vec.z)
-}
-
-fn to_nalgebra_quaternion(quat: &Quaternion) -> UnitQuaternion<f64> {
-    let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-    UnitQuaternion::from_quaternion(n_quat)
-}
-
 pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
     ImuCorrector::<MockTransformListener>::transform_covariance_impl(cov)
 }
@@ -333,6 +350,7 @@ pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_types::Quaternion;
 
     fn assert_almost_eq(actual: f64, expected: f64) {
         assert!((actual - expected).abs() < 1e-10);
@@ -347,6 +365,82 @@ mod tests {
             angular_velocity: Vector3::new(0.1, 0.2, 0.3),
             linear_acceleration: Vector3::new(9.8, 0.0, 0.0),
         }
+    }
+
+    #[test]
+    fn try_new_rejects_zero_length_quaternion() {
+        let result = Transform::try_new(Vector3::zeros(), Quaternion::new(0.0, 0.0, 0.0, 0.0));
+
+        assert!(matches!(result, Err(Error::ZeroLengthQuaternion)));
+    }
+
+    #[test]
+    fn try_new_rejects_non_finite_quaternion_components() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for rotation in [
+                Quaternion::new(value, 0.0, 0.0, 0.0),
+                Quaternion::new(1.0, value, 0.0, 0.0),
+                Quaternion::new(1.0, 0.0, value, 0.0),
+                Quaternion::new(1.0, 0.0, 0.0, value),
+            ] {
+                let result = Transform::try_new(Vector3::zeros(), rotation);
+
+                assert!(
+                    matches!(result, Err(Error::NonFiniteQuaternion)),
+                    "expected NonFiniteQuaternion for {rotation:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn try_new_rejects_quaternion_with_underflowing_squared_norm() {
+        let rotation = Quaternion::new(f64::MIN_POSITIVE, 0.0, 0.0, 0.0);
+        let result = Transform::try_new(Vector3::zeros(), rotation);
+
+        assert!(matches!(result, Err(Error::ZeroLengthQuaternion)));
+    }
+
+    #[test]
+    fn try_new_normalizes_valid_quaternion_and_preserves_translation() {
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(2.0, 0.0, 0.0, 2.0);
+        let transform = Transform::try_new(translation, rotation).unwrap();
+
+        assert_eq!(transform.translation, translation);
+        assert_almost_eq(transform.rotation.norm(), 1.0);
+
+        let transformed = transform.apply_to_vector(Vector3::new(1.0, 0.0, 0.0));
+        assert_almost_eq(transformed.x, 1.0);
+        assert_almost_eq(transformed.y, 3.0);
+        assert_almost_eq(transformed.z, 3.0);
+    }
+
+    #[test]
+    fn identity_transform_preserves_vector() {
+        let vector = Vector3::new(1.0, -2.0, 3.0);
+        let transformed = Transform::identity().apply_to_vector(vector);
+
+        assert_almost_eq(transformed.x, vector.x);
+        assert_almost_eq(transformed.y, vector.y);
+        assert_almost_eq(transformed.z, vector.z);
+    }
+
+    #[test]
+    fn transform_rotates_then_translates_vector() {
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two);
+
+        let transform = Transform::try_new(translation, rotation);
+        assert!(transform.is_ok());
+        let transform = transform.unwrap();
+
+        let transformed = transform.apply_to_vector(Vector3::new(1.0, 0.0, 0.0));
+
+        assert_almost_eq(transformed.x, 1.0);
+        assert_almost_eq(transformed.y, 3.0);
+        assert_almost_eq(transformed.z, 3.0);
     }
 
     #[test]
@@ -435,15 +529,13 @@ mod tests {
         let corrector = ImuCorrector::new();
         let imu_msg = sample_imu_msg();
 
-        let transform = Transform {
-            translation: Vector3::new(1.0, 2.0, 3.0),
-            rotation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.7071067811865475,
-                w: 0.7071067811865476,
-            },
-        };
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two);
+
+        let transform = Transform::try_new(translation, rotation);
+        assert!(transform.is_ok());
+        let transform = transform.unwrap();
 
         let corrected_with_cov = corrector.correct_imu_with_covariance(&imu_msg, Some(&transform));
         assert_eq!(corrected_with_cov.header.frame_id, "base_link");
@@ -460,12 +552,7 @@ mod tests {
         let mut transform_listener = MockTransformListener::new();
         let transform = Transform {
             translation: Vector3::new(1.0, 0.0, 0.0),
-            rotation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
+            rotation: UnitQuaternion::identity(),
         };
         transform_listener.add_transform("imu_link", "base_link", transform);
 
