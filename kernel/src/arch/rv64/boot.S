@@ -14,6 +14,9 @@ _start:
   addi a1, a1, 1
   mul a0, a0, a1
   add sp, sp, a0
+  # enable the FPU (mstatus.FS = Initial); the LP64D ABI may use FP registers
+  li t0, 0x2000
+  csrs mstatus, t0
   # clear the BSS
   la t0, __bss_start
   la t1, __bss_end
