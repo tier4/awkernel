@@ -1,0 +1,19 @@
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo +nightly-2026-07-20 fmt --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: ci
+        name: CI checks (scripts/ci.sh)
+        entry: scripts/ci.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

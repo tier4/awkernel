@@ -1,5 +1,4 @@
 use crate::arch::config::HEAP_START;
-use awkernel_aarch64::{dmb_sy, id_aa64mmfr0_el1, isb, sctlr_el1};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{
@@ -8,6 +7,7 @@ use awkernel_lib::{
             self,
             flags::{self, FLAG_L3_CONT},
         },
+        utils::{dmb_sy, id_aa64mmfr0_el1, isb, sctlr_el1},
     },
     console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
     cpu::num_cpu,

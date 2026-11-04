@@ -24,13 +24,14 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 | function                                      | description                   |
 | --------------------------------------------- | ----------------------------- |
 | `fn get_next_task()`                          | Get the next executable task. |
-| `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.              |
+| `fn get_scheduler(sched_type: &SchedulerType)` | Get a scheduler.              |
 
 `SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
 ```rust
 pub enum SchedulerType {
-    GEDF(u64), // relative deadline
+    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
+    GEDF(u64),                 // relative deadline
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -62,12 +63,26 @@ Some schedulers are implemented under the folder [awkernel_async_lib/src/schedul
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
-> gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+> clustered_edf.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 ```
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
 Each scheduler must be registered in the following three locations.
-`fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
+`fn get_next_task()`, `fn get_scheduler(sched_type: &SchedulerType)` and `pub enum SchedulerType`.
+
+### ClusteredEDF Scheduler
+
+The Clustered Earliest Deadline First (ClusteredEDF) scheduler is implemented in [clustered_edf.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/clustered_edf.rs). This scheduler is an EDF variant that restricts each task to a set of CPU cores (a cluster), specified as a `CpuSet` bitmask. Pinning a task to a single core (partitioned scheduling) is the special case of a one-bit `CpuSet`.
+
+The scheduler holds a single affinity-aware priority queue, [`AffinityBTreeQueue`](https://crates.io/crates/affinity_btree_queue), backed by an augmented B-tree. Each entry carries `(priority, affinity, task)`, where the priority is the pair `(absolute_deadline, wake_time)`; smaller values dequeue first, so tasks are ordered by earliest deadline with wake time as a tie-breaker. Every B-tree node stores the OR of the affinities in its subtree, which lets `pop_for_cpu(cpu)` find the earliest-deadline task runnable on `cpu` in logarithmic time while skipping subtrees with no eligible entry.
+
+When a task is enqueued via `wake_task()`, the scheduler reads the `SchedulerType::ClusteredEDF(relative_deadline, cpu_set)` attached to the task and calculates the absolute deadline as `uptime + relative_deadline`. If the task is part of a DAG, `calculate_and_update_dag_deadline()` (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then pushed into the queue with its `cpu_set` as the affinity mask. Preemption is handled via `invoke_preemption()`: if no core in the set is idle and the task is not already running, the core running the lowest-priority task among the set is chosen, and an IPI is sent to it when the newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.
+
+`get_next()` pops the earliest-deadline task whose `cpu_set` contains the calling CPU (`pop_for_cpu`), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from `cpu_set` when a task is spawned. The `cpu_set` is normalized at spawn time by removing CPU 0 and out-of-range bits; if this leaves the set empty (for example an empty set, or one naming only CPU 0 or out-of-range cores), the task is not rejected but falls back to all worker cores (`1..num_cpu()`) with a warning.
+
+Bookkeeping for sleeping workers uses two pieces of state. A single global counter (`NUM_CLUSTERED_TASKS_IN_QUEUE`) tracks how many tasks are queued across all clustered schedulers; it is maintained by the `ClusteredTask` RAII wrapper (incremented on enqueue, decremented exactly once on dequeue or drop) and lets `get_next_task()` skip the clustered schedulers entirely when it is zero. The per-CPU information — which CPUs actually have an eligible task queued — is not duplicated in counters: it is read directly from the run queue, whose B-tree root already maintains the OR of all queued affinities (`affinity_mask()`, O(1)). `wake_workers()` obtains this set via `Scheduler::queued_cpu_mask()` (unioned over all clustered schedulers by `clustered_queued_cpu_mask()`) and wakes exactly the cores that have an eligible clustered task.
+
+A new clustered scheduler must (1) wrap its queue entries in `ClusteredTask`, (2) implement `Scheduler::queued_cpu_mask()`, and (3) be placed in the clustered prefix of `PRIORITY_LIST` and matched by `SchedulerType::is_clustered()`; the prefix requirement is enforced at compile time.
 
 ### GEDF Scheduler
 
@@ -83,7 +98,7 @@ The PrioritizedFIFO scheduler is implemented in [prioritized_fifo.rs](https://gi
 
 The scheduler uses a `PriorityQueue<PrioritizedFIFOTask>` as its run queue. When a task is enqueued through `wake_task()`, the priority is extracted from `SchedulerType::PrioritizedFIFO(priority)` and used to insert the task into the priority queue. The get_next() method retrieves the task at the head of the highest-priority non-empty queue.
 
-The scheduler implements preemption via `invoke_preemption()`, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue.
+The scheduler implements preemption via `invoke_preemption()`, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue. Preemption requires a strictly higher priority (`Task::preempts()`): a task woken while an equal-priority task is running is enqueued behind it, so the FIFO order within a priority level also holds against running tasks. The same rule applies to the other schedulers and to the preemption handler itself, which re-queues a pending task if the task running on the target CPU no longer has a strictly lower priority, except for the PrioritizedRR time-quantum rotation described below.
 
 ### PrioritizedRR Scheduler
 
@@ -91,7 +106,7 @@ The PrioritizedRR (Prioritized Round Robin) scheduler is implemented in [priorit
 
 The scheduler maintains a `PriorityQueue<PrioritizedRRTask>` similar to PrioritizedFIFO, but adds time quantum management with a default interval of 4ms (4,000 microseconds). The scheduler provides two preemption mechanisms: `invoke_preemption_wake()` for priority-based preemption when tasks are awakened, and `invoke_preemption_tick()` for time quantum-based preemption.
 
-The `invoke_preemption_tick()` method is called periodically on primary CPU to check if the currently running task has exceeded its time quantum. It compares the elapsed execution time against the configured interval and triggers preemption by sending an IPI if the quantum is exceeded.
+The `invoke_preemption_tick()` method is called periodically on primary CPU to check if the currently running task has exceeded its time quantum. It compares the elapsed execution time against the configured interval and triggers preemption by sending an IPI if the quantum is exceeded. The task pushed by the tick usually has the same priority as the running one; `do_preemption()` lets such an equal-priority pending task preempt a running PrioritizedRR task, which is the only case where equal priority preempts.
 
 ### Panicked Scheduler
 

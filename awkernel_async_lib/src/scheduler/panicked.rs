@@ -88,5 +88,5 @@ impl Scheduler for PanickedScheduler {
 
 pub static SCHEDULER: PanickedScheduler = PanickedScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::Panicked),
+    priority: get_priority(&SchedulerType::Panicked),
 };

@@ -2,7 +2,7 @@ use crate::interrupt::Interrupt;
 
 impl Interrupt for super::AArch64 {
     fn get_flag() -> usize {
-        awkernel_aarch64::daif::get() as usize
+        super::utils::daif::get() as usize
     }
 
     fn disable() {
@@ -14,11 +14,11 @@ impl Interrupt for super::AArch64 {
     }
 
     fn are_enabled() -> bool {
-        let daif = awkernel_aarch64::daif::get();
+        let daif = super::utils::daif::get();
         (daif & (1 << 7)) == 0
     }
 
     fn set_flag(flag: usize) {
-        unsafe { awkernel_aarch64::daif::set(flag as u64) };
+        unsafe { super::utils::daif::set(flag as u64) };
     }
 }

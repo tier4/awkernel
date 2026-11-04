@@ -1,0 +1,8 @@
+[package]
+name = "vehicle_velocity_converter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common_types = { path = "../common_types", default-features = false }
+log = { version = "0.4", default-features = false }

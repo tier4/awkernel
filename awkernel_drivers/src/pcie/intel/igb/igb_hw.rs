@@ -8237,10 +8237,10 @@ impl IgbHw {
         }
 
         match self.mac_type {
-            Em82546 | Em82546Rev3 | Em82571 | Em82575 | Em82576 | Em80003es2lan => {
-                if read_reg(info, STATUS)? & STATUS_FUNC_1 != 0 {
-                    self.perm_mac_addr[5] ^= 0x01;
-                }
+            Em82546 | Em82546Rev3 | Em82571 | Em82575 | Em82576 | Em80003es2lan
+                if read_reg(info, STATUS)? & STATUS_FUNC_1 != 0 =>
+            {
+                self.perm_mac_addr[5] ^= 0x01
             }
             _ => {}
         }

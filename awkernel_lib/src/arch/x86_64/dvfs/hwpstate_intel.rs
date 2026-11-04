@@ -34,7 +34,7 @@ pub(super) struct HwPstateIntel {
 
 impl HwPstateIntel {
     pub(super) fn new() -> Option<Self> {
-        let cpuid = unsafe { __cpuid(6) };
+        let cpuid = __cpuid(6);
 
         let hwp_notifications = cpuid.eax & CPUTPM1_HWP_NOTIFICATION != 0;
         let hwp_activity_window = cpuid.eax & CPUTPM1_HWP_ACTIVITY_WINDOW != 0;

@@ -1,7 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "std", feature(thread_local))]
 #![feature(allocator_api)]
+#![feature(linkage)]
 #![cfg_attr(feature = "std", feature(io_error_inprogress))]
+#![feature(never_type)]
 
 use core::{cell::Cell, marker::PhantomData};
 
@@ -24,6 +26,7 @@ pub mod local_heap;
 pub mod logger;
 pub mod mmio;
 pub mod net;
+pub mod power;
 pub mod priority_queue;
 pub mod sanity;
 pub mod storage;
@@ -40,6 +43,8 @@ pub mod select;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;
+
+mod heap_util;
 
 #[cfg(not(feature = "std"))]
 pub mod dma_pool;

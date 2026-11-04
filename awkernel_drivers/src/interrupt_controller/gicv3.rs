@@ -18,7 +18,7 @@
 use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
-    arch::aarch64::{current_affinity, get_affinity},
+    arch::aarch64::{current_affinity, get_affinity, utils},
     cpu::NUM_MAX_CPU,
     dma_pool::DMAPool,
     interrupt::InterruptController,
@@ -283,9 +283,9 @@ impl GICv3 {
         wait_gicr_rwp(gicr_base);
 
         // Enable system register access.
-        let sre = awkernel_aarch64::icc_sre_el1::get();
+        let sre = utils::icc_sre_el1::get();
         if sre & 1 == 0 {
-            unsafe { awkernel_aarch64::icc_sre_el1::set(sre & 1) };
+            unsafe { utils::icc_sre_el1::set(sre & 1) };
         }
 
         registers::GICR_ISENABLER0.write(!0, sgi_base);
@@ -312,17 +312,17 @@ impl GICv3 {
     /// EOImode (0): ICC_EOIR0 and ICC_EOIR1 provide both priority drop and interrupt deactivation functionality
     fn init_eoi_mode_zero() {
         let eoi_mode = 1 << 1;
-        let icc_ctlr = awkernel_aarch64::icc_ctlr_el1::get();
-        unsafe { awkernel_aarch64::icc_ctlr_el1::set(icc_ctlr & !eoi_mode) };
+        let icc_ctlr = utils::icc_ctlr_el1::get();
+        unsafe { utils::icc_ctlr_el1::set(icc_ctlr & !eoi_mode) };
     }
 
     /// Enable signaling of the interrupt group 1.
     fn enable_igrp() {
-        unsafe { awkernel_aarch64::icc_igrpen1_el1::set(1) };
+        unsafe { utils::icc_igrpen1_el1::set(1) };
     }
 
     fn init_priority_mask() {
-        unsafe { awkernel_aarch64::icc_pmr_el1::set(0xf0) };
+        unsafe { utils::icc_pmr_el1::set(0xf0) };
     }
 }
 
@@ -389,7 +389,7 @@ impl InterruptController for GICv3 {
             return;
         };
 
-        let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
+        let (rs, target_list) = if (utils::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
             && registers::GICD_TYPER.read(self.gicd_base) & GICD_TYPER_RSS != 0
         {
             // Targeted SGIs with affinity level 0 values of 0 - 255 are supported.
@@ -406,7 +406,7 @@ impl InterruptController for GICv3 {
             | (aff1 as u64) << 16
             | target_list;
 
-        unsafe { awkernel_aarch64::icc_sgi1r_el1::set(reg) }
+        unsafe { utils::icc_sgi1r_el1::set(reg) }
     }
 
     fn send_ipi_broadcast(&mut self, irq: u16) {
@@ -417,9 +417,7 @@ impl InterruptController for GICv3 {
 
     fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
         const ICC_SGI1R_EL1_IRM: u64 = 1 << 40;
-        unsafe {
-            awkernel_aarch64::icc_sgi1r_el1::set(ICC_SGI1R_EL1_IRM | ((irq as u64) & 0x0f) << 24)
-        }
+        unsafe { utils::icc_sgi1r_el1::set(ICC_SGI1R_EL1_IRM | ((irq as u64) & 0x0f) << 24) }
     }
 
     fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>> {
@@ -456,12 +454,12 @@ impl Iterator for PendingInterruptIterator {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let id = awkernel_aarch64::icc_iar1_el1::get() as u16;
+        let id = utils::icc_iar1_el1::get() as u16;
 
         if id == ID_SPURIOUS {
             None
         } else {
-            unsafe { awkernel_aarch64::icc_eoir1_el1::set(id as u64) };
+            unsafe { utils::icc_eoir1_el1::set(id as u64) };
             Some(id)
         }
     }

@@ -255,7 +255,7 @@ async fn udp_test() {
 
     let mut i = 0;
     loop {
-        let t0 = awkernel_lib::time::Time::now();
+        let t0 = awkernel_lib::time::Instant::now();
 
         // Send a UDP packet.
         let msg = format!("Hello Awkernel! {i}");

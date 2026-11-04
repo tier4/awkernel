@@ -495,7 +495,7 @@ impl Interface {
                     .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
                 {
                     PollAt::Ingress => None,
-                    PollAt::Time(instant) => Some(instant),
+                    PollAt::Instant(instant) => Some(instant),
                     PollAt::Now => Some(Instant::from_millis(0)),
                 }
             })

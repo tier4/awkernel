@@ -120,27 +120,32 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        if let Some(dma) =
-            ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
-        {
-            let bus_addr = dma.get_bus_addr() as usize;
-            let phy_addr = bus_addr & 0x3FFFFFFF;
-            let start = PhyAddr::new(phy_addr);
-            let end = PhyAddr::new(phy_addr + DMA_SIZE);
+        match ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT) {
+            Ok(dma) => {
+                let bus_addr = dma.get_bus_addr() as usize;
+                let phy_addr = bus_addr & 0x3FFFFFFF;
+                let start = PhyAddr::new(phy_addr);
+                let end = PhyAddr::new(phy_addr + DMA_SIZE);
 
-            let _ = vm.remove_heap(start, end);
-            if vm.push_device_range(start, end).is_ok() {
-                unsafe_puts("DMA: BUS address = ");
-                unsafe_print_hex_u64(bus_addr as u64);
-                unsafe_puts(", Physical address = ");
-                unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
-                unsafe_puts("\r\n");
+                let _ = vm.remove_heap(start, end);
+                if vm.push_device_range(start, end).is_ok() {
+                    unsafe_puts("DMA: BUS address = ");
+                    unsafe_print_hex_u64(bus_addr as u64);
+                    unsafe_puts(", Physical address = ");
+                    unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
+                    unsafe_puts("\r\n");
 
-                self.dma_pool = Some(VirtAddr::new(start.as_usize()));
+                    self.dma_pool = Some(VirtAddr::new(start.as_usize()));
 
-                unsafe {
-                    DMA = Some(dma);
+                    unsafe {
+                        DMA = Some(dma);
+                    }
                 }
+            }
+            Err(error) => {
+                unsafe_puts("Failed to initialize DMA pool: ");
+                unsafe_puts(error.description());
+                unsafe_puts("\r\n");
             }
         };
 
@@ -171,6 +176,7 @@ impl super::SoC for Raspi {
         self.init_spi()?;
         self.init_pwm()?;
         self.init_uarts();
+        self.init_power()?;
 
         let _ = self.init_ethernet();
 
@@ -560,6 +566,21 @@ impl Raspi {
         Ok(())
     }
 
+    fn init_power(&self) -> Result<(), &'static str> {
+        let power_node = self
+            .get_device_from_symbols("watchdog")
+            .or(Err(err_msg!("could not find WATCHDOG's device node")))?;
+        let base_addr = power_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find WATCHDOG's base address")))?;
+
+        log::info!("WATCHDOG: 0x{base_addr:016x}");
+
+        unsafe { awkernel_drivers::hal::raspi::power::set_power_base(base_addr as usize) };
+
+        Ok(())
+    }
+
     fn init_spi(&self) -> Result<(), &'static str> {
         let spi_node = self
             .get_device_from_symbols("spi")
@@ -613,8 +634,10 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if ic::raspi::lfb::lfb_init(640, 360).is_err() {
-                unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
+            if let Err(e) = ic::raspi::lfb::lfb_init(640, 360) {
+                unsafe_puts("Failed to initialize the linear framebuffer: ");
+                unsafe_puts(e.description());
+                unsafe_puts("\r\n");
             }
         }
     }

@@ -4,9 +4,11 @@ use core::cmp::max;
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
-    dag::{get_dag, get_dag_absolute_deadline, set_dag_absolute_deadline, to_node_index},
+    dag::{get_dag, to_node_index},
     scheduler::GLOBAL_WAKE_GET_MUTEX,
-    scheduler::{get_priority, peek_preemption_pending, push_preemption_pending},
+    scheduler::{
+        get_priority, peek_preemption_pending, push_preemption_pending, PREEMPTION_ENABLED,
+    },
     task::{
         get_task, get_tasks_running, set_current_task, set_need_preemption, DagInfo, State,
         MAX_TASK_PRIORITY,
@@ -71,7 +73,7 @@ impl Scheduler for GEDFScheduler {
                 SchedulerType::GEDF(relative_deadline) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
-                        calculate_and_update_dag_deadline(dag_info, wake_time)
+                        calculate_and_update_dag_deadline(dag_info, wake_time, info.state)
                     } else {
                         // If dag_info is not present, the task is treated as a regular task, and
                         // the absolute_deadline is calculated using the scheduler's relative_deadline.
@@ -149,11 +151,15 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
-    priority: get_priority(SchedulerType::GEDF(0)),
+    priority: get_priority(&SchedulerType::GEDF(0)),
 };
 
 impl GEDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
+        if !PREEMPTION_ENABLED {
+            return false;
+        }
+
         let tasks_running = get_tasks_running()
             .into_iter()
             .filter(|rt| rt.task_id != 0) // Filter out idle CPUs
@@ -176,7 +182,7 @@ impl GEDFScheduler {
             .unwrap();
 
         let (target_task, target_cpu) = preemption_target;
-        if task > target_task {
+        if task.preempts(&target_task) {
             push_preemption_pending(target_cpu, task);
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, target_cpu);
@@ -193,34 +199,32 @@ impl GEDFScheduler {
     }
 }
 
-fn get_dag_sink_relative_deadline_ms(dag_id: u32) -> u64 {
-    let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
-    dag.get_sink_relative_deadline()
-        .map(|deadline| deadline.as_millis() as u64)
-        .unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set"))
-}
-
-fn calculate_and_set_dag_deadline(dag_id: u32, wake_time: u64) -> u64 {
-    let relative_deadline_ms = get_dag_sink_relative_deadline_ms(dag_id);
-    let dag_absolute_deadline = wake_time + relative_deadline_ms;
-    set_dag_absolute_deadline(dag_id, dag_absolute_deadline);
-    dag_absolute_deadline
-}
-
-pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64) -> u64 {
+/// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
+/// A wake of the source node in any `state` except `State::Preempted` releases that job
+/// with `wake_time` plus the sink relative deadline, if it is not released yet. Any other wake
+/// before the release gets that value without a release.
+///
+/// # Panics
+///
+/// Panics if the DAG does not exist, has no node `dag_info.node_id`, or has no sink relative
+/// deadline.
+pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, state: State) -> u64 {
     let dag_id = dag_info.dag_id;
-    let node_id = dag_info.node_id;
+    let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
 
-    if let Some(absolute_deadline) = get_dag_absolute_deadline(dag_id) {
-        let dag =
-            get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
-        let current_node_index = to_node_index(node_id);
-        if !dag.is_source_node(current_node_index) {
-            return absolute_deadline;
-        }
+    // The wake of a preempted task resumes it and does not release a job. Any other wake
+    // of the source node at an unreleased job must come from its `Interval` tick. After the
+    // source node finishes a job, it waits only for that tick, because it has no subscriber.
+    let release = state != State::Preempted;
 
-        return calculate_and_set_dag_deadline(dag_id, wake_time);
-    }
-
-    calculate_and_set_dag_deadline(dag_id, wake_time)
+    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
+        // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+        let relative_deadline_us = dag
+            .get_sink_relative_deadline()
+            .map(|deadline| deadline.as_micros() as u64)
+            .unwrap_or_else(|| {
+                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
+            });
+        wake_time + relative_deadline_us
+    })
 }

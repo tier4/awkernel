@@ -74,9 +74,9 @@ impl crate::paging::Mapper for super::AArch64 {
 
 fn get_page_table(vm_addr: VirtAddr) -> PageTable {
     let ttbr = if vm_addr.as_usize() >= TTBR1_ADDR {
-        awkernel_aarch64::ttbr1_el1::get() & !1
+        super::utils::ttbr1_el1::get() & !1
     } else {
-        awkernel_aarch64::ttbr0_el1::get() & !1
+        super::utils::ttbr0_el1::get() & !1
     };
 
     unsafe { PageTable::with_root(PhyAddr::new(ttbr as usize)) }
