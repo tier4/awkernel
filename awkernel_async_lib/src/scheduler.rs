@@ -10,10 +10,10 @@ use crate::{
 };
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
-use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
     cpu::{num_cpu, CpuSet},
     sync::mutex::{MCSNode, Mutex},
+    verified::delta_list::DeltaList,
 };
 
 #[cfg(not(feature = "std"))]

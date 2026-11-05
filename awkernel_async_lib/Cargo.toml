@@ -28,9 +28,6 @@ features = ["alloc", "async-await", "async-await-macro"]
 path = "../awkernel_lib"
 default-features = false
 
-[dependencies.awkernel_async_lib_verified]
-path = "../awkernel_async_lib_verified"
-
 [dependencies.awkernel_futures_macro]
 path = "../awkernel_futures_macro"
 

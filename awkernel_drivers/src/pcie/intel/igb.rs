@@ -5,7 +5,6 @@ use crate::pcie::{
     PCIeInfo,
 };
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
-use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
@@ -31,6 +30,7 @@ use awkernel_lib::{
         mutex::{MCSNode, Mutex},
         rwlock::RwLock,
     },
+    verified::ringq::RingQ,
 };
 use core::{
     fmt::{self, Debug},
