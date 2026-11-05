@@ -1,7 +1,6 @@
 //! This is a skelton of a PCIe device driver.
 
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
-use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     barrier::{bus_space_barrier, membar_sync, BUS_SPACE_BARRIER_WRITE},
@@ -22,6 +21,7 @@ use awkernel_lib::{
     },
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
+    verified::ringq::RingQ,
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
