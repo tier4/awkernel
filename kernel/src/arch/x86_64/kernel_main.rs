@@ -26,6 +26,7 @@ use awkernel_lib::{
         acpi::AcpiMapper,
         cpu::set_raw_cpu_id_to_numa,
         delay::synchronize_tsc,
+        identity_map::identity_map,
         interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
@@ -33,7 +34,7 @@ use awkernel_lib::{
     console::{self, unsafe_puts},
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
-    paging::{PageTable, PAGESIZE},
+    paging::PAGESIZE,
     unwind::catch_unwind,
 };
 use bootloader_api::{
@@ -51,7 +52,6 @@ use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
-        Translate,
     },
     PhysAddr, VirtAddr,
 };
@@ -650,31 +650,19 @@ fn map_mpboot_page(
         0
     };
 
-    let flags = awkernel_lib::paging::Flags {
-        execute: true,
-        write: true,
-        cache: false,
-        device: false,
-        write_through: false,
-    };
+    // Writable and executable: the AP trampoline runs from this page, keeps its
+    // first stack in it with CR0.WP set, and writes the next CPU ID into it.
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+    let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(start));
 
-    let result = unsafe {
-        page_table::PageTable::new(page_table).map_to(
-            awkernel_lib::addr::virt_addr::VirtAddr::new(start as usize),
-            awkernel_lib::addr::phy_addr::PhyAddr::new(start as usize),
-            flags,
-            page_allocator,
-        )
-    };
-
-    // The bootloader identity-maps the page of its context switch code and then
-    // reports that page as usable, so it can be the page chosen above.  An
-    // existing identity mapping serves `mpboot.img` just as well.
-    if result.is_err()
-        && page_table.translate_addr(VirtAddr::new(start)) != Some(PhysAddr::new(start))
-    {
-        unsafe { unsafe_puts("Failed to map the page for `mpboot.img`.\r\n") };
-        wait_forever();
+    // The page may already be identity-mapped read-only (the bootloader's
+    // context switch page); `identity_map` then replaces the entry.
+    match unsafe { identity_map(page_table, frame, flags, page_allocator) } {
+        Ok(flush) => flush.flush(),
+        Err(_) => {
+            unsafe { unsafe_puts("Failed to map the page for `mpboot.img`.\r\n") };
+            wait_forever();
+        }
     }
 
     start
