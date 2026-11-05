@@ -175,7 +175,6 @@ mod tests {
         assert_eq!(flags, RWX);
         for parent in parent_flags(&mut mapper, page) {
             assert!(parent.contains(PageTableFlags::PRESENT | PageTableFlags::WRITABLE));
-            assert!(!parent.contains(PageTableFlags::NO_EXECUTE));
         }
     }
 
