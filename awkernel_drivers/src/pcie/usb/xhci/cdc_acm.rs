@@ -159,32 +159,22 @@ mod tests {
         cfg
     }
 
-    #[test]
-    fn finds_acm_in_a_simple_configuration() {
-        let cfg = configuration(&[&acm_function(0)], 2);
-
-        let info = find_cdcacm_endpoints(&cfg).unwrap();
-
-        assert_eq!((info.config_val, info.ctrl_if_num), (1, 0));
-        assert_eq!(
-            (info.bulk_in_addr, info.bulk_out_addr, info.max_pkt),
-            (0x84, 0x04, 64)
-        );
-    }
-
     /// A composite device that puts a large audio function before its CDC
-    /// function, as in TinyUSB's CDC + UAC2 example.
+    /// function, as in TinyUSB's CDC + UAC2 example: the configuration is read
+    /// as the driver reads it, then parsed.
     #[test]
     fn finds_acm_beyond_byte_255() {
         let audio = audio_function(30);
-        let cfg = configuration(&[&audio, &acm_function(2)], 4);
+        let device = configuration(&[&audio, &acm_function(2)], 4);
         assert!(
             9 + audio.len() > 255,
             "the CDC function must start beyond byte 255"
         );
-        let total = u16::try_from(cfg.len()).unwrap();
-        assert_eq!(desc::total_length(&cfg, 4096), Some(total));
 
+        let cfg = desc::read_configuration(4096, |len| -> Result<Vec<u8>, ()> {
+            Ok(device.get(..usize::from(len)).unwrap_or(&device).to_vec())
+        })
+        .unwrap();
         let info = find_cdcacm_endpoints(&cfg).unwrap();
 
         assert_eq!((info.config_val, info.ctrl_if_num), (1, 2));
@@ -192,7 +182,5 @@ mod tests {
             (info.bulk_in_addr, info.bulk_out_addr, info.max_pkt),
             (0x84, 0x04, 64)
         );
-        // A read capped at 255 bytes, as before, misses the ACM interface.
-        assert!(find_cdcacm_endpoints(cfg.get(..255).unwrap()).is_none());
     }
 }

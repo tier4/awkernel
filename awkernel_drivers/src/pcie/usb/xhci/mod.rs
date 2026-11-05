@@ -216,7 +216,6 @@ const DESC_CONFIGURATION: u16 = 0x0200;
 /// Standard feature selector ENDPOINT_HALT (USB 2.0 Table 9-6).
 const FEATURE_ENDPOINT_HALT: u16 = 0;
 const DEVICE_DESC_LEN: u16 = 18;
-const CONFIG_DESC_HEADER_LEN: u16 = 9;
 
 // ---------------------------------------------------------------------------
 // Device state
@@ -446,7 +445,9 @@ impl HcCore {
         setup_phys: u64,
         data_phys: Option<u64>,
         status_phys: u64,
-    ) -> Result<(), XhciErr> {
+    ) -> Result<u32, XhciErr> {
+        // Bytes the Data Stage did not transfer, from its Short Packet event.
+        let mut residual: u32 = 0;
         for _ in 0..MAX_CTRL_EVENTS {
             let mut stale: u32 = 0;
             let result = self.wait_event(|ev| {
@@ -467,9 +468,12 @@ impl HcCore {
             let code = event.completion_code();
             if event.param == status_phys {
                 return match code {
-                    completion::SUCCESS | completion::SHORT_PACKET => Ok(()),
+                    completion::SUCCESS | completion::SHORT_PACKET => Ok(residual),
                     _ => Err(XhciErr::Completion(code)),
                 };
+            }
+            if data_phys == Some(event.param) && code == completion::SHORT_PACKET {
+                residual = event.transfer_length();
             }
             // Event from Setup or Data stage: Short Packet / Success on Data
             // Stage is followed by the Status Stage event; any error halts EP0
@@ -485,6 +489,17 @@ impl HcCore {
     /// Run one control transfer on EP0 of `dev`.  The data stage (if
     /// `setup.length > 0`) uses `dev.ctrl_buf`.
     fn control(&mut self, dev: &mut UsbDevice, setup: SetupPacket) -> Result<(), XhciErr> {
+        self.control_transfer(dev, setup).map(|_| ())
+    }
+
+    /// [`HcCore::control`], returning the number of data-stage bytes actually
+    /// transferred: fewer than `setup.length` when the device ends the data
+    /// stage with a short packet.
+    fn control_transfer(
+        &mut self,
+        dev: &mut UsbDevice,
+        setup: SetupPacket,
+    ) -> Result<usize, XhciErr> {
         let is_in = setup.is_in();
         let has_data = setup.length > 0;
         let trt = match (has_data, is_in) {
@@ -502,7 +517,9 @@ impl HcCore {
             Some(dev.ep0.enqueue(Trb {
                 param: phys_of(&dev.ctrl_buf)?,
                 status: u32::from(setup.length),
-                ctrl: trb_type::DATA_STAGE | if is_in { trb_flag::DIR_IN } else { 0 },
+                ctrl: trb_type::DATA_STAGE
+                    | trb_flag::ISP
+                    | if is_in { trb_flag::DIR_IN } else { 0 },
             })?)
         } else {
             None
@@ -520,7 +537,11 @@ impl HcCore {
         })?;
 
         self.ring_doorbell(dev.slot, EP0_DCI)?;
-        self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
+        let residual = self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)?;
+        u32::from(setup.length)
+            .checked_sub(residual)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or(XhciErr::Overflow)
     }
 
     /// Recover EP0 from HALTED state after a control-transfer STALL.
@@ -1077,43 +1098,41 @@ impl Controller {
     }
 
     /// GET_DESCRIPTOR(Configuration): the whole configuration, all wTotalLength
-    /// bytes.  A composite device can put the function we look for after other
-    /// functions, well past byte 255.
+    /// bytes (see [`desc::read_configuration`]).  The data stage lands in
+    /// `ctrl_buf`, one page.
     fn read_config_descriptor(&mut self, dev: &mut UsbDevice) -> Result<Vec<u8>, XhciErr> {
-        let mut setup = SetupPacket {
-            request_type: RT_DEV_IN,
-            request: REQ_GET_DESCRIPTOR,
-            value: DESC_CONFIGURATION,
-            index: 0,
-            length: CONFIG_DESC_HEADER_LEN,
-        };
-        // First pass: the 9-byte header, for wTotalLength.  The data stage
-        // lands in `ctrl_buf`, one page.
-        self.core.control(dev, setup)?;
-        let header = read_ctrl_buf::<9>(dev)?;
-        let Some(total) = desc::total_length(&header, PAGE_SIZE) else {
-            log::warn!(
-                "xHCI: {}: slot {} — invalid configuration descriptor header {header:02x?}",
-                self.name,
-                dev.slot
-            );
-            return Err(XhciErr::InvalidDescriptor);
-        };
-        log::info!(
-            "xHCI: {}: slot {} — configuration descriptor wTotalLength={total}",
-            self.name,
-            dev.slot
-        );
-
-        // Second pass: the whole configuration.  The device must report the
-        // same wTotalLength again.
-        setup.length = total;
-        self.core.control(dev, setup)?;
-        let cfg = read_ctrl_buf_prefix(dev, usize::from(total))?;
-        if desc::total_length(&cfg, PAGE_SIZE) != Some(total) {
-            return Err(XhciErr::InvalidDescriptor);
+        let core = &mut self.core;
+        let result = desc::read_configuration(PAGE_SIZE, |length| {
+            let setup = SetupPacket {
+                request_type: RT_DEV_IN,
+                request: REQ_GET_DESCRIPTOR,
+                value: DESC_CONFIGURATION,
+                index: 0,
+                length,
+            };
+            let received = core.control_transfer(dev, setup)?;
+            read_ctrl_buf_prefix(dev, received)
+        });
+        match result {
+            Ok(cfg) => {
+                log::info!(
+                    "xHCI: {}: slot {} — configuration descriptor wTotalLength={}",
+                    self.name,
+                    dev.slot,
+                    cfg.len()
+                );
+                Ok(cfg)
+            }
+            Err(desc::ReadConfigError::Transfer(e)) => Err(e),
+            Err(desc::ReadConfigError::Invalid) => {
+                log::warn!(
+                    "xHCI: {}: slot {} — invalid or short configuration descriptor",
+                    self.name,
+                    dev.slot
+                );
+                Err(XhciErr::InvalidDescriptor)
+            }
         }
-        Ok(cfg)
     }
 
     fn set_configuration(&mut self, dev: &mut UsbDevice, config_val: u8) -> Result<(), XhciErr> {

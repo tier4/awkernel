@@ -6,6 +6,9 @@
 //!
 //! WCET contract: no allocation, no panic; a walk visits at most `cfg.len() / 2`
 //! descriptors because each one consumes at least two bytes.
+//! [`read_configuration`] runs only at enumeration and issues two requests.
+
+use alloc::vec::Vec;
 
 const DT_CONFIGURATION: u8 = 2;
 const DT_INTERFACE: u8 = 4;
@@ -120,14 +123,45 @@ pub fn descriptors(cfg: &[u8]) -> Descriptors<'_> {
     Descriptors { rest: cfg }
 }
 
-/// wTotalLength of a configuration descriptor (USB 2.0 §9.6.3), the number of
-/// bytes to fetch for the whole configuration.
+/// Length of the Configuration Descriptor header, which carries wTotalLength.
+pub const CONFIG_HEADER_LEN: u16 = 9;
+
+/// Why [`read_configuration`] failed.
+#[derive(Debug, PartialEq)]
+pub enum ReadConfigError<E> {
+    /// A GET_DESCRIPTOR request failed.
+    Transfer(E),
+    /// Malformed header, a wTotalLength larger than the buffer, fewer bytes
+    /// than wTotalLength, or a different wTotalLength in the second read.
+    Invalid,
+}
+
+/// Read a whole configuration descriptor (USB 2.0 §9.4.3, §9.6.3).
 ///
-/// `cfg` starts with the Configuration Descriptor; `capacity` is the size of the
-/// buffer the data stage lands in.  Returns `None` if the header is malformed,
-/// if wTotalLength is shorter than the header, or if it exceeds `capacity`, so
-/// a configuration is never silently truncated.
-pub fn total_length(cfg: &[u8], capacity: usize) -> Option<u16> {
+/// `get(len)` issues GET_DESCRIPTOR(Configuration) for `len` bytes and returns
+/// the bytes the device actually sent: fewer than `len` if it ended the data
+/// stage with a short packet.  The first request reads the header for
+/// wTotalLength, the second all wTotalLength bytes, so a function that a
+/// composite device places after others (past byte 255, say) is not cut off.
+/// `capacity` is the size of the buffer the data stage lands in.  A
+/// configuration is never silently truncated: anything shorter or inconsistent
+/// is [`ReadConfigError::Invalid`].
+pub fn read_configuration<E>(
+    capacity: usize,
+    mut get: impl FnMut(u16) -> Result<Vec<u8>, E>,
+) -> Result<Vec<u8>, ReadConfigError<E>> {
+    let header = get(CONFIG_HEADER_LEN).map_err(ReadConfigError::Transfer)?;
+    let total = total_length(&header, capacity).ok_or(ReadConfigError::Invalid)?;
+    let cfg = get(total).map_err(ReadConfigError::Transfer)?;
+    if cfg.len() != usize::from(total) || total_length(&cfg, capacity) != Some(total) {
+        return Err(ReadConfigError::Invalid);
+    }
+    Ok(cfg)
+}
+
+/// wTotalLength of the configuration descriptor `cfg` starts with, if the
+/// header is well formed and wTotalLength fits `capacity`.
+fn total_length(cfg: &[u8], capacity: usize) -> Option<u16> {
     match *cfg {
         [len, DT_CONFIGURATION, lo, hi, ..] if len >= 9 => {
             let total = u16::from_le_bytes([lo, hi]);
@@ -150,35 +184,111 @@ pub fn configuration_value(cfg: &[u8]) -> Option<u8> {
 mod tests {
     use super::*;
 
-    /// Configuration Descriptor header with `wTotalLength = total`.
-    fn header(total: u16) -> [u8; 9] {
+    /// A configuration of `total` bytes: a header saying so, then padding.
+    fn configuration(total: u16) -> Vec<u8> {
         let [lo, hi] = total.to_le_bytes();
-        [9, DT_CONFIGURATION, lo, hi, 1, 1, 0, 0x80, 50]
+        let mut cfg = vec![9, DT_CONFIGURATION, lo, hi, 1, 1, 0, 0x80, 50];
+        cfg.resize(usize::from(total), 0);
+        cfg
+    }
+
+    /// A device that answers GET_DESCRIPTOR(Configuration) with `cfg`, sends
+    /// at most `limit` bytes per request (a short packet beyond that), and
+    /// records the requested lengths.
+    struct Device {
+        cfg: Vec<u8>,
+        limit: usize,
+        requests: Vec<u16>,
+    }
+
+    impl Device {
+        fn new(cfg: Vec<u8>) -> Self {
+            Self {
+                cfg,
+                limit: usize::MAX,
+                requests: Vec::new(),
+            }
+        }
+
+        fn get(&mut self, len: u16) -> Result<Vec<u8>, ()> {
+            self.requests.push(len);
+            let n = usize::from(len).min(self.cfg.len()).min(self.limit);
+            Ok(self.cfg[..n].to_vec())
+        }
     }
 
     #[test]
-    fn total_length_accepts_a_configuration_longer_than_255_bytes() {
-        assert_eq!(total_length(&header(300), 4096), Some(300));
-        assert_eq!(total_length(&header(4096), 4096), Some(4096));
+    fn reads_all_bytes_of_a_configuration_longer_than_255_bytes() {
+        let mut dev = Device::new(configuration(391));
+
+        let cfg = read_configuration(4096, |len| dev.get(len));
+
+        assert_eq!(cfg, Ok(configuration(391)));
+        assert_eq!(dev.requests, [9, 391]);
+    }
+
+    /// The device ends the data stage early: the residual of the short packet
+    /// makes `get` return fewer bytes than wTotalLength.
+    #[test]
+    fn rejects_a_short_transfer() {
+        let mut dev = Device::new(configuration(391));
+        dev.limit = 300;
+
+        let cfg = read_configuration(4096, |len| dev.get(len));
+
+        assert_eq!(cfg, Err(ReadConfigError::Invalid));
+        assert_eq!(dev.requests, [9, 391]);
     }
 
     #[test]
-    fn total_length_rejects_a_configuration_larger_than_the_buffer() {
-        assert_eq!(total_length(&header(4097), 4096), None);
+    fn rejects_a_total_length_that_changes_between_reads() {
+        let mut replies = [configuration(391), configuration(400)].into_iter();
+
+        let cfg = read_configuration(4096, |len| -> Result<Vec<u8>, ()> {
+            let reply = replies.next().unwrap();
+            Ok(reply[..usize::from(len)].to_vec())
+        });
+
+        assert_eq!(cfg, Err(ReadConfigError::Invalid));
     }
 
     #[test]
-    fn total_length_rejects_a_malformed_header() {
-        // wTotalLength shorter than the header itself.
-        assert_eq!(total_length(&header(8), 4096), None);
-        // Not a Configuration Descriptor.
-        let mut not_config = header(300);
+    fn rejects_a_configuration_larger_than_the_buffer() {
+        let mut dev = Device::new(configuration(4097));
+
+        let cfg = read_configuration(4096, |len| dev.get(len));
+
+        assert_eq!(cfg, Err(ReadConfigError::Invalid));
+        assert_eq!(dev.requests, [9]);
+    }
+
+    #[test]
+    fn rejects_a_malformed_header() {
+        let mut short_total = configuration(9);
+        short_total[2] = 8; // wTotalLength shorter than the header
+        let mut not_config = configuration(300);
         not_config[1] = DT_INTERFACE;
-        assert_eq!(total_length(&not_config, 4096), None);
-        // bLength too short, and a truncated header.
-        let mut short = header(300);
-        short[0] = 8;
-        assert_eq!(total_length(&short, 4096), None);
-        assert_eq!(total_length(&[9, DT_CONFIGURATION], 4096), None);
+        let mut short_length = configuration(300);
+        short_length[0] = 8; // bLength
+        for cfg in [
+            short_total,
+            not_config,
+            short_length,
+            vec![9, DT_CONFIGURATION],
+        ] {
+            let mut dev = Device::new(cfg);
+
+            assert_eq!(
+                read_configuration(4096, |len| dev.get(len)),
+                Err(ReadConfigError::Invalid)
+            );
+        }
+    }
+
+    #[test]
+    fn passes_a_transfer_error_through() {
+        let cfg = read_configuration(4096, |_| Err("stall"));
+
+        assert_eq!(cfg, Err(ReadConfigError::Transfer("stall")));
     }
 }

@@ -86,6 +86,9 @@ pub mod trb_flag {
     pub const CYCLE: u32 = 1 << 0;
     /// Link TRB: Toggle Cycle — flips the Ring Cycle State when traversed.
     pub const LINK_TC: u32 = 1 << 1;
+    /// Transfer TRB: Interrupt-on Short Packet — a short packet generates a
+    /// Transfer Event whose TRB Transfer Length is the residual (§4.10.1.1).
+    pub const ISP: u32 = 1 << 2;
     /// Interrupt On Completion.
     pub const IOC: u32 = 1 << 5;
     /// Setup Stage TRB: Immediate Data (setup packet is inside the TRB).
