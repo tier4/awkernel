@@ -217,8 +217,6 @@ const DESC_CONFIGURATION: u16 = 0x0200;
 const FEATURE_ENDPOINT_HALT: u16 = 0;
 const DEVICE_DESC_LEN: u16 = 18;
 const CONFIG_DESC_HEADER_LEN: u16 = 9;
-/// Largest configuration descriptor we fetch (fits the 255-byte parse buffer).
-const CONFIG_DESC_MAX: u16 = 255;
 
 // ---------------------------------------------------------------------------
 // Device state
@@ -1078,11 +1076,10 @@ impl Controller {
         Ok(())
     }
 
-    /// GET_DESCRIPTOR(Configuration): returns the descriptor bytes and their length.
-    fn read_config_descriptor(
-        &mut self,
-        dev: &mut UsbDevice,
-    ) -> Result<([u8; 255], usize), XhciErr> {
+    /// GET_DESCRIPTOR(Configuration): the whole configuration, all wTotalLength
+    /// bytes.  A composite device can put the function we look for after other
+    /// functions, well past byte 255.
+    fn read_config_descriptor(&mut self, dev: &mut UsbDevice) -> Result<Vec<u8>, XhciErr> {
         let mut setup = SetupPacket {
             request_type: RT_DEV_IN,
             request: REQ_GET_DESCRIPTOR,
@@ -1090,24 +1087,33 @@ impl Controller {
             index: 0,
             length: CONFIG_DESC_HEADER_LEN,
         };
-        // First pass: 9 bytes to learn wTotalLength.
+        // First pass: the 9-byte header, for wTotalLength.  The data stage
+        // lands in `ctrl_buf`, one page.
         self.core.control(dev, setup)?;
-        let [_, _, total_lo, total_hi, ..] = read_ctrl_buf::<9>(dev)?;
-        let total = u16::from_le_bytes([total_lo, total_hi]);
-        let fetch = total.min(CONFIG_DESC_MAX);
+        let header = read_ctrl_buf::<9>(dev)?;
+        let Some(total) = desc::total_length(&header, PAGE_SIZE) else {
+            log::warn!(
+                "xHCI: {}: slot {} — invalid configuration descriptor header {header:02x?}",
+                self.name,
+                dev.slot
+            );
+            return Err(XhciErr::InvalidDescriptor);
+        };
         log::info!(
-            "xHCI: {}: configuration descriptor wTotalLength={total} fetch={fetch}",
-            self.name
+            "xHCI: {}: slot {} — configuration descriptor wTotalLength={total}",
+            self.name,
+            dev.slot
         );
-        if fetch < CONFIG_DESC_HEADER_LEN {
+
+        // Second pass: the whole configuration.  The device must report the
+        // same wTotalLength again.
+        setup.length = total;
+        self.core.control(dev, setup)?;
+        let cfg = read_ctrl_buf_prefix(dev, usize::from(total))?;
+        if desc::total_length(&cfg, PAGE_SIZE) != Some(total) {
             return Err(XhciErr::InvalidDescriptor);
         }
-
-        // Second pass: full descriptor.
-        setup.length = fetch;
-        self.core.control(dev, setup)?;
-        let page = read_ctrl_buf::<255>(dev)?;
-        Ok((page, usize::from(fetch)))
+        Ok(cfg)
     }
 
     fn set_configuration(&mut self, dev: &mut UsbDevice, config_val: u8) -> Result<(), XhciErr> {
@@ -1258,11 +1264,8 @@ impl Controller {
             dev.desc.bcd_device
         );
 
-        let (cfg, len) = self.read_config_descriptor(dev)?;
-        let info = cfg
-            .get(..len)
-            .and_then(pl2303::find_bulk_endpoints)
-            .ok_or(XhciErr::InvalidDescriptor)?;
+        let cfg = self.read_config_descriptor(dev)?;
+        let info = pl2303::find_bulk_endpoints(&cfg).ok_or(XhciErr::InvalidDescriptor)?;
 
         let mut chip =
             pl2303::detect_chip_type(dev.desc.bcd_device, dev.desc.class, dev.desc.max_packet0);
@@ -1388,8 +1391,8 @@ impl Controller {
     /// CDC-ACM: find the ACM interface pair and configure 115200 8N1.
     /// Returns `Ok(false)` when the CDC device has no ACM interface.
     fn setup_cdcacm(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
-        let (cfg, len) = self.read_config_descriptor(dev)?;
-        let Some(info) = cfg.get(..len).and_then(cdc_acm::find_cdcacm_endpoints) else {
+        let cfg = self.read_config_descriptor(dev)?;
+        let Some(info) = cdc_acm::find_cdcacm_endpoints(&cfg) else {
             log::info!(
                 "xHCI: {}: slot {} — no CDC-ACM interface",
                 self.name,
@@ -1626,6 +1629,14 @@ fn read_ctrl_buf<const N: usize>(dev: &UsbDevice) -> Result<[u8; N], XhciErr> {
     // SAFETY: `bytes` points into the live DMA page; volatile because the
     // controller wrote it via DMA.
     Ok(unsafe { read_volatile(bytes) })
+}
+
+/// Copy the first `len` bytes of `dev.ctrl_buf` written by the controller.
+fn read_ctrl_buf_prefix(dev: &UsbDevice, len: usize) -> Result<Vec<u8>, XhciErr> {
+    let bytes = dev.ctrl_buf.as_ref().get(..len).ok_or(XhciErr::Overflow)?;
+    // SAFETY: each `b` points into the live DMA page; volatile because the
+    // controller wrote it via DMA.
+    Ok(bytes.iter().map(|b| unsafe { read_volatile(b) }).collect())
 }
 
 fn new_serial_port(

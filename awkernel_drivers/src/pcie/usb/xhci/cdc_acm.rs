@@ -108,3 +108,91 @@ pub fn find_cdcacm_endpoints(cfg: &[u8]) -> Option<CdcAcmInfo> {
         max_pkt,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A UAC2-like audio function on interfaces 0 and 1: Audio Control with
+    /// `units` Feature Unit descriptors (CS_INTERFACE subtype 0x06, the same
+    /// subtype as a CDC Union) and Audio Streaming with an isochronous endpoint.
+    fn audio_function(units: usize) -> Vec<u8> {
+        let mut d = vec![
+            8, 0x0B, 0, 2, 0x01, 0x00, 0x20, 0, // IAD, interfaces 0-1
+            9, 4, 0, 0, 0, 0x01, 0x01, 0x20, 0, // Audio Control
+        ];
+        for _ in 0..units {
+            d.extend_from_slice(&[10, 0x24, 0x06, 2, 1, 0, 0, 0, 0, 0]);
+        }
+        d.extend_from_slice(&[
+            9, 4, 1, 0, 1, 0x01, 0x02, 0x20, 0, // Audio Streaming
+            7, 5, 0x01, 0x05, 0xc4, 0x00, 1, // isochronous OUT
+        ]);
+        d
+    }
+
+    /// A CDC-ACM function: Communication interface `ctrl`, Data interface `ctrl + 1`.
+    fn acm_function(ctrl: u8) -> Vec<u8> {
+        let data = ctrl + 1;
+        vec![
+            8, 0x0B, ctrl, 2, 0x02, 0x02, 0x00, 0, // IAD
+            9, 4, ctrl, 0, 1, 0x02, 0x02, 0x00, 0, // Communication, ACM
+            5, 0x24, 0x00, 0x20, 0x01, // Header
+            5, 0x24, 0x01, 0x00, data, // Call Management
+            4, 0x24, 0x02, 0x02, // ACM
+            5, 0x24, 0x06, ctrl, data, // Union
+            7, 5, 0x83, 0x03, 8, 0, 16, // interrupt IN
+            9, 4, data, 0, 2, 0x0A, 0x00, 0x00, 0, // Data
+            7, 5, 0x04, 0x02, 64, 0, 0, // bulk OUT
+            7, 5, 0x84, 0x02, 64, 0, 0, // bulk IN
+        ]
+    }
+
+    /// A configuration (bConfigurationValue 1) holding `functions`.
+    fn configuration(functions: &[&[u8]], num_interfaces: u8) -> Vec<u8> {
+        let body: usize = functions.iter().map(|f| f.len()).sum();
+        let [lo, hi] = u16::try_from(9 + body).unwrap().to_le_bytes();
+        let mut cfg = vec![9, 2, lo, hi, num_interfaces, 1, 0, 0x80, 50];
+        for f in functions {
+            cfg.extend_from_slice(f);
+        }
+        cfg
+    }
+
+    #[test]
+    fn finds_acm_in_a_simple_configuration() {
+        let cfg = configuration(&[&acm_function(0)], 2);
+
+        let info = find_cdcacm_endpoints(&cfg).unwrap();
+
+        assert_eq!((info.config_val, info.ctrl_if_num), (1, 0));
+        assert_eq!(
+            (info.bulk_in_addr, info.bulk_out_addr, info.max_pkt),
+            (0x84, 0x04, 64)
+        );
+    }
+
+    /// A composite device that puts a large audio function before its CDC
+    /// function, as in TinyUSB's CDC + UAC2 example.
+    #[test]
+    fn finds_acm_beyond_byte_255() {
+        let audio = audio_function(30);
+        let cfg = configuration(&[&audio, &acm_function(2)], 4);
+        assert!(
+            9 + audio.len() > 255,
+            "the CDC function must start beyond byte 255"
+        );
+        let total = u16::try_from(cfg.len()).unwrap();
+        assert_eq!(desc::total_length(&cfg, 4096), Some(total));
+
+        let info = find_cdcacm_endpoints(&cfg).unwrap();
+
+        assert_eq!((info.config_val, info.ctrl_if_num), (1, 2));
+        assert_eq!(
+            (info.bulk_in_addr, info.bulk_out_addr, info.max_pkt),
+            (0x84, 0x04, 64)
+        );
+        // A read capped at 255 bytes, as before, misses the ACM interface.
+        assert!(find_cdcacm_endpoints(cfg.get(..255).unwrap()).is_none());
+    }
+}

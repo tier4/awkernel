@@ -120,11 +120,65 @@ pub fn descriptors(cfg: &[u8]) -> Descriptors<'_> {
     Descriptors { rest: cfg }
 }
 
+/// wTotalLength of a configuration descriptor (USB 2.0 §9.6.3), the number of
+/// bytes to fetch for the whole configuration.
+///
+/// `cfg` starts with the Configuration Descriptor; `capacity` is the size of the
+/// buffer the data stage lands in.  Returns `None` if the header is malformed,
+/// if wTotalLength is shorter than the header, or if it exceeds `capacity`, so
+/// a configuration is never silently truncated.
+pub fn total_length(cfg: &[u8], capacity: usize) -> Option<u16> {
+    match *cfg {
+        [len, DT_CONFIGURATION, lo, hi, ..] if len >= 9 => {
+            let total = u16::from_le_bytes([lo, hi]);
+            (total >= u16::from(len) && usize::from(total) <= capacity).then_some(total)
+        }
+        _ => None,
+    }
+}
+
 /// bConfigurationValue of a configuration descriptor, or `None` if `cfg` does
 /// not start with a valid 9-byte Configuration Descriptor.
 pub fn configuration_value(cfg: &[u8]) -> Option<u8> {
     match *cfg {
         [len, DT_CONFIGURATION, _, _, _, value, _, _, _, ..] if len >= 9 => Some(value),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Configuration Descriptor header with `wTotalLength = total`.
+    fn header(total: u16) -> [u8; 9] {
+        let [lo, hi] = total.to_le_bytes();
+        [9, DT_CONFIGURATION, lo, hi, 1, 1, 0, 0x80, 50]
+    }
+
+    #[test]
+    fn total_length_accepts_a_configuration_longer_than_255_bytes() {
+        assert_eq!(total_length(&header(300), 4096), Some(300));
+        assert_eq!(total_length(&header(4096), 4096), Some(4096));
+    }
+
+    #[test]
+    fn total_length_rejects_a_configuration_larger_than_the_buffer() {
+        assert_eq!(total_length(&header(4097), 4096), None);
+    }
+
+    #[test]
+    fn total_length_rejects_a_malformed_header() {
+        // wTotalLength shorter than the header itself.
+        assert_eq!(total_length(&header(8), 4096), None);
+        // Not a Configuration Descriptor.
+        let mut not_config = header(300);
+        not_config[1] = DT_INTERFACE;
+        assert_eq!(total_length(&not_config, 4096), None);
+        // bLength too short, and a truncated header.
+        let mut short = header(300);
+        short[0] = 8;
+        assert_eq!(total_length(&short, 4096), None);
+        assert_eq!(total_length(&[9, DT_CONFIGURATION], 4096), None);
     }
 }
