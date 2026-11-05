@@ -171,7 +171,7 @@ mod tests {
             "the CDC function must start beyond byte 255"
         );
 
-        let cfg = desc::read_configuration(4096, |len| -> Result<Vec<u8>, ()> {
+        let cfg = desc::read_configuration(|len| -> Result<Vec<u8>, ()> {
             Ok(device.get(..usize::from(len)).unwrap_or(&device).to_vec())
         })
         .unwrap();

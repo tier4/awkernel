@@ -31,6 +31,7 @@ mod desc;
 mod pl2303;
 mod regs;
 mod ring;
+mod trb_buffer;
 
 use regs::{completion, trb_flag, trb_type};
 use ring::{publish, CommandRing, Dcbaa, EventRing, TransferRing, Trb};
@@ -500,6 +501,19 @@ impl HcCore {
         dev: &mut UsbDevice,
         setup: SetupPacket,
     ) -> Result<usize, XhciErr> {
+        let ctrl_buf = phys_of(&dev.ctrl_buf)?;
+        self.control_transfer_to(dev, setup, ctrl_buf)
+    }
+
+    /// [`HcCore::control_transfer`] with the data stage in the buffer at
+    /// physical address `data_buf`, which must hold `setup.length` bytes and
+    /// not cross a 64 KiB boundary.
+    fn control_transfer_to(
+        &mut self,
+        dev: &mut UsbDevice,
+        setup: SetupPacket,
+        data_buf: u64,
+    ) -> Result<usize, XhciErr> {
         let is_in = setup.is_in();
         let has_data = setup.length > 0;
         let trt = match (has_data, is_in) {
@@ -515,7 +529,7 @@ impl HcCore {
         })?;
         let data_phys = if has_data {
             Some(dev.ep0.enqueue(Trb {
-                param: phys_of(&dev.ctrl_buf)?,
+                param: data_buf,
                 status: u32::from(setup.length),
                 ctrl: trb_type::DATA_STAGE
                     | trb_flag::ISP
@@ -1098,11 +1112,12 @@ impl Controller {
     }
 
     /// GET_DESCRIPTOR(Configuration): the whole configuration, all wTotalLength
-    /// bytes (see [`desc::read_configuration`]).  The data stage lands in
-    /// `ctrl_buf`, one page.
+    /// bytes, up to 65535 (see [`desc::read_configuration`]).  A data stage
+    /// that fits `ctrl_buf` (one page) lands there, a longer one in a
+    /// transient buffer.
     fn read_config_descriptor(&mut self, dev: &mut UsbDevice) -> Result<Vec<u8>, XhciErr> {
         let core = &mut self.core;
-        let result = desc::read_configuration(PAGE_SIZE, |length| {
+        let result = desc::read_configuration(|length| {
             let setup = SetupPacket {
                 request_type: RT_DEV_IN,
                 request: REQ_GET_DESCRIPTOR,
@@ -1110,8 +1125,12 @@ impl Controller {
                 index: 0,
                 length,
             };
-            let received = core.control_transfer(dev, setup)?;
-            read_ctrl_buf_prefix(dev, received)
+            if usize::from(length) <= PAGE_SIZE {
+                let received = core.control_transfer(dev, setup)?;
+                read_ctrl_buf_prefix(dev, received)
+            } else {
+                control_in_large(core, dev, setup)
+            }
         });
         match result {
             Ok(cfg) => {
@@ -1648,6 +1667,49 @@ fn read_ctrl_buf<const N: usize>(dev: &UsbDevice) -> Result<[u8; N], XhciErr> {
     // SAFETY: `bytes` points into the live DMA page; volatile because the
     // controller wrote it via DMA.
     Ok(unsafe { read_volatile(bytes) })
+}
+
+/// Size of the transient buffer for a data stage longer than `ctrl_buf`: two
+/// 64 KiB blocks, so a window for any wLength (at most 65535 bytes) that
+/// crosses no 64 KiB boundary fits wherever the pages are placed.
+const LARGE_BUF_SIZE: usize = 2 * 0x1_0000;
+type LargeBuf = [u8; LARGE_BUF_SIZE];
+
+/// IN control transfer whose data stage is longer than `ctrl_buf`, into a
+/// transient buffer.  Enumeration only (allocates 128 KiB of DMA memory).  The
+/// buffer is freed afterwards unless the transfer timed out, as the controller
+/// may still write it then.
+fn control_in_large(
+    core: &mut HcCore,
+    dev: &mut UsbDevice,
+    setup: SetupPacket,
+) -> Result<Vec<u8>, XhciErr> {
+    let buf = ManuallyDrop::new(
+        DMAPool::<LargeBuf>::new(NUMA_NODE, LARGE_BUF_SIZE / PAGE_SIZE).ok_or(XhciErr::DmaAlloc)?,
+    );
+    let result = read_large(core, dev, setup, &buf);
+    release_unless_timeout(buf, &result);
+    result
+}
+
+fn read_large(
+    core: &mut HcCore,
+    dev: &mut UsbDevice,
+    setup: SetupPacket,
+    buf: &DMAPool<LargeBuf>,
+) -> Result<Vec<u8>, XhciErr> {
+    let phys = phys_of(buf)?;
+    let offset = trb_buffer::window_offset(phys, LARGE_BUF_SIZE, usize::from(setup.length))
+        .ok_or(XhciErr::Overflow)?;
+    let window = phys
+        .checked_add(u64::try_from(offset).map_err(|_| XhciErr::Overflow)?)
+        .ok_or(XhciErr::Overflow)?;
+    let received = core.control_transfer_to(dev, setup, window)?;
+    let end = offset.checked_add(received).ok_or(XhciErr::Overflow)?;
+    let bytes = buf.as_ref().get(offset..end).ok_or(XhciErr::Overflow)?;
+    // SAFETY: each `b` points into the live DMA buffer; volatile because the
+    // controller wrote it via DMA.
+    Ok(bytes.iter().map(|b| unsafe { read_volatile(b) }).collect())
 }
 
 /// Copy the first `len` bytes of `dev.ctrl_buf` written by the controller.
