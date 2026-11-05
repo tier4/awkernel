@@ -28,8 +28,9 @@ use core::ptr::null_mut;
 use core::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
 use core::time::Duration;
 
-pub use imu_corrector::{transform_covariance, ImuWithCovariance, Transform};
-pub use imu_driver::{Header, ImuMsg, Vector3};
+pub use common_types::{transform::Transform, Header, Vector3};
+pub use imu_corrector::{transform_covariance, ImuWithCovariance};
+pub use imu_driver::ImuMsg;
 pub use vehicle_velocity_converter::{Twist, TwistWithCovariance, TwistWithCovarianceStamped};
 
 static GYRO_ODOMETER_INSTANCE: AtomicPtr<GyroOdometerCore> = AtomicPtr::new(null_mut());
@@ -126,7 +127,7 @@ impl GyroOdometerCore {
         // via transform_covariance() after transforming angular_velocity. This is omitted here
         // because the TF used in evaluation is a fixed identity transform, so the result is the same.
         for gyro in &mut self.gyro_queue {
-            let transformed_angular_velocity = tf.apply_to_vector(gyro.angular_velocity.clone());
+            let transformed_angular_velocity = tf.apply(&gyro.angular_velocity);
             gyro.angular_velocity = transformed_angular_velocity;
         }
 
