@@ -490,25 +490,16 @@ impl HcCore {
     /// Run one control transfer on EP0 of `dev`.  The data stage (if
     /// `setup.length > 0`) uses `dev.ctrl_buf`.
     fn control(&mut self, dev: &mut UsbDevice, setup: SetupPacket) -> Result<(), XhciErr> {
-        self.control_transfer(dev, setup).map(|_| ())
-    }
-
-    /// [`HcCore::control`], returning the number of data-stage bytes actually
-    /// transferred: fewer than `setup.length` when the device ends the data
-    /// stage with a short packet.
-    fn control_transfer(
-        &mut self,
-        dev: &mut UsbDevice,
-        setup: SetupPacket,
-    ) -> Result<usize, XhciErr> {
         let ctrl_buf = phys_of(&dev.ctrl_buf)?;
-        self.control_transfer_to(dev, setup, ctrl_buf)
+        self.control_transfer(dev, setup, ctrl_buf).map(|_| ())
     }
 
-    /// [`HcCore::control_transfer`] with the data stage in the buffer at
-    /// physical address `data_buf`, which must hold `setup.length` bytes and
-    /// not cross a 64 KiB boundary.
-    fn control_transfer_to(
+    /// Run one control transfer on EP0 of `dev` with the data stage in the
+    /// buffer at physical address `data_buf`, which must hold `setup.length`
+    /// bytes and not cross a 64 KiB boundary.  Returns the number of
+    /// data-stage bytes actually transferred: fewer than `setup.length` when
+    /// the device ends the data stage with a short packet.
+    fn control_transfer(
         &mut self,
         dev: &mut UsbDevice,
         setup: SetupPacket,
@@ -1126,8 +1117,9 @@ impl Controller {
                 length,
             };
             if usize::from(length) <= PAGE_SIZE {
-                let received = core.control_transfer(dev, setup)?;
-                read_ctrl_buf_prefix(dev, received)
+                let ctrl_buf = phys_of(&dev.ctrl_buf)?;
+                let received = core.control_transfer(dev, setup, ctrl_buf)?;
+                read_dma(dev.ctrl_buf.as_ref(), 0, received)
             } else {
                 control_in_large(core, dev, setup)
             }
@@ -1704,18 +1696,15 @@ fn read_large(
     let window = phys
         .checked_add(u64::try_from(offset).map_err(|_| XhciErr::Overflow)?)
         .ok_or(XhciErr::Overflow)?;
-    let received = core.control_transfer_to(dev, setup, window)?;
-    let end = offset.checked_add(received).ok_or(XhciErr::Overflow)?;
-    let bytes = buf.as_ref().get(offset..end).ok_or(XhciErr::Overflow)?;
-    // SAFETY: each `b` points into the live DMA buffer; volatile because the
-    // controller wrote it via DMA.
-    Ok(bytes.iter().map(|b| unsafe { read_volatile(b) }).collect())
+    let received = core.control_transfer(dev, setup, window)?;
+    read_dma(buf.as_ref(), offset, received)
 }
 
-/// Copy the first `len` bytes of `dev.ctrl_buf` written by the controller.
-fn read_ctrl_buf_prefix(dev: &UsbDevice, len: usize) -> Result<Vec<u8>, XhciErr> {
-    let bytes = dev.ctrl_buf.as_ref().get(..len).ok_or(XhciErr::Overflow)?;
-    // SAFETY: each `b` points into the live DMA page; volatile because the
+/// Copy the `len` bytes at `start` of a DMA buffer written by the controller.
+fn read_dma(buf: &[u8], start: usize, len: usize) -> Result<Vec<u8>, XhciErr> {
+    let end = start.checked_add(len).ok_or(XhciErr::Overflow)?;
+    let bytes = buf.get(start..end).ok_or(XhciErr::Overflow)?;
+    // SAFETY: each `b` points into the live DMA buffer; volatile because the
     // controller wrote it via DMA.
     Ok(bytes.iter().map(|b| unsafe { read_volatile(b) }).collect())
 }

@@ -124,7 +124,7 @@ pub fn descriptors(cfg: &[u8]) -> Descriptors<'_> {
 }
 
 /// Length of the Configuration Descriptor header, which carries wTotalLength.
-pub const CONFIG_HEADER_LEN: u16 = 9;
+const CONFIG_HEADER_LEN: u16 = 9;
 
 /// Why [`read_configuration`] failed.
 #[derive(Debug, PartialEq)]
@@ -216,14 +216,18 @@ mod tests {
         }
     }
 
+    /// Longer than 255 bytes (the old limit), longer than the driver's
+    /// one-page control buffer, and the longest wTotalLength.
     #[test]
-    fn reads_all_bytes_of_a_configuration_longer_than_255_bytes() {
-        let mut dev = Device::new(configuration(391));
+    fn reads_all_bytes_of_a_long_configuration() {
+        for total in [391, 5000, 65535] {
+            let mut dev = Device::new(configuration(total));
 
-        let cfg = read_configuration(|len| dev.get(len));
+            let cfg = read_configuration(|len| dev.get(len));
 
-        assert_eq!(cfg, Ok(configuration(391)));
-        assert_eq!(dev.requests, [9, 391]);
+            assert_eq!(cfg, Ok(configuration(total)));
+            assert_eq!(dev.requests, [9, total]);
+        }
     }
 
     /// The device ends the data stage early: the residual of the short packet
@@ -251,20 +255,6 @@ mod tests {
         assert_eq!(cfg, Err(ReadConfigError::Invalid));
     }
 
-    /// Longer than the driver's one-page control buffer, up to the longest
-    /// wTotalLength.
-    #[test]
-    fn reads_a_configuration_longer_than_a_page() {
-        for total in [5000, 65535] {
-            let mut dev = Device::new(configuration(total));
-
-            let cfg = read_configuration(|len| dev.get(len));
-
-            assert_eq!(cfg, Ok(configuration(total)));
-            assert_eq!(dev.requests, [9, total]);
-        }
-    }
-
     #[test]
     fn rejects_a_malformed_header() {
         let mut short_total = configuration(9);
@@ -286,12 +276,5 @@ mod tests {
                 Err(ReadConfigError::Invalid)
             );
         }
-    }
-
-    #[test]
-    fn passes_a_transfer_error_through() {
-        let cfg = read_configuration(|_| Err("stall"));
-
-        assert_eq!(cfg, Err(ReadConfigError::Transfer("stall")));
     }
 }

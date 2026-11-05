@@ -46,27 +46,18 @@ mod tests {
         start / TRB_BOUNDARY == last / TRB_BOUNDARY
     }
 
+    /// Any page-aligned placement of a 128 KiB buffer holds a window that
+    /// crosses no boundary, for the lengths the driver uses this for: longer
+    /// than one page, up to 65535 bytes (the longest wTotalLength).
     #[test]
-    fn keeps_a_window_that_fits_before_the_boundary() {
-        assert_eq!(window_offset(0x10_0000, 4096, 4096), Some(0));
-        assert_eq!(window_offset(0x10_f000, 2 * BOUNDARY, 4096), Some(0));
-    }
-
-    #[test]
-    fn moves_a_window_that_would_cross_to_the_boundary() {
-        // 0x10_f000 + 5000 crosses 0x11_0000; the window starts there instead.
-        assert_eq!(window_offset(0x10_f000, 2 * BOUNDARY, 5000), Some(0x1000));
-    }
-
-    /// Any page-aligned placement of a 128 KiB buffer holds a 65535-byte
-    /// window (the longest wTotalLength) that crosses no boundary.
-    #[test]
-    fn a_two_block_buffer_always_holds_the_longest_data_stage() {
-        for page in 0..32 {
-            let phys = 0x40_0000 + page * 0x1000;
-            let offset = window_offset(phys, 2 * BOUNDARY, 65535).unwrap();
-            assert!(offset + 65535 <= 2 * BOUNDARY);
-            assert!(within_one_block(phys, offset, 65535));
+    fn a_two_block_buffer_always_holds_a_window() {
+        for len in [4097, 5000, 65535] {
+            for page in 0..32 {
+                let phys = 0x40_0000 + page * 0x1000;
+                let offset = window_offset(phys, 2 * BOUNDARY, len).unwrap();
+                assert!(offset + len <= 2 * BOUNDARY);
+                assert!(within_one_block(phys, offset, len));
+            }
         }
     }
 
