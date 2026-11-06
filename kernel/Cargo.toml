@@ -84,7 +84,6 @@ no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
 usb_serial = ["awkernel_drivers/xhci"]
 x86 = [
-    "perf",
     "no_std_unwinding",
     "awkernel_lib/x86",
     "dep:x86_64",
@@ -97,7 +96,6 @@ x86 = [
     "heap-wf-alloc",
 ]
 rv32 = [
-    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv32",
     "dep:ns16550a",
@@ -105,16 +103,14 @@ rv32 = [
     "heap-tlsf",
 ]
 rv64 = [
-    "perf",
     "no_std_unwinding",
     "awkernel_lib/rv64",
     "dep:ns16550a",
     "heap-tlsf",
     #    "awkernel_drivers/rv64",
 ]
-std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
+std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
-    "perf",
     "no_std_unwinding",
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
@@ -146,3 +142,4 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
+dvfs = []
