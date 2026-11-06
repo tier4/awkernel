@@ -301,6 +301,30 @@ mod tests {
     }
 
     #[test]
+    fn quaternion_component_order_matches_nalgebra_convention() {
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let yaw = Transform::try_new(
+            Vector3::zeros(),
+            Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two),
+        )
+        .unwrap();
+        let rotated = yaw.rotate(&Vector3::new(1.0, 0.0, 0.0));
+
+        assert_almost_eq(rotated.x, 0.0);
+        assert_almost_eq(rotated.y, 1.0);
+        assert_almost_eq(rotated.z, 0.0);
+
+        let roll =
+            Transform::try_new(Vector3::zeros(), Quaternion::new(0.0, 1.0, 0.0, 0.0)).unwrap();
+        let angular_velocity = Vector3::new(1.0, 2.0, 3.0);
+        let rotated = roll.rotate(&angular_velocity);
+
+        assert_almost_eq(rotated.x, angular_velocity.x);
+        assert_almost_eq(rotated.y, -angular_velocity.y);
+        assert_almost_eq(rotated.z, -angular_velocity.z);
+    }
+
+    #[test]
     #[expect(
         deprecated,
         reason = "regression test for the legacy ROS2-porting helper"
