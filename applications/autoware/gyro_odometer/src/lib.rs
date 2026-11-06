@@ -127,7 +127,7 @@ impl GyroOdometerCore {
         // via transform_covariance() after transforming angular_velocity. This is omitted here
         // because the TF used in evaluation is a fixed identity transform, so the result is the same.
         for gyro in &mut self.gyro_queue {
-            let transformed_angular_velocity = tf.apply(&gyro.angular_velocity);
+            let transformed_angular_velocity = tf.rotate(&gyro.angular_velocity);
             gyro.angular_velocity = transformed_angular_velocity;
         }
 

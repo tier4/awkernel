@@ -146,6 +146,7 @@ impl<T: TransformListener> ImuCorrector<T> {
     // However, the actual vehicle TF would produce incorrect results if skipped.
     // TODO: To be implemented in a subsequent PR:
     // Fix by hardcoding a fixed tf value to prevent None from being passed by the caller.
+    // Prefer Transform::try_new with Quaternion::new(w, x, y, z), not ROS order [x, y, z, w].
     //
     // If dynamic TF support is added in the future, the recommended fallback is to
     // return an empty/zeroed ImuWithCovariance (analogous to `create_empty_twist` in
