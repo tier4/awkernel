@@ -15,8 +15,8 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::verified::ringq::RingQ;
 use alloc::{collections::BTreeMap, sync::Arc};
-use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
     iface::{Config, Interface, SocketSet},
     phy::{self, Checksum, Device, DeviceCapabilities},

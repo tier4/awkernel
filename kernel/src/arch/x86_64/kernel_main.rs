@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
-    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, PHYSICAL_MEMORY_OFFSET, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use acpi::{madt::MadtEntry, platform::ProcessorState, AcpiTables};
@@ -26,6 +26,7 @@ use awkernel_lib::{
         acpi::AcpiMapper,
         cpu::set_raw_cpu_id_to_numa,
         delay::synchronize_tsc,
+        identity_map::identity_map,
         interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
@@ -33,7 +34,7 @@ use awkernel_lib::{
     console::{self, unsafe_puts},
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
-    paging::{PageTable, PAGESIZE},
+    paging::PAGESIZE,
     unwind::catch_unwind,
 };
 use bootloader_api::{
@@ -61,7 +62,7 @@ extern "C" {
 
 pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
-    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.mappings.physical_memory = Some(Mapping::FixedAddress(PHYSICAL_MEMORY_OFFSET));
     config.kernel_stack_size = STACK_SIZE as u64;
     config
 };
@@ -254,7 +255,7 @@ fn kernel_main2(
         );
 
         // 12. Map a page for `mpboot.img`.
-        let mpboot_start = map_mpboot_page(boot_info, &mut awkernel_page_table, page_allocator0);
+        let mpboot_start = map_mpboot_page(boot_info, &mut page_table, page_allocator0);
 
         (type_apic, mpboot_start)
     } else {
@@ -635,7 +636,7 @@ fn non_primary_kernel_main() -> ! {
 
 fn map_mpboot_page(
     boot_info: &mut BootInfo,
-    page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
+    page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut VecPageAllocator,
 ) -> u64 {
     let start = if let Some(region) = boot_info
@@ -649,28 +650,22 @@ fn map_mpboot_page(
         0
     };
 
-    let flags = awkernel_lib::paging::Flags {
-        execute: true,
-        write: true,
-        cache: false,
-        device: false,
-        write_through: false,
-    };
+    // Writable and executable: the AP trampoline runs from this page, keeps its
+    // first stack in it with CR0.WP set, and writes the next CPU ID into it.
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+    let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(start));
 
-    unsafe {
-        match page_table.map_to(
-            awkernel_lib::addr::virt_addr::VirtAddr::new(start as usize),
-            awkernel_lib::addr::phy_addr::PhyAddr::new(start as usize),
-            flags,
-            page_allocator,
-        ) {
-            Ok(_) => start,
-            Err(_) => {
-                unsafe_puts("Failed to map the page for `mpboot.img`.\r\n");
-                wait_forever();
-            }
+    // The page may already be identity-mapped read-only (the bootloader's
+    // context switch page); `identity_map` then replaces the entry.
+    match unsafe { identity_map(page_table, frame, flags, page_allocator) } {
+        Ok(flush) => flush.flush(),
+        Err(_) => {
+            unsafe { unsafe_puts("Failed to map the page for `mpboot.img`.\r\n") };
+            wait_forever();
         }
     }
+
+    start
 }
 
 fn init_backup_heap(

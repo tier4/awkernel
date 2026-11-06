@@ -13,7 +13,6 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     delay::wait_millisec,
@@ -38,6 +37,7 @@ use awkernel_lib::{
         mutex::{MCSNode, Mutex},
         rwlock::RwLock,
     },
+    verified::ringq::RingQ,
 };
 use core::fmt::{self, Debug};
 use ixgbe_operations::mng_enabled;

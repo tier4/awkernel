@@ -16,10 +16,10 @@
 
 use crate::{pubsub::Lifespan, r#yield};
 use alloc::sync::Arc;
-use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     delay::uptime,
     sync::mutex::{MCSNode, Mutex},
+    verified::ringq::RingQ,
 };
 use core::task::{Poll, Waker};
 use futures::Future;
