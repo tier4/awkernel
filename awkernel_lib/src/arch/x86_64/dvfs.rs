@@ -10,6 +10,14 @@ use super::{
     X86,
 };
 
+/// Fixed nominal reference for APERF/MPERF, independent of HWP.
+#[inline]
+fn base_freq() -> Result<u64> {
+    freq_info::base_freq_hz()
+        .or_else(|| platform_info::try_read().and_then(|info| info.max_nonturbo_freq_hz()))
+        .ok_or(Error::NotSupported)
+}
+
 /// Measure this CPU's average frequency over `interval_us`.
 ///
 /// This function is blocking: it remains on CPU while the sample is collected.
@@ -20,7 +28,7 @@ pub fn measure_freq_hz(interval_us: u64) -> Result<u64> {
     if !tpm_info::hw_coord_feedback_supported() {
         return Err(Error::NotSupported);
     }
-    let base_freq_hz = freq_info::base_freq_hz().ok_or(Error::NotSupported)?;
+    let base_freq_hz = base_freq()?;
 
     // Safety: HW_COORD_FEEDBACK is supported
     let start_mperf = unsafe { ia32_perf_mperf::read_unchecked() };
@@ -91,18 +99,12 @@ impl Dvfs for X86 {
     fn get_max_cpu_freq() -> Result<u64> {
         // If HWP is enabled, we use IA32_HWP_CAPABILITIES to get the guaranteed performance
         if hwp::is_enabled() {
-            return hwp::guaranteed_freq_hz()
+            hwp::guaranteed_freq_hz()
                 .map(floor_to_bus_ratio)
-                .map_err(|e| e.into());
+                .map_err(|e| e.into())
+        } else {
+            base_freq()
         }
-        // If HWP is not enabled, we try with the CPUID.16H
-        if let Some(freq_hz) = freq_info::base_freq_hz() {
-            return Ok(freq_hz);
-        }
-        // If CPUID.16H not supported, we try with the MSR_PLATFORM_INFO
-        platform_info::try_read()
-            .and_then(|info| info.max_nonturbo_freq_hz())
-            .ok_or(Error::NotSupported)
     }
 
     /// Get the minimum frequency of the current CPU.

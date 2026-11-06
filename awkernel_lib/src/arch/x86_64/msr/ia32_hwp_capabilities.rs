@@ -1,8 +1,5 @@
 use super::{
-    super::cpuid::{
-        core_type::{self, CoreType},
-        freq_info,
-    },
+    super::cpuid::{core_type, freq_info, processor_info, vendor_info},
     rdmsr_safe,
 };
 use x86_64::registers::model_specific::Msr;
@@ -15,14 +12,22 @@ const LOWEST_PERFORMANCE_OFFSET: u64 = 24;
 
 #[inline]
 pub fn base_freq_hz() -> u64 {
-    match core_type::try_read().and_then(|core_type| core_type.core_type()) {
-        Some(CoreType::PCore) => 78_741_000, // TODO review
-        _ => freq_info::bus_freq_hz(),
+    if let Some(core_type) = core_type::try_read().and_then(|info| info.core_type()) {
+        let model = vendor_info::try_read()
+            .and_then(|info| info.vendor())
+            .and_then(|vendor| processor_info::try_read()?.model(vendor));
+        if let Some(model) = model {
+            if let Some(freq_hz) = model.base_freq_hz(core_type) {
+                return freq_hz;
+            }
+        }
     }
+    // bus-frequency fallback for E-cores and unknown P-core models.
+    freq_info::bus_freq_hz()
 }
 
-/// Hertz per HWP performance unit. HWP units are not 100 MHz ratios on hybrid CPUs:
-/// Alder Lake P-cores use 78.741 MHz, as Linux's intel_pstate does.
+/// Converts HWP performance units to hertz using known model-specific P-core
+/// scaling factors, or the bus-frequency fallback for other CPUs.
 #[inline]
 pub fn ratio_to_hz(ratio: u8) -> u64 {
     base_freq_hz() * ratio as u64
