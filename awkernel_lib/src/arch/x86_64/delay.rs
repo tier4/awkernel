@@ -18,6 +18,8 @@ mmio_r!(offset 0xf0 => HPET_MAIN_COUNTER<u64>);
 
 static HPET_BASE: AtomicUsize = AtomicUsize::new(0);
 static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
+/// Valid bits of the main counter: all 64, or the low 32 when the counter is 32 bits wide.
+static HPET_COUNTER_MASK: AtomicU64 = AtomicU64::new(u64::MAX);
 
 static mut HPET_MULTIPLIER_NANO: u128 = 0;
 
@@ -106,8 +108,11 @@ fn init_hpet(
 ) -> Result<(), &'static str> {
     let hpet_info = acpi::hpet::HpetInfo::new(acpi).or(Err("HPET is not available"))?;
 
+    // A 32-bit main counter is enough: HPET only calibrates the TSC over 100 ms,
+    // far shorter than the counter's wraparound period (minutes at <= 100 MHz).
     if !hpet_info.main_counter_is_64bits() {
-        return Err("HPET's main count is not 64 bits.");
+        HPET_COUNTER_MASK.store(u64::from(u32::MAX), Ordering::Relaxed);
+        log::info!("HPET's main counter is 32 bits.");
     }
 
     let base = hpet_info.base_address;
@@ -172,7 +177,8 @@ fn hpet_uptime_nano() -> u128 {
             0
         } else {
             let now = HPET_MAIN_COUNTER.read(base);
-            let diff = (now - start) as u128;
+            let mask = HPET_COUNTER_MASK.load(Ordering::Relaxed);
+            let diff = (now.wrapping_sub(start) & mask) as u128;
 
             diff * HPET_MULTIPLIER_NANO
         }

@@ -58,6 +58,12 @@ impl Trb {
         code
     }
 
+    /// TRB Transfer Length of a Transfer Event (status[23:0]): the bytes the
+    /// TRB did not transfer (xHCI spec §6.4.2.1).
+    pub fn transfer_length(&self) -> u32 {
+        self.status & 0x00ff_ffff
+    }
+
     /// Slot ID of a Command Completion event (ctrl[31:24]).
     pub fn slot_id(&self) -> u8 {
         let [_, _, _, slot] = self.ctrl.to_le_bytes();

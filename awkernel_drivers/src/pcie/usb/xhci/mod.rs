@@ -1,5 +1,5 @@
 //! xHCI host controller driver: boot-time USB enumeration and a TX-only USB
-//! serial console mirror (PL2303).
+//! serial console mirror (PL2303 / CDC-ACM).
 //!
 //! The driver is fully polled (USBCMD.INTE = 0).
 //!
@@ -26,10 +26,12 @@ use super::super::{
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 
+mod cdc_acm;
 mod desc;
 mod pl2303;
 mod regs;
 mod ring;
+mod trb_buffer;
 
 use regs::{completion, trb_flag, trb_type};
 use ring::{publish, CommandRing, Dcbaa, EventRing, TransferRing, Trb};
@@ -79,6 +81,12 @@ const SPEED_SUPER: u32 = 4;
 const SPEED_SUPER_PLUS: u32 = 5;
 const PORTSC_SPEED_SHIFT: u32 = 10;
 
+/// bDeviceClass values under which a CDC-ACM function may appear: class
+/// defined per interface, CDC, and Miscellaneous (composite devices with an
+/// Interface Association Descriptor).
+const USB_CLASS_PER_INTERFACE: u8 = 0x00;
+const USB_CLASS_CDC: u8 = 0x02;
+const USB_CLASS_MISC: u8 = 0xEF;
 /// Console line settings: 115200 baud, 1 stop bit, no parity, 8 data bits.
 const CONSOLE_BAUD: u32 = 115_200;
 
@@ -209,9 +217,6 @@ const DESC_CONFIGURATION: u16 = 0x0200;
 /// Standard feature selector ENDPOINT_HALT (USB 2.0 Table 9-6).
 const FEATURE_ENDPOINT_HALT: u16 = 0;
 const DEVICE_DESC_LEN: u16 = 18;
-const CONFIG_DESC_HEADER_LEN: u16 = 9;
-/// Largest configuration descriptor we fetch (fits the 255-byte parse buffer).
-const CONFIG_DESC_MAX: u16 = 255;
 
 // ---------------------------------------------------------------------------
 // Device state
@@ -230,6 +235,7 @@ struct DeviceDescriptor {
 #[derive(Clone, Copy, Debug)]
 enum SerialKind {
     Pl2303,
+    CdcAcm,
 }
 
 /// A configured USB serial adapter (TX only).
@@ -440,7 +446,9 @@ impl HcCore {
         setup_phys: u64,
         data_phys: Option<u64>,
         status_phys: u64,
-    ) -> Result<(), XhciErr> {
+    ) -> Result<u32, XhciErr> {
+        // Bytes the Data Stage did not transfer, from its Short Packet event.
+        let mut residual: u32 = 0;
         for _ in 0..MAX_CTRL_EVENTS {
             let mut stale: u32 = 0;
             let result = self.wait_event(|ev| {
@@ -461,9 +469,12 @@ impl HcCore {
             let code = event.completion_code();
             if event.param == status_phys {
                 return match code {
-                    completion::SUCCESS | completion::SHORT_PACKET => Ok(()),
+                    completion::SUCCESS | completion::SHORT_PACKET => Ok(residual),
                     _ => Err(XhciErr::Completion(code)),
                 };
+            }
+            if data_phys == Some(event.param) && code == completion::SHORT_PACKET {
+                residual = event.transfer_length();
             }
             // Event from Setup or Data stage: Short Packet / Success on Data
             // Stage is followed by the Status Stage event; any error halts EP0
@@ -479,6 +490,21 @@ impl HcCore {
     /// Run one control transfer on EP0 of `dev`.  The data stage (if
     /// `setup.length > 0`) uses `dev.ctrl_buf`.
     fn control(&mut self, dev: &mut UsbDevice, setup: SetupPacket) -> Result<(), XhciErr> {
+        let ctrl_buf = phys_of(&dev.ctrl_buf)?;
+        self.control_transfer(dev, setup, ctrl_buf).map(|_| ())
+    }
+
+    /// Run one control transfer on EP0 of `dev` with the data stage in the
+    /// buffer at physical address `data_buf`, which must hold `setup.length`
+    /// bytes and not cross a 64 KiB boundary.  Returns the number of
+    /// data-stage bytes actually transferred: fewer than `setup.length` when
+    /// the device ends the data stage with a short packet.
+    fn control_transfer(
+        &mut self,
+        dev: &mut UsbDevice,
+        setup: SetupPacket,
+        data_buf: u64,
+    ) -> Result<usize, XhciErr> {
         let is_in = setup.is_in();
         let has_data = setup.length > 0;
         let trt = match (has_data, is_in) {
@@ -494,9 +520,11 @@ impl HcCore {
         })?;
         let data_phys = if has_data {
             Some(dev.ep0.enqueue(Trb {
-                param: phys_of(&dev.ctrl_buf)?,
+                param: data_buf,
                 status: u32::from(setup.length),
-                ctrl: trb_type::DATA_STAGE | if is_in { trb_flag::DIR_IN } else { 0 },
+                ctrl: trb_type::DATA_STAGE
+                    | trb_flag::ISP
+                    | if is_in { trb_flag::DIR_IN } else { 0 },
             })?)
         } else {
             None
@@ -514,7 +542,11 @@ impl HcCore {
         })?;
 
         self.ring_doorbell(dev.slot, EP0_DCI)?;
-        self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)
+        let residual = self.wait_transfer(dev.slot, EP0_DCI, setup_phys, data_phys, status_phys)?;
+        u32::from(setup.length)
+            .checked_sub(residual)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or(XhciErr::Overflow)
     }
 
     /// Recover EP0 from HALTED state after a control-transfer STALL.
@@ -809,7 +841,7 @@ impl Controller {
     // Enumeration
     // -------------------------------------------------------------------------
 
-    /// Scan all ports and keep the first PL2303 adapter found.
+    /// Scan all ports and keep the first PL2303 / CDC-ACM adapter found.
     fn boot_enumerate(&mut self) -> Result<(), XhciErr> {
         // xHCI §4.19.1.1: with a port power controller, software must set PP=1;
         // PR=1 on an unpowered port is silently ignored.
@@ -1070,36 +1102,48 @@ impl Controller {
         Ok(())
     }
 
-    /// GET_DESCRIPTOR(Configuration): returns the descriptor bytes and their length.
-    fn read_config_descriptor(
-        &mut self,
-        dev: &mut UsbDevice,
-    ) -> Result<([u8; 255], usize), XhciErr> {
-        let mut setup = SetupPacket {
-            request_type: RT_DEV_IN,
-            request: REQ_GET_DESCRIPTOR,
-            value: DESC_CONFIGURATION,
-            index: 0,
-            length: CONFIG_DESC_HEADER_LEN,
-        };
-        // First pass: 9 bytes to learn wTotalLength.
-        self.core.control(dev, setup)?;
-        let [_, _, total_lo, total_hi, ..] = read_ctrl_buf::<9>(dev)?;
-        let total = u16::from_le_bytes([total_lo, total_hi]);
-        let fetch = total.min(CONFIG_DESC_MAX);
-        log::info!(
-            "xHCI: {}: configuration descriptor wTotalLength={total} fetch={fetch}",
-            self.name
-        );
-        if fetch < CONFIG_DESC_HEADER_LEN {
-            return Err(XhciErr::InvalidDescriptor);
+    /// GET_DESCRIPTOR(Configuration): the whole configuration, all wTotalLength
+    /// bytes, up to 65535 (see [`desc::read_configuration`]).  A data stage
+    /// that fits `ctrl_buf` (one page) lands there, a longer one in a
+    /// transient buffer.
+    fn read_config_descriptor(&mut self, dev: &mut UsbDevice) -> Result<Vec<u8>, XhciErr> {
+        let core = &mut self.core;
+        let result = desc::read_configuration(|length| {
+            let setup = SetupPacket {
+                request_type: RT_DEV_IN,
+                request: REQ_GET_DESCRIPTOR,
+                value: DESC_CONFIGURATION,
+                index: 0,
+                length,
+            };
+            if usize::from(length) <= PAGE_SIZE {
+                let ctrl_buf = phys_of(&dev.ctrl_buf)?;
+                let received = core.control_transfer(dev, setup, ctrl_buf)?;
+                read_dma(dev.ctrl_buf.as_ref(), 0, received)
+            } else {
+                control_in_large(core, dev, setup)
+            }
+        });
+        match result {
+            Ok(cfg) => {
+                log::info!(
+                    "xHCI: {}: slot {} — configuration descriptor wTotalLength={}",
+                    self.name,
+                    dev.slot,
+                    cfg.len()
+                );
+                Ok(cfg)
+            }
+            Err(desc::ReadConfigError::Transfer(e)) => Err(e),
+            Err(desc::ReadConfigError::Invalid) => {
+                log::warn!(
+                    "xHCI: {}: slot {} — invalid or short configuration descriptor",
+                    self.name,
+                    dev.slot
+                );
+                Err(XhciErr::InvalidDescriptor)
+            }
         }
-
-        // Second pass: full descriptor.
-        setup.length = fetch;
-        self.core.control(dev, setup)?;
-        let page = read_ctrl_buf::<255>(dev)?;
-        Ok((page, usize::from(fetch)))
     }
 
     fn set_configuration(&mut self, dev: &mut UsbDevice, config_val: u8) -> Result<(), XhciErr> {
@@ -1213,10 +1257,21 @@ impl Controller {
     // -------------------------------------------------------------------------
 
     /// Configure `dev` as a console if it is a supported serial adapter.
-    /// Returns `Ok(false)` for other devices (no transfers are issued to them:
-    /// failed class probes leave stale events that corrupt later enumeration).
+    /// Returns `Ok(false)` for other devices.  At most the standard
+    /// GET_DESCRIPTOR(Configuration) is issued to them, to look for a CDC-ACM
+    /// function; no class requests are (failed class probes leave stale events
+    /// that corrupt later enumeration).
     fn setup_serial(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
-        if !pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+        if pl2303::is_pl2303(dev.desc.vendor, dev.desc.product) {
+            self.setup_pl2303(dev)?;
+        } else if matches!(
+            dev.desc.class,
+            USB_CLASS_PER_INTERFACE | USB_CLASS_CDC | USB_CLASS_MISC
+        ) {
+            if !self.setup_cdcacm(dev)? {
+                return Ok(false);
+            }
+        } else {
             log::info!(
                 "xHCI: {}: {:04x}:{:04x} is not a serial adapter, skipping",
                 self.name,
@@ -1225,7 +1280,6 @@ impl Controller {
             );
             return Ok(false);
         }
-        self.setup_pl2303(dev)?;
         Ok(true)
     }
 
@@ -1240,11 +1294,8 @@ impl Controller {
             dev.desc.bcd_device
         );
 
-        let (cfg, len) = self.read_config_descriptor(dev)?;
-        let info = cfg
-            .get(..len)
-            .and_then(pl2303::find_bulk_endpoints)
-            .ok_or(XhciErr::InvalidDescriptor)?;
+        let cfg = self.read_config_descriptor(dev)?;
+        let info = pl2303::find_bulk_endpoints(&cfg).ok_or(XhciErr::InvalidDescriptor)?;
 
         let mut chip =
             pl2303::detect_chip_type(dev.desc.bcd_device, dev.desc.class, dev.desc.max_packet0);
@@ -1367,26 +1418,77 @@ impl Controller {
         self.core.control(dev, pl2303_write(0x0002, mode))
     }
 
+    /// CDC-ACM: find the ACM interface pair and configure 115200 8N1.
+    /// Returns `Ok(false)` when the CDC device has no ACM interface.
+    fn setup_cdcacm(&mut self, dev: &mut UsbDevice) -> Result<bool, XhciErr> {
+        let cfg = self.read_config_descriptor(dev)?;
+        let Some(info) = cdc_acm::find_cdcacm_endpoints(&cfg) else {
+            log::info!(
+                "xHCI: {}: slot {} — no CDC-ACM interface",
+                self.name,
+                dev.slot
+            );
+            return Ok(false);
+        };
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM cfg={} ctrl_if={} IN={:#04x} OUT={:#04x} max_pkt={}",
+            self.name,
+            dev.slot,
+            info.config_val,
+            info.ctrl_if_num,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        );
+
+        self.set_configuration(dev, info.config_val)?;
+        let (in_ring, out_ring, out_dci) = self.configure_bulk_endpoints(
+            dev,
+            info.bulk_in_addr,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?;
+        dev.serial = Some(new_serial_port(
+            SerialKind::CdcAcm,
+            in_ring,
+            out_ring,
+            out_dci,
+            info.bulk_out_addr,
+            info.max_pkt,
+        )?);
+        // Both requests are optional for ACM (bmCapabilities); a device that
+        // refuses one still carries data, so a STALL is not fatal.
+        let line_coding = line_coding_request(dev, info.ctrl_if_num)?;
+        if !self.core.control_or_stall(dev, line_coding)? {
+            log::warn!(
+                "xHCI: {}: slot {} — CDC-ACM stalled SET_LINE_CODING",
+                self.name,
+                dev.slot
+            );
+        }
+        if !self
+            .core
+            .control_or_stall(dev, control_line_state_request(info.ctrl_if_num))?
+        {
+            log::warn!(
+                "xHCI: {}: slot {} — CDC-ACM stalled SET_CONTROL_LINE_STATE",
+                self.name,
+                dev.slot
+            );
+        }
+
+        log::info!(
+            "xHCI: {}: slot {} — CDC-ACM ready (115200 8N1 DTR+RTS)",
+            self.name,
+            dev.slot
+        );
+        Ok(true)
+    }
+
     /// CDC SET_LINE_CODING: 115200 baud, 1 stop bit, no parity, 8 data bits.
     fn set_line_coding(&mut self, dev: &mut UsbDevice, interface: u8) -> Result<(), XhciErr> {
-        let [b0, b1, b2, b3] = CONSOLE_BAUD.to_le_bytes();
-        // dwDTERate, bCharFormat (0 = 1 stop bit), bParityType (0 = none), bDataBits.
-        let coding = [b0, b1, b2, b3, 0, 0, 8];
-        dev.ctrl_buf
-            .as_mut()
-            .get_mut(..coding.len())
-            .ok_or(XhciErr::Overflow)?
-            .copy_from_slice(&coding);
-        self.core.control(
-            dev,
-            SetupPacket {
-                request_type: RT_CLASS_IF_OUT,
-                request: REQ_CDC_SET_LINE_CODING,
-                value: 0,
-                index: u16::from(interface),
-                length: 7,
-            },
-        )
+        let setup = line_coding_request(dev, interface)?;
+        self.core.control(dev, setup)
     }
 
     /// CDC SET_CONTROL_LINE_STATE: assert DTR (bit 0) and RTS (bit 1).
@@ -1395,16 +1497,8 @@ impl Controller {
         dev: &mut UsbDevice,
         interface: u8,
     ) -> Result<(), XhciErr> {
-        self.core.control(
-            dev,
-            SetupPacket {
-                request_type: RT_CLASS_IF_OUT,
-                request: REQ_CDC_SET_CONTROL_LINE_STATE,
-                value: 0b11,
-                index: u16::from(interface),
-                length: 0,
-            },
-        )
+        self.core
+            .control(dev, control_line_state_request(interface))
     }
 
     // -------------------------------------------------------------------------
@@ -1567,6 +1661,54 @@ fn read_ctrl_buf<const N: usize>(dev: &UsbDevice) -> Result<[u8; N], XhciErr> {
     Ok(unsafe { read_volatile(bytes) })
 }
 
+/// Size of the transient buffer for a data stage longer than `ctrl_buf`: two
+/// 64 KiB blocks, so a window for any wLength (at most 65535 bytes) that
+/// crosses no 64 KiB boundary fits wherever the pages are placed.
+const LARGE_BUF_SIZE: usize = 2 * 0x1_0000;
+type LargeBuf = [u8; LARGE_BUF_SIZE];
+
+/// IN control transfer whose data stage is longer than `ctrl_buf`, into a
+/// transient buffer.  Enumeration only (allocates 128 KiB of DMA memory).  The
+/// buffer is freed afterwards unless the transfer timed out, as the controller
+/// may still write it then.
+fn control_in_large(
+    core: &mut HcCore,
+    dev: &mut UsbDevice,
+    setup: SetupPacket,
+) -> Result<Vec<u8>, XhciErr> {
+    let buf = ManuallyDrop::new(
+        DMAPool::<LargeBuf>::new(NUMA_NODE, LARGE_BUF_SIZE / PAGE_SIZE).ok_or(XhciErr::DmaAlloc)?,
+    );
+    let result = read_large(core, dev, setup, &buf);
+    release_unless_timeout(buf, &result);
+    result
+}
+
+fn read_large(
+    core: &mut HcCore,
+    dev: &mut UsbDevice,
+    setup: SetupPacket,
+    buf: &DMAPool<LargeBuf>,
+) -> Result<Vec<u8>, XhciErr> {
+    let phys = phys_of(buf)?;
+    let offset = trb_buffer::window_offset(phys, LARGE_BUF_SIZE, usize::from(setup.length))
+        .ok_or(XhciErr::Overflow)?;
+    let window = phys
+        .checked_add(u64::try_from(offset).map_err(|_| XhciErr::Overflow)?)
+        .ok_or(XhciErr::Overflow)?;
+    let received = core.control_transfer(dev, setup, window)?;
+    read_dma(buf.as_ref(), offset, received)
+}
+
+/// Copy the `len` bytes at `start` of a DMA buffer written by the controller.
+fn read_dma(buf: &[u8], start: usize, len: usize) -> Result<Vec<u8>, XhciErr> {
+    let end = start.checked_add(len).ok_or(XhciErr::Overflow)?;
+    let bytes = buf.get(start..end).ok_or(XhciErr::Overflow)?;
+    // SAFETY: each `b` points into the live DMA buffer; volatile because the
+    // controller wrote it via DMA.
+    Ok(bytes.iter().map(|b| unsafe { read_volatile(b) }).collect())
+}
+
 fn new_serial_port(
     kind: SerialKind,
     in_ring: TransferRing,
@@ -1586,6 +1728,37 @@ fn new_serial_port(
         max_pkt: usize::from(max_pkt).clamp(1, TX_BUF_SIZE),
         tx_buf,
     })
+}
+
+/// CDC SET_LINE_CODING (115200 8N1) to `interface`; the 7-byte line coding is
+/// written into `dev.ctrl_buf` for the data stage.
+fn line_coding_request(dev: &mut UsbDevice, interface: u8) -> Result<SetupPacket, XhciErr> {
+    let [b0, b1, b2, b3] = CONSOLE_BAUD.to_le_bytes();
+    // dwDTERate, bCharFormat (0 = 1 stop bit), bParityType (0 = none), bDataBits.
+    let coding = [b0, b1, b2, b3, 0, 0, 8];
+    dev.ctrl_buf
+        .as_mut()
+        .get_mut(..coding.len())
+        .ok_or(XhciErr::Overflow)?
+        .copy_from_slice(&coding);
+    Ok(SetupPacket {
+        request_type: RT_CLASS_IF_OUT,
+        request: REQ_CDC_SET_LINE_CODING,
+        value: 0,
+        index: u16::from(interface),
+        length: 7,
+    })
+}
+
+/// CDC SET_CONTROL_LINE_STATE to `interface`: assert DTR (bit 0) and RTS (bit 1).
+fn control_line_state_request(interface: u8) -> SetupPacket {
+    SetupPacket {
+        request_type: RT_CLASS_IF_OUT,
+        request: REQ_CDC_SET_CONTROL_LINE_STATE,
+        value: 0b11,
+        index: u16::from(interface),
+        length: 0,
+    }
 }
 
 /// PL2303 vendor IN request (bRequest = 0x01, wLength = 1).
@@ -1740,5 +1913,6 @@ pub(super) fn attach(
 fn kind_name(kind: SerialKind) -> &'static str {
     match kind {
         SerialKind::Pl2303 => "PL2303",
+        SerialKind::CdcAcm => "CDC-ACM",
     }
 }
