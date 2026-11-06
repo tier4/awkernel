@@ -1,6 +1,6 @@
 use crate::cpu::{cpu_id, num_cpu};
 use core::ptr::{read_volatile, write_volatile};
-use riscv::register::mie;
+use riscv::register::{mie, mip};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -56,12 +56,12 @@ impl Clint {
 
     #[inline]
     pub fn is_soft_interrupt_pending(&self) -> bool {
-        mie::read().msoft()
+        mip::read().msoft()
     }
 
     #[inline]
     pub fn is_timer_interrupt_pending(&self) -> bool {
-        mie::read().mtimer()
+        mip::read().mtimer()
     }
 
     /// Busy wait for a given number of microseconds.

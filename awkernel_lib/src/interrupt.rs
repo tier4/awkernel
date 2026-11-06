@@ -68,7 +68,7 @@ pub trait InterruptController: Sync + Send {
 type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
 // Lock order: `IRQ_HANDLERS` before `INTERRUPT_CONTROLLER`. The IRQ dispatchers
-// (`handle_irq` on x86, `handle_irqs` on aarch64) hold `IRQ_HANDLERS` (read)
+// (`handle_irq` on x86, `handle_irqs` on aarch64 and RISC-V) hold `IRQ_HANDLERS` (read)
 // while the handlers run, and handlers may call `send_ipi`, `enable_irq`, etc.
 // (`INTERRUPT_CONTROLLER` write); `handle_irqs` also asks the controller for the
 // pending IRQs under it. Never take `IRQ_HANDLERS` while holding
@@ -360,8 +360,8 @@ pub fn handle_irq(irq: u16) {
 }
 
 /// Handle all pending interrupt requests.
-/// This function will be used by only aarch64 and called from CPU's interrupt handlers.
-#[cfg(feature = "aarch64")]
+/// This function will be used by aarch64 and RISC-V, and called from CPU's interrupt handlers.
+#[cfg(any(feature = "aarch64", feature = "rv32", feature = "rv64"))]
 pub fn handle_irqs(is_task: bool) {
     use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;
