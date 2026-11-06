@@ -123,15 +123,25 @@ pub fn try_read() -> Option<Ia32HwpCapabilities> {
 /// # Safety
 ///
 /// The caller must ensure that IA32_HWP_CAPABILITIES MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn read_unchecked() -> Ia32HwpCapabilities {
+    #[cfg(feature = "std")]
+    panic!("read_unchecked is not supported on std");
+    #[cfg(not(feature = "std"))]
     Ia32HwpCapabilities::new(Msr::new(MSR_NUMBER).read())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::x86_64::cpuid::processor_info::IntelModel;
+    use crate::arch::x86_64::cpuid::{
+        core_type::CoreType,
+        processor_info::{IntelModel, Model},
+    };
 
     #[test]
     fn selects_known_model_scaling_without_core_type() {

@@ -34,7 +34,7 @@ optional = true
 version = "0.16.1"
 optional = true
 
-[dependencies.x86_64]
+[target.'cfg(target_arch = "x86_64")'.dependencies.x86_64]
 version = "0.15"
 optional = true
 
@@ -92,7 +92,7 @@ x86 = [
 aarch64 = ["awkernel_sync/aarch64"]
 rv32 = ["dep:riscv", "awkernel_sync/rv32"]
 rv64 = ["dep:riscv", "awkernel_sync/rv64"]
-std = ["dep:libc", "dep:socket2", "awkernel_sync/std"]
+std = ["dep:libc", "dep:socket2", "dep:x86_64", "awkernel_sync/std"]
 spinlock = ["awkernel_sync/spinlock"]
 # LFN (Long File Name) support
 lfn = []

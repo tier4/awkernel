@@ -45,8 +45,15 @@ pub fn try_write(hwp_status: Ia32MiscEnable) -> bool {
 /// # Safety
 ///
 /// The caller must ensure that IA32_MISC_ENABLE MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn read_unchecked() -> Ia32MiscEnable {
+    #[cfg(feature = "std")]
+    panic!("read_unchecked is not supported on std");
+    #[cfg(not(feature = "std"))]
     Ia32MiscEnable(Msr::new(MSR_NUMBER).read())
 }
 
@@ -55,7 +62,17 @@ pub unsafe fn read_unchecked() -> Ia32MiscEnable {
 /// # Safety
 ///
 /// The caller must ensure that IA32_MISC_ENABLE MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn write_unchecked(value: Ia32MiscEnable) {
+    #[cfg(feature = "std")]
+    {
+        let _ = value;
+        panic!("write_unchecked is not supported on std");
+    }
+    #[cfg(not(feature = "std"))]
     Msr::new(MSR_NUMBER).write(value.raw());
 }

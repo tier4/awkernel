@@ -76,8 +76,15 @@ pub fn try_write(hwp_status: Ia32PerfCtl) -> bool {
 /// # Safety
 ///
 /// The caller must ensure that IA32_PERF_CTL MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn read_unchecked() -> Ia32PerfCtl {
+    #[cfg(feature = "std")]
+    panic!("read_unchecked is not supported on std");
+    #[cfg(not(feature = "std"))]
     Ia32PerfCtl(Msr::new(MSR_NUMBER).read())
 }
 
@@ -86,7 +93,17 @@ pub unsafe fn read_unchecked() -> Ia32PerfCtl {
 /// # Safety
 ///
 /// The caller must ensure that IA32_PERF_CTL MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn write_unchecked(value: Ia32PerfCtl) {
+    #[cfg(feature = "std")]
+    {
+        let _ = value;
+        panic!("write_unchecked is not supported on std");
+    }
+    #[cfg(not(feature = "std"))]
     Msr::new(MSR_NUMBER).write(value.raw());
 }

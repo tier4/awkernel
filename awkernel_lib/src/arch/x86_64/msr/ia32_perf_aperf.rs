@@ -18,8 +18,15 @@ pub fn try_write(value: u64) -> bool {
 /// # Safety
 ///
 /// The caller must ensure that IA32_PERF_APERF MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn read_unchecked() -> u64 {
+    #[cfg(feature = "std")]
+    panic!("read_unchecked is not supported on std");
+    #[cfg(not(feature = "std"))]
     Msr::new(MSR_NUMBER).read()
 }
 
@@ -28,7 +35,17 @@ pub unsafe fn read_unchecked() -> u64 {
 /// # Safety
 ///
 /// The caller must ensure that IA32_PERF_APERF MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn write_unchecked(value: u64) {
+    #[cfg(feature = "std")]
+    {
+        let _ = value;
+        panic!("write_unchecked is not supported on std");
+    }
+    #[cfg(not(feature = "std"))]
     Msr::new(MSR_NUMBER).write(value);
 }

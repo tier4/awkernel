@@ -1,5 +1,6 @@
 use x86_64::registers::model_specific::Msr;
 
+#[cfg(not(feature = "std"))]
 use super::fault::get_num_general_protection_fault;
 
 pub mod ia32_energy_perf_bias;
@@ -43,42 +44,62 @@ pub(super) const _MSR_IA32_HWP_REQUEST: u32 = 0x774;
 
 /// Read 64 bits msr register.
 /// If the `msr` is not supported on your environments, this function returns `None`.
+/// With `std`, always returns `None` without accessing hardware.
 ///
 /// # Safety
 ///
 /// The caller must ensure that this read operation has no unsafe side effects.
 pub unsafe fn rdmsr_safe(msr: &Msr) -> Option<u64> {
-    let _int_guard = crate::interrupt::InterruptGuard::new();
-
-    let cpuid = crate::cpu::cpu_id();
-    let num_fault1 = get_num_general_protection_fault(cpuid);
-
-    let result = unsafe { msr.read() };
-
-    let num_fault2 = get_num_general_protection_fault(cpuid);
-
-    if num_fault1 != num_fault2 {
+    #[cfg(feature = "std")]
+    {
+        let _ = msr;
         None
-    } else {
-        Some(result)
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let _int_guard = crate::interrupt::InterruptGuard::new();
+
+        let cpuid = crate::cpu::cpu_id();
+        let num_fault1 = get_num_general_protection_fault(cpuid);
+
+        let result = unsafe { msr.read() };
+
+        let num_fault2 = get_num_general_protection_fault(cpuid);
+
+        if num_fault1 != num_fault2 {
+            None
+        } else {
+            Some(result)
+        }
     }
 }
 
 /// Write 64 bits to msr register.
 /// If the `msr` is not supported on your environments, this function returns `false`.
+/// With `std`, always returns `false` without accessing hardware.
 ///
 /// # Safety
 ///
 /// The caller must ensure that this write operation has no unsafe side effects.
 pub unsafe fn wrmsr_safe(msr: &mut Msr, value: u64) -> bool {
-    let _int_guard = crate::interrupt::InterruptGuard::new();
+    #[cfg(feature = "std")]
+    {
+        let _ = (msr, value);
+        false
+    }
 
-    let cpuid = crate::cpu::cpu_id();
-    let num_fault1 = get_num_general_protection_fault(cpuid);
+    #[cfg(not(feature = "std"))]
+    {
+        let _int_guard = crate::interrupt::InterruptGuard::new();
 
-    unsafe { msr.write(value) };
+        let cpuid = crate::cpu::cpu_id();
+        let num_fault1 = get_num_general_protection_fault(cpuid);
 
-    let num_fault2 = get_num_general_protection_fault(cpuid);
+        unsafe { msr.write(value) };
 
-    num_fault1 == num_fault2
+        let num_fault2 = get_num_general_protection_fault(cpuid);
+
+        num_fault1 == num_fault2
+    }
 }

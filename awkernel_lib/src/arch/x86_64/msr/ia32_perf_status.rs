@@ -30,12 +30,19 @@ pub fn try_read() -> Option<Ia32PerfStatus> {
     unsafe { rdmsr_safe(&Msr::new(MSR_NUMBER)) }.map(Ia32PerfStatus::new)
 }
 
-/// Writes the IA32_PERF_STATUS MSR without checking for errors.
+/// Reads the IA32_PERF_STATUS MSR without checking for errors.
 ///     
 /// # Safety
 ///
 /// The caller must ensure that IA32_PERF_STATUS MSR is available
+///
+/// # Panics
+///
+/// Panics with the `std` feature enabled; privileged MSR access is unsupported.
 #[inline]
 pub unsafe fn read_unchecked() -> Ia32PerfStatus {
+    #[cfg(feature = "std")]
+    panic!("read_unchecked is not supported on std");
+    #[cfg(not(feature = "std"))]
     Ia32PerfStatus(Msr::new(MSR_NUMBER).read())
 }
