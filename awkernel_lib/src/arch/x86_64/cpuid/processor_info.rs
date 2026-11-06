@@ -14,6 +14,7 @@ const EAX_EXTENDED_FAMILY_OFFSET: u32 = 20;
 pub enum IntelModel {
     AlderLake,
     RaptorLake,
+    BartlettLake,
     MeteorLake,
     LunarLake,
 }
@@ -24,6 +25,7 @@ impl IntelModel {
             6 => match display_model {
                 0x97 | 0x9a => Some(Self::AlderLake),
                 0xb7 | 0xba | 0xbf => Some(Self::RaptorLake),
+                0xd7 => Some(Self::BartlettLake),
                 0xaa | 0xac => Some(Self::MeteorLake),
                 0xbd => Some(Self::LunarLake),
                 _ => None,
@@ -31,16 +33,17 @@ impl IntelModel {
             _ => None,
         }
     }
+
     /// Hertz per HWP performance unit using Linux intel_pstate's P-core scaling.
-    /// Returns `None` for E-cores, which use the bus-frequency fallback.
-    pub const fn base_freq_hz(&self, core_type: CoreType) -> Option<u64> {
+    /// Applies the model factor unless explicitly enumerated as an E-core.
+    pub const fn base_freq_hz(&self, core_type: Option<CoreType>) -> Option<u64> {
         match core_type {
-            CoreType::PCore => Some(match self {
-                Self::AlderLake | Self::RaptorLake => 78_741_000,
+            Some(CoreType::PCore) | None => Some(match self {
+                Self::AlderLake | Self::RaptorLake | Self::BartlettLake => 78_741_000,
                 Self::MeteorLake => 80_000_000,
                 Self::LunarLake => 86_957_000,
             }),
-            CoreType::ECore => None,
+            Some(CoreType::ECore) => None,
         }
     }
 }
@@ -67,7 +70,7 @@ impl Model {
         }
     }
 
-    pub const fn base_freq_hz(&self, core_type: CoreType) -> Option<u64> {
+    pub const fn base_freq_hz(&self, core_type: Option<CoreType>) -> Option<u64> {
         match self {
             Self::Intel(model) => model.base_freq_hz(core_type),
         }
@@ -136,11 +139,13 @@ mod tests {
         for (model, expected_hz) in [
             (IntelModel::AlderLake, 78_741_000),
             (IntelModel::RaptorLake, 78_741_000),
+            (IntelModel::BartlettLake, 78_741_000),
             (IntelModel::MeteorLake, 80_000_000),
             (IntelModel::LunarLake, 86_957_000),
         ] {
-            assert_eq!(model.base_freq_hz(CoreType::PCore), Some(expected_hz));
-            assert_eq!(model.base_freq_hz(CoreType::ECore), None);
+            assert_eq!(model.base_freq_hz(Some(CoreType::PCore)), Some(expected_hz));
+            assert_eq!(model.base_freq_hz(None), Some(expected_hz));
+            assert_eq!(model.base_freq_hz(Some(CoreType::ECore)), None);
         }
     }
 
@@ -177,6 +182,7 @@ mod tests {
             (0xb7, IntelModel::RaptorLake),
             (0xba, IntelModel::RaptorLake),
             (0xbf, IntelModel::RaptorLake),
+            (0xd7, IntelModel::BartlettLake),
             (0xaa, IntelModel::MeteorLake),
             (0xac, IntelModel::MeteorLake),
             (0xbd, IntelModel::LunarLake),

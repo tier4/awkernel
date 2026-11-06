@@ -5,6 +5,12 @@
 //! package's power/thermal budget, i.e. its base frequency with turbo excluded.
 //! Each core reports its own value, so on hybrid processors P-cores and E-cores
 //! are each pinned to their own base clock.
+//!
+//! Hz conversions require a known model-specific factor on hybrid CPUs. Known
+//! models use their P-core factor even without core-type enumeration (e.g.
+//! Raptor Lake-E), and bus-frequency scaling on explicitly enumerated E-cores.
+//! Unknown hybrid models return `NotSupported` before a frequency request is
+//! written. Raw performance-level requests do not require Hz conversion.
 
 use super::{
     cpuid::tpm_info,
@@ -34,7 +40,7 @@ pub fn enable() -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HwpError {
-    /// CPUID.06H:EAX[7] is clear (e.g. under QEMU).
+    /// HWP is unavailable or the HWP-to-Hz scaling factor cannot be determined.
     NotSupported,
     InvalidArgument,
     MsrFault,
@@ -73,18 +79,21 @@ fn levels() -> Result<HwpLevels, HwpError> {
 
 pub fn highest_freq_hz() -> Result<u64, HwpError> {
     let caps = ia32_hwp_capabilities::try_read().ok_or(HwpError::MsrFault)?;
-    caps.highest_perf_freq_hz().ok_or(HwpError::MsrFault)
+    let ratio = caps.highest_perf_ratio().ok_or(HwpError::MsrFault)?;
+    ia32_hwp_capabilities::ratio_to_hz(ratio).ok_or(HwpError::NotSupported)
 }
 
 /// Return the guaranteed (non-turbo) frequency for the calling CPU.
 pub fn guaranteed_freq_hz() -> Result<u64, HwpError> {
     let caps = ia32_hwp_capabilities::try_read().ok_or(HwpError::MsrFault)?;
-    caps.guaranteed_perf_freq_hz().ok_or(HwpError::MsrFault)
+    let ratio = caps.guaranteed_perf_ratio().ok_or(HwpError::MsrFault)?;
+    ia32_hwp_capabilities::ratio_to_hz(ratio).ok_or(HwpError::NotSupported)
 }
 
 pub fn lowest_freq_hz() -> Result<u64, HwpError> {
     let caps = ia32_hwp_capabilities::try_read().ok_or(HwpError::MsrFault)?;
-    caps.lowest_perf_freq_hz().ok_or(HwpError::MsrFault)
+    let ratio = caps.lowest_perf_ratio().ok_or(HwpError::MsrFault)?;
+    ia32_hwp_capabilities::ratio_to_hz(ratio).ok_or(HwpError::NotSupported)
 }
 
 /// Convert an absolute frequency to HWP units and request that level.
@@ -92,7 +101,8 @@ pub fn set_frequency_hz(freq_hz: u64) -> Result<(), HwpError> {
     if !is_enabled() {
         return Err(HwpError::NotSupported);
     }
-    set_perf_ratio(ia32_hwp_capabilities::hz_to_ratio(freq_hz))
+    let ratio = ia32_hwp_capabilities::hz_to_ratio(freq_hz).ok_or(HwpError::NotSupported)?;
+    set_perf_ratio(ratio)
 }
 
 /// Set the calling CPU to one HWP performance level.

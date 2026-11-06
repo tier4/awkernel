@@ -3,6 +3,7 @@ use core::arch::x86_64::{__cpuid, CpuidResult};
 pub mod core_type;
 pub mod freq_info;
 pub mod processor_info;
+pub mod structured_features;
 pub mod tpm_info;
 pub mod vendor_info;
 
