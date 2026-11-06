@@ -37,8 +37,8 @@ $ cargo binstall mdbook-mermaid
   - library used by both [kernel](./kernel/) and [awkernel_async_lib](./awkernel_async_lib/)
 - [awkernel_async_lib](./awkernel_async_lib/)
   - asynchronous library for no_std
-- [awkernel_async_lib_verified](./awkernel_async_lib_verified/)
-  - verified library for awkernel_async_lib
+- [awkernel_lib_verified](./awkernel_lib_verified/)
+  - shared data structures with Kani proof harnesses, re-exported as `awkernel_lib::verified`
   - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_futures_macro](./awkernel_futures_macro/)
 - [awkernel_macros](./awkernel_macros/)
@@ -50,7 +50,7 @@ $ cargo binstall mdbook-mermaid
 
 ```mermaid
 graph TD;
-    awkernel_async_lib-->awkernel_async_lib_verified;
+    awkernel_lib-->awkernel_lib_verified;
     awkernel_async_lib-->awkernel_futures_macro;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;

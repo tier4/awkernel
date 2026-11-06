@@ -1,4 +1,3 @@
-use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
@@ -12,6 +11,7 @@ use awkernel_lib::{
     },
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
+    verified::ringq::RingQ,
 };
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};

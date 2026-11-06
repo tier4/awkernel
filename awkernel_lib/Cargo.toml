@@ -23,8 +23,8 @@ wf_alloc = { version = "0.1.2", default-features = false, optional = true }
 [dependencies.awkernel_sync]
 git = "https://github.com/tier4/awkernel_sync.git"
 
-[dependencies.awkernel_async_lib_verified]
-path = "../awkernel_async_lib_verified"
+[dependencies.awkernel_lib_verified]
+path = "../awkernel_lib_verified"
 
 [dependencies.libc]
 version = "0.2"
@@ -100,5 +100,6 @@ lfn = []
 unicode = []
 
 [dev-dependencies]
+x86_64 = "0.15"
 env_logger = "0.11.8"
 fscommon = "0.1"

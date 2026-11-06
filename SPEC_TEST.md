@@ -17,8 +17,8 @@
 | [Context Switch of AArch64](./awkernel_lib/src/context/aarch64.rs) | [context/aarch64](./specification/awkernel_lib/src/context/aarch64/) | TLA+ |
 | [Context Switch of x86_64](./awkernel_lib/src/context/x86_64.rs) | [context/x86](./specification/awkernel_lib/src/context/x86/) | TLA+ |
 | [Context Switch of RV64](./awkernel_lib/src/context/rv64.rs) | [context/rv64](./specification/awkernel_lib/src/context/rv64/) | TLA+ |
-| [Delta List](./awkernel_async_lib_verified/src/delta_list.rs) | unit test | Kani |
-| [Ring Queue](./awkernel_async_lib_verified/src/ringq.rs) | unit test | Kani |
+| [Delta List](./awkernel_lib_verified/src/delta_list.rs) | unit test | Kani |
+| [Ring Queue](./awkernel_lib_verified/src/ringq.rs) | unit test | Kani |
 | Sleep CPU (no_std) | [awkernel_async_lib/src/task/wake_workers_no_std](./specification/awkernel_async_lib/src/task/wake_workers_no_std) | SPIN |
 | Sleep CPU (std) | [awkernel_async_lib/src/task/wake_workers](./specification/awkernel_async_lib/src/task/wake_workers) | SPIN |
 | [if_net](./awkernel_lib/src/net/if_net.rs) | [awkernel_lib/src/net/if_net](./specification/awkernel_lib/src/net/if_net) | SPIN |
