@@ -128,6 +128,10 @@ pub struct Interval {
 }
 
 impl Interval {
+    pub(crate) fn next_tick_target(&self) -> Instant {
+        self.next_tick_target
+    }
+
     pub async fn tick(&mut self) -> Instant {
         self.next().await.unwrap()
     }

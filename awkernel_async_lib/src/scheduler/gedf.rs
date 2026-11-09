@@ -201,13 +201,13 @@ impl GEDFScheduler {
 
 /// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
 /// A wake of the source node in any `state` except `State::Preempted` releases that job
-/// with `wake_time` plus the sink relative deadline, if it is not released yet. Any other wake
-/// before the release gets that value without a release.
+/// with its interval tick target plus the sink relative deadline, if it is not released yet.
+/// Any other wake before release gets `wake_time` plus the sink relative deadline.
 ///
 /// # Panics
 ///
 /// Panics if the DAG does not exist, has no node `dag_info.node_id`, or has no sink relative
-/// deadline.
+/// deadline, or the source releases a job without an interval tick target.
 pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, state: State) -> u64 {
     let dag_id = dag_info.dag_id;
     let dag = get_dag(dag_id).unwrap_or_else(|| panic!("GEDF scheduler: DAG {dag_id} not found"));
@@ -217,7 +217,7 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, sta
     // source node finishes a job, it waits only for that tick, because it has no subscriber.
     let release = state != State::Preempted;
 
-    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, || {
+    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, |release_time| {
         // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
         let relative_deadline_us = dag
             .get_sink_relative_deadline()
@@ -225,6 +225,6 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, sta
             .unwrap_or_else(|| {
                 panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
             });
-        wake_time + relative_deadline_us
+        release_time.unwrap_or(wake_time) + relative_deadline_us
     })
 }
