@@ -17,6 +17,7 @@
 extern crate alloc;
 
 pub mod geometry;
+pub mod point;
 pub mod transform;
 
 #[derive(Debug, Clone)]
