@@ -24,4 +24,4 @@ pub struct Header {
     pub timestamp: u64,
 }
 
-pub use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+pub use nalgebra::{Isometry3, Matrix4, Quaternion, UnitQuaternion, Vector3, Vector4};

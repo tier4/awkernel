@@ -1,6 +1,5 @@
-use crate::{Header, Quaternion, UnitQuaternion, Vector3};
+use crate::{Header, Isometry3, Quaternion, UnitQuaternion, Vector3, Vector4};
 use alloc::{format, string::String};
-use nalgebra::Vector4;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -103,6 +102,11 @@ impl Transform {
     #[inline]
     pub fn translate(&self, vec: &Vector3<f64>) -> Vector3<f64> {
         vec + self.translation
+    }
+
+    #[inline]
+    pub fn to_isometry(&self) -> Isometry3<f64> {
+        Isometry3::from_parts(self.translation.into(), self.rotation)
     }
 }
 
@@ -423,5 +427,37 @@ mod tests {
         assert_almost_eq(transformed.x, 1.0);
         assert_almost_eq(transformed.y, 3.0);
         assert_almost_eq(transformed.z, 3.0);
+    }
+
+    #[test]
+    fn to_isometry_matches_apply_and_homogeneous_matrix() {
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two);
+        let transform = Transform::try_new(translation, rotation).unwrap();
+
+        let isometry = transform.to_isometry();
+        assert_eq!(isometry.translation.vector, translation);
+        assert_almost_eq(isometry.rotation.angle_to(&transform.rotation), 0.0);
+
+        let point = Vector3::new(1.0, -2.0, 0.5);
+        let expected = transform.apply(&point);
+        let transformed = isometry.transform_point(&point.into());
+        assert_almost_eq(transformed.x, expected.x);
+        assert_almost_eq(transformed.y, expected.y);
+        assert_almost_eq(transformed.z, expected.z);
+
+        // 90 degrees about z: [x, y] -> [-y, x], translation in the last column.
+        #[rustfmt::skip]
+        let expected_matrix = nalgebra::Matrix4::new(
+            0.0, -1.0, 0.0, 1.0,
+            1.0,  0.0, 0.0, 2.0,
+            0.0,  0.0, 1.0, 3.0,
+            0.0,  0.0, 0.0, 1.0,
+        );
+        let matrix = isometry.to_homogeneous();
+        for (actual, expected) in matrix.iter().zip(expected_matrix.iter()) {
+            assert_almost_eq(*actual, *expected);
+        }
     }
 }
