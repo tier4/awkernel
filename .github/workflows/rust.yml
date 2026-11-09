@@ -19,9 +19,9 @@ jobs:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly-2026-07-20
+        run: rustup toolchain install nightly-2026-11-09
       - name: Use Rust nightly
-        run: rustup default nightly-2026-07-20
+        run: rustup default nightly-2026-11-09
       - name: Add Rust components
         run: rustup component add rust-src llvm-tools-preview clippy rustfmt
       - name: Add Rust targets

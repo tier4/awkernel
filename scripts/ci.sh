@@ -3,7 +3,7 @@
 # The environment setup (toolchain, targets, cargo tools) is not done here.
 set -eux
 
-export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-nightly-2026-07-20}"
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-nightly-2026-11-09}"
 
 cargo fmt --check
 

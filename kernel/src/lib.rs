@@ -5,7 +5,6 @@
 
 #![cfg_attr(feature = "x86", feature(abi_x86_interrupt))]
 #![allow(unused_features)]
-#![feature(allocator_api)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

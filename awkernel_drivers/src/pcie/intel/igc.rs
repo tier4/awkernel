@@ -411,9 +411,9 @@ impl NetDevice for Igc {
             return false;
         }
 
-        for que_id in 0..inner.queue_info.que.len() {
+        for que in inner.queue_info.que.iter() {
             let mut node = MCSNode::new();
-            let tx = inner.queue_info.que[que_id].tx.lock(&mut node);
+            let tx = que.tx.lock(&mut node);
             if tx.igc_desc_unused() > 0 {
                 return true;
             }

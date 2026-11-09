@@ -1800,13 +1800,9 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
 fn is_sfp_probe(hw: &IxgbeHw, offset: u8, addr: u8) -> bool {
     use SfpType::*;
 
-    if addr == IXGBE_I2C_EEPROM_DEV_ADDR
+    addr == IXGBE_I2C_EEPROM_DEV_ADDR
         && offset == IXGBE_SFF_IDENTIFIER
         && hw.phy.sfp_type == IxgbeSfpTypeNotPresent
-    {
-        return true;
-    }
-    false
 }
 
 /// i2c_start - Sets I2C start condition
