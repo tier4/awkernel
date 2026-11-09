@@ -144,11 +144,7 @@ fn verify_lesm_fw_enabled_82599<T: IxgbeOperations + ?Sized>(
         &mut fw_lesm_state,
     )?;
 
-    if fw_lesm_state[0] & IXGBE_FW_LESM_STATE_ENABLED != 0 {
-        return Ok(true);
-    }
-
-    Ok(false)
+    Ok(fw_lesm_state[0] & IXGBE_FW_LESM_STATE_ENABLED != 0)
 }
 
 /// reset_pipeline_82599 - perform pipeline reset

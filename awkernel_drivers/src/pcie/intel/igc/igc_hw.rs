@@ -380,8 +380,14 @@ pub(super) trait IgcMacOperations {
         let rar_high = read_reg(info, IGC_RAH(0))?;
         let rar_low = read_reg(info, IGC_RAL(0))?;
 
-        for i in 0..IGC_RAL_MAC_ADDR_LEN {
-            hw.mac.perm_addr[i] = (rar_low >> (i * 8)) as u8;
+        for (i, addr) in hw
+            .mac
+            .perm_addr
+            .iter_mut()
+            .enumerate()
+            .take(IGC_RAL_MAC_ADDR_LEN)
+        {
+            *addr = (rar_low >> (i * 8)) as u8;
         }
 
         for i in 0..IGC_RAH_MAC_ADDR_LEN {

@@ -1507,16 +1507,16 @@ impl VirtioNetInner {
 
     #[allow(dead_code)]
     fn vio_dump(&self) {
-        for i in 0..self.virtqueues.len() {
+        for (i, vq) in self.virtqueues.iter().enumerate() {
             {
                 let mut node = MCSNode::new();
-                let tx = self.virtqueues[i].tx.lock(&mut node);
+                let tx = vq.tx.lock(&mut node);
                 log::info!("{i}: TX virtqueue:");
                 tx.virtio_vq_dump();
             }
             {
                 let mut node = MCSNode::new();
-                let rx = self.virtqueues[i].rx.lock(&mut node);
+                let rx = vq.rx.lock(&mut node);
                 log::info!("{i}: RX virtqueue:");
                 rx.virtio_vq_dump();
             }

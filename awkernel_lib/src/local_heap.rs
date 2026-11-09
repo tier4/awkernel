@@ -4,7 +4,7 @@
 //! # Example
 //!
 //! ```
-//! #![feature(allocator_api)]
+//! #![feature(allocator_ext)]
 //!
 //! use awkernel_lib::local_heap::{TLSF, LocalHeap};
 //! use core::{cell::RefCell, mem::MaybeUninit};

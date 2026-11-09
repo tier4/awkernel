@@ -133,12 +133,7 @@ pub fn available() -> bool {
         return false;
     };
 
-    if !features.contains(KvmCpuidFeatures::CLOCKSOURCE2 | KvmCpuidFeatures::CLOCSOURCE_STABLE_BIT)
-    {
-        return false;
-    }
-
-    true
+    features.contains(KvmCpuidFeatures::CLOCKSOURCE2 | KvmCpuidFeatures::CLOCSOURCE_STABLE_BIT)
 }
 
 #[inline(always)]

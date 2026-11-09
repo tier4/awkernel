@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "overflow when subtracting durations")]
+    #[should_panic(expected = "subtracting durations")]
     fn test_duration_sub_overflow() {
         let dur1 = Duration::from_secs(1);
         let dur2 = Duration::from_secs(2);

@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(feature = "raspi", feature(never_type))]
 
 extern crate alloc;
 

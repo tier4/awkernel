@@ -5,7 +5,7 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo +nightly-2026-07-20 fmt --check
+        entry: cargo +nightly-2026-11-09 fmt --check
         language: system
         types: [rust]
         pass_filenames: false
