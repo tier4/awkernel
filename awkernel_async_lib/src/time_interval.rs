@@ -128,6 +128,10 @@ pub struct Interval {
 }
 
 impl Interval {
+    pub(crate) fn next_tick_target(&self) -> Instant {
+        self.next_tick_target
+    }
+
     pub async fn tick(&mut self) -> Instant {
         self.next().await.unwrap()
     }
@@ -172,6 +176,34 @@ impl Stream for Interval {
 
                 Poll::Ready(Some(tick_time))
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn burst_ticks_keep_their_targets_when_late() {
+        awkernel_lib::arch::std_common::init();
+        let dag = crate::dag::create_dag();
+        let period = Duration::from_nanos(1);
+        let mut interval = interval_at(Instant::zero(), period, dag.get_id());
+        let waker = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        for tick in 0..3 {
+            let target = Instant::zero() + period * tick;
+            assert_eq!(interval.next_tick_target(), target);
+
+            assert!(Pin::new(&mut interval).poll_next(&mut cx).is_pending());
+            crate::scheduler::wake_task();
+            assert_eq!(
+                Pin::new(&mut interval).poll_next(&mut cx),
+                Poll::Ready(Some(target))
+            );
+            assert_eq!(interval.next_tick_target(), target + period);
         }
     }
 }

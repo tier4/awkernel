@@ -81,7 +81,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    sync::mutex::{MCSNode, Mutex},
+    time::Instant,
+};
 use core::{future::Future, pin::Pin, time::Duration};
 
 #[cfg(feature = "perf")]
@@ -203,8 +206,11 @@ pub struct Dag {
     graph: Mutex<DagGraph>,
 
     /// Release time of each released job that a node has not finished, keyed by job number.
-    /// A job is one run of the DAG. It starts when the source node wakes for a new release.
+    /// A job is one run of the DAG, released at the source interval's tick target.
     release_times: Mutex<BTreeMap<u64, u64>>,
+
+    /// Target of the source's upcoming tick, in microseconds, set before its wake.
+    next_release_time: Mutex<Option<u64>>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -509,14 +515,25 @@ impl Dag {
         }
     }
 
+    fn set_next_release_time(&self, target: Instant) {
+        let mut node = MCSNode::new();
+        *self.next_release_time.lock(&mut node) = Some(target.uptime().as_micros() as u64);
+    }
+
+    fn get_next_release_time(&self) -> Option<u64> {
+        let mut node = MCSNode::new();
+        let res = *self.next_release_time.lock(&mut node);
+        res
+    }
+
     /// Returns the release time of the job that the node at `node_idx` processes next.
     /// If that job is not released and `release` is true, the source node releases it with
-    /// the value of `release_time`. Any other wake gets that value without a release.
+    /// its next tick target. Any other wake before release gets `wake_time` without a release.
     pub(crate) fn get_or_release_job(
         &self,
         node_idx: NodeIndex,
         release: bool,
-        release_time: impl FnOnce() -> u64,
+        wake_time: impl FnOnce() -> u64,
     ) -> u64 {
         let mut node = MCSNode::new();
         let mut release_times = self.release_times.lock(&mut node);
@@ -539,11 +556,15 @@ impl Dag {
             return released;
         }
 
-        let release_time = release_time();
         if release {
+            let release_time = self
+                .get_next_release_time()
+                .expect("DAG source released a job without an interval tick target");
             release_times.insert(job, release_time);
+            release_time
+        } else {
+            wake_time()
         }
-        release_time
     }
 
     /// Returns true if the job that the node at `node_idx` processes is released, but the
@@ -645,6 +666,7 @@ impl Dags {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
                     release_times: Mutex::new(BTreeMap::new()),
+                    next_release_time: Mutex::new(None),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -1025,7 +1047,7 @@ where
                 ) = subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
+                let end = Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 1, dag_info.node_id.clone());
 
                 if dag.has_stale_deadline(node_idx) {
@@ -1084,6 +1106,10 @@ where
     let dag = get_dag(dag_info.dag_id).unwrap();
     let node_idx = to_node_index(dag_info.node_id);
 
+    // Spawning wakes the source before its future is polled.
+    let mut interval = interval(period, dag_info.dag_id);
+    dag.set_next_release_time(interval.next_tick_target());
+
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -1091,7 +1117,6 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
@@ -1101,8 +1126,7 @@ where
                 let index = get_period_index(dag_info.dag_id) as usize;
                 if index != 0 {
                     // [start] cycle deviation index >= 1
-                    let release_time =
-                        awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
+                    let release_time = Instant::now().uptime().as_nanos() as u64;
                     update_cycle_start_timestamp(index, release_time, dag_info.dag_id);
                 }
                 let results = f();
@@ -1123,6 +1147,7 @@ where
             #[cfg(feature = "perf")]
             periodic_measure();
 
+            dag.set_next_release_time(interval.next_tick_target());
             interval.tick().await;
         }
     };
@@ -1163,10 +1188,10 @@ where
                     subscribers.recv_all_with_period_index().await;
 
                 // [end] pubsub communication latency
-                let end = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
+                let end = Instant::now().uptime().as_nanos() as u64;
                 record_subscribe_timestamp(period_index as usize, end, 2, dag_info.node_id.clone());
 
-                let timenow = awkernel_lib::time::Instant::now().uptime().as_nanos() as u64;
+                let timenow = Instant::now().uptime().as_nanos() as u64;
                 if period_index != 0 {
                     update_cycle_end_timestamp(period_index as usize, timenow, dag_info.dag_id);
                 }
@@ -1211,6 +1236,7 @@ mod tests {
         assert_eq!(dag.get_or_release_job(sink, true, || 5), 5);
 
         // The source node releases job 0. A later wake in job 0 keeps the release time.
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(10));
         assert_eq!(dag.get_or_release_job(source, true, || 10), 10);
         assert_eq!(dag.get_or_release_job(source, true, || 11), 10);
 
@@ -1221,6 +1247,7 @@ mod tests {
 
         // A preempted source node resumes before the next period and does not release job 1.
         assert_eq!(dag.get_or_release_job(source, false, || 15), 15);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(20));
         assert_eq!(dag.get_or_release_job(source, true, || 20), 20);
 
         // The sink node wakes for job 0 after the release of job 1.
@@ -1244,10 +1271,13 @@ mod tests {
         let sink = dag.add_node_with_topic_edges(&["retention_test_b".into()], &[]);
 
         // The source node releases jobs 0, 1, and 2.
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(10));
         assert_eq!(dag.get_or_release_job(source, true, || 10), 10);
         dag.finish_job(source);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(20));
         assert_eq!(dag.get_or_release_job(source, true, || 20), 20);
         dag.finish_job(source);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(30));
         assert_eq!(dag.get_or_release_job(source, true, || 30), 30);
 
         // The sink node finishes job 0 before the middle node records its finish.
@@ -1271,6 +1301,7 @@ mod tests {
 
         // The sink node stopped, for example by a panic, and the source node keeps releasing.
         for release_time in 0..100 {
+            dag.set_next_release_time(Instant::zero() + Duration::from_micros(release_time));
             dag.get_or_release_job(source, true, || release_time);
             dag.finish_job(source);
         }
@@ -1334,31 +1365,56 @@ mod tests {
             calculate_and_update_dag_deadline(&sink_info, 5, State::Waiting),
             55
         );
+        // Timer latency must not postpone job 0's deadline. Truncate sub-microsecond time.
+        dag.set_next_release_time(Instant::zero() + Duration::from_nanos(10_999));
         assert_eq!(
-            calculate_and_update_dag_deadline(&source_info, 10, State::Waiting),
+            calculate_and_update_dag_deadline(&source_info, 13, State::Waiting),
             60
         );
         assert_eq!(
-            calculate_and_update_dag_deadline(&source_info, 11, State::Preempted),
+            calculate_and_update_dag_deadline(&source_info, 14, State::Preempted),
             60
         );
         dag.finish_job(source);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(20));
         assert_eq!(
             calculate_and_update_dag_deadline(&source_info, 15, State::Preempted),
             65
         );
+        assert!(!dag.release_times.lock(&mut MCSNode::new()).contains_key(&1));
+
+        // An overrun can leave the next Burst job overdue even before its source wakes.
         assert_eq!(
-            calculate_and_update_dag_deadline(&source_info, 20, State::Waiting),
+            calculate_and_update_dag_deadline(&source_info, 85, State::Waiting),
             70
         );
+        dag.finish_job(source);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(30));
         assert_eq!(
-            calculate_and_update_dag_deadline(&sink_info, 21, State::Waiting),
+            calculate_and_update_dag_deadline(&source_info, 86, State::Waiting),
+            80
+        );
+        assert_eq!(
+            calculate_and_update_dag_deadline(&sink_info, 87, State::Waiting),
             60
         );
         dag.finish_job(sink);
         assert_eq!(
-            calculate_and_update_dag_deadline(&sink_info, 22, State::Waiting),
+            calculate_and_update_dag_deadline(&sink_info, 88, State::Waiting),
             70
         );
+        dag.finish_job(sink);
+        assert_eq!(
+            calculate_and_update_dag_deadline(&sink_info, 89, State::Waiting),
+            80
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "DAG source released a job without an interval tick target")]
+    fn source_release_requires_tick_target() {
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &[]);
+        dag.get_or_release_job(source, true, || 10);
     }
 }
