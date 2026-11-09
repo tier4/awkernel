@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 imu_driver = { path = "../imu_driver", default-features = false }
 imu_corrector = { path = "../imu_corrector", default-features = false }
-vehicle_velocity_converter = { path = "../vehicle_velocity_converter", default-features = false}
+vehicle_velocity_converter = { path = "../vehicle_velocity_converter", default-features = false }
+common_types = { path = "../common_types", default-features = false }

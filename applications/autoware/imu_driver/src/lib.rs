@@ -60,28 +60,20 @@ extern crate alloc;
 use alloc::{format, string::String, vec, vec::Vec};
 use core::f64::consts::PI;
 
-pub use common_types::{Header, Vector3};
+pub use common_types::{Header, Quaternion, Vector3};
 
 #[derive(Clone, Debug)]
 pub struct ImuMsg {
     pub header: Header,
-    pub angular_velocity: Vector3,
-    pub linear_acceleration: Vector3,
+    pub angular_velocity: Vector3<f64>,
+    pub linear_acceleration: Vector3<f64>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ImuCsvRow {
     pub timestamp: u64,
-    pub angular_velocity: Vector3,
-    pub linear_acceleration: Vector3,
-}
-
-#[derive(Debug, Clone)]
-pub struct Quaternion {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub w: f64,
+    pub angular_velocity: Vector3<f64>,
+    pub linear_acceleration: Vector3<f64>,
 }
 
 impl Default for ImuMsg {
@@ -107,8 +99,8 @@ pub fn build_imu_msg_from_csv_row(
             frame_id,
             timestamp,
         },
-        angular_velocity: row.angular_velocity.clone(),
-        linear_acceleration: row.linear_acceleration.clone(),
+        angular_velocity: row.angular_velocity,
+        linear_acceleration: row.linear_acceleration,
     }
 }
 
@@ -154,8 +146,8 @@ impl TamagawaImuParser {
     pub fn generate_dummy_binary_data(
         &mut self,
         _timestamp: u64,
-        angular_velocity: Vector3,
-        linear_acceleration: Vector3,
+        angular_velocity: Vector3<f64>,
+        linear_acceleration: Vector3<f64>,
     ) -> Vec<u8> {
         let mut data = vec![0u8; 58];
 

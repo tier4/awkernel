@@ -23,95 +23,18 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{format, string::String};
-use imu_driver::{Header, ImuMsg, Quaternion, Vector3};
-use nalgebra::{Quaternion as NQuaternion, UnitQuaternion, Vector3 as NVector3};
-
-#[derive(Clone, Debug)]
-pub struct Transform {
-    pub translation: Vector3,
-    pub rotation: Quaternion,
-}
-
-impl Transform {
-    pub fn identity() -> Self {
-        Self {
-            translation: imu_driver::Vector3::new(0.0, 0.0, 0.0),
-            rotation: imu_driver::Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
-        }
-    }
-
-    // This code is used as part of the `gyro_odometer` function processing.
-    pub fn apply_to_vector(&self, vec: Vector3) -> Vector3 {
-        let nalgebra_vec = to_nalgebra_vector3(&vec);
-        let nalgebra_quat = to_nalgebra_quaternion(&self.rotation);
-        let nalgebra_trans = to_nalgebra_vector3(&self.translation);
-        let rotated = nalgebra_quat * nalgebra_vec;
-        let result = rotated + nalgebra_trans;
-        to_imu_vector3(&result)
-    }
-}
-
-pub trait TransformListener {
-    fn get_latest_transform(&self, from_frame: &str, to_frame: &str) -> Option<Transform>;
-    fn get_transform_at_time(
-        &self,
-        from_frame: &str,
-        to_frame: &str,
-        timestamp: u64,
-    ) -> Option<Transform>;
-}
-
-pub struct MockTransformListener {
-    transforms: alloc::collections::BTreeMap<String, Transform>,
-}
-
-impl MockTransformListener {
-    pub fn new() -> Self {
-        Self {
-            transforms: alloc::collections::BTreeMap::new(),
-        }
-    }
-
-    pub fn add_transform(&mut self, from_frame: &str, to_frame: &str, transform: Transform) {
-        let key = format!("{}_to_{}", from_frame, to_frame);
-        self.transforms.insert(key, transform);
-    }
-}
-
-impl Default for MockTransformListener {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TransformListener for MockTransformListener {
-    fn get_latest_transform(&self, from_frame: &str, to_frame: &str) -> Option<Transform> {
-        let key = format!("{}_to_{}", from_frame, to_frame);
-        self.transforms.get(&key).cloned()
-    }
-
-    fn get_transform_at_time(
-        &self,
-        from_frame: &str,
-        to_frame: &str,
-        _timestamp: u64,
-    ) -> Option<Transform> {
-        self.get_latest_transform(from_frame, to_frame)
-    }
-}
+use common_types::{
+    transform::{MockTransformListener, Transform, TransformListener},
+    Header, Vector3,
+};
+use imu_driver::ImuMsg;
 
 #[derive(Clone, Debug)]
 pub struct ImuWithCovariance {
     pub header: Header,
-    pub angular_velocity: Vector3,
+    pub angular_velocity: Vector3<f64>,
     pub angular_velocity_covariance: [f64; 9],
-    pub linear_acceleration: Vector3,
+    pub linear_acceleration: Vector3<f64>,
     pub linear_acceleration_covariance: [f64; 9],
 }
 
@@ -119,9 +42,9 @@ impl ImuWithCovariance {
     pub fn from_imu_msg(imu_msg: &ImuMsg) -> Self {
         Self {
             header: imu_msg.header.clone(),
-            angular_velocity: imu_msg.angular_velocity.clone(),
+            angular_velocity: imu_msg.angular_velocity,
             angular_velocity_covariance: [0.0; 9],
-            linear_acceleration: imu_msg.linear_acceleration.clone(),
+            linear_acceleration: imu_msg.linear_acceleration,
             linear_acceleration_covariance: [0.0; 9],
         }
     }
@@ -129,8 +52,8 @@ impl ImuWithCovariance {
     pub fn to_imu_msg(&self) -> ImuMsg {
         ImuMsg {
             header: self.header.clone(),
-            angular_velocity: self.angular_velocity.clone(),
-            linear_acceleration: self.linear_acceleration.clone(),
+            angular_velocity: self.angular_velocity,
+            linear_acceleration: self.linear_acceleration,
         }
     }
 }
@@ -198,11 +121,8 @@ impl<T: TransformListener> ImuCorrector<T> {
         self.config = config;
     }
 
-    fn transform_vector3(&self, vec: &Vector3, transform: &Transform) -> Vector3 {
-        let nalgebra_vec = to_nalgebra_vector3(vec);
-        let nalgebra_quat = to_nalgebra_quaternion(&transform.rotation);
-        let rotated = nalgebra_quat * nalgebra_vec;
-        to_imu_vector3(&rotated)
+    fn transform_vector3(&self, vec: &Vector3<f64>, transform: &Transform) -> Vector3<f64> {
+        transform.rotate(vec)
     }
 
     fn transform_covariance_impl(cov: &[f64; 9]) -> [f64; 9] {
@@ -226,6 +146,7 @@ impl<T: TransformListener> ImuCorrector<T> {
     // However, the actual vehicle TF would produce incorrect results if skipped.
     // TODO: To be implemented in a subsequent PR:
     // Fix by hardcoding a fixed tf value to prevent None from being passed by the caller.
+    // Prefer Transform::try_new with Quaternion::new(w, x, y, z), not ROS order [x, y, z, w].
     //
     // If dynamic TF support is added in the future, the recommended fallback is to
     // return an empty/zeroed ImuWithCovariance (analogous to `create_empty_twist` in
@@ -313,19 +234,6 @@ impl<T: TransformListener> ImuCorrector<T> {
     }
 }
 
-fn to_nalgebra_vector3(vec: &Vector3) -> NVector3<f64> {
-    NVector3::new(vec.x, vec.y, vec.z)
-}
-
-fn to_imu_vector3(vec: &NVector3<f64>) -> Vector3 {
-    Vector3::new(vec.x, vec.y, vec.z)
-}
-
-fn to_nalgebra_quaternion(quat: &Quaternion) -> UnitQuaternion<f64> {
-    let n_quat = NQuaternion::new(quat.w, quat.x, quat.y, quat.z);
-    UnitQuaternion::from_quaternion(n_quat)
-}
-
 pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
     ImuCorrector::<MockTransformListener>::transform_covariance_impl(cov)
 }
@@ -333,6 +241,7 @@ pub fn transform_covariance(cov: &[f64; 9]) -> [f64; 9] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_types::{Quaternion, UnitQuaternion};
 
     fn assert_almost_eq(actual: f64, expected: f64) {
         assert!((actual - expected).abs() < 1e-10);
@@ -435,15 +344,13 @@ mod tests {
         let corrector = ImuCorrector::new();
         let imu_msg = sample_imu_msg();
 
-        let transform = Transform {
-            translation: Vector3::new(1.0, 2.0, 3.0),
-            rotation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.7071067811865475,
-                w: 0.7071067811865476,
-            },
-        };
+        let half_sqrt_two = core::f64::consts::FRAC_1_SQRT_2;
+        let translation = Vector3::new(1.0, 2.0, 3.0);
+        let rotation = Quaternion::new(half_sqrt_two, 0.0, 0.0, half_sqrt_two);
+
+        let transform = Transform::try_new(translation, rotation);
+        assert!(transform.is_ok());
+        let transform = transform.unwrap();
 
         let corrected_with_cov = corrector.correct_imu_with_covariance(&imu_msg, Some(&transform));
         assert_eq!(corrected_with_cov.header.frame_id, "base_link");
@@ -458,15 +365,7 @@ mod tests {
     #[test]
     fn dynamic_tf_path_applies_transform() {
         let mut transform_listener = MockTransformListener::new();
-        let transform = Transform {
-            translation: Vector3::new(1.0, 0.0, 0.0),
-            rotation: Quaternion {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                w: 1.0,
-            },
-        };
+        let transform = Transform::new(Vector3::new(1.0, 0.0, 0.0), UnitQuaternion::identity());
         transform_listener.add_transform("imu_link", "base_link", transform);
 
         let corrector = ImuCorrector::with_transform_listener(transform_listener);
