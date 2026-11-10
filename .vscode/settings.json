@@ -7,14 +7,14 @@
     // For AArch64 Virt
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
-    //     "+nightly-2026-07-20",
+    //     "+nightly-2026-11-09",
     //     "check_no_std",
     //     "--target=targets/aarch64-kernel.json",
     //     "--features=aarch64_virt",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
-    //     "+nightly-2026-07-20",
+    //     "+nightly-2026-11-09",
     //     "check_no_std",
     //     "--target=targets/aarch64-kernel.json",
     //     "--features=aarch64_virt",
@@ -25,14 +25,14 @@
     // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
-        "+nightly-2026-07-20",
+        "+nightly-2026-11-09",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
         "--features=x86",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
-        "+nightly-2026-07-20",
+        "+nightly-2026-11-09",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
         "--features=x86",
@@ -43,7 +43,7 @@
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
-    //     "+nightly-2026-07-20",
+    //     "+nightly-2026-11-09",
     //     "check_std",
     //     "--features=std",
     //     "--quiet",
@@ -51,7 +51,7 @@
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
-    //     "+nightly-2026-07-20",
+    //     "+nightly-2026-11-09",
     //     "check_std",
     //     "--features=std",
     //     "--quiet",

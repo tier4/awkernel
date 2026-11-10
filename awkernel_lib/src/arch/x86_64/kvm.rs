@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 
+#[cfg(not(feature = "std"))]
 pub mod pvclock;
 
 const KVM_CPUID_SIGNATURE: u32 = 0x40000000;

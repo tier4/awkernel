@@ -1,15 +1,8 @@
 #[cfg(all(feature = "aarch64", not(feature = "std")))]
 pub mod aarch64;
 
-#[cfg(all(feature = "x86", not(feature = "std")))]
+#[cfg(all(target_arch = "x86_64", any(feature = "x86", feature = "std")))]
 pub mod x86_64;
-
-// The rest of `x86_64` needs the bare-metal target, but this page-table
-// helper does not touch the CPU, so its unit tests also run on the host.  It
-// is `pub` like the bare-metal module, so its API is not reported as unused.
-#[cfg(all(test, feature = "std", target_arch = "x86_64"))]
-#[path = "arch/x86_64/identity_map.rs"]
-pub mod x86_64_identity_map;
 
 #[cfg(all(any(feature = "rv32", feature = "rv64"), not(feature = "std")))]
 pub mod rv_common;

@@ -34,7 +34,7 @@ optional = true
 version = "0.16.1"
 optional = true
 
-[dependencies.x86_64]
+[target.'cfg(target_arch = "x86_64")'.dependencies.x86_64]
 version = "0.15"
 optional = true
 
@@ -56,6 +56,7 @@ version = "0.2"
 # git = "https://github.com/nbdd0121/unwinding.git"
 default-features = false
 features = ["panic"]
+optional = true
 
 [dependencies.socket2]
 version = "0.5"
@@ -86,13 +87,14 @@ x86 = [
     "dep:acpi",
     "dep:aml",
     "dep:bootloader_api",
+    "dep:unwinding",
     "awkernel_sync/x86",
     "awkernel_sync/x86_mwait",
 ]
-aarch64 = ["awkernel_sync/aarch64"]
-rv32 = ["dep:riscv", "awkernel_sync/rv32"]
-rv64 = ["dep:riscv", "awkernel_sync/rv64"]
-std = ["dep:libc", "dep:socket2", "awkernel_sync/std"]
+aarch64 = ["dep:unwinding", "awkernel_sync/aarch64"]
+rv32 = ["dep:riscv", "dep:unwinding", "awkernel_sync/rv32"]
+rv64 = ["dep:riscv", "dep:unwinding", "awkernel_sync/rv64"]
+std = ["dep:libc", "dep:socket2", "dep:x86_64", "awkernel_sync/std"]
 spinlock = ["awkernel_sync/spinlock"]
 # LFN (Long File Name) support
 lfn = []

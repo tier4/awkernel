@@ -22,6 +22,12 @@ fn map_err(e: MboxError) -> Error {
 }
 
 impl Dvfs for RaspiDvfs {
+    unsafe fn cpu_init(cpu_id: usize) -> Result<()> {
+        match cpu_id {
+            0 => Self::set_min_cpu_freq(),
+            _ => Ok(()),
+        }
+    }
     fn set_cpu_freq(_freq: u64) -> Result<()> {
         Err(Error::NotSupported)
     }
