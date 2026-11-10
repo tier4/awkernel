@@ -5,7 +5,6 @@
 
 #![cfg_attr(feature = "x86", feature(abi_x86_interrupt))]
 #![allow(unused_features)]
-#![feature(allocator_api)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -68,7 +67,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
-        // Initialize interrupts.
+        init_cpu_execution_speed(kernel_info.cpu_id);
+
         #[cfg(not(feature = "std"))]
         init_interrupt();
 
@@ -144,6 +144,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         awkernel_lib::delay::wait_microsec(10);
     }
 
+    init_cpu_execution_speed(kernel_info.cpu_id);
+
     #[cfg(not(feature = "std"))]
     {
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
@@ -182,4 +184,13 @@ fn init_interrupt() {
     // IRQ for wakeup CPUs.
     awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
     awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
+}
+
+#[cfg_attr(any(not(feature = "dvfs"), feature = "std"), allow(unused_variables))]
+fn init_cpu_execution_speed(cpu_id: usize) {
+    #[cfg(all(feature = "dvfs", not(feature = "std")))]
+    match unsafe { awkernel_lib::dvfs::cpu_init(cpu_id) } {
+        Ok(_) => log::info!("CPU#{cpu_id} Successfully initialized DVFS"),
+        Err(e) => log::warn!("CPU#{cpu_id} Failed to initialize DVFS: {e:?}"),
+    }
 }

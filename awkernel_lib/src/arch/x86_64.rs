@@ -1,26 +1,42 @@
+#[cfg(not(feature = "std"))]
 use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
+#[cfg(not(feature = "std"))]
 use ::acpi::AcpiTables;
 
+#[cfg(not(feature = "std"))]
 pub mod acpi;
 pub mod barrier;
 pub mod cpu;
+pub mod cpuid;
+#[cfg(not(feature = "std"))]
 pub mod delay;
-pub(super) mod dvfs;
+#[cfg(not(feature = "std"))]
+pub mod dvfs;
 pub mod fault;
+pub mod hwp;
 pub mod identity_map;
+#[cfg(not(feature = "std"))]
 pub(super) mod interrupt;
+#[cfg(not(feature = "std"))]
 pub mod interrupt_remap;
 pub mod kvm;
 pub mod msr;
+#[cfg(not(feature = "std"))]
 pub mod page_allocator;
+#[cfg(not(feature = "std"))]
 pub mod page_table;
+#[cfg(not(feature = "std"))]
 pub(super) mod paging;
+#[cfg(not(feature = "std"))]
 pub mod power;
+pub mod power_profile;
 
 pub struct X86;
 
+#[cfg(not(feature = "std"))]
 impl super::Arch for X86 {}
 
+#[cfg(not(feature = "std"))]
 pub fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut page_table::PageTable,

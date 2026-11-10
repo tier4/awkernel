@@ -70,8 +70,8 @@ pub struct TwistWithCovariance {
 
 #[derive(Debug, Clone)]
 pub struct Twist {
-    pub linear: Vector3,
-    pub angular: Vector3,
+    pub linear: Vector3<f64>,
+    pub angular: Vector3<f64>,
 }
 
 pub struct VehicleVelocityConverter {
@@ -121,16 +121,12 @@ impl VehicleVelocityConverter {
             header: msg.header.clone(),
             twist: TwistWithCovariance {
                 twist: Twist {
-                    linear: Vector3 {
-                        x: msg.longitudinal_velocity * self.speed_scale_factor,
-                        y: msg.lateral_velocity,
-                        z: 0.0,
-                    },
-                    angular: Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: msg.heading_rate,
-                    },
+                    linear: Vector3::new(
+                        msg.longitudinal_velocity * self.speed_scale_factor,
+                        msg.lateral_velocity,
+                        0.0,
+                    ),
+                    angular: Vector3::new(0.0, 0.0, msg.heading_rate),
                 },
                 covariance: self.create_covariance_matrix(),
             },
@@ -183,16 +179,8 @@ pub mod reactor_helpers {
             },
             twist: TwistWithCovariance {
                 twist: Twist {
-                    linear: Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
-                    angular: Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    },
+                    linear: Vector3::new(0.0, 0.0, 0.0),
+                    angular: Vector3::new(0.0, 0.0, 0.0),
                 },
                 covariance: [0.0; 36],
             },

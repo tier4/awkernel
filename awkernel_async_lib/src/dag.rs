@@ -45,6 +45,7 @@
 //!
 //! - **Single Publisher per Topic (Intra-DAG)**: Within a single DAG, a topic can only be published to by one node.
 //! - **Source and Sink**: The current implementation assumes that a DAG has a single source and a single sink.
+//! - **Periodic Source**: The source node must be a periodic reactor registered via `register_periodic_reactor`.
 //!
 mod graph;
 mod unionfind;
@@ -81,8 +82,14 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    sync::mutex::{MCSNode, Mutex},
+    time::Instant,
+};
 use core::{future::Future, pin::Pin, time::Duration};
+
+#[cfg(target_pointer_width = "64")]
+use core::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(feature = "perf")]
 use performance::ResponseInfo;
@@ -126,6 +133,7 @@ pub enum DagError {
     MissingPendingTasks(u32),
     MultipleSourceNodes(u32),
     MultipleSinkNodes(u32),
+    NoPeriodicSourceNode(u32),
     NoPublisherFound(u32, usize),
     NoSubscriberFound(u32, usize),
     SubscribeArityMismatch(u32, usize),
@@ -145,6 +153,7 @@ impl core::fmt::Display for DagError {
             DagError::MissingPendingTasks(dag_id) => write!(f, "DAG#{dag_id} has missing pending tasks"),
             DagError::MultipleSourceNodes(dag_id) => write!(f, "DAG#{dag_id} has multiple source nodes"),
             DagError::MultipleSinkNodes(dag_id) => write!(f, "DAG#{dag_id} has multiple sink nodes"),
+            DagError::NoPeriodicSourceNode(dag_id) => write!(f, "DAG#{dag_id} has no periodic source node"),
             DagError::NoPublisherFound(dag_id, node_id) => {
                 write!(f, "DAG#{dag_id} Node#{node_id}: One or more subscribed topics have no corresponding publisher")
             }
@@ -178,8 +187,16 @@ pub struct Dag {
     graph: Mutex<graph::Graph<NodeInfo, EdgeInfo>>,
 
     /// Absolute deadline of each released job that a node has not finished, keyed by job number.
-    /// A job is one run of the DAG. It starts when the source node wakes for a new release.
+    /// A job is one run of the DAG. When the periodic source node wakes for its interval tick,
+    /// it releases the job at the tick target time, not at the actual wake time.
     absolute_deadlines: Mutex<BTreeMap<u64, u64>>,
+
+    /// Target time of the source's next interval tick, in microseconds.
+    /// `u64::MAX` means the target is not set yet.
+    #[cfg(target_pointer_width = "64")]
+    next_release_time: AtomicU64,
+    #[cfg(target_pointer_width = "32")]
+    next_release_time: Mutex<u64>,
 
     #[cfg(feature = "perf")]
     response_info: Mutex<ResponseInfo>,
@@ -475,14 +492,48 @@ impl Dag {
         }
     }
 
+    fn set_next_release_time(&self, target: Instant) {
+        let release_time = target.uptime().as_micros() as u64;
+
+        #[cfg(target_pointer_width = "64")]
+        self.next_release_time
+            .store(release_time, Ordering::Release);
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            let mut node = MCSNode::new();
+            *self.next_release_time.lock(&mut node) = release_time;
+        }
+    }
+
+    fn load_next_release_time(&self) -> u64 {
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.next_release_time.load(Ordering::Acquire)
+        }
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            let mut node = MCSNode::new();
+            let release_time = *self.next_release_time.lock(&mut node);
+            release_time
+        }
+    }
+
     /// Returns the absolute deadline of the job that the node at `node_idx` processes next.
     /// If that job is not released and `release` is true, the source node releases it with
-    /// the value of `release_deadline`. Any other wake gets that value without a release.
+    /// the value of `release_deadline(Some(release_time))`, where `release_time` is the
+    /// target of the source's next interval tick. Any other wake gets
+    /// `release_deadline(None)` without a release.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source releases a job before its next release time is set.
     pub(crate) fn get_or_release_absolute_deadline(
         &self,
         node_idx: NodeIndex,
         release: bool,
-        release_deadline: impl FnOnce() -> u64,
+        release_deadline: impl FnOnce(Option<u64>) -> u64,
     ) -> u64 {
         let mut node = MCSNode::new();
         let mut absolute_deadlines = self.absolute_deadlines.lock(&mut node);
@@ -506,7 +557,18 @@ impl Dag {
             return deadline;
         }
 
-        let release_deadline = release_deadline();
+        let release_time = release.then(|| {
+            let release_time = self.load_next_release_time();
+            assert_ne!(
+                release_time,
+                u64::MAX,
+                "DAG#{}: the source released a job before its next release time was set",
+                self.id
+            );
+            release_time
+        });
+
+        let release_deadline = release_deadline(release_time);
         if release {
             absolute_deadlines.insert(job, release_deadline);
         }
@@ -612,6 +674,10 @@ impl Dags {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
                     absolute_deadlines: Mutex::new(BTreeMap::new()),
+                    #[cfg(target_pointer_width = "64")]
+                    next_release_time: AtomicU64::new(u64::MAX),
+                    #[cfg(target_pointer_width = "32")]
+                    next_release_time: Mutex::new(u64::MAX),
 
                     #[cfg(feature = "perf")]
                     response_info: Mutex::new(ResponseInfo::new()),
@@ -772,6 +838,17 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     }
     if dag.get_sink_nodes().len() > 1 {
         return Err(DagError::MultipleSinkNodes(dag_id));
+    }
+
+    {
+        let mut source_pending_node = MCSNode::new();
+        if SOURCE_PENDING_TASKS
+            .lock(&mut source_pending_node)
+            .get(&dag_id)
+            .is_none()
+        {
+            return Err(DagError::NoPeriodicSourceNode(dag_id));
+        }
     }
 
     validate_edge_connect(dag)?;
@@ -1051,6 +1128,10 @@ where
     let dag = get_dag(dag_info.dag_id).unwrap();
     let node_idx = to_node_index(dag_info.node_id);
 
+    // Spawning wakes the source before its future is polled.
+    let mut interval = interval(period, dag_info.dag_id);
+    dag.set_next_release_time(interval.next_tick_target());
+
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -1058,7 +1139,6 @@ where
             Attribute::default(),
         );
 
-        let mut interval = interval(period, dag_info.dag_id);
         // Consume the first tick here to start the loop's main body without an initial delay.
         interval.tick().await;
 
@@ -1090,6 +1170,7 @@ where
             #[cfg(feature = "perf")]
             periodic_measure();
 
+            dag.set_next_release_time(interval.next_tick_target());
             interval.tick().await;
         }
     };
@@ -1173,17 +1254,18 @@ mod tests {
         let dag = create_dag();
         let source = dag.add_node_with_topic_edges(&[], &["deadline_test_topic".into()]);
         let sink = dag.add_node_with_topic_edges(&["deadline_test_topic".into()], &[]);
+        dag.set_next_release_time(Instant::zero());
 
         // A non-source node does not release a job.
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 5), 5);
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, |_| 5), 5);
 
         // The source node releases job 0. A later wake in job 0 keeps the deadline.
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 10),
+            dag.get_or_release_absolute_deadline(source, true, |_| 10),
             10
         );
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 11),
+            dag.get_or_release_absolute_deadline(source, true, |_| 11),
             10
         );
 
@@ -1194,22 +1276,22 @@ mod tests {
 
         // A preempted source node resumes before the next period and does not release job 1.
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, false, || 15),
+            dag.get_or_release_absolute_deadline(source, false, |_| 15),
             15
         );
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 20),
+            dag.get_or_release_absolute_deadline(source, true, |_| 20),
             20
         );
 
         // The sink node wakes for job 0 after the release of job 1.
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 21), 10);
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, |_| 21), 10);
         assert!(!dag.has_stale_deadline(sink));
 
         // The source node released job 1.
         dag.finish_job(sink);
         assert!(dag.has_stale_deadline(sink));
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 22), 20);
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, |_| 22), 20);
         assert!(!dag.has_stale_deadline(sink));
         assert!(!dag
             .absolute_deadlines
@@ -1224,36 +1306,37 @@ mod tests {
         let middle = dag
             .add_node_with_topic_edges(&["retention_test_a".into()], &["retention_test_b".into()]);
         let sink = dag.add_node_with_topic_edges(&["retention_test_b".into()], &[]);
+        dag.set_next_release_time(Instant::zero());
 
         // The source node releases jobs 0, 1, and 2.
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 10),
+            dag.get_or_release_absolute_deadline(source, true, |_| 10),
             10
         );
         dag.finish_job(source);
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 20),
+            dag.get_or_release_absolute_deadline(source, true, |_| 20),
             20
         );
         dag.finish_job(source);
         assert_eq!(
-            dag.get_or_release_absolute_deadline(source, true, || 30),
+            dag.get_or_release_absolute_deadline(source, true, |_| 30),
             30
         );
 
         // The sink node finishes job 0 before the middle node records its finish.
         dag.finish_job(sink);
         assert_eq!(
-            dag.get_or_release_absolute_deadline(middle, true, || 31),
+            dag.get_or_release_absolute_deadline(middle, true, |_| 31),
             10
         );
 
         dag.finish_job(middle);
         assert_eq!(
-            dag.get_or_release_absolute_deadline(middle, true, || 32),
+            dag.get_or_release_absolute_deadline(middle, true, |_| 32),
             20
         );
-        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, || 33), 20);
+        assert_eq!(dag.get_or_release_absolute_deadline(sink, true, |_| 33), 20);
 
         let mut node = MCSNode::new();
         let jobs: Vec<u64> = dag
@@ -1270,10 +1353,11 @@ mod tests {
         let dag = create_dag();
         let source = dag.add_node_with_topic_edges(&[], &["cap_test_topic".into()]);
         let _sink = dag.add_node_with_topic_edges(&["cap_test_topic".into()], &[]);
+        dag.set_next_release_time(Instant::zero());
 
         // The sink node stopped, for example by a panic, and the source node keeps releasing.
         for deadline in 0..100 {
-            dag.get_or_release_absolute_deadline(source, true, || deadline);
+            dag.get_or_release_absolute_deadline(source, true, |_| deadline);
             dag.finish_job(source);
         }
 
@@ -1285,5 +1369,57 @@ mod tests {
             2 * (Attribute::default().queue_size + 1) + 1
         );
         assert_eq!(absolute_deadlines.last_key_value(), Some((&99, &99)));
+    }
+
+    #[test]
+    fn gedf_deadline_uses_tick_target_when_source_releases_job() {
+        use crate::scheduler::gedf::calculate_and_update_dag_deadline;
+        use crate::task::{DagInfo, State};
+
+        let dag = create_dag();
+        let source = dag.add_node_with_topic_edges(&[], &["gedf_release_time_topic".into()]);
+        let sink = dag.add_node_with_topic_edges(&["gedf_release_time_topic".into()], &[]);
+        dag.set_relative_deadline(sink, Duration::from_micros(50));
+
+        let source_info = DagInfo {
+            dag_id: dag.id,
+            node_id: source.index() as u32,
+        };
+        let sink_info = DagInfo {
+            dag_id: dag.id,
+            node_id: sink.index() as u32,
+        };
+
+        // The timer wakes at 13 us, but the job was due at 10.999 us. The
+        // scheduler uses microseconds, so the absolute deadline is 60 us.
+        dag.set_next_release_time(Instant::zero() + Duration::from_nanos(10_999));
+        assert_eq!(
+            calculate_and_update_dag_deadline(&source_info, 13, State::Waiting),
+            60
+        );
+        assert_eq!(
+            calculate_and_update_dag_deadline(&source_info, 14, State::Preempted),
+            60
+        );
+
+        dag.finish_job(source);
+
+        // Resuming a preempted source does not release the next job.
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(20));
+        assert_eq!(
+            calculate_and_update_dag_deadline(&source_info, 15, State::Preempted),
+            65
+        );
+
+        // Even when the source overruns the next tick, job 1's deadline stays
+        // anchored to that tick target rather than its late wake.
+        assert_eq!(
+            calculate_and_update_dag_deadline(&source_info, 85, State::Waiting),
+            70
+        );
+        assert_eq!(
+            calculate_and_update_dag_deadline(&sink_info, 87, State::Waiting),
+            60
+        );
     }
 }

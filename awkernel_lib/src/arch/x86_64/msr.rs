@@ -1,9 +1,27 @@
 use x86_64::registers::model_specific::Msr;
 
+#[cfg(not(feature = "std"))]
 use super::fault::get_num_general_protection_fault;
 
+pub mod ia32_energy_perf_bias;
+pub mod ia32_hwp_capabilities;
+pub mod ia32_hwp_interrupt;
+pub mod ia32_hwp_request;
+pub mod ia32_hwp_request_pkg;
+pub mod ia32_hwp_status;
+pub mod ia32_misc_enable;
+pub mod ia32_perf_aperf;
+pub mod ia32_perf_ctl;
+pub mod ia32_perf_mperf;
+pub mod ia32_perf_status;
+pub mod ia32_pm_enable;
+pub mod pkg_energy_status;
+pub mod platform_info;
+pub mod pp0_energy_status;
+pub mod rapl_power_unit;
+
 // MSR IA32_ENERGY_PERF_BIAS
-pub(super) const IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK: u64 = 0xf;
+pub(super) const _IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK: u64 = 0xf;
 
 // MSR IA32_HWP_REQUEST
 pub(super) const _IA32_HWP_REQUEST_MINIMUM_VALID: u64 = 1 << 63;
@@ -11,66 +29,77 @@ pub(super) const _IA32_HWP_REQUEST_MAXIMUM_VALID: u64 = 1 << 62;
 pub(super) const _IA32_HWP_REQUEST_DESIRED_VALID: u64 = 1 << 61;
 pub(super) const _IA32_HWP_REQUEST_EPP_VALID: u64 = 1 << 60;
 pub(super) const _IA32_HWP_REQUEST_ACTIVITY_WINDOW_VALID: u64 = 1 << 59;
-pub(super) const IA32_HWP_REQUEST_PACKAGE_CONTROL: u64 = 1 << 42;
-pub(super) const IA32_HWP_ACTIVITY_WINDOW: u64 = 0x3ff << 32;
-pub(super) const IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE: u64 = 0xff << 24;
-pub(super) const IA32_HWP_DESIRED_PERFORMANCE: u64 = 0xff << 16;
-pub(super) const IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE: u64 = 0xff << 8;
-pub(super) const IA32_HWP_MINIMUM_PERFORMANCE: u64 = 0xff;
+pub(super) const _IA32_HWP_REQUEST_PACKAGE_CONTROL: u64 = 1 << 42;
+pub(super) const _IA32_HWP_ACTIVITY_WINDOW: u64 = 0x3ff << 32;
+pub(super) const _IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE: u64 = 0xff << 24;
+pub(super) const _IA32_HWP_DESIRED_PERFORMANCE: u64 = 0xff << 16;
+pub(super) const _IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE: u64 = 0xff << 8;
+pub(super) const _IA32_HWP_MINIMUM_PERFORMANCE: u64 = 0xff;
 
-pub(super) const MSR_IA32_ENERGY_PERF_BIAS: u32 = 0x1b0;
-pub(super) const MSR_IA32_PM_ENABLE: u32 = 0x770;
-pub(super) const MSR_IA32_HWP_CAPABILITIES: u32 = 0x771;
-pub(super) const MSR_IA32_HWP_REQUEST_PKG: u32 = 0x772;
-pub(super) const MSR_IA32_HWP_REQUEST: u32 = 0x774;
-
-// MSR IA32_HWP_CAPABILITIES
-pub(super) const IA32_HWP_CAPABILITIES_HIGHEST_PERFORMANCE: fn(u64) -> u8 = |x| (x & 0xff) as u8;
-pub(super) const IA32_HWP_CAPABILITIES_GUARANTEED_PERFORMANCE: fn(u64) -> u8 =
-    |x| ((x >> 8) & 0xff) as u8;
-pub(super) const IA32_HWP_CAPABILITIES_EFFICIENT_PERFORMANCE: fn(u64) -> u8 =
-    |x| ((x >> 16) & 0xff) as u8;
-pub(super) const IA32_HWP_CAPABILITIES_LOWEST_PERFORMANCE: fn(u64) -> u8 =
-    |x| ((x >> 24) & 0xff) as u8;
+pub(super) const _MSR_IA32_ENERGY_PERF_BIAS: u32 = 0x1b0;
+pub(super) const _MSR_IA32_PM_ENABLE: u32 = 0x770;
+pub(super) const _MSR_IA32_HWP_CAPABILITIES: u32 = 0x771;
+pub(super) const _MSR_IA32_HWP_REQUEST_PKG: u32 = 0x772;
+pub(super) const _MSR_IA32_HWP_REQUEST: u32 = 0x774;
 
 /// Read 64 bits msr register.
-/// If the `msr` is not supported on your environments, this function returns `false`.
+/// If the `msr` is not supported on your environments, this function returns `None`.
+/// With `std`, always returns `None` without accessing hardware.
 ///
 /// # Safety
 ///
 /// The caller must ensure that this read operation has no unsafe side effects.
 pub unsafe fn rdmsr_safe(msr: &Msr) -> Option<u64> {
-    let _int_guard = crate::interrupt::InterruptGuard::new();
-
-    let cpuid = crate::cpu::cpu_id();
-    let num_fault1 = get_num_general_protection_fault(cpuid);
-
-    let result = unsafe { msr.read() };
-
-    let num_fault2 = get_num_general_protection_fault(cpuid);
-
-    if num_fault1 != num_fault2 {
+    #[cfg(feature = "std")]
+    {
+        let _ = msr;
         None
-    } else {
-        Some(result)
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let _int_guard = crate::interrupt::InterruptGuard::new();
+
+        let cpuid = crate::cpu::cpu_id();
+        let num_fault1 = get_num_general_protection_fault(cpuid);
+
+        let result = unsafe { msr.read() };
+
+        let num_fault2 = get_num_general_protection_fault(cpuid);
+
+        if num_fault1 != num_fault2 {
+            None
+        } else {
+            Some(result)
+        }
     }
 }
 
 /// Write 64 bits to msr register.
 /// If the `msr` is not supported on your environments, this function returns `false`.
+/// With `std`, always returns `false` without accessing hardware.
 ///
 /// # Safety
 ///
 /// The caller must ensure that this write operation has no unsafe side effects.
 pub unsafe fn wrmsr_safe(msr: &mut Msr, value: u64) -> bool {
-    let _int_guard = crate::interrupt::InterruptGuard::new();
+    #[cfg(feature = "std")]
+    {
+        let _ = (msr, value);
+        false
+    }
 
-    let cpuid = crate::cpu::cpu_id();
-    let num_fault1 = get_num_general_protection_fault(cpuid);
+    #[cfg(not(feature = "std"))]
+    {
+        let _int_guard = crate::interrupt::InterruptGuard::new();
 
-    unsafe { msr.write(value) };
+        let cpuid = crate::cpu::cpu_id();
+        let num_fault1 = get_num_general_protection_fault(cpuid);
 
-    let num_fault2 = get_num_general_protection_fault(cpuid);
+        unsafe { msr.write(value) };
 
-    num_fault1 == num_fault2
+        let num_fault2 = get_num_general_protection_fault(cpuid);
+
+        num_fault1 == num_fault2
+    }
 }
