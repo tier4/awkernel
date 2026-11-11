@@ -1,11 +1,10 @@
-mod accessor;
 mod cloud;
 mod field;
+mod point;
 mod selection;
 #[cfg(test)]
 mod test_support;
 
-pub use accessor::{PointAccessor, PointReader, PointWriter, TypedPointReader, TypedPointWriter};
 pub use cloud::{
     PointCloudAccessor, PointCloudReader, PointCloudWriter, TypedPointCloudAccessor,
     TypedPointCloudReader, TypedPointCloudWriter,
@@ -13,6 +12,7 @@ pub use cloud::{
 pub use field::{
     CheckedField, FieldAccessor, PointFieldValueMut, TypedCheckedField, TypedFieldAccessor,
 };
+pub use point::{PointAccessor, PointReader, PointWriter, TypedPointReader, TypedPointWriter};
 pub use selection::{Field, FieldSelection};
 
 use crate::Header;
@@ -33,7 +33,7 @@ pub enum FieldDatatype {
 }
 
 impl FieldDatatype {
-    pub const fn size(self) -> u32 {
+    pub const fn size(self) -> usize {
         match self {
             Self::Int8 | Self::Uint8 => 1,
             Self::Int16 | Self::Uint16 => 2,
@@ -53,11 +53,9 @@ pub trait PointFieldValue: Copy + sealed::Sealed {
     type Bytes: AsRef<[u8]>;
 
     /// Decodes a native-endian value; returns an error if `bytes.len() != SIZE`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PointFieldError::InvalidLength`] for a non-scalar byte length.
     fn from_ne_slice(bytes: &[u8]) -> Result<Self, PointFieldError>;
+
+    /// Encodes the value as native-endian bytes.
     fn to_ne_bytes(self) -> Self::Bytes;
 }
 

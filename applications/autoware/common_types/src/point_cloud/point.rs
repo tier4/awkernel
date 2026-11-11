@@ -142,7 +142,7 @@ impl<S: FieldSelection> TypedPointWriter<'_, S> {
     /// selection order, so overlapping or repeated selections are last-wins.
     ///
     /// ```
-    /// use common_types::point::{
+    /// use common_types::point_cloud::{
     ///     Field, PointCloud, PointCloudError, PointCloudWriter,
     /// };
     ///
@@ -165,9 +165,9 @@ impl<S: FieldSelection> TypedPointWriter<'_, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::point::selection::typed_selection;
-    use crate::point::test_support::{message, projected_cloud};
-    use crate::point::*;
+    use crate::point_cloud::selection::typed_selection;
+    use crate::point_cloud::test_support::{point_cloud, projected_cloud};
+    use crate::point_cloud::*;
     use alloc::{vec, vec::Vec};
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
     }
     #[test]
     fn typed_point_write_fields_accepts_empty_whole_field_slices() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             4,
@@ -277,7 +277,7 @@ mod tests {
     }
     #[test]
     fn typed_point_write_fields_apply_complete_overlapping_fields_in_tuple_order() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             3,
@@ -304,7 +304,7 @@ mod tests {
     }
     #[test]
     fn typed_point_write_fields_checks_lengths_and_orders_repeated_fields() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             4,
@@ -342,7 +342,7 @@ mod tests {
     }
     #[test]
     fn typed_point_writer_writes_mixed_fields_without_touching_padding_or_neighbors() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             2,
             2,
             8,
@@ -410,7 +410,7 @@ mod tests {
     }
     #[test]
     fn typed_writer_validates_every_value_before_mutating_and_orders_overlaps() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             4,
@@ -439,7 +439,7 @@ mod tests {
         ));
         assert_eq!(writer.data(), original);
 
-        let mut empty = message(
+        let mut empty = point_cloud(
             1,
             1,
             3,
@@ -468,7 +468,7 @@ mod tests {
         ));
         assert_eq!(writer.data(), original);
 
-        let mut overlap = message(
+        let mut overlap = point_cloud(
             1,
             1,
             2,

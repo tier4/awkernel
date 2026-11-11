@@ -129,8 +129,8 @@ pub(super) mod typed_selection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::point::test_support::{message, projected_cloud};
-    use crate::point::*;
+    use crate::point_cloud::test_support::{point_cloud, projected_cloud};
+    use crate::point_cloud::*;
     use alloc::{vec, vec::Vec};
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
         data.extend_from_slice(&60_000_u32.to_ne_bytes());
         data.extend_from_slice(&1.25_f32.to_ne_bytes());
         data.extend_from_slice(&2.5_f64.to_ne_bytes());
-        let cloud = message(
+        let cloud = point_cloud(
             1,
             1,
             27,
@@ -187,7 +187,7 @@ mod tests {
     }
     #[test]
     fn selected_duplicate_name_uses_first_descriptor() {
-        let cloud = message(
+        let cloud = point_cloud(
             1,
             1,
             2,
@@ -236,7 +236,7 @@ mod tests {
     }
     #[test]
     fn selections_validate_requested_fields_and_preserve_order_and_bytes() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             4,
@@ -329,7 +329,7 @@ mod tests {
     }
     #[test]
     fn tuple_duplicates_overlap_and_zero_counts_are_read_only() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             2,
@@ -493,7 +493,7 @@ mod tests {
     }
     #[test]
     fn typed_writer_checks_wrong_types_for_empty_clouds() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             0,
             4,
