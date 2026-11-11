@@ -5,8 +5,8 @@ use core::{
 };
 
 use super::{
-    accessor::{PointAccessor, PointReader, PointWriter, TypedPointReader, TypedPointWriter},
     field::CheckedField,
+    point::{PointAccessor, PointReader, PointWriter, TypedPointReader, TypedPointWriter},
     selection::FieldSelection,
     FieldDatatype, PointCloud, PointCloudError, PointFieldError,
 };
@@ -31,7 +31,7 @@ pub type PointCloudWriter<'a> = PointCloudAccessor<&'a mut PointCloud>;
 /// [`Self::point`] or [`Self::point_at`]:
 ///
 /// ```
-/// use common_types::point::{FieldDatatype, PointCloud, PointCloudError, PointCloudWriter};
+/// use common_types::point_cloud::{FieldDatatype, PointCloud, PointCloudError, PointCloudWriter};
 ///
 /// fn update_first_normal(cloud: &mut PointCloud) -> Result<(), PointCloudError> {
 ///     let mut writer = PointCloudWriter::try_new(
@@ -333,8 +333,8 @@ impl<C, S: FieldSelection> DerefMut for TypedPointCloudAccessor<C, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::point::test_support::{message, projected_cloud};
-    use crate::point::*;
+    use crate::point_cloud::test_support::{point_cloud, projected_cloud};
+    use crate::point_cloud::*;
     use alloc::{vec, vec::Vec};
     use core::borrow::Borrow;
 
@@ -473,7 +473,7 @@ mod tests {
         for mut cloud in [
             projected_cloud(),
             empty,
-            message(0, 1, 8, 0, vec![], vec![]),
+            point_cloud(0, 1, 8, 0, vec![], vec![]),
         ] {
             let fields: &[(&'static str, FieldDatatype)] = if cloud.fields.is_empty() {
                 &[]
@@ -568,7 +568,7 @@ mod tests {
     #[cfg(target_pointer_width = "32")]
     #[test]
     fn rejects_dimension_arithmetic_overflow() {
-        let cloud = message(u32::MAX, u32::MAX, u32::MAX, u32::MAX, vec![], vec![]);
+        let cloud = point_cloud(u32::MAX, u32::MAX, u32::MAX, u32::MAX, vec![], vec![]);
         assert_eq!(
             PointCloudReader::try_new(&cloud, None).err(),
             Some(PointCloudError::Overflow)
@@ -576,7 +576,7 @@ mod tests {
     }
     #[test]
     fn validates_cloud_shape_and_zero_sized_dimensions() {
-        let mut cloud = message(1, 1, 0, 0, vec![], vec![]);
+        let mut cloud = point_cloud(1, 1, 0, 0, vec![], vec![]);
         assert_eq!(
             PointCloudReader::try_new(&cloud, None).err(),
             Some(PointCloudError::ZeroPointStep)
@@ -600,14 +600,14 @@ mod tests {
             })
         );
 
-        let zero_width = message(0, 2, 8, 3, vec![], vec![0; 6]);
+        let zero_width = point_cloud(0, 2, 8, 3, vec![], vec![0; 6]);
         let reader = PointCloudReader::try_new(&zero_width, None).unwrap();
         assert_eq!(reader.point_count(), 0);
         assert!(matches!(
             reader.point(0),
             Err(PointCloudError::PointOutOfBounds { count: 0, .. })
         ));
-        let zero_height = message(3, 0, 8, 24, vec![], vec![]);
+        let zero_height = point_cloud(3, 0, 8, 24, vec![], vec![]);
         assert_eq!(
             PointCloudReader::try_new(&zero_height, None)
                 .unwrap()

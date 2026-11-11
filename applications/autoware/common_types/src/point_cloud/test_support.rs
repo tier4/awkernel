@@ -3,11 +3,11 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    point::{FieldDatatype, PointCloud, PointField},
+    point_cloud::{FieldDatatype, PointCloud, PointField},
     Header,
 };
 
-pub(super) fn message(
+pub(super) fn point_cloud(
     width: u32,
     height: u32,
     point_step: u32,
@@ -49,5 +49,5 @@ pub(super) fn projected_cloud() -> PointCloud {
             data.extend_from_slice(&[0xCC; 3]);
         }
     }
-    message(2, 2, 8, 19, fields, data)
+    point_cloud(2, 2, 8, 19, fields, data)
 }

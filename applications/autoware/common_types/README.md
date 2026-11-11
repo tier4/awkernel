@@ -1,21 +1,16 @@
 # Autoware common types
 
-This `no_std` crate defines shared Autoware message, geometry, transform, and
-point-cloud access types. It uses `alloc`.
+This `no_std` crate defines shared Autoware message and access types. It uses `alloc`.
 
 ## Data types
 
-### Messages and geometry
+### Messages
 
 | Type | Purpose |
 | --- | --- |
 | `Header` | A `frame_id` and `timestamp` attached to a message. |
-| `PointCloud` | A public, ROS-style binary point-cloud message: header, dimensions, field descriptors, byte order, point and row strides, data, and density flag. Its public fields are not validated on construction. |
+| `PointCloud` | A public, ROS-style binary point-cloud message: header, dimensions, field descriptors, byte order, point and row strides, data, and density flag. Its public fields are not validated until an accessor is constructed. |
 | `PointField` | A message descriptor for one named field: its byte offset, `FieldDatatype`, and number of consecutive values per point. Offsets and counts are `u32`. |
-| `FieldDatatype` | The runtime encoding of a field: signed or unsigned 8-, 16-, or 32-bit integers, `f32`, or `f64`. |
-| `PointFieldValue` | A sealed trait implemented by those eight Rust scalar types. It provides their datatype, size, and native-endian encoding and decoding. |
-| `Point32` | A `Vector3<f32>` used as a polygon vertex. |
-| `Polygon` / `PolygonStamped` | A sequence of 3D vertices, optionally paired with a `Header`. |
 | `Transform` | A rigid transform with `f64` translation and a unit quaternion. `try_new` validates finite inputs and a near-unit quaternion, then normalizes it. |
 | `TransformStamped` | A transform accompanied by a header and child frame ID. |
 | `TransformListener` / `MockTransformListener` | An interface for transform lookup and an in-memory implementation for tests or other callers. |
@@ -27,7 +22,8 @@ compatibility helper; prefer explicit conversion at the I/O boundary.
 ### Point-cloud access
 
 Point-cloud messages might not be well-formed and their fields could be corrupted.
-To ensure a safe point-cloud manipulation, we provide **accessors** that uses Rust's typesystem to ensure a correct behavior.
+To ensure safe point-cloud manipulation, the crate provides accessors that validate
+the layout before allowing access.
 
 
 The accessor types borrow a message and validate its layout before access.
@@ -64,7 +60,7 @@ classDiagram
 
 #### Layout and selection rules
 
-Cloud construction requires native byte order, a nonzero `point_step`,
+Constructing an accessor requires native byte order, a nonzero `point_step`,
 `row_step >= width * point_step`, and exactly `row_step * height` data bytes.
 Row padding is allowed. Selected field ranges must fit inside a point; field
 overlaps and zero-count fields are allowed. A point is accessed by row-major
@@ -73,7 +69,7 @@ index or by `(row, column)`; its bytes exclude row padding.
 * `PointCloudReader::try_new(&cloud, None)` resolves every field descriptor.
 * `Some(&[(name, datatype), ...])` resolves only the requested fields, in
   request order. The first descriptor with each name is used; a missing name
-  or datatype mismatch is an error. Unselected descriptors are not validated.
+  or datatype mismatch is an error. **Unselected descriptors are not validated**.
 * `Some(&[])` resolves no fields but still validates the cloud layout and
   permits access to raw point bytes.
 
@@ -139,7 +135,7 @@ before mutation. Writes occur left to right, so a later tuple element wins if
 fields overlap or a field is selected more than once.
 
 ```rust
-use common_types::point::{Field, PointCloud, PointCloudError, PointCloudReader, PointCloudWriter};
+use common_types::point_cloud::{Field, PointCloud, PointCloudError, PointCloudReader, PointCloudWriter};
 
 fn read_xyz(cloud: &PointCloud) -> Result<(f32, f32, f32), PointCloudError> {
     let reader = PointCloudReader::try_new_typed(
@@ -171,6 +167,3 @@ cargo clippy -p common_types --all-targets --all-features -- -D warnings
 
 Tests cover layout and typed access, ordered overlapping writes, empty clouds,
 transforms, metadata, extra values, unaligned fields, and padded input rows.
-
-See the [crop box filter](../crop_box_filter/README.md) for a consumer of these
-types.

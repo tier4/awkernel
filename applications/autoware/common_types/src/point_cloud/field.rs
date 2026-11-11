@@ -26,7 +26,7 @@ impl CheckedField {
     pub(super) fn try_new(field: PointField, point_step: u32) -> Result<Self, PointFieldError> {
         let offset_start = field.offset as usize;
         let count = field.count as usize;
-        let item_size = field.datatype.size() as usize;
+        let item_size = field.datatype.size();
         let point_step = point_step as usize;
         let field_size = count
             .checked_mul(item_size)
@@ -124,8 +124,6 @@ impl<T: PointFieldValue> TypedCheckedField<T> {
         fields: &mut core::slice::Iter<'_, CheckedField>,
     ) -> Result<Self, PointCloudError> {
         let field = *fields.next().ok_or(PointCloudError::InvalidData)?;
-        // Retain a validated type witness even if this trait method is
-        // invoked directly rather than through the cloud constructor.
         if field.datatype() != T::DATATYPE {
             return Err(PointFieldError::DatatypeMismatch {
                 name: field.name(),
@@ -368,8 +366,8 @@ impl<T: PointFieldValue> PointFieldValueMut<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::point::test_support::{message, projected_cloud};
-    use crate::point::*;
+    use crate::point_cloud::test_support::{point_cloud, projected_cloud};
+    use crate::point_cloud::*;
     use alloc::{vec, vec::Vec};
 
     #[test]
@@ -461,7 +459,7 @@ mod tests {
     }
     #[test]
     fn empty_and_overlapping_fields_support_sequential_access() {
-        let mut cloud = message(
+        let mut cloud = point_cloud(
             1,
             1,
             4,
