@@ -200,9 +200,9 @@ impl GEDFScheduler {
 }
 
 /// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
-/// A wake of the source node in any `state` except `State::Preempted` releases that job
-/// with its interval tick target plus the sink relative deadline, if it is not released yet.
-/// Any other wake before release gets `wake_time` plus the sink relative deadline.
+/// A source wake in any `state` except `State::Preempted` releases an unreleased job. Its
+/// absolute deadline is fixed at release to the interval tick target plus the sink relative
+/// deadline. A wake before release gets `wake_time` plus the current sink relative deadline.
 ///
 /// # Panics
 ///
@@ -217,14 +217,18 @@ pub fn calculate_and_update_dag_deadline(dag_info: &DagInfo, wake_time: u64, sta
     // source node finishes a job, it waits only for that tick, because it has no subscriber.
     let release = state != State::Preempted;
 
-    dag.get_or_release_absolute_deadline(to_node_index(dag_info.node_id), release, |release_time| {
-        // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
-        let relative_deadline_us = dag
-            .get_sink_relative_deadline()
-            .map(|deadline| deadline.as_micros() as u64)
-            .unwrap_or_else(|| {
-                panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
-            });
-        release_time.unwrap_or(wake_time) + relative_deadline_us
-    })
+    dag.get_or_release_job(to_node_index(dag_info.node_id), release)
+        .map_or_else(
+            || {
+                // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+                let relative_deadline_us = dag
+                    .get_sink_relative_deadline()
+                    .map(|deadline| deadline.as_micros() as u64)
+                    .unwrap_or_else(|_| {
+                        panic!("GEDF scheduler: DAG {dag_id} has no sink relative deadline set")
+                    });
+                wake_time + relative_deadline_us
+            },
+            |job| job.absolute_deadline,
+        )
 }
