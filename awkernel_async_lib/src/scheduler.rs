@@ -20,6 +20,7 @@ use awkernel_lib::{
 use alloc::boxed::Box;
 
 mod clustered_edf;
+pub mod dag_edf;
 pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
