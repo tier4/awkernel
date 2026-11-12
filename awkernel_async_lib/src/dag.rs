@@ -64,7 +64,7 @@ use crate::{
         visit::{EdgeRef, IntoNodeReferences, NodeRef},
     },
     scheduler::SchedulerType,
-    task::DagInfo,
+    task::{DagInfo, State},
     time_interval::interval,
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
@@ -755,6 +755,42 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+/// Returns the absolute deadline of the DAG job that the node of `dag_info` processes next.
+/// A source wake in any `state` except `State::Preempted` releases an unreleased job. Its
+/// absolute deadline is fixed at release to the interval tick target plus the sink relative
+/// deadline. A wake before release gets `wake_time` plus the current sink relative deadline.
+///
+/// # Panics
+///
+/// Panics if the DAG does not exist, has no node `dag_info.node_id`, or has no sink relative
+/// deadline, or the source releases a job without an interval tick target.
+pub(crate) fn calculate_and_update_dag_deadline(
+    dag_info: &DagInfo,
+    wake_time: u64,
+    state: State,
+) -> u64 {
+    let dag_id = dag_info.dag_id;
+    let dag = get_dag(dag_id).unwrap_or_else(|| panic!("DAG {dag_id} not found"));
+
+    // The wake of a preempted task resumes it and does not release a job. Any other wake
+    // of the source node at an unreleased job must come from its `Interval` tick. After the
+    // source node finishes a job, it waits only for that tick, because it has no subscriber.
+    let release = state != State::Preempted;
+
+    dag.get_or_release_job(to_node_index(dag_info.node_id), release)
+        .map_or_else(
+            || {
+                // Microseconds, the unit of `awkernel_lib::delay::uptime()`.
+                let relative_deadline_us = dag
+                    .get_sink_relative_deadline()
+                    .map(|deadline| deadline.as_micros() as u64)
+                    .unwrap_or_else(|_| panic!("DAG {dag_id} has no sink relative deadline set"));
+                wake_time + relative_deadline_us
+            },
+            |job| job.absolute_deadline,
+        )
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
@@ -1465,13 +1501,12 @@ mod tests {
     }
 
     #[test]
-    fn gedf_deadline_uses_job_release_time() {
-        use crate::scheduler::gedf::calculate_and_update_dag_deadline;
+    fn dag_deadline_uses_job_release_time() {
         use crate::task::{DagInfo, State};
 
         let dag = create_dag();
-        let source = dag.add_node_with_topic_edges(&[], &["gedf_test_topic".into()]);
-        let sink = dag.add_node_with_topic_edges(&["gedf_test_topic".into()], &[]);
+        let source = dag.add_node_with_topic_edges(&[], &["dag_deadline_test_topic".into()]);
+        let sink = dag.add_node_with_topic_edges(&["dag_deadline_test_topic".into()], &[]);
         dag.set_relative_deadline(sink, Duration::from_micros(50))
             .unwrap();
         let source_info = DagInfo {
@@ -1533,8 +1568,7 @@ mod tests {
     }
 
     #[test]
-    fn gedf_deadline_is_fixed_when_job_is_released() {
-        use crate::scheduler::gedf::calculate_and_update_dag_deadline;
+    fn dag_deadline_is_fixed_when_job_is_released() {
         use crate::task::{DagInfo, State};
 
         let dag = create_dag();

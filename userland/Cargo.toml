@@ -62,10 +62,6 @@ optional = true
 path = "../applications/tests/test_async_mutex"
 optional = true
 
-[dependencies.test_gedf]
-path = "../applications/tests/test_gedf"
-optional = true
-
 [dependencies.test_measure_channel]
 path = "../applications/tests/test_measure_channel"
 optional = true
@@ -90,8 +86,8 @@ optional = true
 path = "../applications/tests/test_voluntary_preemption"
 optional = true
 
-[dependencies.test_clustered_edf]
-path = "../applications/tests/test_clustered_edf"
+[dependencies.test_edf]
+path = "../applications/tests/test_edf"
 optional = true
 
 [features]
@@ -126,11 +122,10 @@ test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
 test_prioritized_rr = ["dep:test_prioritized_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
-test_gedf = ["dep:test_gedf"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_dag = ["dep:test_dag"]
 test_dvfs = ["dep:test_dvfs", "awkernel/dvfs"]
 test_raspi_dvfs = ["dep:test_raspi_dvfs"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
-test_clustered_edf = ["dep:test_clustered_edf"]
+test_edf = ["dep:test_edf"]

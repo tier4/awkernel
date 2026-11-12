@@ -33,7 +33,7 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         APP_NAME.into(),
         test_dvfs(),
-        awkernel_async_lib::scheduler::SchedulerType::ClusteredEDF(DEADLINE, cpu_set),
+        awkernel_async_lib::scheduler::SchedulerType::EDF(DEADLINE, cpu_set),
     )
     .await;
 
@@ -41,14 +41,14 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         energy::APP_NAME.into(),
         energy::measure_energy(),
-        awkernel_async_lib::scheduler::SchedulerType::ClusteredEDF(DEADLINE, cpu_set),
+        awkernel_async_lib::scheduler::SchedulerType::EDF(DEADLINE, cpu_set),
     )
     .await;
 
     awkernel_async_lib::spawn(
         "test DVFS measurements".into(),
         measure_dvfs(),
-        awkernel_async_lib::scheduler::SchedulerType::ClusteredEDF(DEADLINE, cpu_set),
+        awkernel_async_lib::scheduler::SchedulerType::EDF(DEADLINE, cpu_set),
     )
     .await;
 }

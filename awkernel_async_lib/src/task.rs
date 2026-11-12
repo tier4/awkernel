@@ -85,7 +85,7 @@ impl Task {
     /// priority (scheduler priority, then task priority; see `PriorityInfo`).
     ///
     /// Equal priorities never preempt. Within a priority level the schedulers
-    /// are FIFO (PrioritizedFIFO, ClusteredEDF/GEDF on equal deadlines) or
+    /// are FIFO (PrioritizedFIFO, EDF on equal deadlines) or
     /// rotate by their own time quantum (PrioritizedRR), so a task woken while
     /// an equal-priority task is running waits in the run queue instead of
     /// displacing it.
@@ -166,7 +166,7 @@ impl ArcWake for Task {
         }
 
         // Panicked tasks go to the global panicked scheduler, so always use the global counter.
-        // Non-panicked clustered tasks: counters are managed inside clustered_edf::wake_task.
+        // Non-panicked clustered tasks: counters are managed inside edf::wake_task.
         // Non-panicked non-clustered tasks: increment the global counter here.
         if panicked || self.cpu_set.is_none() {
             NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
@@ -314,7 +314,7 @@ impl Tasks {
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 // Validate and normalise the CPU set before creating TaskInfo so that
                 // info.scheduler_type and task.cpu_set stay in sync.
-                let cpu_set = if let SchedulerType::ClusteredEDF(deadline, set) = scheduler_type {
+                let cpu_set = if let SchedulerType::EDF(deadline, set) = scheduler_type {
                     // CPU 0 is the primary core and cannot run clustered tasks.
                     let masked = masked_workers(set, num_cpu());
                     let normalized = if masked.is_empty() {
@@ -329,7 +329,7 @@ impl Tasks {
                     } else {
                         masked
                     };
-                    scheduler_type = SchedulerType::ClusteredEDF(deadline, normalized);
+                    scheduler_type = SchedulerType::EDF(deadline, normalized);
                     Some(normalized)
                 } else {
                     None
@@ -417,12 +417,13 @@ pub fn spawn(
 
 /// Spawn a detached task with DAG information.
 /// This function is similar to `spawn` but automatically sets DAG information
-/// for the task, which is useful for DAG-based schedulers like GEDF.
+/// for the task, which is useful for DAG-based schedulers like EDF.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use awkernel_async_lib::{scheduler::SchedulerType, task, dag::{create_dag, add_node_with_topic_edges_public, set_relative_deadline_public}};
+/// use awkernel_lib::cpu::CpuSet;
 /// use core::time::Duration;
 /// let dag = create_dag();
 /// let sink_node_idx = add_node_with_topic_edges_public(&dag, &[], &[]);
@@ -431,7 +432,7 @@ pub fn spawn(
 /// let task_id = task::spawn_with_dag_info(
 ///     "dag task".into(),
 ///     async { Ok(()) },
-///     SchedulerType::GEDF(0),
+///     SchedulerType::EDF(0, CpuSet::all()),
 ///     DagInfo { dag_id: 1, node_id: 0 }
 /// );
 /// ```

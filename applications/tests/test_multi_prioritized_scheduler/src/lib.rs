@@ -3,7 +3,10 @@
 extern crate alloc;
 
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
-use awkernel_lib::{cpu::num_cpu, delay::wait_millisec};
+use awkernel_lib::{
+    cpu::{num_cpu, CpuSet},
+    delay::wait_millisec,
+};
 
 pub async fn run() {
     wait_millisec(1000);
@@ -13,7 +16,7 @@ pub async fn run() {
         } else if i % 3 == 1 {
             SchedulerType::PrioritizedRR(0)
         } else {
-            SchedulerType::GEDF(1000)
+            SchedulerType::EDF(1000, CpuSet::all())
         };
 
         spawn(
@@ -34,7 +37,7 @@ pub async fn run() {
         } else if i % 3 == 1 {
             SchedulerType::PrioritizedRR(1)
         } else {
-            SchedulerType::GEDF(500)
+            SchedulerType::EDF(500, CpuSet::all())
         };
 
         spawn(
