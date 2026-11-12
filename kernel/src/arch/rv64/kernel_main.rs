@@ -87,6 +87,9 @@ unsafe fn primary_hart(hartid: usize) {
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);
 
+    // register the CLINT/PLIC interrupt controller
+    awkernel_lib::arch::rv_common::interrupt_controller::init_interrupt_controller();
+
     // switch to S-Mode; TODO;
     // * currntly this impl. holds both kernel and userland
     // * in M-Mode, which is the highest priority.
