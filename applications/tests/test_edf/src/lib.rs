@@ -16,7 +16,7 @@ pub async fn run() {
     wait_microsec(2_000_000);
 
     if num_cpu() < 2 {
-        log::warn!("test_clustered_edf: requires at least 2 CPUs, skipping");
+        log::warn!("test_edf: requires at least 2 CPUs, skipping");
         return;
     }
 
@@ -50,7 +50,7 @@ async fn test_core_pinning() {
                     awkernel_async_lib::r#yield().await;
                 }
             },
-            SchedulerType::ClusteredEDF(1_000_000, CpuSet::empty().with(core)),
+            SchedulerType::EDF(1_000_000, CpuSet::empty().with(core)),
         )
         .await;
     }
@@ -82,7 +82,7 @@ async fn test_cluster_affinity() {
                 awkernel_async_lib::r#yield().await;
             }
         },
-        SchedulerType::ClusteredEDF(1_000_000, cluster),
+        SchedulerType::EDF(1_000_000, cluster),
     )
     .await;
 }
@@ -133,7 +133,7 @@ async fn test_empty_set_fallback() {
                     awkernel_async_lib::r#yield().await;
                 }
             },
-            SchedulerType::ClusteredEDF(1_000_000, set),
+            SchedulerType::EDF(1_000_000, set),
         )
         .await;
     }
@@ -166,7 +166,7 @@ async fn spawn_periodic_task(
                 awkernel_async_lib::r#yield().await;
             }
         },
-        SchedulerType::ClusteredEDF(relative_deadline, CpuSet::empty().with(core)),
+        SchedulerType::EDF(relative_deadline, CpuSet::empty().with(core)),
     )
     .await;
 }

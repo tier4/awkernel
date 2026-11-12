@@ -19,8 +19,7 @@ use awkernel_lib::{
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
-mod clustered_edf;
-pub mod gedf;
+mod edf;
 pub(super) mod panicked;
 mod prioritized_fifo;
 mod prioritized_rr;
@@ -75,7 +74,7 @@ pub fn move_preemption_pending(cpu_id: usize) -> Option<BinaryHeap<Arc<Task>>> {
 /// 0 is the lowest priority and 31 is the highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    /// Clustered EDF: `(relative_deadline, cpu_set)`.
+    /// EDF: `(relative_deadline, cpu_set)`.
     ///
     /// `cpu_set` is the set of cores the task may run on. It is normalized at
     /// spawn time: CPU 0 (the primary core) and any out-of-range bits are
@@ -83,8 +82,10 @@ pub enum SchedulerType {
     /// one naming only CPU 0 or out-of-range cores — the task is **not**
     /// rejected; it falls back to all worker cores (`1..num_cpu()`) with a
     /// warning.
-    ClusteredEDF(u64, CpuSet),
-    GEDF(u64), // relative deadline
+    ///
+    /// `CpuSet::all()` gives global EDF, and a one-core set gives
+    /// partitioned EDF.
+    EDF(u64, CpuSet),
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -94,11 +95,7 @@ impl SchedulerType {
     pub const fn equals(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
-                | (
-                    SchedulerType::ClusteredEDF(_, _),
-                    SchedulerType::ClusteredEDF(_, _)
-                )
+            (SchedulerType::EDF(_, _), SchedulerType::EDF(_, _))
                 | (
                     SchedulerType::PrioritizedFIFO(_),
                     SchedulerType::PrioritizedFIFO(_)
@@ -111,13 +108,13 @@ impl SchedulerType {
         )
     }
 
-    /// Return the CPU affinity set if this is a [`SchedulerType::ClusteredEDF`] scheduler.
+    /// Return the CPU affinity set if this is a [`SchedulerType::EDF`] scheduler.
     ///
     /// Returns `Some(set)` where `set` is the set of CPU cores (`1..num_cpu()`) the task
     /// may run on. Returns `None` for all other scheduler variants.
     pub const fn cpu_set(&self) -> Option<CpuSet> {
         match self {
-            SchedulerType::ClusteredEDF(_, set) => Some(*set),
+            SchedulerType::EDF(_, set) => Some(*set),
             _ => None,
         }
     }
@@ -127,7 +124,7 @@ impl SchedulerType {
     /// scheduler; it is the single source of truth for the clustered prefix
     /// of `PRIORITY_LIST`.
     pub const fn is_clustered(&self) -> bool {
-        matches!(self, SchedulerType::ClusteredEDF(_, _))
+        matches!(self, SchedulerType::EDF(_, _))
     }
 }
 
@@ -136,18 +133,15 @@ impl SchedulerType {
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
 /// - The highest priority.
-///   - Clustered EDF scheduler.
+///   - EDF scheduler.
 /// - The second highest priority.
-///   - GEDF scheduler.
-/// - The third highest priority.
 ///   - Prioritized FIFO scheduler.
-/// - The fourth highest priority.
+/// - The third highest priority.
 ///   - Prioritized Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
-static PRIORITY_LIST: [SchedulerType; 5] = [
-    SchedulerType::ClusteredEDF(0, CpuSet::empty()),
-    SchedulerType::GEDF(0),
+static PRIORITY_LIST: [SchedulerType; 4] = [
+    SchedulerType::EDF(0, CpuSet::empty()),
     SchedulerType::PrioritizedFIFO(0),
     SchedulerType::PrioritizedRR(0),
     SchedulerType::Panicked,
@@ -282,8 +276,7 @@ pub(crate) fn get_scheduler(sched_type: &SchedulerType) -> &'static dyn Schedule
     match sched_type {
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::PrioritizedRR(_) => &prioritized_rr::SCHEDULER,
-        SchedulerType::GEDF(_) => &gedf::SCHEDULER,
-        SchedulerType::ClusteredEDF(_, _) => &clustered_edf::SCHEDULER,
+        SchedulerType::EDF(_, _) => &edf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
