@@ -164,9 +164,8 @@ fn init_hpet(
     let t1 = read_tsc();
 
     let hz = (t1 - t0) * 10;
-    log::info!("TSC Frequency (HPET) = {hz} Hz");
-
     TSC_FREQ.store(hz, Ordering::Relaxed);
+    log_tsc_frequency();
 
     Ok(())
 }
@@ -208,6 +207,17 @@ pub(super) fn read_tsc() -> u64 {
     sync::atomic::fence(Ordering::Release);
 
     now
+}
+
+/// Return the calibrated TSC frequency in Hz.
+pub fn tsc_frequency() -> u64 {
+    TSC_FREQ.load(Ordering::Relaxed)
+}
+
+/// Log the calibrated TSC frequency.
+pub fn log_tsc_frequency() {
+    let hz = TSC_FREQ.load(Ordering::Relaxed);
+    log::info!("TSC Frequency (HPET) = {hz} Hz");
 }
 
 // Synchronize TSCs between CPUs.
