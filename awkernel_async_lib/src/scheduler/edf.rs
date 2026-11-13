@@ -83,9 +83,15 @@ impl Scheduler for EDFScheduler {
                 .push(
                     (absolute_deadline, wake_time),
                     cpu_set,
-                    ClusteredTask::new(task.clone()),
+                    ClusteredTask::new(task),
                 )
                 .expect("EDF: failed to push a task");
+            drop(data);
+
+            // `do_preemption` and `run_main` re-wake tasks through this function
+            // without `ArcWake::wake`, so notify the primary CPU here to wake an
+            // idle worker in the set.
+            awkernel_lib::cpu::wake_cpu(0);
         }
     }
 
