@@ -20,11 +20,11 @@ static HPET_BASE: AtomicUsize = AtomicUsize::new(0);
 static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 /// Valid bits of the main counter: all 64, or the low 32 when the counter is 32 bits wide.
 static HPET_COUNTER_MASK: AtomicU64 = AtomicU64::new(u64::MAX);
-
-static mut HPET_MULTIPLIER_NANO: u128 = 0;
+/// Counter tick period in femtoseconds (10^-15 seconds).
+static HPET_PERIOD_FS: AtomicU64 = AtomicU64::new(0);
 
 static TSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
-static mut TSC_FREQ: u128 = 0;
+static TSC_FREQ: AtomicU64 = AtomicU64::new(0);
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -64,7 +64,7 @@ impl Delay for super::X86 {
 
         let now = read_tsc();
         let start = TSC_COUNTER_START.load(Ordering::Relaxed);
-        let hz = unsafe { TSC_FREQ };
+        let hz = TSC_FREQ.load(Ordering::Relaxed) as u128;
 
         if hz == 0 {
             return 0;
@@ -142,9 +142,13 @@ fn init_hpet(
 
     // Calculate the frequency.
     let capabilities = HPET_GENERAL_CAP.read(base);
-    let hz = 1_000_000_000_000_000 / (capabilities >> 32);
-    log::info!("HPET frequency = {hz}[Hz]");
-    unsafe { HPET_MULTIPLIER_NANO = 1_000_000_000 / (hz as u128) };
+    let period_fs = capabilities >> 32;
+    if period_fs == 0 {
+        return Err("Invalid HPET counter period (0 fs)");
+    }
+    HPET_PERIOD_FS.store(period_fs, Ordering::Relaxed);
+    let hz = 1_000_000_000_000_000u64 / period_fs;
+    log::info!("HPET frequency = {hz}[Hz] (period = {period_fs} fs)");
 
     // Enable HPET.
     let conf = HPET_GENERAL_CONF.read(base);
@@ -159,10 +163,9 @@ fn init_hpet(
     hpet_wait_nano(100_000_000);
     let t1 = read_tsc();
 
-    let hz = (t1 - t0) as u128 * 10;
-    log::info!("TSC Frequency (HPET) = {hz} Hz");
-
-    unsafe { TSC_FREQ = hz };
+    let hz = (t1 - t0) * 10;
+    TSC_FREQ.store(hz, Ordering::Relaxed);
+    log_tsc_frequency();
 
     Ok(())
 }
@@ -171,17 +174,16 @@ fn init_hpet(
 fn hpet_uptime_nano() -> u128 {
     let base = HPET_BASE.load(Ordering::Relaxed);
     let start = HPET_COUNTER_START.load(Ordering::Relaxed);
+    let period_fs = HPET_PERIOD_FS.load(Ordering::Relaxed) as u128;
 
-    unsafe {
-        if HPET_MULTIPLIER_NANO == 0 {
-            0
-        } else {
-            let now = HPET_MAIN_COUNTER.read(base);
-            let mask = HPET_COUNTER_MASK.load(Ordering::Relaxed);
-            let diff = (now.wrapping_sub(start) & mask) as u128;
+    if period_fs == 0 {
+        0
+    } else {
+        let now = HPET_MAIN_COUNTER.read(base);
+        let mask = HPET_COUNTER_MASK.load(Ordering::Relaxed);
+        let diff = (now.wrapping_sub(start) & mask) as u128;
 
-            diff * HPET_MULTIPLIER_NANO
-        }
+        diff * period_fs / 1_000_000
     }
 }
 
@@ -205,6 +207,17 @@ pub(super) fn read_tsc() -> u64 {
     sync::atomic::fence(Ordering::Release);
 
     now
+}
+
+/// Return the calibrated TSC frequency in Hz.
+pub fn tsc_frequency() -> u64 {
+    TSC_FREQ.load(Ordering::Relaxed)
+}
+
+/// Log the calibrated TSC frequency.
+pub fn log_tsc_frequency() {
+    let hz = TSC_FREQ.load(Ordering::Relaxed);
+    log::info!("TSC Frequency (HPET) = {hz} Hz");
 }
 
 // Synchronize TSCs between CPUs.
