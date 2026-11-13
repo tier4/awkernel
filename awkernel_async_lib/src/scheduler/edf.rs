@@ -1,15 +1,17 @@
-//! A Clustered EDF scheduler.
+//! An EDF scheduler.
 //!
 //! Each task carries a [`CpuSet`] describing the CPU cores it may run on.
+//! A one-core set gives partitioned EDF, and `CpuSet::all()` gives global EDF.
 //! Runnable tasks are kept in a single affinity-aware priority queue
 //! ([`AffinityBTreeQueue`]); `get_next` on CPU `c` pops the earliest-deadline
 //! task whose `cpu_set` contains `c`.
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
+    dag::calculate_and_update_dag_deadline,
     scheduler::{
-        gedf::calculate_and_update_dag_deadline, get_priority, peek_preemption_pending,
-        push_preemption_pending, ClusteredTask, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
+        get_priority, peek_preemption_pending, push_preemption_pending, ClusteredTask,
+        GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
         get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
@@ -28,21 +30,21 @@ use awkernel_lib::{
 type EDFQueue =
     AffinityBTreeQueue<(u64, u64), ClusteredTask<Arc<Task>>, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
 
-pub struct ClusteredEDFScheduler {
+pub struct EDFScheduler {
     // `AffinityBTreeQueue::new` is not a const fn, so the queue is lazily
     // initialized with `num_cpu()` on first use.
     data: Mutex<Option<EDFQueue>>,
     priority: u8,
 }
 
-impl Scheduler for ClusteredEDFScheduler {
+impl Scheduler for EDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let (wake_time, absolute_deadline) = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
             let dag_info = info.get_dag_info();
             match info.scheduler_type {
-                SchedulerType::ClusteredEDF(relative_deadline, _) => {
+                SchedulerType::EDF(relative_deadline, _) => {
                     let wake_time = awkernel_lib::delay::uptime();
                     let absolute_deadline = if let Some(ref dag_info) = dag_info {
                         calculate_and_update_dag_deadline(dag_info, wake_time, info.state)
@@ -66,9 +68,9 @@ impl Scheduler for ClusteredEDFScheduler {
         // set (masking to worker cores, falling back to all workers when empty).
         // Reaching here with an invalid set means that invariant was violated
         // internally, so fail loud rather than enqueue an unrunnable task.
-        let cpu_set = task.cpu_set.expect("ClusteredEDF task has no CPU set");
+        let cpu_set = task.cpu_set.expect("EDF task has no CPU set");
         if cpu_set.is_empty() || masked_workers(cpu_set, num_cpu()) != cpu_set {
-            unreachable!("ClusteredEDF: cpu_set {cpu_set:?} was not normalized by spawn");
+            unreachable!("EDF: cpu_set {cpu_set:?} was not normalized by spawn");
         }
 
         let mut node = MCSNode::new();
@@ -81,9 +83,15 @@ impl Scheduler for ClusteredEDFScheduler {
                 .push(
                     (absolute_deadline, wake_time),
                     cpu_set,
-                    ClusteredTask::new(task.clone()),
+                    ClusteredTask::new(task),
                 )
-                .expect("ClusteredEDF: failed to push a task");
+                .expect("EDF: failed to push a task");
+            drop(data);
+
+            // `do_preemption` and `run_main` re-wake tasks through this function
+            // without `ArcWake::wake`, so notify the primary CPU here to wake an
+            // idle worker in the set.
+            awkernel_lib::cpu::wake_cpu(0);
         }
     }
 
@@ -127,7 +135,7 @@ impl Scheduler for ClusteredEDFScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::ClusteredEDF(0, CpuSet::empty())
+        SchedulerType::EDF(0, CpuSet::empty())
     }
 
     fn priority(&self) -> u8 {
@@ -147,12 +155,12 @@ impl Scheduler for ClusteredEDFScheduler {
     }
 }
 
-pub static SCHEDULER: ClusteredEDFScheduler = ClusteredEDFScheduler {
+pub static SCHEDULER: EDFScheduler = EDFScheduler {
     data: Mutex::new(None),
-    priority: get_priority(&SchedulerType::ClusteredEDF(0, CpuSet::empty())),
+    priority: get_priority(&SchedulerType::EDF(0, CpuSet::empty())),
 };
 
-impl ClusteredEDFScheduler {
+impl EDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         if !PREEMPTION_ENABLED {
             return false;
@@ -202,10 +210,6 @@ impl ClusteredEDFScheduler {
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(target_task.id, victim_cpu);
             awkernel_lib::interrupt::send_ipi(preempt_irq, victim_cpu as u32);
-
-            // NOTE(atsushi421): Currently, preemption is requested regardless of the number of idle CPUs.
-            // While this implementation easily prevents priority inversion, it may also cause unnecessary preemption.
-            // Therefore, a more sophisticated implementation will be considered in the future.
 
             // NOTE: The task is now pinned to `victim_cpu`'s preemption-pending
             // heap and is not in the affinity queue, so it is invisible to the

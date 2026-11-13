@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn masked_workers_is_idempotent_on_valid_sets() {
         // An already-normalized set is a fixed point. This is the invariant
-        // `clustered_edf::wake_task` relies on (`masked_workers(s, n) != s`
+        // `edf::wake_task` relies on (`masked_workers(s, n) != s`
         // is false for a valid set).
         let s = all_workers(64);
         assert_eq!(masked_workers(s, 64), s);
