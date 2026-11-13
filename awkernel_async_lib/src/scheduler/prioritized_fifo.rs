@@ -6,12 +6,15 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::scheduler::{
     peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
 };
-use crate::task::{get_task, get_tasks_running, set_current_task, set_need_preemption};
+use crate::task::{
+    get_task, get_tasks_running, set_current_task, set_need_preemption, NUM_TASK_IN_QUEUE,
+};
 use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::sync::atomic::Ordering;
 
 pub struct PrioritizedFIFOScheduler {
     data: Mutex<Option<PrioritizedFIFOData>>, // Run queue.
@@ -59,6 +62,13 @@ impl Scheduler for PrioritizedFIFOScheduler {
                     _priority: priority,
                 },
             );
+            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
+            drop(data);
+
+            // `do_preemption` and `run_main` re-wake tasks through this function
+            // without `ArcWake::wake`, so notify the primary CPU here to wake an
+            // idle worker.
+            awkernel_lib::cpu::wake_cpu(0);
         }
     }
 
@@ -75,6 +85,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
         loop {
             // Pop a task from the run queue.
             let task = data.queue.pop()?;
+            NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
 
             // Make the state of the task Running.
             {
