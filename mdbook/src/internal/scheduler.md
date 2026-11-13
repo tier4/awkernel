@@ -81,9 +81,11 @@ An idle core in the set does not stop the preemption. A task queued before or af
 
 `get_next()` pops the earliest-deadline task whose `cpu_set` contains the calling CPU (`pop_for_cpu`), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from `cpu_set` when a task is spawned. The `cpu_set` is normalized at spawn time by removing CPU 0 and out-of-range bits; if this leaves the set empty (for example an empty set, or one naming only CPU 0 or out-of-range cores), the task is not rejected but falls back to all worker cores (`1..num_cpu()`) with a warning.
 
-Bookkeeping for sleeping workers uses two pieces of state. A single global counter (`NUM_CLUSTERED_TASKS_IN_QUEUE`) tracks how many tasks are queued across all clustered schedulers; it is maintained by the `ClusteredTask` RAII wrapper (incremented on enqueue, decremented exactly once on dequeue or drop) and lets `get_next_task()` skip the clustered schedulers entirely when it is zero. The per-CPU information — which CPUs actually have an eligible task queued — is not duplicated in counters: it is read directly from the run queue, whose B-tree root already maintains the OR of all queued affinities (`affinity_mask()`, O(1)). `wake_workers()` obtains this set via `Scheduler::queued_cpu_mask()` (unioned over all clustered schedulers by `clustered_queued_cpu_mask()`) and wakes exactly the cores that have an eligible clustered task.
+Bookkeeping for sleeping workers uses two pieces of state. A single global counter (`NUM_EDF_TASKS_IN_QUEUE`) tracks how many tasks the EDF scheduler queues. The `QueuedTask` RAII wrapper increments it on enqueue and decrements it exactly once on dequeue or drop. If the counter is zero, `get_next_task()` skips the EDF scheduler.
 
-A new clustered scheduler must (1) wrap its queue entries in `ClusteredTask`, (2) implement `Scheduler::queued_cpu_mask()`, and (3) be placed in the clustered prefix of `PRIORITY_LIST` and matched by `SchedulerType::is_clustered()`; the prefix requirement is enforced at compile time.
+The counter does not record which CPUs have an eligible task queued. The B-tree root of the run queue maintains the OR of all queued affinities (`affinity_mask()`, O(1)). `wake_workers()` reads this set through `EDFScheduler::queued_cpu_mask()` and wakes exactly the cores that have an eligible EDF task.
+
+`get_next_task()` tries the EDF scheduler before the schedulers in `PRIORITY_LIST[1..]`. So the EDF scheduler must be first in `PRIORITY_LIST`, and a compile-time assertion checks it.
 
 ### PrioritizedFIFO Scheduler
 

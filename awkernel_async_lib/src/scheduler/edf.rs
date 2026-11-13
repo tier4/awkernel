@@ -10,11 +10,12 @@ use super::{Scheduler, SchedulerType, Task};
 use crate::{
     dag::calculate_and_update_dag_deadline,
     scheduler::{
-        get_priority, peek_preemption_pending, push_preemption_pending, ClusteredTask,
-        GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
+        get_priority, peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX,
+        PREEMPTION_ENABLED,
     },
     task::{
-        get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
+        get_task, get_task_running, set_current_task, set_need_preemption, State,
+        MAX_TASK_PRIORITY, NUM_EDF_TASKS_IN_QUEUE,
     },
 };
 use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
@@ -23,18 +24,59 @@ use awkernel_lib::{
     cpu::{masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
     sync::mutex::{MCSNode, Mutex},
 };
+use core::sync::atomic::Ordering;
 
 /// The run queue. Priority is `(absolute_deadline, wake_time)`; smaller values
 /// dequeue first, and entries with fully equal keys are FIFO-ordered by the
 /// queue's internal sequence number.
 type EDFQueue =
-    AffinityBTreeQueue<(u64, u64), ClusteredTask<Arc<Task>>, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
+    AffinityBTreeQueue<(u64, u64), QueuedTask<Arc<Task>>, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
 
 pub struct EDFScheduler {
     // `AffinityBTreeQueue::new` is not a const fn, so the queue is lazily
     // initialized with `num_cpu()` on first use.
     data: Mutex<Option<EDFQueue>>,
     priority: u8,
+}
+
+/// RAII wrapper representing one slot in `NUM_EDF_TASKS_IN_QUEUE`.
+///
+/// Constructing a `QueuedTask` increments the counter. The counter is
+/// decremented exactly once — either via [`take`] (explicit ownership
+/// transfer) or via `Drop` (e.g. when a terminated task is discarded). If
+/// `take` has already been called, `Drop` is a no-op.
+///
+/// [`take`]: QueuedTask::take
+struct QueuedTask<T> {
+    inner: Option<T>,
+}
+
+impl<T> QueuedTask<T> {
+    fn new(inner: T) -> Self {
+        NUM_EDF_TASKS_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
+        Self { inner: Some(inner) }
+    }
+
+    /// Take the inner value and decrement the counter.
+    ///
+    /// Returns `None` if the value has already been taken.
+    /// After this call `Drop` will be a no-op.
+    fn take(&mut self) -> Option<T> {
+        let val = self.inner.take();
+        if val.is_some() {
+            NUM_EDF_TASKS_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+        }
+        val
+    }
+}
+
+impl<T> Drop for QueuedTask<T> {
+    fn drop(&mut self) {
+        // Decrement only if take() has not been called yet.
+        if self.inner.is_some() {
+            NUM_EDF_TASKS_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
 }
 
 impl Scheduler for EDFScheduler {
@@ -83,7 +125,7 @@ impl Scheduler for EDFScheduler {
                 .push(
                     (absolute_deadline, wake_time),
                     cpu_set,
-                    ClusteredTask::new(task),
+                    QueuedTask::new(task),
                 )
                 .expect("EDF: failed to push a task");
             drop(data);
@@ -104,7 +146,7 @@ impl Scheduler for EDFScheduler {
 
         // Note: spawn removes CPU 0 from every set, so `pop_for_cpu(0)` always
         // returns `None` and the `get_next_task(false)` path executed on the
-        // primary CPU can never dequeue a clustered task.
+        // primary CPU can never dequeue an EDF task.
         loop {
             let (_, _, mut entry) = queue.pop_for_cpu(cpu_id)?;
 
@@ -141,8 +183,17 @@ impl Scheduler for EDFScheduler {
     fn priority(&self) -> u8 {
         self.priority
     }
+}
 
-    fn queued_cpu_mask(&self) -> CpuSet {
+pub static SCHEDULER: EDFScheduler = EDFScheduler {
+    data: Mutex::new(None),
+    priority: get_priority(&SchedulerType::EDF(0, CpuSet::empty())),
+};
+
+impl EDFScheduler {
+    /// The set of CPUs that have at least one queued task eligible to run on
+    /// them.
+    pub(crate) fn queued_cpu_mask(&self) -> CpuSet {
         let mut node = MCSNode::new();
         let data = self.data.lock(&mut node);
 
@@ -153,14 +204,7 @@ impl Scheduler for EDFScheduler {
             None => CpuSet::empty(),
         }
     }
-}
 
-pub static SCHEDULER: EDFScheduler = EDFScheduler {
-    data: Mutex::new(None),
-    priority: get_priority(&SchedulerType::EDF(0, CpuSet::empty())),
-};
-
-impl EDFScheduler {
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         if !PREEMPTION_ENABLED {
             return false;
@@ -221,8 +265,8 @@ impl EDFScheduler {
 
             // NOTE: The task is now pinned to `victim_cpu`'s preemption-pending
             // heap and is not in the affinity queue, so it is invisible to the
-            // other CPUs in its `cpu_set` (neither `pop_for_cpu`, the clustered
-            // task counter, nor `queued_cpu_mask` sees it). If another CPU in
+            // other CPUs in its `cpu_set` (neither `pop_for_cpu`,
+            // `NUM_EDF_TASKS_IN_QUEUE`, nor `queued_cpu_mask` sees it). If another CPU in
             // the set is or becomes idle while the IPI is in flight, it cannot pick
             // the task up and may go to sleep — a latency window bounded by the
             // IPI delivery plus the victim's interrupt-disabled sections. This

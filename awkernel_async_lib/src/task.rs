@@ -51,16 +51,16 @@ static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
-/// Total number of tasks in the queues of the non-clustered schedulers.
+/// Total number of tasks in the queues of the schedulers other than EDF.
 /// Each of these schedulers increments it when it pushes a task to its queue
 /// and decrements it when it pops one, so it counts every path that calls
 /// `wake_task`, including the re-wakes that bypass `ArcWake::wake`.
 pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
-/// Total number of tasks in the clustered schedulers' queues.
+/// Total number of tasks in the queue of the EDF scheduler.
 /// Which CPUs those tasks are runnable on is tracked exactly by the run
-/// queues themselves; see `scheduler::clustered_queued_cpu_mask`.
-pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
+/// queue itself; see `EDFScheduler::queued_cpu_mask`.
+pub(crate) static NUM_EDF_TASKS_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU];
@@ -73,7 +73,7 @@ pub struct Task {
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
     pub priority: PriorityInfo,
-    pub cpu_set: Option<CpuSet>, // The set of cores on which the task may run in clustered scheduling. None if not assigned.
+    pub cpu_set: Option<CpuSet>, // The set of cores on which an EDF task may run. None for the other schedulers.
 }
 
 impl Task {
@@ -306,7 +306,7 @@ impl Tasks {
                 // Validate and normalise the CPU set before creating TaskInfo so that
                 // info.scheduler_type and task.cpu_set stay in sync.
                 let cpu_set = if let SchedulerType::EDF(deadline, set) = scheduler_type {
-                    // CPU 0 is the primary core and cannot run clustered tasks.
+                    // CPU 0 is the primary core and cannot run EDF tasks.
                     let masked = masked_workers(set, num_cpu());
                     let normalized = if masked.is_empty() {
                         // `cpu::sanity_check()` guarantees num_cpu() >= 2 at boot,
@@ -1663,18 +1663,18 @@ pub fn wake_workers() {
     let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
 
-    // The exact set of CPUs for which a clustered task is queued, read from
-    // the clustered schedulers' run queues.
-    let clustered_mask = crate::scheduler::clustered_queued_cpu_mask();
+    // The exact set of CPUs for which an EDF task is queued, read from the
+    // run queue of the EDF scheduler.
+    let edf_mask = crate::scheduler::edf::SCHEDULER.queued_cpu_mask();
 
     for i in 1..num_cpus {
-        if clustered_mask.contains(i) {
+        if edf_mask.contains(i) {
             awkernel_lib::cpu::wake_cpu(i);
             continue;
         }
 
         // Even if there are no global tasks left, keep scanning: a
-        // higher-numbered CPU may still have clustered tasks waiting and
+        // higher-numbered CPU may still have EDF tasks waiting and
         // skipping the rest would leave it asleep (lost wakeup).
         if num_tasks == 0 {
             continue;
