@@ -4,10 +4,11 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::get_priority,
-    task::{set_current_task, State},
+    task::{set_current_task, State, NUM_TASK_IN_QUEUE},
 };
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::sync::atomic::Ordering;
 
 pub struct PanickedScheduler {
     data: Mutex<Option<PanickedData>>, // Run queue.
@@ -31,13 +32,16 @@ impl Scheduler for PanickedScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        if let Some(data) = data.as_mut() {
-            data.queue.push_back(task);
-        } else {
-            let mut panicked_data = PanickedData::new();
-            panicked_data.queue.push_back(task);
-            *data = Some(panicked_data);
-        }
+        data.get_or_insert_with(PanickedData::new)
+            .queue
+            .push_back(task);
+        NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
+        drop(data);
+
+        // `do_preemption` and `run_main` re-wake tasks through this function
+        // without `ArcWake::wake`, so notify the primary CPU here to wake an
+        // idle worker.
+        awkernel_lib::cpu::wake_cpu(0);
     }
 
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
@@ -54,6 +58,7 @@ impl Scheduler for PanickedScheduler {
 
         loop {
             let task = data.queue.pop_front()?;
+            NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
 
             // Make the state of the task Running.
             {

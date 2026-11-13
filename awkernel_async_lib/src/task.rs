@@ -50,16 +50,17 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub(crate) static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
-#[cfg(target_pointer_width = "64")]
-pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
+
+/// Total number of tasks in the queues of the non-clustered schedulers.
+/// Each of these schedulers increments it when it pushes a task to its queue
+/// and decrements it when it pops one, so it counts every path that calls
+/// `wake_task`, including the re-wakes that bypass `ArcWake::wake`.
+pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 /// Total number of tasks in the clustered schedulers' queues.
 /// Which CPUs those tasks are runnable on is tracked exactly by the run
 /// queues themselves; see `scheduler::clustered_queued_cpu_mask`.
 pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
-
-#[cfg(target_pointer_width = "32")]
-pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0); // Number of tasks in the queue.
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU];
@@ -163,13 +164,6 @@ impl ArcWake for Task {
             }
 
             panicked = info.panicked;
-        }
-
-        // Panicked tasks go to the global panicked scheduler, so always use the global counter.
-        // Non-panicked clustered tasks: counters are managed inside edf::wake_task.
-        // Non-panicked non-clustered tasks: increment the global counter here.
-        if panicked || self.cpu_set.is_none() {
-            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
         }
 
         if panicked {
