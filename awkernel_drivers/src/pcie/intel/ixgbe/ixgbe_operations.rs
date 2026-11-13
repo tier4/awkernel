@@ -2858,7 +2858,7 @@ pub fn phy_setup_link_generic<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-pub trait IxgbeOperations: Send {
+pub trait IxgbeOperations: Send + Sync {
     // MAC Operations
 
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {

@@ -65,7 +65,7 @@ pub trait InterruptController: Sync + Send {
     }
 }
 
-type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
+type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send + Sync>);
 
 // Lock order: `IRQ_HANDLERS` before `INTERRUPT_CONTROLLER`. The IRQ dispatchers
 // (`handle_irq` on x86, `handle_irqs` on aarch64) hold `IRQ_HANDLERS` (read)
@@ -185,7 +185,7 @@ pub fn register_handler<F>(
     func: Box<F>,
 ) -> Result<(), &'static str>
 where
-    F: Fn(u16) + Send + 'static,
+    F: Fn(u16) + Send + Sync + 'static,
 {
     let (min, max) = {
         let controller = INTERRUPT_CONTROLLER.read();
@@ -283,7 +283,7 @@ pub fn register_handler_pcie_msi<F>(
     message_address_upper: Option<&mut u32>,
 ) -> Result<IRQ, &'static str>
 where
-    F: Fn(u16) + Send + 'static,
+    F: Fn(u16) + Send + Sync + 'static,
 {
     // Lock order: `IRQ_HANDLERS` first, then `INTERRUPT_CONTROLLER` (see above).
     // A read lock on the controller is enough: `irq_range_for_pnp` and

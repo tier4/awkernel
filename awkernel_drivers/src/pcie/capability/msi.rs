@@ -189,7 +189,7 @@ impl Msi {
         target: u32,
     ) -> Result<IRQ, PCIeDeviceErr>
     where
-        F: Fn(u16) + Send + 'static,
+        F: Fn(u16) + Send + Sync + 'static,
     {
         let mut message_data = 0;
         let mut message_address = 0;
