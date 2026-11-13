@@ -59,7 +59,7 @@ pub(crate) static NUM_TASK_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 /// Total number of tasks in the clustered schedulers' queues.
 /// Which CPUs those tasks are runnable on is tracked exactly by the run
-/// queues themselves; see `scheduler::clustered_queued_cpu_mask`.
+/// queues themselves; see `scheduler::clustered_queued_workers`.
 pub(crate) static NUM_CLUSTERED_TASKS_IN_QUEUE: AtomicU32 = AtomicU32::new(0);
 
 static PREEMPTION_REQUEST: [AtomicBool; NUM_MAX_CPU] =
@@ -1654,11 +1654,11 @@ impl Ord for PriorityInfo {
 /// Wake workers up.
 pub fn wake_workers() {
     let num_cpus = awkernel_lib::cpu::num_cpu();
-    let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
-
-    // The exact set of CPUs for which a clustered task is queued, read from
-    // the clustered schedulers' run queues.
-    let clustered_mask = crate::scheduler::clustered_queued_cpu_mask();
+    // Every CPU in `clustered_mask` has a queued clustered task that only some
+    // workers can run, so wake each of them. Like a non-clustered task, a
+    // clustered task that every worker can run needs one worker of any kind.
+    let (clustered_mask, num_global) = crate::scheduler::clustered_queued_workers();
+    let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed) as usize + num_global;
 
     for i in 1..num_cpus {
         if clustered_mask.contains(i) {
@@ -1667,7 +1667,7 @@ pub fn wake_workers() {
         }
 
         // Even if there are no global tasks left, keep scanning: a
-        // higher-numbered CPU may still have clustered tasks waiting and
+        // higher-numbered CPU may still have restricted clustered tasks waiting and
         // skipping the rest would leave it asleep (lost wakeup).
         if num_tasks == 0 {
             continue;
