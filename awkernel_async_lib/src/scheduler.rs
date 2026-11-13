@@ -160,9 +160,8 @@ const fn get_num_clustered_schedulers() -> usize {
     count
 }
 
-// `get_next_task` and `NUM_TASK_IN_QUEUE` accounting rely on the clustered
-// schedulers forming a strict prefix of `PRIORITY_LIST`. Reject any reorder
-// at compile time.
+// `get_next_task` relies on the clustered schedulers forming a strict prefix
+// of `PRIORITY_LIST`. Reject any reorder at compile time.
 const _: () = {
     let mut i = get_num_clustered_schedulers();
     while i < PRIORITY_LIST.len() {
@@ -253,18 +252,10 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     // Skip the clustered prefix: it was either just tried above and returned
     // None (the queue state cannot change in between because both `wake_task`
     // and `get_next_task` hold `GLOBAL_WAKE_GET_MUTEX`), or the counter was 0
-    // and its queues are empty. This also structurally guarantees that the
-    // `NUM_TASK_IN_QUEUE` decrement below never applies to a clustered task,
-    // which is counted by `NUM_CLUSTERED_TASKS_IN_QUEUE` instead.
-    let task = PRIORITY_LIST[get_num_clustered_schedulers()..]
+    // and its queues are empty.
+    PRIORITY_LIST[get_num_clustered_schedulers()..]
         .iter()
-        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
-
-    if task.is_some() {
-        crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    task
+        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured))
 }
 
 /// Get a scheduler.
