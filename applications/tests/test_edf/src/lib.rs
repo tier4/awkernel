@@ -10,7 +10,10 @@ use awkernel_lib::{
     cpu::{all_workers, cpu_id, num_cpu, CpuSet},
     delay::{uptime, wait_microsec},
 };
-use core::time::Duration;
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 pub async fn run() {
     wait_microsec(2_000_000);
@@ -20,6 +23,7 @@ pub async fn run() {
         return;
     }
 
+    test_global_edf().await;
     test_core_pinning().await;
     test_cluster_affinity().await;
     test_edf_preemption().await;
@@ -27,6 +31,52 @@ pub async fn run() {
     test_empty_set_fallback().await;
 
     wait_microsec(100_000_000);
+}
+
+/// Number of `test_global_edf` filler tasks that finished their job.
+static GLOBAL_FILLERS_DONE: AtomicUsize = AtomicUsize::new(0);
+
+/// Test 0: Verify global EDF (`CpuSet::all()`).
+/// One filler per worker core keeps every worker busy, and the userland task
+/// (PrioritizedFIFO) is preempted, so no worker is idle. `urgent` wakes from
+/// its sleep while the fillers run and must preempt one of them, which means
+/// that it runs before any filler finishes. No task may run on CPU 0.
+async fn test_global_edf() {
+    log::info!("=== test_global_edf start ===");
+
+    spawn(
+        "global_urgent".into(),
+        async move {
+            sleep(Duration::from_millis(200)).await;
+            let actual = cpu_id();
+            let done = GLOBAL_FILLERS_DONE.load(Ordering::Relaxed);
+            if actual != 0 && done == 0 {
+                log::info!("global_edf: urgent preempted a filler on cpu {actual} [OK]");
+            } else {
+                log::error!(
+                    "global_edf: urgent ran on cpu {actual} after {done} fillers finished [FAIL]"
+                );
+            }
+        },
+        SchedulerType::EDF(300_000, CpuSet::all()),
+    )
+    .await;
+
+    for i in 1..num_cpu() {
+        spawn(
+            alloc::format!("global_filler{i}").into(),
+            async move {
+                let actual = cpu_id();
+                if actual == 0 {
+                    log::error!("global_edf: filler {i} ran on cpu 0 [FAIL]");
+                }
+                wait_microsec(1_000_000);
+                GLOBAL_FILLERS_DONE.fetch_add(1, Ordering::Relaxed);
+            },
+            SchedulerType::EDF(10_000_000, CpuSet::all()),
+        )
+        .await;
+    }
 }
 
 /// Test 1: Verify tasks are pinned to their assigned cores.

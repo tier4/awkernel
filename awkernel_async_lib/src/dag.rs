@@ -571,7 +571,7 @@ impl Dag {
     /// # Panics
     ///
     /// Panics if the source releases a job before its next release time is set.
-    pub(crate) fn get_or_release_job(&self, node_idx: NodeIndex, release: bool) -> Option<JobInfo> {
+    fn get_or_release_job(&self, node_idx: NodeIndex, release: bool) -> Option<JobInfo> {
         let mut node = MCSNode::new();
         let mut jobs = self.jobs.lock(&mut node);
 
