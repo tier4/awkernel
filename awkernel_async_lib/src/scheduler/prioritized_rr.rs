@@ -10,12 +10,13 @@ use crate::{
     },
     task::{
         get_last_executed_by_task_id, get_task, get_tasks_running, set_current_task,
-        set_need_preemption, State,
+        set_need_preemption, State, NUM_TASK_IN_QUEUE,
     },
 };
 use alloc::{sync::Arc, vec::Vec};
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::sync::atomic::Ordering;
 
 pub struct PrioritizedRRScheduler {
     // Time quantum
@@ -65,6 +66,13 @@ impl Scheduler for PrioritizedRRScheduler {
                     _priority: priority,
                 },
             );
+            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
+            drop(data);
+
+            // `do_preemption` and `run_main` re-wake tasks through this function
+            // without `ArcWake::wake`, so notify the primary CPU here to wake an
+            // idle worker.
+            awkernel_lib::cpu::wake_cpu(0);
         }
     }
 
@@ -79,6 +87,7 @@ impl Scheduler for PrioritizedRRScheduler {
         };
 
         while let Some(rr_task) = data.queue.pop() {
+            NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
             {
                 let mut node = MCSNode::new();
                 let mut task_info = rr_task.task.info.lock(&mut node);
