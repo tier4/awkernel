@@ -209,11 +209,6 @@ pub(super) fn read_tsc() -> u64 {
     now
 }
 
-/// Return the calibrated TSC frequency in Hz.
-pub fn tsc_frequency() -> u64 {
-    TSC_FREQ.load(Ordering::Relaxed)
-}
-
 /// Log the calibrated TSC frequency.
 pub fn log_tsc_frequency() {
     let hz = TSC_FREQ.load(Ordering::Relaxed);
