@@ -16,6 +16,11 @@ static INTERRUPT_CONTROLLER: InterruptController = InterruptController {
     },
 };
 
+/// IRQ# of the CLINT machine timer interrupt.
+///
+/// PLIC sources are numbered 1..=1023, so this number never collides with a PLIC source.
+pub const TIMER_IRQ: u16 = 1025;
+
 pub struct InterruptController {
     clint: Clint,
     plic: Plic,
@@ -31,6 +36,7 @@ impl interrupt::InterruptController for InterruptController {
     fn enable_irq(&mut self, irq: u16) {
         match irq {
             0 => self.clint.enable_soft_interrupt(),
+            TIMER_IRQ => self.clint.enable_timer_interrupt(),
             _ => {
                 let context = cpu_id() as u16; // TODO: support S-mode contexts
                 let _ = self.plic.enable_interrupt(context, irq);
@@ -42,6 +48,7 @@ impl interrupt::InterruptController for InterruptController {
     fn disable_irq(&mut self, irq: u16) {
         match irq {
             0 => self.clint.disable_soft_interrupt(),
+            TIMER_IRQ => self.clint.disable_timer_interrupt(),
             _ => {
                 let context = cpu_id() as u16; // TODO: support S-mode contexts
                 let _ = self.plic.disable_interrupt(context, irq);
@@ -56,6 +63,12 @@ impl interrupt::InterruptController for InterruptController {
         if self.clint.is_soft_interrupt_pending() {
             self.clint.clear_soft_interrupt();
             pending_irqs.push(0);
+        }
+        if self.clint.is_timer_interrupt_pending() {
+            // The machine timer interrupt is level-triggered; cancel it until
+            // the timer is reset by its handler.
+            self.clint.clear_timer();
+            pending_irqs.push(TIMER_IRQ);
         }
         // Safety: context is in range
         while let Some(irq) = unsafe { self.plic.claim_interrupt_unchecked(context) } {
@@ -95,8 +108,9 @@ impl interrupt::InterruptController for InterruptController {
 
     #[inline]
     fn irq_range(&self) -> (u16, u16) {
-        // 0 is CLINT, 1..=num_sources are PLIC
-        (0, self.plic.num_sources + 1)
+        // 0 is the CLINT software interrupt, TIMER_IRQ is the CLINT timer,
+        // and 1..=num_sources are PLIC
+        (0, TIMER_IRQ + 1)
     }
 
     #[inline]
