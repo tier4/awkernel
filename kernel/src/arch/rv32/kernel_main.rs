@@ -119,11 +119,17 @@ unsafe fn primary_hart(hartid: usize) {
     let num_cpu = detect_num_cpus();
     log::info!("Detected {num_cpu} CPU cores");
 
+    // Page table frames live in `[ekernel, HEAP_START)`; the heap is not mapped.
+    extern "C" {
+        fn ekernel();
+    }
+    let pt_start = ekernel as *const () as usize;
+
     // Initialize memory management (page allocator)
-    awkernel_lib::arch::rv_common::init_page_allocator();
+    awkernel_lib::arch::rv_common::init_page_allocator(pt_start, HEAP_START);
 
     // Initialize virtual memory system
-    awkernel_lib::arch::rv_common::init_kernel_space();
+    awkernel_lib::arch::rv_common::init_kernel_space(pt_start, HEAP_START, HEAP_START);
 
     // Activate virtual memory (enable MMU and page tables)
     awkernel_lib::arch::rv_common::activate_kernel_space();
