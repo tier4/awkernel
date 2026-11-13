@@ -190,8 +190,8 @@ static GLOBAL_WAKE_GET_MUTEX: Mutex<()> = Mutex::new(());
 ///
 /// 1. Wrap each entry of its run queue in [`ClusteredTask`] so that
 ///    `NUM_CLUSTERED_TASKS_IN_QUEUE` is kept consistent.
-/// 2. Implement [`Scheduler::queued_cpu_mask`] to report the exact set of
-///    CPUs its queued tasks are runnable on (`wake_workers` relies on it).
+/// 2. Implement [`Scheduler::queued_workers`] to report which workers its
+///    queued tasks need (`wake_workers` relies on it).
 /// 3. Be placed in the clustered prefix of `PRIORITY_LIST` and be matched by
 ///    `SchedulerType::is_clustered` (checked at compile time).
 pub(crate) trait Scheduler {
@@ -208,22 +208,28 @@ pub(crate) trait Scheduler {
     #[allow(dead_code)] // TODO: to be removed
     fn priority(&self) -> u8;
 
-    /// The set of CPUs that have at least one queued task eligible to run on
-    /// them. Non-clustered schedulers use the default (empty) implementation;
+    /// The workers that queued tasks need, as `(mask, num_global)`.
+    ///
+    /// `mask` holds every CPU that a queued task restricted to some of the
+    /// workers can run on. `num_global` is the number of queued tasks that
+    /// every worker can run, so any `num_global` workers can run them.
+    /// Non-clustered schedulers use the default (empty) implementation;
     /// clustered schedulers must override it.
-    fn queued_cpu_mask(&self) -> CpuSet {
-        CpuSet::empty()
+    fn queued_workers(&self) -> (CpuSet, usize) {
+        (CpuSet::empty(), 0)
     }
 }
 
-/// Return the union of [`Scheduler::queued_cpu_mask`] over all clustered
-/// schedulers: the exact set of CPUs for which a clustered task is queued.
-pub(crate) fn clustered_queued_cpu_mask() -> CpuSet {
+/// Return [`Scheduler::queued_workers`] summed over all clustered schedulers.
+pub(crate) fn clustered_queued_workers() -> (CpuSet, usize) {
     let mut mask = CpuSet::empty();
+    let mut num_global = 0;
     for scheduler_type in &PRIORITY_LIST[..get_num_clustered_schedulers()] {
-        mask = mask.union(get_scheduler(scheduler_type).queued_cpu_mask());
+        let (m, n) = get_scheduler(scheduler_type).queued_workers();
+        mask = mask.union(m);
+        num_global += n;
     }
-    mask
+    (mask, num_global)
 }
 
 /// Get the next executable task.
