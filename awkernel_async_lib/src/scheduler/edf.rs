@@ -2,9 +2,10 @@
 //!
 //! Each task carries a [`CpuSet`] describing the CPU cores it may run on.
 //! A one-core set gives partitioned EDF, and `CpuSet::all()` gives global EDF.
-//! Runnable tasks are kept in a single affinity-aware priority queue
-//! ([`AffinityBTreeQueue`]); `get_next` on CPU `c` pops the earliest-deadline
-//! task whose `cpu_set` contains `c`.
+//! Runnable tasks are kept in two affinity-aware priority queues
+//! ([`AffinityBTreeQueue`]), one for tasks that every worker core can run and
+//! one for the other tasks; `get_next` on CPU `c` pops the earliest-deadline
+//! task of either queue whose `cpu_set` contains `c`.
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
@@ -20,20 +21,86 @@ use crate::{
 use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
 use alloc::sync::Arc;
 use awkernel_lib::{
-    cpu::{masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
+    cpu::{all_workers, masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
     sync::mutex::{MCSNode, Mutex},
 };
 
-/// The run queue. Priority is `(absolute_deadline, wake_time)`; smaller values
-/// dequeue first, and entries with fully equal keys are FIFO-ordered by the
-/// queue's internal sequence number.
-type EDFQueue =
-    AffinityBTreeQueue<(u64, u64), ClusteredTask<Arc<Task>>, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
+/// Priority of a queued task, `(absolute_deadline, wake_time, seq)`. Smaller
+/// values dequeue first. `seq` grows with each push, so entries with equal
+/// deadlines and wake times are FIFO-ordered across both queues.
+type Key = (u64, u64, u64);
+
+type Queue<V> = AffinityBTreeQueue<Key, V, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
+
+/// The run queues of the EDF scheduler.
+///
+/// `wake_workers` wakes every core in the affinity mask of `restricted`, but
+/// only one core for each task of `global`. A single queue would put every
+/// worker in the mask while one task that every worker can run is queued.
+struct EDFQueues<V> {
+    /// Tasks whose set holds every worker core.
+    global: Queue<V>,
+    /// The other tasks.
+    restricted: Queue<V>,
+    next_seq: u64,
+}
+
+impl<V> EDFQueues<V> {
+    fn new(num_cpus: usize) -> Self {
+        Self {
+            global: Queue::new(num_cpus),
+            restricted: Queue::new(num_cpus),
+            next_seq: 0,
+        }
+    }
+
+    /// `priority` is `(absolute_deadline, wake_time)`.
+    fn push(&mut self, priority: (u64, u64), cpu_set: CpuSet, value: V) {
+        let key = (priority.0, priority.1, self.next_seq);
+        self.next_seq += 1;
+
+        let queue = if cpu_set == all_workers(self.global.num_cpus()) {
+            &mut self.global
+        } else {
+            &mut self.restricted
+        };
+        queue
+            .push(key, cpu_set, value)
+            .expect("EDF: failed to push a task");
+    }
+
+    fn len(&self) -> usize {
+        self.global.len() + self.restricted.len()
+    }
+
+    /// The key of the earliest queued task runnable on `cpu_id`.
+    fn peek_for_cpu(&self, cpu_id: usize) -> Option<Key> {
+        let global = self.global.peek_key_for_cpu(cpu_id).map(|k| k.priority);
+        let restricted = self.restricted.peek_key_for_cpu(cpu_id).map(|k| k.priority);
+        match (global, restricted) {
+            (Some(g), Some(r)) => Some(g.min(r)),
+            (g, r) => g.or(r),
+        }
+    }
+
+    /// Remove and return the earliest queued task runnable on `cpu_id`.
+    fn pop_for_cpu(&mut self, cpu_id: usize) -> Option<V> {
+        let global = self.global.peek_key_for_cpu(cpu_id).map(|k| k.priority);
+        let restricted = self.restricted.peek_key_for_cpu(cpu_id).map(|k| k.priority);
+        let queue = match (global, restricted) {
+            (None, None) => return None,
+            (Some(g), Some(r)) if r < g => &mut self.restricted,
+            (None, Some(_)) => &mut self.restricted,
+            _ => &mut self.global,
+        };
+        queue.pop_for_cpu(cpu_id).map(|(_, _, value)| value)
+    }
+}
 
 pub struct EDFScheduler {
-    // `AffinityBTreeQueue::new` is not a const fn, so the queue is lazily
+    // `AffinityBTreeQueue::new` is not a const fn, so the queues are lazily
     // initialized with `num_cpu()` on first use.
-    data: Mutex<Option<EDFQueue>>,
+    data: Mutex<Option<EDFQueues<ClusteredTask<Arc<Task>>>>>,
     priority: u8,
 }
 
@@ -78,14 +145,12 @@ impl Scheduler for EDFScheduler {
         if !self.invoke_preemption(task.clone(), (absolute_deadline, wake_time)) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
-            let queue = data.get_or_insert_with(|| EDFQueue::new(num_cpu()));
-            queue
-                .push(
-                    (absolute_deadline, wake_time),
-                    cpu_set,
-                    ClusteredTask::new(task),
-                )
-                .expect("EDF: failed to push a task");
+            let queues = data.get_or_insert_with(|| EDFQueues::new(num_cpu()));
+            queues.push(
+                (absolute_deadline, wake_time),
+                cpu_set,
+                ClusteredTask::new(task),
+            );
             drop(data);
 
             // `do_preemption` and `run_main` re-wake tasks through this function
@@ -100,13 +165,13 @@ impl Scheduler for EDFScheduler {
 
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
-        let queue = (*data).as_mut()?;
+        let queues = (*data).as_mut()?;
 
         // Note: spawn removes CPU 0 from every set, so `pop_for_cpu(0)` always
         // returns `None` and the `get_next_task(false)` path executed on the
         // primary CPU can never dequeue a clustered task.
         loop {
-            let (_, _, mut entry) = queue.pop_for_cpu(cpu_id)?;
+            let mut entry = queues.pop_for_cpu(cpu_id)?;
 
             // take() decrements the counters; entry then drops with inner == None.
             let Some(task) = entry.take() else {
@@ -142,15 +207,15 @@ impl Scheduler for EDFScheduler {
         self.priority
     }
 
-    fn queued_cpu_mask(&self) -> CpuSet {
+    fn queued_workers(&self) -> (CpuSet, usize) {
         let mut node = MCSNode::new();
         let data = self.data.lock(&mut node);
 
-        // O(1): the queue maintains the OR of all queued affinities in its
+        // O(1): each queue maintains the OR of all queued affinities in its
         // B-tree root.
         match &*data {
-            Some(queue) => queue.affinity_mask(),
-            None => CpuSet::empty(),
+            Some(queues) => (queues.restricted.affinity_mask(), queues.global.len()),
+            None => (CpuSet::empty(), 0),
         }
     }
 }
@@ -184,7 +249,7 @@ impl EDFScheduler {
             let data = self.data.lock(&mut node);
             if (*data)
                 .as_ref()
-                .is_none_or(|queue| idle_cpu_takes(queue, idle_cpus, key))
+                .is_none_or(|queues| idle_cpu_takes(queues, idle_cpus, key))
             {
                 return false;
             }
@@ -228,7 +293,7 @@ impl EDFScheduler {
             // NOTE: The task is now pinned to `victim_cpu`'s preemption-pending
             // heap and is not in the affinity queue, so it is invisible to the
             // other CPUs in its `cpu_set` (neither `pop_for_cpu`, the clustered
-            // task counter, nor `queued_cpu_mask` sees it). If another CPU in
+            // task counter, nor `queued_workers` sees it). If another CPU in
             // the set becomes idle while the IPI is in flight, it cannot pick
             // the task up and may go to sleep — a latency window bounded by the
             // IPI delivery plus the victim's interrupt-disabled sections. This
@@ -249,23 +314,19 @@ impl EDFScheduler {
 }
 
 /// Whether a CPU of `idle_cpus` takes a task of priority `key` if the task is
-/// pushed to `queue` now.
+/// pushed to `queues` now.
 ///
 /// An idle CPU takes the earliest queued task runnable on it. So the task is
 /// taken if it is earlier than every queued task runnable on one of
-/// `idle_cpus`, or if `queue` holds fewer tasks than `idle_cpus` holds CPUs.
+/// `idle_cpus`, or if `queues` hold fewer tasks than `idle_cpus` holds CPUs.
 /// Otherwise, the queued tasks can take every idle CPU first, and the task
 /// must preempt to run now.
-fn idle_cpu_takes<V>(
-    queue: &AffinityBTreeQueue<(u64, u64), V, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>,
-    idle_cpus: CpuSet,
-    key: (u64, u64),
-) -> bool {
-    queue.len() < idle_cpus.iter().count()
+fn idle_cpu_takes<V>(queues: &EDFQueues<V>, idle_cpus: CpuSet, key: (u64, u64)) -> bool {
+    queues.len() < idle_cpus.iter().count()
         || idle_cpus.iter().any(|cpu_id| {
-            queue
-                .peek_key_for_cpu(cpu_id)
-                .is_none_or(|queued| queued.priority > key)
+            queues
+                .peek_for_cpu(cpu_id)
+                .is_none_or(|(deadline, wake_time, _)| (deadline, wake_time) > key)
         })
 }
 
@@ -273,48 +334,91 @@ fn idle_cpu_takes<V>(
 mod tests {
     use super::*;
 
-    type Queue = AffinityBTreeQueue<(u64, u64), (), DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
+    type Queues = EDFQueues<u32>;
 
     const IDLE_2: CpuSet = CpuSet::empty().with(2);
+    /// Every worker core of a 4-CPU system.
     const ALL: CpuSet = CpuSet::empty().with(1).with(2).with(3);
 
     #[test]
     fn idle_cpu_takes_task_from_empty_queue() {
-        assert!(idle_cpu_takes(&Queue::new(4), IDLE_2, (10, 0)));
+        assert!(idle_cpu_takes(&Queues::new(4), IDLE_2, (10, 0)));
     }
 
     #[test]
     fn earlier_queued_task_claims_the_only_idle_cpu() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), ALL, ()).unwrap();
-        assert!(!idle_cpu_takes(&queue, IDLE_2, (10, 0)));
+        let mut queues = Queues::new(4);
+        queues.push((5, 0), ALL, 0);
+        assert!(!idle_cpu_takes(&queues, IDLE_2, (10, 0)));
     }
 
     #[test]
     fn equal_key_is_fifo() {
-        let mut queue = Queue::new(4);
-        queue.push((10, 0), ALL, ()).unwrap();
-        assert!(!idle_cpu_takes(&queue, IDLE_2, (10, 0)));
+        let mut queues = Queues::new(4);
+        queues.push((10, 0), ALL, 0);
+        assert!(!idle_cpu_takes(&queues, IDLE_2, (10, 0)));
     }
 
     #[test]
     fn task_earlier_than_queue_head_is_taken() {
-        let mut queue = Queue::new(4);
-        queue.push((20, 0), ALL, ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2, (10, 0)));
+        let mut queues = Queues::new(4);
+        queues.push((20, 0), ALL, 0);
+        assert!(idle_cpu_takes(&queues, IDLE_2, (10, 0)));
     }
 
     #[test]
     fn spare_idle_cpu_takes_task() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), ALL, ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2.with(3), (10, 0)));
+        let mut queues = Queues::new(4);
+        queues.push((5, 0), ALL, 0);
+        assert!(idle_cpu_takes(&queues, IDLE_2.with(3), (10, 0)));
     }
 
     #[test]
     fn queued_task_of_another_cpu_does_not_claim_idle_cpu() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), CpuSet::empty().with(3), ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2, (10, 0)));
+        let mut queues = Queues::new(4);
+        queues.push((5, 0), CpuSet::empty().with(3), 0);
+        assert!(idle_cpu_takes(&queues, IDLE_2, (10, 0)));
+    }
+
+    #[test]
+    fn pop_takes_earliest_task_of_either_queue() {
+        let mut queues = Queues::new(4);
+        queues.push((30, 0), ALL, 1);
+        queues.push((10, 0), IDLE_2, 2);
+        queues.push((20, 0), ALL, 3);
+        assert_eq!(queues.pop_for_cpu(2), Some(2));
+        assert_eq!(queues.pop_for_cpu(2), Some(3));
+        assert_eq!(queues.pop_for_cpu(2), Some(1));
+        assert_eq!(queues.pop_for_cpu(2), None);
+    }
+
+    #[test]
+    fn equal_keys_are_fifo_across_queues() {
+        let mut queues = Queues::new(4);
+        queues.push((10, 0), ALL, 1);
+        queues.push((10, 0), IDLE_2, 2);
+        queues.push((10, 0), ALL, 3);
+        assert_eq!(queues.pop_for_cpu(2), Some(1));
+        assert_eq!(queues.pop_for_cpu(2), Some(2));
+        assert_eq!(queues.pop_for_cpu(2), Some(3));
+    }
+
+    #[test]
+    fn restricted_task_stays_off_other_cpus() {
+        let mut queues = Queues::new(4);
+        queues.push((10, 0), IDLE_2, 1);
+        queues.push((20, 0), ALL, 2);
+        assert_eq!(queues.pop_for_cpu(3), Some(2));
+        assert_eq!(queues.pop_for_cpu(3), None);
+        assert_eq!(queues.pop_for_cpu(2), Some(1));
+    }
+
+    #[test]
+    fn global_task_stays_out_of_restricted_mask() {
+        let mut queues = Queues::new(4);
+        queues.push((10, 0), ALL, 1);
+        queues.push((20, 0), IDLE_2, 2);
+        assert_eq!(queues.restricted.affinity_mask(), IDLE_2);
+        assert_eq!(queues.global.len(), 1);
     }
 }
