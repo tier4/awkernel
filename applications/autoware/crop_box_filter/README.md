@@ -81,4 +81,8 @@ cargo test -p crop_box_filter --all-features
 ```
 
 Tests cover empty clouds, strict boundaries, invalid coordinates, transforms,
-metadata, extra values, unaligned fields, and padded input rows.
+metadata, extra values, unaligned fields, and padded input rows. The
+`autoware_cases` integration tests adapt the original C++ test cases. Because
+this crate has no standalone `validate_pointcloud2` function, its three
+validation cases instead exercise validation through `CropBoxFilter::filter`,
+which applies stricter layout checks.
