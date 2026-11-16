@@ -323,7 +323,7 @@ impl CropBoxFilter {
                 y.try_write(output_slice, 0, point_postprocessed.y)?;
                 z.try_write(output_slice, 0, point_postprocessed.z)?;
 
-                width = width + 1;
+                width += 1;
             }
         }
 
@@ -788,10 +788,9 @@ mod tests {
                 false,
             )
         };
-        assert_eq!(
-            construct(1, 0, 16, 16, fields(), vec![0; 16]).unwrap_err(),
-            PointCloudError::ZeroWidth
-        );
+        let zero_width = construct(1, 0, 16, 16, fields(), vec![0; 16]).unwrap();
+        assert_eq!(zero_width.point_count(), 0);
+        assert_eq!(zero_width.iter_points().count(), 0);
         assert_eq!(
             construct(1, 1, 16, 15, fields(), vec![0; 16]).unwrap_err(),
             PointCloudError::InvalidRowStep { step: 15, min: 16 }

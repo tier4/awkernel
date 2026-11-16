@@ -57,10 +57,11 @@ The filter:
 
 For nonempty output, the cloud is packed (`height = 1`, `width = retained
 count`, `row_step = data.len()`). Empty output has `height = 0`, `width = 1`,
-`row_step = point_step`, and no data: `PointCloud` does not permit zero width.
-Use `point_count()` or `height()` rather than `width()` alone to detect an
-empty output. Both forms retain the original field descriptors, point stride,
-byte-order flag, density flag, and timestamp.
+`row_step = point_step`, and no data. Although `PointCloud` permits zero-width
+clouds, the filter uses this canonical empty-output layout. Use `point_count()`
+or `height()` rather than `width()` alone to detect an empty output. Both forms
+retain the original field descriptors, point stride, byte-order flag, density
+flag, and timestamp.
 Its frame ID is the postprocessing transform's header frame if present,
 otherwise the preprocessing transform's header frame if present, otherwise
 the input frame. Transform frame IDs are not validated against the input or
@@ -91,4 +92,8 @@ cargo test -p crop_box_filter --all-features
 ```
 
 Tests cover empty clouds, strict boundaries, invalid coordinates, transforms,
-metadata, extra values, unaligned fields, and padded input rows.
+metadata, extra values, unaligned fields, and padded input rows. The
+`autoware_cases` integration tests adapt the original C++ test cases. Because
+this crate has no standalone `validate_pointcloud2` function, its three
+validation cases instead exercise validation through `CropBoxFilter::filter`,
+which applies stricter layout checks.
