@@ -278,6 +278,30 @@ pub struct TypedPointCloudAccessor<C, S: FieldSelection> {
 }
 
 impl<C: Borrow<PointCloud>, S: FieldSelection> TypedPointCloudAccessor<C, S> {
+    /// Borrows external point bytes using this accessor's cached field selection.
+    ///
+    /// The slice must contain exactly one complete point in native byte order, including point padding but excluding row padding.
+    /// A different length returns [`PointCloudError::InvalidDataSize`].
+    /// No field lookups or datatype checks are repeated, and the cloud's own data remains unchanged.
+    pub fn point_writer_from_bytes<'a>(
+        &'a self,
+        bytes: &'a mut [u8],
+    ) -> Result<TypedPointWriter<'a, S>, PointCloudError> {
+        if bytes.len() != self.raw.point_step {
+            return Err(PointCloudError::InvalidDataSize {
+                size: bytes.len(),
+                expected: self.raw.point_step,
+            });
+        }
+        Ok(TypedPointWriter {
+            raw: PointAccessor {
+                bytes,
+                fields: &self.raw.fields,
+            },
+            checked: &self.checked,
+        })
+    }
+
     pub fn point(&self, index: usize) -> Result<TypedPointReader<'_, S>, PointCloudError> {
         let (row, col) = self.raw.point_coordinates(index)?;
         self.point_at(row, col)
@@ -369,6 +393,51 @@ mod tests {
         }
         let point = reader.point_mut(3).unwrap();
         assert_eq!(point.fields.as_ptr(), metadata);
+    }
+
+    #[test]
+    fn external_point_writer_reuses_selection_without_changing_source_cloud() {
+        for empty in [false, true] {
+            let mut cloud = projected_cloud();
+            if empty {
+                cloud.height = 0;
+                cloud.data.clear();
+            }
+            let original = cloud.data.clone();
+            let reader = PointCloudReader::try_new_typed(
+                &cloud,
+                (Field::<u8>::new("label"), Field::<u16>::new("vector")),
+            )
+            .unwrap();
+            let mut bytes = [0xAA; 8];
+            {
+                let mut point = reader.point_writer_from_bytes(&mut bytes).unwrap();
+                assert!(core::ptr::eq(point.checked, &reader.checked));
+                assert_eq!(point.raw.fields.as_ptr(), reader.raw.fields.as_ptr());
+                point.write_values(0, (42, 0x1234)).unwrap();
+            }
+            let mut expected = [0xAA; 8];
+            expected[1..3].copy_from_slice(&0x1234_u16.to_ne_bytes());
+            expected[7] = 42;
+            assert_eq!(bytes, expected);
+            assert_eq!(cloud.data, original);
+        }
+    }
+
+    #[test]
+    fn external_point_writer_rejects_incomplete_or_multiple_points_without_mutation() {
+        let cloud = projected_cloud();
+        let reader =
+            PointCloudReader::try_new_typed(&cloud, (Field::<u16>::new("vector"),)).unwrap();
+        for size in [0, 6, 7, 9, 16] {
+            let mut bytes = vec![0xAA; size];
+            let original = bytes.clone();
+            assert_eq!(
+                reader.point_writer_from_bytes(&mut bytes).err(),
+                Some(PointCloudError::InvalidDataSize { size, expected: 8 })
+            );
+            assert_eq!(bytes, original);
+        }
     }
 
     #[test]
