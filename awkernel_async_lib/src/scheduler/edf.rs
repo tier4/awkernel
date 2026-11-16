@@ -225,7 +225,8 @@ impl EDFScheduler {
             // is not a lost wakeup: the task is eventually run either by the
             // victim's preemption handler (`do_preemption`), or re-woken by the
             // victim's `run_main` if its running task finishes first, in which
-            // case this function decides again. Future work:
+            // case this function decides again. `run_main` checks the pending
+            // heap again before the victim sleeps. Future work:
             // an enqueue-instead-of-pin strategy (push to the affinity queue
             // and treat the IPI as a hint) would close this window, but it
             // requires redesigning the duplicate-IPI suppression that the

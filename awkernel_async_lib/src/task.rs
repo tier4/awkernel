@@ -1411,6 +1411,16 @@ pub fn run_main() {
                 }
             }
         } else {
+            // A waker that read this CPU as busy can pin a task here after the
+            // re-wake at the top of the loop. While this CPU runs no task, the
+            // preemption IPI can leave that task pinned, so re-wake it instead
+            // of sleeping. `get_next_task` took `GLOBAL_WAKE_GET_MUTEX`, so this
+            // check sees the pin of every such waker.
+            if scheduler::PREEMPTION_ENABLED && scheduler::peek_preemption_pending(cpu_id).is_some()
+            {
+                continue;
+            }
+
             #[cfg(feature = "perf")]
             perf::start_idle();
 
