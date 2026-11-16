@@ -24,7 +24,7 @@ impl<T: PointFieldValue> Field<T> {
     }
 }
 
-/// A sealed tuple selection of one through eight [`Field`] descriptors.
+/// A sealed tuple selection of one through ten [`Field`] descriptors.
 ///
 /// Supported scalar types are those implementing [`PointFieldValue`].
 pub trait FieldSelection: typed_selection::Selection {}
@@ -124,6 +124,9 @@ pub(super) mod typed_selection {
     tuples!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
     tuples!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
     tuples!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+    tuples!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8);
+    tuples!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 9);
+    // In the future, you can add more tuples as needed for larger selections.
 }
 
 #[cfg(test)]
