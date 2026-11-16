@@ -3,6 +3,9 @@
 Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
 
+Awkernel is jointly developed by [TIER IV, Inc.](https://tier4.jp/) and [Saitama University](https://www.saitama-u.ac.jp/).
+See [PUBLICATIONS.md](./PUBLICATIONS.md) for related papers.
+
 ## Dependencies
 
 ### Compiler Tools
