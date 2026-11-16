@@ -130,6 +130,12 @@ impl PointField {
 /// This is a plain message: all fields are public and may contain an invalid layout
 /// or either byte order. Validated access requires native-endian data.
 /// Borrow it through [`PointCloudReader`] or [`PointCloudWriter`] before access.
+///
+/// # Using `PointCloud` as message
+///
+/// While you can send a `PointCloud` as a message, it is recommended to wrap it under
+/// an `Arc<PointCloud>` to ensure shared ownership and avoid unnecessary copies.
+#[derive(Clone)]
 pub struct PointCloud {
     /// Time of sensor data acquisition, and the coordinate frame ID (for 3D points).
     pub header: Header,
@@ -152,6 +158,22 @@ pub struct PointCloud {
     pub data: Vec<u8>,
     /// True if there are no invalid points.
     pub is_dense: bool,
+}
+
+impl core::fmt::Debug for PointCloud {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PointCloud")
+            .field("header", &self.header)
+            .field("height", &self.height)
+            .field("width", &self.width)
+            .field("fields", &self.fields)
+            .field("is_bigendian", &self.is_bigendian)
+            .field("point_step", &self.point_step)
+            .field("row_step", &self.row_step)
+            // Skipping the actual data for brevity in debug output
+            .field("is_dense", &self.is_dense)
+            .finish()
+    }
 }
 
 mod sealed {
