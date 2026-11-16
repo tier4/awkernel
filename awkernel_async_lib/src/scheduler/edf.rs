@@ -183,20 +183,24 @@ impl EDFScheduler {
             // An idle CPU does not stop the preemption. A task queued before
             // or after this one can take the idle CPU first, and a sleeping
             // CPU runs a queued task only after the primary CPU wakes it. So
-            // this task preempts the lowest-priority busy CPU even if an idle
-            // CPU can take it.
+            // this task can preempt the lowest-priority busy CPU even if the
+            // set has an idle CPU. The cost is that the preemption can be
+            // unneeded, and the victim waits for the primary CPU to wake a
+            // sleeping CPU. If the set of the victim holds no idle CPU, the
+            // victim waits for its own CPU while the idle CPU stays idle.
             if task_running.task_id == 0 {
                 continue;
             }
 
-            let task_running = get_task(task_running.task_id);
-            let task_pending = peek_preemption_pending(cpu_id);
+            // A running task that is missing from the task table finished
+            // after the read above, so this CPU counts as idle too.
+            let Some(task_running) = get_task(task_running.task_id) else {
+                continue;
+            };
 
-            let target_task = match (task_running, task_pending) {
-                (Some(running), Some(pending)) => running.max(pending),
-                (Some(running), None) => running,
-                (None, Some(pending)) => pending,
-                (None, None) => return false,
+            let target_task = match peek_preemption_pending(cpu_id) {
+                Some(pending) => task_running.max(pending),
+                None => task_running,
             };
 
             match victim {
