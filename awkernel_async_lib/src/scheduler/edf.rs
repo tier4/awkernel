@@ -88,9 +88,9 @@ impl Scheduler for EDFScheduler {
                 .expect("EDF: failed to push a task");
             drop(data);
 
-            // `do_preemption` and `run_main` re-wake tasks through this function
-            // without `ArcWake::wake`, so notify the primary CPU here to wake an
-            // idle worker in the set.
+            // Every enqueue goes through this function, including the re-wakes
+            // that bypass `ArcWake::wake`, so notify the primary CPU here to
+            // wake an idle worker in the set.
             awkernel_lib::cpu::wake_cpu(0);
         }
     }

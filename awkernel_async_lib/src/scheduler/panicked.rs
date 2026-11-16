@@ -38,9 +38,9 @@ impl Scheduler for PanickedScheduler {
         NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
         drop(data);
 
-        // `do_preemption` and `run_main` re-wake tasks through this function
-        // without `ArcWake::wake`, so notify the primary CPU here to wake an
-        // idle worker.
+        // Every enqueue goes through this function, including the re-wakes
+        // that bypass `ArcWake::wake`, so notify the primary CPU here to
+        // wake an idle worker.
         awkernel_lib::cpu::wake_cpu(0);
     }
 

@@ -171,9 +171,6 @@ impl ArcWake for Task {
         } else {
             self.scheduler.wake_task(self);
         }
-
-        // Notify the primary CPU to wake up workers.
-        awkernel_lib::cpu::wake_cpu(0);
     }
 }
 
