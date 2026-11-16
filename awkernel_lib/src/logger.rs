@@ -111,6 +111,17 @@ pub fn set_buf_console(logger: &'static dyn Log) {
     }
 }
 
+/// Stop using the buffered console and fall back to the raw console.
+///
+/// This is used when the task draining the buffered console can no longer run,
+/// e.g., because it panicked, so that later messages remain visible.
+pub fn unset_buf_console() {
+    let ptr = &raw mut LOGGER;
+    unsafe {
+        (*ptr).buf_console = None;
+    }
+}
+
 /// Initialize the logger.
 ///
 /// # Safety
