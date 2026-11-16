@@ -94,7 +94,7 @@ impl<C: Borrow<PointCloud>> PointCloudAccessor<C> {
         let min_row_step = width
             .checked_mul(point_step)
             .ok_or(PointCloudError::Overflow)?;
-        let expected_size = row_step
+        let min_size = row_step
             .checked_mul(height)
             .ok_or(PointCloudError::Overflow)?;
 
@@ -105,11 +105,11 @@ impl<C: Borrow<PointCloud>> PointCloudAccessor<C> {
                 min: min_row_step,
             });
         }
-        // Check for valid data size (must match exactly the expected size)
-        if message.data.len() != expected_size {
+        // Check for valid data size (trailing bytes allowed)
+        if min_size > message.data.len() {
             return Err(PointCloudError::InvalidDataSize {
                 size: message.data.len(),
-                expected: expected_size,
+                min: min_size,
             });
         }
 
@@ -280,17 +280,17 @@ pub struct TypedPointCloudAccessor<C, S: FieldSelection> {
 impl<C: Borrow<PointCloud>, S: FieldSelection> TypedPointCloudAccessor<C, S> {
     /// Borrows external point bytes using this accessor's cached field selection.
     ///
-    /// The slice must contain exactly one complete point in native byte order, including point padding but excluding row padding.
+    /// The slice must contain at least one complete point in native byte order, including point padding but excluding row padding.
     /// A different length returns [`PointCloudError::InvalidDataSize`].
     /// No field lookups or datatype checks are repeated, and the cloud's own data remains unchanged.
     pub fn point_writer_from_bytes<'a>(
         &'a self,
         bytes: &'a mut [u8],
     ) -> Result<TypedPointWriter<'a, S>, PointCloudError> {
-        if bytes.len() != self.raw.point_step {
+        if self.raw.point_step > bytes.len() {
             return Err(PointCloudError::InvalidDataSize {
                 size: bytes.len(),
-                expected: self.raw.point_step,
+                min: self.raw.point_step,
             });
         }
         Ok(TypedPointWriter {
@@ -429,12 +429,12 @@ mod tests {
         let cloud = projected_cloud();
         let reader =
             PointCloudReader::try_new_typed(&cloud, (Field::<u16>::new("vector"),)).unwrap();
-        for size in [0, 6, 7, 9, 16] {
+        for size in [0, 6, 7] {
             let mut bytes = vec![0xAA; size];
             let original = bytes.clone();
             assert_eq!(
                 reader.point_writer_from_bytes(&mut bytes).err(),
-                Some(PointCloudError::InvalidDataSize { size, expected: 8 })
+                Some(PointCloudError::InvalidDataSize { size, min: 8 })
             );
             assert_eq!(bytes, original);
         }
@@ -663,10 +663,7 @@ mod tests {
         cloud.data = vec![0; 7];
         assert_eq!(
             PointCloudReader::try_new(&cloud, None).err(),
-            Some(PointCloudError::InvalidDataSize {
-                size: 7,
-                expected: 8,
-            })
+            Some(PointCloudError::InvalidDataSize { size: 7, min: 8 })
         );
 
         let zero_width = point_cloud(0, 2, 8, 3, vec![], vec![0; 6]);

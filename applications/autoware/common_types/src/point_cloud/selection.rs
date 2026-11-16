@@ -316,10 +316,7 @@ mod tests {
         cloud.data.pop();
         assert_eq!(
             PointCloudReader::try_new(&cloud, Some(&[])).err(),
-            Some(PointCloudError::InvalidDataSize {
-                size: 3,
-                expected: 4,
-            })
+            Some(PointCloudError::InvalidDataSize { size: 3, min: 4 })
         );
 
         cloud.height = 0;

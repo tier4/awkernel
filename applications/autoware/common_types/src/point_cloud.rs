@@ -262,7 +262,7 @@ pub enum PointCloudError {
     ZeroPointStep,
     InvalidRowStep { step: usize, min: usize },
     InvalidField(PointFieldError),
-    InvalidDataSize { size: usize, expected: usize },
+    InvalidDataSize { size: usize, min: usize },
     RowOutOfBounds { index: usize, height: usize },
     PointOutOfBounds { index: usize, count: usize },
     ColumnOutOfBounds { index: usize, width: usize },
@@ -280,10 +280,9 @@ impl core::fmt::Display for PointCloudError {
                 "Row step {step} is smaller than the minimum row size {min}"
             ),
             Self::InvalidField(error) => write!(f, "Invalid point field: {error}"),
-            Self::InvalidDataSize { size, expected } => write!(
-                f,
-                "Data size {size} does not match expected size {expected}",
-            ),
+            Self::InvalidDataSize { size, min } => {
+                write!(f, "Data size {size} is smaller than the minimumsize {min}",)
+            }
             Self::Overflow => write!(f, "Point cloud size overflows usize"),
             Self::RowOutOfBounds { index, height } => {
                 write!(f, "Row {index} is outside cloud height {height}")
