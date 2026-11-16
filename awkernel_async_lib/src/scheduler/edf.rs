@@ -75,7 +75,7 @@ impl Scheduler for EDFScheduler {
 
         let mut node = MCSNode::new();
         let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
-        if !self.invoke_preemption(task.clone(), (absolute_deadline, wake_time)) {
+        if !self.invoke_preemption(task.clone()) {
             let mut node_inner = MCSNode::new();
             let mut data = self.data.lock(&mut node_inner);
             let queue = data.get_or_insert_with(|| EDFQueue::new(num_cpu()));
@@ -161,45 +161,35 @@ pub static SCHEDULER: EDFScheduler = EDFScheduler {
 };
 
 impl EDFScheduler {
-    /// `key` is the queue priority of `task`, `(absolute_deadline, wake_time)`.
-    fn invoke_preemption(&self, task: Arc<Task>, key: (u64, u64)) -> bool {
+    fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         if !PREEMPTION_ENABLED {
             return false;
         }
 
         let cpu_set = task.cpu_set.expect("Task has no CPU set");
 
-        let mut idle_cpus = CpuSet::empty();
-        for cpu_id in cpu_set.iter() {
-            match get_task_running(cpu_id).task_id {
-                // If the task has already been running, preempt is not required.
-                id if id == task.id => return false,
-                0 => idle_cpus.insert(cpu_id),
-                _ => (),
-            }
-        }
-
-        if !idle_cpus.is_empty() {
-            let mut node = MCSNode::new();
-            let data = self.data.lock(&mut node);
-            if (*data)
-                .as_ref()
-                .is_none_or(|queue| idle_cpu_takes(queue, idle_cpus, key))
-            {
-                return false;
-            }
-        }
-
         // Find the CPU whose target (running or pending-preemption) task has
         // the lowest priority among the busy CPUs of the set.
         let mut victim: Option<(usize, Arc<Task>)> = None;
 
         for cpu_id in cpu_set.iter() {
-            if idle_cpus.contains(cpu_id) {
+            let task_running = get_task_running(cpu_id);
+
+            // If the task has already been running, preempt is not required.
+            if task_running.task_id == task.id {
+                return false;
+            }
+
+            // An idle CPU does not stop the preemption. A task queued before
+            // or after this one can take the idle CPU first, and a sleeping
+            // CPU runs a queued task only after the primary CPU wakes it. So
+            // this task preempts the lowest-priority busy CPU even if an idle
+            // CPU can take it.
+            if task_running.task_id == 0 {
                 continue;
             }
 
-            let task_running = get_task(get_task_running(cpu_id).task_id);
+            let task_running = get_task(task_running.task_id);
             let task_pending = peek_preemption_pending(cpu_id);
 
             let target_task = match (task_running, task_pending) {
@@ -229,7 +219,7 @@ impl EDFScheduler {
             // heap and is not in the affinity queue, so it is invisible to the
             // other CPUs in its `cpu_set` (neither `pop_for_cpu`, the clustered
             // task counter, nor `queued_cpu_mask` sees it). If another CPU in
-            // the set becomes idle while the IPI is in flight, it cannot pick
+            // the set is or becomes idle while the IPI is in flight, it cannot pick
             // the task up and may go to sleep — a latency window bounded by the
             // IPI delivery plus the victim's interrupt-disabled sections. This
             // is not a lost wakeup: the task is eventually run either by the
@@ -245,76 +235,5 @@ impl EDFScheduler {
         }
 
         false
-    }
-}
-
-/// Whether a CPU of `idle_cpus` takes a task of priority `key` if the task is
-/// pushed to `queue` now.
-///
-/// An idle CPU takes the earliest queued task runnable on it. So the task is
-/// taken if it is earlier than every queued task runnable on one of
-/// `idle_cpus`, or if `queue` holds fewer tasks than `idle_cpus` holds CPUs.
-/// Otherwise, the queued tasks can take every idle CPU first, and the task
-/// must preempt to run now.
-fn idle_cpu_takes<V>(
-    queue: &AffinityBTreeQueue<(u64, u64), V, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>,
-    idle_cpus: CpuSet,
-    key: (u64, u64),
-) -> bool {
-    queue.len() < idle_cpus.iter().count()
-        || idle_cpus.iter().any(|cpu_id| {
-            queue
-                .peek_key_for_cpu(cpu_id)
-                .is_none_or(|queued| queued.priority > key)
-        })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    type Queue = AffinityBTreeQueue<(u64, u64), (), DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
-
-    const IDLE_2: CpuSet = CpuSet::empty().with(2);
-    const ALL: CpuSet = CpuSet::empty().with(1).with(2).with(3);
-
-    #[test]
-    fn idle_cpu_takes_task_from_empty_queue() {
-        assert!(idle_cpu_takes(&Queue::new(4), IDLE_2, (10, 0)));
-    }
-
-    #[test]
-    fn earlier_queued_task_claims_the_only_idle_cpu() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), ALL, ()).unwrap();
-        assert!(!idle_cpu_takes(&queue, IDLE_2, (10, 0)));
-    }
-
-    #[test]
-    fn equal_key_is_fifo() {
-        let mut queue = Queue::new(4);
-        queue.push((10, 0), ALL, ()).unwrap();
-        assert!(!idle_cpu_takes(&queue, IDLE_2, (10, 0)));
-    }
-
-    #[test]
-    fn task_earlier_than_queue_head_is_taken() {
-        let mut queue = Queue::new(4);
-        queue.push((20, 0), ALL, ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2, (10, 0)));
-    }
-
-    #[test]
-    fn spare_idle_cpu_takes_task() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), ALL, ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2.with(3), (10, 0)));
-    }
-
-    #[test]
-    fn queued_task_of_another_cpu_does_not_claim_idle_cpu() {
-        let mut queue = Queue::new(4);
-        queue.push((5, 0), CpuSet::empty().with(3), ()).unwrap();
-        assert!(idle_cpu_takes(&queue, IDLE_2, (10, 0)));
     }
 }
