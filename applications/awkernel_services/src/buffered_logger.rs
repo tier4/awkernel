@@ -1,11 +1,6 @@
-use alloc::{boxed::Box, string::String};
+use alloc::string::String;
 use awkernel_async_lib::channel::bounded;
 use awkernel_lib::sync::{mcs::MCSNode, mutex::Mutex};
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
 
 static BUFFERED_LOGGER: Mutex<Option<BufferedLogger>> = Mutex::new(None);
 static LOGGER: Logger = Logger;
@@ -19,68 +14,70 @@ struct Logger;
 
 impl log::Log for Logger {
     fn log(&self, record: &log::Record) {
-        let mut node = MCSNode::new();
-        let mut logger = BUFFERED_LOGGER.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let mut logger = BUFFERED_LOGGER.lock(&mut node);
 
-        let Some(logger) = logger.as_mut() else {
-            return;
-        };
+            if let Some(logger) = logger.as_mut() {
+                if logger.tx.is_full() {
+                    logger.discarded += 1;
+                    return;
+                }
 
-        if logger.tx.is_full() {
-            logger.discarded += 1;
-            return;
+                let msg = awkernel_lib::logger::format_msg(record);
+
+                if logger.tx.try_send(msg).is_err() {
+                    logger.discarded += 1;
+                }
+
+                return;
+            }
         }
 
+        // Nobody drains the buffer, so print directly.
+        // The lock is released first, so that a panic while printing
+        // does not make the panic handler spin on it.
         let msg = awkernel_lib::logger::format_msg(record);
-
-        if logger.tx.try_send(msg).is_err() {
-            logger.discarded += 1;
-        }
+        awkernel_lib::console::print(&msg);
     }
 
     fn flush(&self) {}
 
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
-        let mut node = MCSNode::new();
-        let logger = BUFFERED_LOGGER.lock(&mut node);
+        true
+    }
+}
 
-        logger.is_some()
+/// Stops buffering when the logger task ends, e.g., because it panicked.
+///
+/// If the task panicked, it would be moved to the panicked scheduler and
+/// nobody would drain the buffer, so all log output, including the panic
+/// report, would silently disappear.
+///
+/// This must be declared after the receiver so that it is dropped first.
+struct FallbackOnDrop<'a>(&'a bounded::Receiver<String>);
+
+impl Drop for FallbackOnDrop<'_> {
+    fn drop(&mut self) {
+        // After this, `Logger::log` prints directly and nothing is queued.
+        let buffered_logger = {
+            let mut node = MCSNode::new();
+            let mut logger = BUFFERED_LOGGER.lock(&mut node);
+            logger.take()
+        };
+        drop(buffered_logger);
+
+        // Print what is still queued, which includes the panic report.
+        while let Ok(msg) = self.0.try_recv() {
+            awkernel_lib::console::print(&msg);
+        }
+
+        // Do not use `log` here, because it allocates during unwinding.
+        awkernel_lib::console::print("buffered logger stopped; falling back to direct output\r\n");
     }
 }
 
 pub async fn run() {
-    FallbackOnPanic(Box::pin(run_logger())).await
-}
-
-/// Switches the logger back to the raw console when the wrapped future panics.
-///
-/// If the buffered logger task panicked, it would be moved to the panicked
-/// scheduler and nobody would drain the buffer, so all log output, including
-/// the panic message, would silently disappear.
-struct FallbackOnPanic<F>(Pin<Box<F>>);
-
-impl<F: Future> Future for FallbackOnPanic<F> {
-    type Output = F::Output;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // `guard` is dropped only when `poll` unwinds.
-        let guard = RawConsoleOnUnwind;
-        let result = self.get_mut().0.as_mut().poll(cx);
-        core::mem::forget(guard);
-        result
-    }
-}
-
-struct RawConsoleOnUnwind;
-
-impl Drop for RawConsoleOnUnwind {
-    fn drop(&mut self) {
-        awkernel_lib::logger::unset_buf_console();
-        log::error!("buffered logger panicked; falling back to the raw console");
-    }
-}
-
-async fn run_logger() {
     let (tx, rx) = bounded::new(bounded::Attribute {
         queue_size: 4096,
         ..Default::default()
@@ -93,6 +90,8 @@ async fn run_logger() {
 
         *logger = Some(buffered_logger);
     }
+
+    let _fallback = FallbackOnDrop(&rx);
 
     awkernel_lib::logger::set_buf_console(&LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
