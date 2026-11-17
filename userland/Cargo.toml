@@ -90,6 +90,10 @@ optional = true
 path = "../applications/tests/test_edf"
 optional = true
 
+[dependencies.test_dvfs_task]
+path = "../applications/tests/test_dvfs_task"
+optional = true
+
 [features]
 default = []
 perf = ["awkernel/perf", "awkernel_services/perf"]
@@ -129,3 +133,4 @@ test_dvfs = ["dep:test_dvfs", "awkernel/dvfs"]
 test_raspi_dvfs = ["dep:test_raspi_dvfs"]
 test_voluntary_preemption = ["dep:test_voluntary_preemption"]
 test_edf = ["dep:test_edf"]
+test_dvfs_task = ["dep:test_dvfs_task", "awkernel/dvfs"]
