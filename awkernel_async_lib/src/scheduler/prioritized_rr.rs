@@ -2,21 +2,22 @@
 
 use core::cmp::max;
 
-use super::{Scheduler, SchedulerType, Task};
+use super::{take_head_if, ConditionalNext, Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::{
-        get_next_task, get_priority, peek_preemption_pending, push_preemption_pending,
+        get_next_task_if, get_priority, peek_preemption_pending, push_preemption_pending,
         GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
-        get_last_executed_by_task_id, get_task, get_tasks_running, set_current_task,
-        set_need_preemption, State, NUM_TASK_IN_QUEUE,
+        get_task, get_tasks_running, set_current_task, set_need_preemption, State,
+        NUM_TASK_IN_QUEUE,
     },
 };
 use alloc::{sync::Arc, vec::Vec};
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::sync::atomic::Ordering;
+use core::time::Duration;
 
 pub struct PrioritizedRRScheduler {
     // Time quantum
@@ -111,6 +112,16 @@ impl Scheduler for PrioritizedRRScheduler {
         None
     }
 
+    fn get_next_if(&self, pred: &dyn Fn(&Task) -> bool) -> ConditionalNext {
+        let mut node = MCSNode::new();
+        let mut data = self.data.lock(&mut node);
+
+        match (*data).as_mut() {
+            Some(data) => take_head_if(&mut data.queue, |entry| &entry.task, pred),
+            None => ConditionalNext::Empty,
+        }
+    }
+
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::PrioritizedRR(0)
     }
@@ -128,19 +139,68 @@ pub static SCHEDULER: PrioritizedRRScheduler = PrioritizedRRScheduler {
 };
 
 impl PrioritizedRRScheduler {
-    // Invoke a preemption if the task exceeds the time quantum
-    pub fn invoke_preemption_tick(&self, cpu_id: usize, task_id: u32) {
-        if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
-            let elapsed = last_executed.elapsed().as_micros() as u64;
-            if elapsed > self.interval {
-                if let Some(next_task) = get_next_task(false) {
-                    push_preemption_pending(cpu_id, next_task);
-                    let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                    set_need_preemption(task_id, cpu_id);
-                    awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
-                }
-            }
+    /// Rotate the PrioritizedRR task `task_id` running on `cpu_id` if it has
+    /// used up its time quantum.
+    ///
+    /// The next runnable task is dequeued and sent to `cpu_id` only if its
+    /// priority is at least that of the running task: an equal priority is
+    /// the quantum rotation, and a higher priority is a plain preemption.
+    /// A lower-priority task could not preempt the running task anyway, so
+    /// it is left in the run queue to keep its position, and the quantum of
+    /// the running task is restarted instead.
+    ///
+    /// Returns the time after which this function must be called again for
+    /// this CPU, or `None` if a preemption was requested: the preempted task
+    /// is enqueued again, and that wakes the primary CPU.
+    ///
+    /// This function must be called on the primary CPU.
+    pub fn invoke_preemption_tick(&self, cpu_id: usize, task_id: u32) -> Option<Duration> {
+        let current_task = get_task(task_id)?;
+        let interval = Duration::from_micros(self.interval);
+
+        let elapsed = {
+            let mut node = MCSNode::new();
+            let info = current_task.info.lock(&mut node);
+            info.get_last_executed().elapsed()
+        };
+
+        if elapsed <= interval {
+            return Some(interval - elapsed);
         }
+
+        // A task is dequeued only while no preemption is pending on this
+        // CPU: `do_preemption` runs one pending task and re-queues the others
+        // at the tail of their level. The predicate runs under
+        // `GLOBAL_WAKE_GET_MUTEX`, so no wake path can push a pending task
+        // between this check and the dequeue.
+        let next_task = get_next_task_if(|next| {
+            peek_preemption_pending(cpu_id).is_none() && !current_task.preempts(next)
+        });
+
+        if let Some(next_task) = next_task {
+            push_preemption_pending(cpu_id, next_task);
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(task_id, cpu_id);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+            return None;
+        }
+
+        if peek_preemption_pending(cpu_id).is_some() {
+            // A preemption has already been requested on this CPU, but it
+            // has not been performed yet. Request it again in case the IPI
+            // was not handled.
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(task_id, cpu_id);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+        } else {
+            // There is no task to rotate with. Restart the quantum so that
+            // the run queues are not examined again on every tick.
+            let mut node = MCSNode::new();
+            let mut info = current_task.info.lock(&mut node);
+            info.update_last_executed();
+        }
+
+        Some(interval)
     }
 
     fn invoke_preemption_wake(&self, task: Arc<Task>) -> bool {

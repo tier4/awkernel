@@ -93,10 +93,10 @@ impl Task {
     ///
     /// The one exception is the PrioritizedRR time quantum:
     /// `PrioritizedRRScheduler::invoke_preemption_tick` pushes the next
-    /// runnable task to the preemption-pending heap without a priority check,
-    /// and `preempt::do_preemption` lets such an equal-priority pending task
-    /// preempt a running PrioritizedRR task so that the quantum rotates tasks
-    /// of the same priority.
+    /// runnable task to the preemption-pending heap if its priority is at
+    /// least that of the running task, and `preempt::do_preemption` lets such
+    /// an equal-priority pending task preempt a running PrioritizedRR task so
+    /// that the quantum rotates tasks of the same priority.
     ///
     /// This is deliberately not `self > other`: [`Ord`] for `Task` breaks
     /// priority ties by task ID to give the preemption-pending heaps a total

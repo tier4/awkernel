@@ -164,11 +164,13 @@ unsafe fn do_preemption() {
         // path requires a strictly higher priority (`Task::preempts`), so a
         // pending task of equal priority can only come from
         // `PrioritizedRRScheduler::invoke_preemption_tick`, which pushes the
-        // next runnable task without a priority check when the quantum of
-        // the running task has expired. Let it through when the running task
+        // next runnable task when the quantum of the running task has
+        // expired and that task does not have a lower priority than the
+        // running one. Let it through when the running task
         // is PrioritizedRR so that the quantum rotates equal-priority tasks.
-        // `PriorityInfo` includes the scheduler priority, so equal priority
-        // implies that `next` is a PrioritizedRR task too.
+        // `PriorityInfo` includes the scheduler priority, and the tick never
+        // pushes a panicked task, so equal priority implies that `next` is a
+        // PrioritizedRR task too.
         let quantum_rotation = !current_task.preempts(&next)
             && matches!(
                 current_task.scheduler_name(),
@@ -206,7 +208,13 @@ unsafe fn do_preemption() {
     if let Some(next_thread) = {
         let mut node = MCSNode::new();
         let mut task_info = next.info.lock(&mut node);
-        task_info.take_preempt_context()
+        let ctx = task_info.take_preempt_context();
+        if ctx.is_some() {
+            // `next` resumes on its own thread without passing through
+            // `run_main`, so start its time quantum here.
+            task_info.update_last_executed();
+        }
+        ctx
     } {
         // If the next task is a preempted task, yield to it.
         yield_preempted_and_wake_task(current_task, next_thread);
