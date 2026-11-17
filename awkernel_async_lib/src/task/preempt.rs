@@ -203,11 +203,23 @@ unsafe fn do_preemption() {
         current_task.clone()
     };
 
+    #[cfg(feature = "dvfs")]
+    let freq;
+
     if let Some(next_thread) = {
         let mut node = MCSNode::new();
         let mut task_info = next.info.lock(&mut node);
+
+        #[cfg(feature = "dvfs")]
+        {
+            freq = task_info.get_freq();
+        }
+
         task_info.take_preempt_context()
     } {
+        #[cfg(feature = "dvfs")]
+        super::apply_task_freq(cpu_id, freq);
+
         // If the next task is a preempted task, yield to it.
         yield_preempted_and_wake_task(current_task, next_thread);
     } else {
