@@ -108,6 +108,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             let dur = wake_task(); // Wake executable tasks periodically.
 
+            // Wake up other CPUs if there are any tasks to run. This runs before
+            // the sleep, because `wake_cpu(0)` on CPU 0 does nothing, so a task
+            // that `wake_task()` enqueued gets no other notification.
+            awkernel_async_lib::task::wake_workers();
+
             #[cfg(feature = "std")]
             {
                 let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
@@ -133,9 +138,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             #[cfg(feature = "perf")]
             awkernel_async_lib::task::perf::start_kernel();
-
-            // Wake up other CPUs if there are any tasks to run.
-            awkernel_async_lib::task::wake_workers();
         }
     }
 
