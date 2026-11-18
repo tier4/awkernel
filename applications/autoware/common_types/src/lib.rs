@@ -16,6 +16,7 @@
 
 extern crate alloc;
 
+pub mod centroid;
 pub mod geometry;
 pub mod point_cloud;
 pub mod point_field;
@@ -27,4 +28,4 @@ pub struct Header {
     pub timestamp: u64,
 }
 
-pub use nalgebra::{Isometry3, Matrix4, Quaternion, UnitQuaternion, Vector3, Vector4};
+pub use nalgebra::{Isometry3, Matrix4, Quaternion, SVector, UnitQuaternion, Vector3, Vector4};
