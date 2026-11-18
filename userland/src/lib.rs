@@ -45,7 +45,7 @@ pub async fn run() -> Result<(), Cow<'static, str>> {
     test_measure_channel_heavy::run().await; // measure channel heavy
 
     #[cfg(feature = "test_dag")]
-    test_dag::run().await; // test for DAG
+    test_dag::run().await;
 
     #[cfg(feature = "test_dvfs")]
     test_dvfs::run().await; // test for DVFS

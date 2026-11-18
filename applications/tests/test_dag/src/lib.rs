@@ -1,19 +1,20 @@
 #![no_std]
 extern crate alloc;
 
-use alloc::{borrow::Cow, vec};
-use awkernel_async_lib::dag::{create_dag, finish_create_dags};
+use alloc::{borrow::Cow, vec, vec::Vec};
+use awkernel_async_lib::dag::{create_dag, finish_create_dags, DagError};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::{cpu::CpuSet, delay::wait_microsec};
 use core::time::Duration;
 
 const LOG_ENABLE: bool = true;
+const SOURCE_EXECUTION_TIME_US: u64 = 100_000;
 
 pub async fn run() {
     wait_microsec(1000000);
 
-    let period = Duration::from_nanos(1000000000);
-    let exe_time = (period.as_micros() as f64 * 0.1) as u64;
+    let period = Duration::from_secs(1);
+    let exe_time = SOURCE_EXECUTION_TIME_US;
 
     log::debug!("period is {} [ns]", period.as_nanos());
 
@@ -32,6 +33,7 @@ pub async fn run() {
         vec![Cow::from("topic0")],
         SchedulerType::EDF(5, CpuSet::all()),
         period,
+        Some(Duration::from_micros(SOURCE_EXECUTION_TIME_US)),
     )
     .await;
 
@@ -48,6 +50,7 @@ pub async fn run() {
         vec![Cow::from("topic0")],
         vec![Cow::from("topic1"), Cow::from("topic2")],
         SchedulerType::EDF(10, CpuSet::all()),
+        Some(Duration::from_millis(100)),
     )
     .await;
 
@@ -63,6 +66,7 @@ pub async fn run() {
         vec![Cow::from("topic1")],
         vec![Cow::from("topic3")],
         SchedulerType::EDF(10, CpuSet::all()),
+        Some(Duration::from_millis(50)),
     )
     .await;
 
@@ -78,6 +82,7 @@ pub async fn run() {
         vec![Cow::from("topic2")],
         vec![Cow::from("topic4")],
         SchedulerType::EDF(10, CpuSet::all()),
+        Some(Duration::from_millis(50)),
     )
     .await;
 
@@ -92,21 +97,22 @@ pub async fn run() {
         vec![Cow::from("topic3"), Cow::from("topic4")],
         SchedulerType::EDF(10, CpuSet::all()),
         Duration::from_secs(1),
+        Some(Duration::from_millis(100)),
     )
     .await;
 
-    let result = finish_create_dags(&[dag.clone()]).await;
-
-    match result {
+    match finish_create_dags(core::slice::from_ref(&dag)).await {
         Ok(_) => {
             if LOG_ENABLE {
                 log::info!("DAG created successfully");
             }
         }
         Err(errors) => {
-            log::error!("Failed to create DAGs");
-            for error in errors {
-                log::error!("- {error}");
+            if LOG_ENABLE {
+                log::error!("DAG creation failed:");
+                for error in errors {
+                    log::error!("- {error}");
+                }
             }
         }
     }
