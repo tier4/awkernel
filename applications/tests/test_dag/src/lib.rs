@@ -10,7 +10,7 @@ use core::time::Duration;
 const LOG_ENABLE: bool = true;
 const SOURCE_EXECUTION_TIME_US: u64 = 100_000;
 
-pub async fn run() -> Result<(), Vec<DagError>> {
+pub async fn run() {
     wait_microsec(1000000);
 
     let period = Duration::from_secs(1);
@@ -101,9 +101,19 @@ pub async fn run() -> Result<(), Vec<DagError>> {
     )
     .await;
 
-    finish_create_dags(core::slice::from_ref(&dag)).await?;
-    if LOG_ENABLE {
-        log::info!("DAG created successfully");
+    match finish_create_dags(core::slice::from_ref(&dag)).await {
+        Ok(_) => {
+            if LOG_ENABLE {
+                log::info!("DAG created successfully");
+            }
+        }
+        Err(errors) => {
+            if LOG_ENABLE {
+                log::error!("DAG creation failed:");
+                for error in errors {
+                    log::error!("- {error}");
+                }
+            }
+        }
     }
-    Ok(())
 }
