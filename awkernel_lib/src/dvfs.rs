@@ -118,6 +118,9 @@ unsafe extern "Rust" {
     unsafe fn __awkernel_cpu_init(cpu_id: usize) -> Result<()>;
     unsafe fn __awkernel_set_cpu_freq(freq: u64) -> Result<()>;
     unsafe fn __awkernel_set_global_freq(freq: u64) -> Result<()>;
+    unsafe fn __awkernel_set_cpu_freq_clamped(freq: u64) -> Result<()>;
+    unsafe fn __awkernel_set_max_cpu_freq() -> Result<()>;
+    unsafe fn __awkernel_set_min_cpu_freq() -> Result<()>;
     unsafe fn __awkernel_get_max_cpu_freq() -> Result<u64>;
     unsafe fn __awkernel_get_min_cpu_freq() -> Result<u64>;
     unsafe fn __awkernel_get_curr_cpu_freq() -> Result<u64>;
@@ -147,6 +150,24 @@ pub fn set_cpu_freq(freq: u64) -> Result<()> {
 #[inline(always)]
 pub unsafe fn set_global_freq(freq: u64) -> Result<()> {
     unsafe { __awkernel_set_global_freq(freq) }
+}
+
+/// Set the frequency of the current CPU in Hz, clamped to the min and max frequencies of the CPU.
+#[inline(always)]
+pub fn set_cpu_freq_clamped(freq: u64) -> Result<()> {
+    unsafe { __awkernel_set_cpu_freq_clamped(freq) }
+}
+
+/// Set the frequency of the current CPU to its maximum.
+#[inline(always)]
+pub fn set_max_cpu_freq() -> Result<()> {
+    unsafe { __awkernel_set_max_cpu_freq() }
+}
+
+/// Set the frequency of the current CPU to its minimum.
+#[inline(always)]
+pub fn set_min_cpu_freq() -> Result<()> {
+    unsafe { __awkernel_set_min_cpu_freq() }
 }
 
 /// Get the maximum frequency of the current CPU in Hz.
@@ -183,6 +204,24 @@ extern "Rust" fn default_set_cpu_freq(freq: u64) -> Result<()> {
 #[export_name = "__awkernel_set_global_freq"]
 unsafe extern "Rust" fn default_set_global_freq(freq: u64) -> Result<()> {
     crate::arch::ArchImpl::set_global_freq(freq)
+}
+
+#[linkage = "weak"]
+#[export_name = "__awkernel_set_cpu_freq_clamped"]
+extern "Rust" fn default_set_cpu_freq_clamped(freq: u64) -> Result<()> {
+    crate::arch::ArchImpl::set_cpu_freq_clamped(freq)
+}
+
+#[linkage = "weak"]
+#[export_name = "__awkernel_set_max_cpu_freq"]
+extern "Rust" fn default_set_max_cpu_freq() -> Result<()> {
+    crate::arch::ArchImpl::set_max_cpu_freq()
+}
+
+#[linkage = "weak"]
+#[export_name = "__awkernel_set_min_cpu_freq"]
+extern "Rust" fn default_set_min_cpu_freq() -> Result<()> {
+    crate::arch::ArchImpl::set_min_cpu_freq()
 }
 
 #[linkage = "weak"]
@@ -224,6 +263,23 @@ macro_rules! impl_dvfs {
             freq: u64,
         ) -> $crate::dvfs::Result<()> {
             unsafe { <$ty as $crate::dvfs::Dvfs>::set_global_freq(freq) }
+        }
+
+        #[export_name = "__awkernel_set_cpu_freq_clamped"]
+        extern "Rust" fn __awkernel_bsp_set_cpu_freq_clamped(
+            freq: u64,
+        ) -> $crate::dvfs::Result<()> {
+            <$ty as $crate::dvfs::Dvfs>::set_cpu_freq_clamped(freq)
+        }
+
+        #[export_name = "__awkernel_set_max_cpu_freq"]
+        extern "Rust" fn __awkernel_bsp_set_max_cpu_freq() -> $crate::dvfs::Result<()> {
+            <$ty as $crate::dvfs::Dvfs>::set_max_cpu_freq()
+        }
+
+        #[export_name = "__awkernel_set_min_cpu_freq"]
+        extern "Rust" fn __awkernel_bsp_set_min_cpu_freq() -> $crate::dvfs::Result<()> {
+            <$ty as $crate::dvfs::Dvfs>::set_min_cpu_freq()
         }
 
         #[export_name = "__awkernel_get_max_cpu_freq"]

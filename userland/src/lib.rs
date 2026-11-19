@@ -59,5 +59,8 @@ pub async fn run() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_edf")]
     test_edf::run().await; // test for EDF scheduler
 
+    #[cfg(feature = "test_dvfs_task")]
+    test_dvfs_task::run().await; // test for per-task frequency
+
     Ok(())
 }

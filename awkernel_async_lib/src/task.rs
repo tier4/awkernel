@@ -186,6 +186,9 @@ pub struct TaskInfo {
     panicked: bool,
     pub(crate) dag_info: Option<DagInfo>,
 
+    #[cfg(feature = "dvfs")]
+    freq: Option<u64>,
+
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
 }
@@ -252,6 +255,18 @@ impl TaskInfo {
     pub fn get_dag_info(&self) -> Option<DagInfo> {
         self.dag_info.clone()
     }
+
+    #[inline(always)]
+    #[cfg(feature = "dvfs")]
+    pub fn update_freq(&mut self, freq: u64) {
+        self.freq = Some(freq);
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "dvfs")]
+    pub fn get_freq(&self) -> Option<u64> {
+        self.freq
+    }
 }
 
 /// State of task.
@@ -294,6 +309,7 @@ impl Tasks {
         scheduler: &'static dyn Scheduler,
         mut scheduler_type: SchedulerType,
         dag_info: Option<DagInfo>,
+        #[cfg(feature = "dvfs")] freq: Option<u64>,
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
@@ -336,6 +352,9 @@ impl Tasks {
                     need_preemption: false,
                     panicked: false,
                     dag_info,
+
+                    #[cfg(feature = "dvfs")]
+                    freq,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -403,7 +422,14 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
-    inner_spawn(name, future, sched_type, None)
+    inner_spawn(
+        name,
+        future,
+        sched_type,
+        None,
+        #[cfg(feature = "dvfs")]
+        None,
+    )
 }
 
 /// Spawn a detached task with DAG information.
@@ -433,7 +459,24 @@ pub fn spawn_with_dag_info(
     sched_type: SchedulerType,
     dag_info: DagInfo,
 ) -> u32 {
-    inner_spawn(name, future, sched_type, Some(dag_info))
+    inner_spawn(
+        name,
+        future,
+        sched_type,
+        Some(dag_info),
+        #[cfg(feature = "dvfs")]
+        None,
+    )
+}
+
+#[cfg(feature = "dvfs")]
+pub fn spawn_with_freq(
+    name: Cow<'static, str>,
+    future: impl Future<Output = TaskResult> + 'static + Send,
+    sched_type: SchedulerType,
+    freq: u64,
+) -> u32 {
+    inner_spawn(name, future, sched_type, None, Some(freq))
 }
 
 pub fn inner_spawn(
@@ -441,6 +484,7 @@ pub fn inner_spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
     dag_info: Option<DagInfo>,
+    #[cfg(feature = "dvfs")] freq: Option<u64>,
 ) -> u32 {
     if let SchedulerType::PrioritizedFIFO(p) | SchedulerType::PrioritizedRR(p) = sched_type {
         if p > HIGHEST_PRIORITY {
@@ -456,7 +500,15 @@ pub fn inner_spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type, dag_info);
+    let id = tasks.spawn(
+        name,
+        future.fuse(),
+        scheduler,
+        sched_type,
+        dag_info,
+        #[cfg(feature = "dvfs")]
+        freq,
+    );
     let task = tasks.id_to_task.get(&id).cloned();
     drop(tasks);
 
@@ -1297,6 +1349,9 @@ pub fn run_main() {
                     continue;
                 }
 
+                #[cfg(feature = "dvfs")]
+                let freq;
+
                 {
                     let mut node = MCSNode::new();
                     let mut info = task.info.lock(&mut node);
@@ -1307,6 +1362,25 @@ pub fn run_main() {
                     }
 
                     info.update_last_executed();
+
+                    #[cfg(feature = "dvfs")]
+                    {
+                        freq = info.freq;
+                    }
+                }
+
+                #[cfg(feature = "dvfs")]
+                match freq {
+                    Some(f) => {
+                        if let Err(e) = awkernel_lib::dvfs::set_cpu_freq_clamped(f) {
+                            log::error!("CPU#{cpu_id}: failed to set the frequency to {f} Hz: {e}");
+                        }
+                    }
+                    None => {
+                        if let Err(e) = awkernel_lib::dvfs::set_max_cpu_freq() {
+                            log::error!("CPU#{cpu_id}: failed to set the frequency to max: {e}");
+                        }
+                    }
                 }
 
                 // Use the primary memory allocator.
@@ -1414,6 +1488,12 @@ pub fn run_main() {
 
             #[cfg(feature = "perf")]
             perf::start_idle();
+
+            // No runnable task. Lower the frequency to the minimum while idle.
+            #[cfg(feature = "dvfs")]
+            if let Err(e) = awkernel_lib::dvfs::set_min_cpu_freq() {
+                log::error!("CPU#{cpu_id}: failed to set the frequency to min: {e}");
+            }
 
             awkernel_lib::cpu::sleep_cpu(None);
         }
