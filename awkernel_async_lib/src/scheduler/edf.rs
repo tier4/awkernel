@@ -5,6 +5,15 @@
 //! Runnable tasks are kept in a single affinity-aware priority queue
 //! ([`AffinityBTreeQueue`]); `get_next` on CPU `c` pops the earliest-deadline
 //! task whose `cpu_set` contains `c`.
+//!
+//! # Deadline Policies
+//!
+//! The EDF scheduler relies on a deadline policy to determine the absolute deadline of each task.
+//! This allows different policies to be plugged in while keeping the queue and preemption logic consistent.
+//!
+//! The [`DeadlinePolicy`] trait supplies the deadline; the queue and preemption logic are shared by all policies.
+//! The default deadline policy is [`DefaultDeadlinePolicy`], which uses the DAG's
+//! calculated deadline if available, or falls back to the relative deadline otherwise.
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::{
@@ -14,7 +23,8 @@ use crate::{
         GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
-        get_task, get_task_running, set_current_task, set_need_preemption, State, MAX_TASK_PRIORITY,
+        get_task, get_task_running, set_current_task, set_need_preemption, DagInfo, State,
+        MAX_TASK_PRIORITY,
     },
 };
 use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
@@ -23,6 +33,7 @@ use awkernel_lib::{
     cpu::{masked_workers, num_cpu, CpuSet, CPU_SET_WORDS},
     sync::mutex::{MCSNode, Mutex},
 };
+use core::marker::PhantomData;
 
 /// The run queue. Priority is `(absolute_deadline, wake_time)`; smaller values
 /// dequeue first, and entries with fully equal keys are FIFO-ordered by the
@@ -30,35 +41,60 @@ use awkernel_lib::{
 type EDFQueue =
     AffinityBTreeQueue<(u64, u64), ClusteredTask<Arc<Task>>, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>;
 
-pub struct EDFScheduler {
+pub(super) trait DeadlinePolicy {
+    /// Return an absolute deadline in uptime microseconds for the job.
+    fn absolute_deadline(
+        wake_time: u64,
+        relative_deadline: u64,
+        dag_info: Option<&DagInfo>,
+        state: State,
+    ) -> u64;
+}
+
+pub(super) struct DefaultDeadlinePolicy;
+
+impl DeadlinePolicy for DefaultDeadlinePolicy {
+    fn absolute_deadline(
+        wake_time: u64,
+        relative_deadline: u64,
+        dag_info: Option<&DagInfo>,
+        state: State,
+    ) -> u64 {
+        match dag_info {
+            Some(dag_info) => calculate_and_update_dag_deadline(dag_info, wake_time, state),
+            None => wake_time + relative_deadline,
+        }
+    }
+}
+
+pub(super) struct EDFScheduler<P: DeadlinePolicy> {
     // `AffinityBTreeQueue::new` is not a const fn, so the queue is lazily
     // initialized with `num_cpu()` on first use.
     data: Mutex<Option<EDFQueue>>,
     priority: u8,
+    policy: PhantomData<fn() -> P>,
 }
 
-impl Scheduler for EDFScheduler {
+impl<P: DeadlinePolicy> Scheduler for EDFScheduler<P> {
     fn wake_task(&self, task: Arc<Task>) {
-        let (wake_time, absolute_deadline) = {
+        let key = {
             let mut node_inner = MCSNode::new();
             let mut info = task.info.lock(&mut node_inner);
-            let dag_info = info.get_dag_info();
             match info.scheduler_type {
                 SchedulerType::EDF(relative_deadline, _) => {
                     let wake_time = awkernel_lib::delay::uptime();
-                    let absolute_deadline = if let Some(ref dag_info) = dag_info {
-                        calculate_and_update_dag_deadline(dag_info, wake_time, info.state)
-                    } else {
-                        // If dag_info is not present, the task is treated as a regular task, and
-                        // the absolute_deadline is calculated using the scheduler's relative_deadline.
-                        wake_time + relative_deadline
-                    };
-
+                    let key = Self::queue_key(
+                        wake_time,
+                        relative_deadline,
+                        info.dag_info.as_ref(),
+                        info.state,
+                    );
+                    let (absolute_deadline, _) = key;
                     task.priority
                         .update_priority_info(self.priority, MAX_TASK_PRIORITY - absolute_deadline);
                     info.update_absolute_deadline(absolute_deadline);
 
-                    (wake_time, absolute_deadline)
+                    key
                 }
                 _ => unreachable!(),
             }
@@ -80,11 +116,7 @@ impl Scheduler for EDFScheduler {
             let mut data = self.data.lock(&mut node_inner);
             let queue = data.get_or_insert_with(|| EDFQueue::new(num_cpu()));
             queue
-                .push(
-                    (absolute_deadline, wake_time),
-                    cpu_set,
-                    ClusteredTask::new(task),
-                )
+                .push(key, cpu_set, ClusteredTask::new(task))
                 .expect("EDF: failed to push a task");
             drop(data);
 
@@ -155,12 +187,29 @@ impl Scheduler for EDFScheduler {
     }
 }
 
-pub static SCHEDULER: EDFScheduler = EDFScheduler {
-    data: Mutex::new(None),
-    priority: get_priority(&SchedulerType::EDF(0, CpuSet::empty())),
-};
+pub(super) static SCHEDULER: EDFScheduler<DefaultDeadlinePolicy> = EDFScheduler::new();
 
-impl EDFScheduler {
+impl<P: DeadlinePolicy> EDFScheduler<P> {
+    pub(super) const fn new() -> Self {
+        Self {
+            data: Mutex::new(None),
+            priority: get_priority(&SchedulerType::EDF(0, CpuSet::empty())),
+            policy: PhantomData,
+        }
+    }
+
+    fn queue_key(
+        wake_time: u64,
+        relative_deadline: u64,
+        dag_info: Option<&DagInfo>,
+        state: State,
+    ) -> (u64, u64) {
+        (
+            P::absolute_deadline(wake_time, relative_deadline, dag_info, state),
+            wake_time,
+        )
+    }
+
     fn invoke_preemption(&self, task: Arc<Task>) -> bool {
         if !PREEMPTION_ENABLED {
             return false;
@@ -240,5 +289,38 @@ impl EDFScheduler {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DagInfo, DeadlinePolicy, DefaultDeadlinePolicy, EDFScheduler, State};
+
+    struct FixedDeadline;
+
+    impl DeadlinePolicy for FixedDeadline {
+        fn absolute_deadline(
+            _wake_time: u64,
+            _relative_deadline: u64,
+            _dag_info: Option<&DagInfo>,
+            _state: State,
+        ) -> u64 {
+            200
+        }
+    }
+
+    #[test]
+    fn policy_can_change_task_order_without_changing_the_tie_breaker() {
+        let default_first =
+            EDFScheduler::<DefaultDeadlinePolicy>::queue_key(100, 40, None, State::Waiting);
+        let default_second =
+            EDFScheduler::<DefaultDeadlinePolicy>::queue_key(110, 10, None, State::Waiting);
+        let fixed_first = EDFScheduler::<FixedDeadline>::queue_key(100, 40, None, State::Waiting);
+        let fixed_second = EDFScheduler::<FixedDeadline>::queue_key(110, 10, None, State::Waiting);
+
+        assert_eq!(default_first, (140, 100));
+        assert_eq!(default_second, (120, 110));
+        assert_eq!(fixed_first, (200, 100));
+        assert_eq!(fixed_second, (200, 110));
     }
 }
