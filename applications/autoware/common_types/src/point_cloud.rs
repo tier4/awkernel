@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 /// Errors that can occur when constructing point clouds or accessing their points.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PointCloudError {
     UnsupportedEndianness,
