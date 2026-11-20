@@ -19,6 +19,7 @@ use awkernel_lib::{
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
+mod clustered;
 mod edf;
 pub(super) mod panicked;
 mod prioritized_fifo;
