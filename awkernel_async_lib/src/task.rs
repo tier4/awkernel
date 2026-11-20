@@ -247,11 +247,6 @@ impl TaskInfo {
     pub fn panicked(&self) -> bool {
         self.panicked
     }
-
-    #[inline(always)]
-    pub fn get_dag_info(&self) -> Option<DagInfo> {
-        self.dag_info.clone()
-    }
 }
 
 /// State of task.
