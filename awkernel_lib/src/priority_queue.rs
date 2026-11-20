@@ -42,6 +42,17 @@ impl<T> PriorityQueue<T> {
 
         next
     }
+
+    /// Return a reference to the value that `pop` would return, without removing it
+    #[inline(always)]
+    pub fn peek(&self) -> Option<&T> {
+        if self.has_entry == 0 {
+            return None;
+        }
+        let next_priority = (u32::BITS - 1) - self.has_entry.leading_zeros();
+
+        self.queue[next_priority as usize].front()
+    }
 }
 
 impl<T> Default for PriorityQueue<T> {
@@ -93,6 +104,44 @@ mod tests {
         }
 
         // Queue should be empty
+        assert_eq!(q.pop(), None);
+    }
+
+    #[test]
+    fn test_priority_queue_peek() {
+        let mut q = PriorityQueue::new();
+
+        // Nothing to peek in an empty queue
+        assert_eq!(q.peek(), None);
+
+        // `peek` returns the head of the FIFO order and does not remove it
+        for id in 0..10 {
+            q.push(0, id);
+        }
+
+        for expected in 0..10 {
+            assert_eq!(q.peek(), Some(&expected));
+            assert_eq!(q.peek(), Some(&expected));
+            assert_eq!(q.pop(), Some(expected));
+        }
+
+        assert_eq!(q.peek(), None);
+
+        // `peek` returns the value with the highest priority
+        q.push(1, 10);
+        assert_eq!(q.peek(), Some(&10));
+        q.push(3, 30);
+        assert_eq!(q.peek(), Some(&30));
+        q.push(2, 20);
+        assert_eq!(q.peek(), Some(&30));
+        q.push(3, 31);
+        assert_eq!(q.peek(), Some(&30));
+
+        // `peek` always agrees with the following `pop`
+        while let Some(expected) = q.peek().copied() {
+            assert_eq!(q.pop(), Some(expected));
+        }
+
         assert_eq!(q.pop(), None);
     }
 }

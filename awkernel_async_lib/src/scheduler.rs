@@ -5,13 +5,14 @@ use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use crate::{
-    task::{get_current_task, get_scheduler_type_by_task_id, Task},
+    task::{get_current_task, get_scheduler_type_by_task_id, State, Task, NUM_TASK_IN_QUEUE},
     time::Instant,
 };
 use alloc::collections::{binary_heap::BinaryHeap, btree_map::BTreeMap};
 use alloc::sync::Arc;
 use awkernel_lib::{
     cpu::{num_cpu, CpuSet},
+    priority_queue::PriorityQueue,
     sync::mutex::{MCSNode, Mutex},
     verified::delta_list::DeltaList,
 };
@@ -202,6 +203,18 @@ pub(crate) trait Scheduler {
     /// Get the next executable task.
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>>;
 
+    /// Dequeue the task at the head of the run queue, but only if `pred`
+    /// accepts it. A rejected task stays at the head of the run queue.
+    /// Unlike `get_next(true)`, the dequeued task is not marked as running.
+    ///
+    /// The check and the dequeue must be done without releasing the lock of
+    /// the run queue, so that the dequeued task is the one `pred` accepted.
+    ///
+    /// This is used only by `get_next_task_if()`, which runs on the primary
+    /// CPU (CPU 0). A scheduler whose tasks must never be taken that way
+    /// returns [`ConditionalNext::Empty`].
+    fn get_next_if(&self, pred: &dyn Fn(&Task) -> bool) -> ConditionalNext;
+
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 
@@ -256,6 +269,98 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     PRIORITY_LIST[get_num_clustered_schedulers()..]
         .iter()
         .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured))
+}
+
+/// The result of [`Scheduler::get_next_if`].
+pub(crate) enum ConditionalNext {
+    /// The run queue has no executable task.
+    Empty,
+
+    /// The head of the run queue was rejected and is left in the queue.
+    Rejected,
+
+    /// The head of the run queue was accepted and dequeued.
+    Taken(Arc<Task>),
+}
+
+/// Dequeue the next executable task only if `pred` accepts it.
+///
+/// This examines the head of the run queues of the non-clustered schedulers
+/// in the order of their priorities, except that panicked tasks are never
+/// taken. If `pred` returns `false` for it, the run queues are left
+/// untouched, so the task keeps its position in the queue, and `false` is
+/// returned. The dequeued task is not marked as running.
+///
+/// If a task is dequeued, it is passed to `on_taken` and `true` is returned.
+///
+/// `pred` is called with `GLOBAL_WAKE_GET_MUTEX`, the lock of the run queue,
+/// and the lock of the task information held. `on_taken` is called with only
+/// `GLOBAL_WAKE_GET_MUTEX` held, so what `pred` observed under that mutex
+/// still holds, and a worker that takes the mutex afterwards sees the effect
+/// of `on_taken`.
+///
+/// This function must be called on the primary CPU, which can never dequeue
+/// a clustered task, so only the non-clustered schedulers are examined.
+pub(crate) fn get_next_task_if(
+    pred: impl Fn(&Task) -> bool,
+    on_taken: impl FnOnce(Arc<Task>),
+) -> bool {
+    let mut node = MCSNode::new();
+    let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
+
+    for scheduler_type in &PRIORITY_LIST[get_num_clustered_schedulers()..] {
+        match get_scheduler(scheduler_type).get_next_if(&pred) {
+            ConditionalNext::Empty => (),
+            ConditionalNext::Rejected => return false,
+            ConditionalNext::Taken(task) => {
+                on_taken(task);
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// The body of [`Scheduler::get_next_if`] for the schedulers whose run queue
+/// is a [`PriorityQueue`]. `task_of` returns the task of a queue entry.
+///
+/// Finished tasks at the head of the queue are discarded as `get_next()`
+/// does. The lock of the run queue must be held by the caller.
+fn take_head_if<T>(
+    queue: &mut PriorityQueue<T>,
+    task_of: impl Fn(&T) -> &Arc<Task>,
+    pred: &dyn Fn(&Task) -> bool,
+) -> ConditionalNext {
+    loop {
+        let Some(task) = queue.peek().map(|entry| task_of(entry).clone()) else {
+            return ConditionalNext::Empty;
+        };
+
+        let mut node = MCSNode::new();
+        let mut task_info = task.info.lock(&mut node);
+
+        if matches!(task_info.state, State::Terminated | State::Panicked) {
+            drop(task_info);
+            queue.pop();
+            NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+            continue;
+        }
+
+        if !pred(&task) {
+            return ConditionalNext::Rejected;
+        }
+
+        queue.pop();
+        NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+
+        if task_info.state == State::Preempted {
+            task_info.need_preemption = false;
+        }
+
+        drop(task_info);
+        return ConditionalNext::Taken(task);
+    }
 }
 
 /// Get a scheduler.
@@ -427,13 +532,19 @@ pub(crate) fn sleep_until_task(sleep_handler: Box<dyn FnOnce() + Send>, next: In
 /// If there are no sleeping tasks, this function returns `None`.
 pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
+    let mut quantum_wait: Option<Duration> = None;
+
     if PREEMPTION_ENABLED {
         for cpu_id in 1..num_cpu() {
             if let Some(task_id) = get_current_task(cpu_id) {
                 if let Some(SchedulerType::PrioritizedRR(_)) =
                     get_scheduler_type_by_task_id(task_id)
                 {
-                    prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id)
+                    let wait = prioritized_rr::SCHEDULER.invoke_preemption_tick(cpu_id, task_id);
+                    quantum_wait = match (quantum_wait, wait) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    };
                 }
             }
         }
@@ -442,5 +553,20 @@ pub fn wake_task() -> Option<Duration> {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.wake_task();
-    guard.time_to_wait()
+
+    // A queued task may be waiting for a time quantum to expire. Nothing
+    // else wakes the primary CPU at that time, so do not sleep beyond it.
+    // If no task is queued, the next enqueue wakes the primary CPU.
+    //
+    // This is checked after `guard.wake_task()`: a sleep handler enqueues
+    // its task on this CPU, and `wake_cpu(0)` does nothing here, so such a
+    // task must be counted now.
+    if NUM_TASK_IN_QUEUE.load(Ordering::Relaxed) == 0 {
+        quantum_wait = None;
+    }
+
+    match (guard.time_to_wait(), quantum_wait) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
 }
