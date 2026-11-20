@@ -203,8 +203,9 @@ pub(crate) trait Scheduler {
     /// Get the next executable task.
     fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>>;
 
-    /// Dequeue the task that `get_next(false)` would return, but only if
-    /// `pred` accepts it. A rejected task stays at the head of the run queue.
+    /// Dequeue the task at the head of the run queue, but only if `pred`
+    /// accepts it. A rejected task stays at the head of the run queue.
+    /// Unlike `get_next(true)`, the dequeued task is not marked as running.
     ///
     /// The check and the dequeue must be done without releasing the lock of
     /// the run queue, so that the dequeued task is the one `pred` accepted.
@@ -284,30 +285,41 @@ pub(crate) enum ConditionalNext {
 
 /// Dequeue the next executable task only if `pred` accepts it.
 ///
-/// This examines the task that `get_next_task(false)` would return, except
-/// that panicked tasks are never taken. If `pred` returns `false` for it, the
-/// run queues are left untouched, so the task keeps its position in the
-/// queue, and `None` is returned.
+/// This examines the head of the run queues of the non-clustered schedulers
+/// in the order of their priorities, except that panicked tasks are never
+/// taken. If `pred` returns `false` for it, the run queues are left
+/// untouched, so the task keeps its position in the queue, and `false` is
+/// returned. The dequeued task is not marked as running.
+///
+/// If a task is dequeued, it is passed to `on_taken` and `true` is returned.
 ///
 /// `pred` is called with `GLOBAL_WAKE_GET_MUTEX`, the lock of the run queue,
-/// and the lock of the task information held.
+/// and the lock of the task information held. `on_taken` is called with only
+/// `GLOBAL_WAKE_GET_MUTEX` held, so what `pred` observed under that mutex
+/// still holds, and a worker that takes the mutex afterwards sees the effect
+/// of `on_taken`.
 ///
 /// This function must be called on the primary CPU, which can never dequeue
-/// a clustered task (see `get_next_task`), so only the non-clustered
-/// schedulers are examined.
-pub(crate) fn get_next_task_if(pred: impl Fn(&Task) -> bool) -> Option<Arc<Task>> {
+/// a clustered task, so only the non-clustered schedulers are examined.
+pub(crate) fn get_next_task_if(
+    pred: impl Fn(&Task) -> bool,
+    on_taken: impl FnOnce(Arc<Task>),
+) -> bool {
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
     for scheduler_type in &PRIORITY_LIST[get_num_clustered_schedulers()..] {
         match get_scheduler(scheduler_type).get_next_if(&pred) {
             ConditionalNext::Empty => (),
-            ConditionalNext::Rejected => return None,
-            ConditionalNext::Taken(task) => return Some(task),
+            ConditionalNext::Rejected => return false,
+            ConditionalNext::Taken(task) => {
+                on_taken(task);
+                return true;
+            }
         }
     }
 
-    None
+    false
 }
 
 /// The body of [`Scheduler::get_next_if`] for the schedulers whose run queue
@@ -538,16 +550,20 @@ pub fn wake_task() -> Option<Duration> {
         }
     }
 
-    // A queued task may be waiting for a time quantum to expire. Nothing
-    // else wakes the primary CPU at that time, so do not sleep beyond it.
-    // If no task is queued, the next enqueue wakes the primary CPU.
-    if NUM_TASK_IN_QUEUE.load(Ordering::Relaxed) == 0 {
-        quantum_wait = None;
-    }
-
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.wake_task();
+
+    // A queued task may be waiting for a time quantum to expire. Nothing
+    // else wakes the primary CPU at that time, so do not sleep beyond it.
+    // If no task is queued, the next enqueue wakes the primary CPU.
+    //
+    // This is checked after `guard.wake_task()`: a sleep handler enqueues
+    // its task on this CPU, and `wake_cpu(0)` does nothing here, so such a
+    // task must be counted now.
+    if NUM_TASK_IN_QUEUE.load(Ordering::Relaxed) == 0 {
+        quantum_wait = None;
+    }
 
     match (guard.time_to_wait(), quantum_wait) {
         (Some(a), Some(b)) => Some(a.min(b)),

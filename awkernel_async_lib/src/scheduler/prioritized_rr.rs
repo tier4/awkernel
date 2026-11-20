@@ -9,8 +9,8 @@ use crate::{
         GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
     },
     task::{
-        get_task, get_tasks_running, set_current_task, set_need_preemption, State,
-        NUM_TASK_IN_QUEUE,
+        get_current_task, get_task, get_tasks_running, set_current_task, set_need_preemption,
+        State, NUM_TASK_IN_QUEUE,
     },
 };
 use alloc::{sync::Arc, vec::Vec};
@@ -102,6 +102,13 @@ impl Scheduler for PrioritizedRRScheduler {
                 }
                 if execution_ensured {
                     task_info.state = State::Running;
+
+                    // Start the time quantum before the task becomes
+                    // visible as the running task. `run_main` updates the
+                    // time only later, and a stale time would let
+                    // `invoke_preemption_tick` rotate the task out before
+                    // it runs.
+                    task_info.update_last_executed();
                     set_current_task(awkernel_lib::cpu::cpu_id(), rr_task.task.id);
                 }
             }
@@ -173,12 +180,22 @@ impl PrioritizedRRScheduler {
         // at the tail of their level. The predicate runs under
         // `GLOBAL_WAKE_GET_MUTEX`, so no wake path can push a pending task
         // between this check and the dequeue.
-        let next_task = get_next_task_if(|next| {
-            peek_preemption_pending(cpu_id).is_none() && !current_task.preempts(next)
-        });
+        //
+        // The predicate also checks that `task_id` still runs on `cpu_id`,
+        // and the dequeued task is pushed before the mutex is released. A
+        // worker clears its running task before it takes the mutex in
+        // `get_next_task`, so the idle check in `run_main` sees this push
+        // and the task is never left pending on a sleeping CPU.
+        let requested = get_next_task_if(
+            |next| {
+                get_current_task(cpu_id) == Some(task_id)
+                    && peek_preemption_pending(cpu_id).is_none()
+                    && !current_task.preempts(next)
+            },
+            |next_task| push_preemption_pending(cpu_id, next_task),
+        );
 
-        if let Some(next_task) = next_task {
-            push_preemption_pending(cpu_id, next_task);
+        if requested {
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(task_id, cpu_id);
             awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
@@ -192,7 +209,7 @@ impl PrioritizedRRScheduler {
             let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
             set_need_preemption(task_id, cpu_id);
             awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
-        } else {
+        } else if get_current_task(cpu_id) == Some(task_id) {
             // There is no task to rotate with. Restart the quantum so that
             // the run queues are not examined again on every tick.
             let mut node = MCSNode::new();

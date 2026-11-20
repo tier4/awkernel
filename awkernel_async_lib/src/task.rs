@@ -1508,18 +1508,6 @@ pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
 }
 
 #[inline(always)]
-pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Instant> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).map(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_last_executed()
-    })
-}
-
-#[inline(always)]
 pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);

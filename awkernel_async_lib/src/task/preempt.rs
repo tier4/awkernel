@@ -189,6 +189,17 @@ unsafe fn do_preemption() {
     let mut moved_preemption_pending = move_preemption_pending(cpu_id).unwrap();
     next = moved_preemption_pending.pop().unwrap(); // Use latest highest priority task.
 
+    // Start the time quantum of `next` before it becomes visible as the
+    // running task: `next` may resume on its own thread without passing
+    // through `run_main`, and otherwise `run_main` updates the time only
+    // after a new thread has started. A stale time would let
+    // `invoke_preemption_tick` rotate `next` out before it runs.
+    {
+        let mut node = MCSNode::new();
+        let mut task_info = next.info.lock(&mut node);
+        task_info.update_last_executed();
+    }
+
     set_current_task(cpu_id, next.id);
 
     // Re-wake the remaining all preemption-pending tasks with lower priorities than `next`.
@@ -208,13 +219,7 @@ unsafe fn do_preemption() {
     if let Some(next_thread) = {
         let mut node = MCSNode::new();
         let mut task_info = next.info.lock(&mut node);
-        let ctx = task_info.take_preempt_context();
-        if ctx.is_some() {
-            // `next` resumes on its own thread without passing through
-            // `run_main`, so start its time quantum here.
-            task_info.update_last_executed();
-        }
-        ctx
+        task_info.take_preempt_context()
     } {
         // If the next task is a preempted task, yield to it.
         yield_preempted_and_wake_task(current_task, next_thread);
