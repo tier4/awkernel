@@ -93,10 +93,10 @@ impl Task {
     ///
     /// The one exception is the PrioritizedRR time quantum:
     /// `PrioritizedRRScheduler::invoke_preemption_tick` pushes the next
-    /// runnable task to the preemption-pending heap without a priority check,
-    /// and `preempt::do_preemption` lets such an equal-priority pending task
-    /// preempt a running PrioritizedRR task so that the quantum rotates tasks
-    /// of the same priority.
+    /// runnable task to the preemption-pending heap if its priority is at
+    /// least that of the running task, and `preempt::do_preemption` lets such
+    /// an equal-priority pending task preempt a running PrioritizedRR task so
+    /// that the quantum rotates tasks of the same priority.
     ///
     /// This is deliberately not `self > other`: [`Ord`] for `Task` breaks
     /// priority ties by task ID to give the preemption-pending heaps a total
@@ -1505,18 +1505,6 @@ pub fn get_task(task_id: u32) -> Option<Arc<Task>> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
     tasks.id_to_task.get(&task_id).cloned()
-}
-
-#[inline(always)]
-pub fn get_last_executed_by_task_id(task_id: u32) -> Option<awkernel_lib::time::Instant> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-
-    tasks.id_to_task.get(&task_id).map(|task| {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        info.get_last_executed()
-    })
 }
 
 #[inline(always)]

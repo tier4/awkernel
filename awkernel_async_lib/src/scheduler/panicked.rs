@@ -1,7 +1,7 @@
 //! A scheduler for panicked tasks.
 //! Panicked tasks will be the lowest priority.
 
-use super::{Scheduler, SchedulerType, Task};
+use super::{ConditionalNext, Scheduler, SchedulerType, Task};
 use crate::{
     scheduler::get_priority,
     task::{set_current_task, State, NUM_TASK_IN_QUEUE},
@@ -80,6 +80,13 @@ impl Scheduler for PanickedScheduler {
 
             return Some(task);
         }
+    }
+
+    fn get_next_if(&self, _pred: &dyn Fn(&Task) -> bool) -> ConditionalNext {
+        // Panicked tasks have the lowest priority, but `Task::priority` still
+        // holds the priority a task had before it panicked, so `pred` cannot
+        // judge them. They are never taken ahead of a running task.
+        ConditionalNext::Empty
     }
 
     fn scheduler_name(&self) -> SchedulerType {

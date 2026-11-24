@@ -6,7 +6,7 @@
 //! ([`AffinityBTreeQueue`]); `get_next` on CPU `c` pops the earliest-deadline
 //! task whose `cpu_set` contains `c`.
 
-use super::{Scheduler, SchedulerType, Task};
+use super::{ConditionalNext, Scheduler, SchedulerType, Task};
 use crate::{
     dag::calculate_and_update_dag_deadline,
     scheduler::{
@@ -103,8 +103,8 @@ impl Scheduler for EDFScheduler {
         let queue = (*data).as_mut()?;
 
         // Note: spawn removes CPU 0 from every set, so `pop_for_cpu(0)` always
-        // returns `None` and the `get_next_task(false)` path executed on the
-        // primary CPU can never dequeue a clustered task.
+        // returns `None` and the primary CPU can never dequeue a clustered
+        // task.
         loop {
             let (_, _, mut entry) = queue.pop_for_cpu(cpu_id)?;
 
@@ -132,6 +132,12 @@ impl Scheduler for EDFScheduler {
 
             return Some(task);
         }
+    }
+
+    fn get_next_if(&self, _pred: &dyn Fn(&Task) -> bool) -> ConditionalNext {
+        // `get_next_if` runs on the primary CPU. Spawn removes CPU 0 from
+        // every set, so no queued task is runnable there (see `get_next`).
+        ConditionalNext::Empty
     }
 
     fn scheduler_name(&self) -> SchedulerType {

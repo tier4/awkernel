@@ -2,7 +2,7 @@
 
 use core::cmp::max;
 
-use super::{Scheduler, SchedulerType, Task};
+use super::{take_head_if, ConditionalNext, Scheduler, SchedulerType, Task};
 use crate::scheduler::{
     peek_preemption_pending, push_preemption_pending, GLOBAL_WAKE_GET_MUTEX, PREEMPTION_ENABLED,
 };
@@ -106,6 +106,16 @@ impl Scheduler for PrioritizedFIFOScheduler {
             }
 
             return Some(task.task);
+        }
+    }
+
+    fn get_next_if(&self, pred: &dyn Fn(&Task) -> bool) -> ConditionalNext {
+        let mut node = MCSNode::new();
+        let mut data = self.data.lock(&mut node);
+
+        match (*data).as_mut() {
+            Some(data) => take_head_if(&mut data.queue, |entry| &entry.task, pred),
+            None => ConditionalNext::Empty,
         }
     }
 

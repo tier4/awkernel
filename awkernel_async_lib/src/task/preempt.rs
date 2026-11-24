@@ -164,11 +164,13 @@ unsafe fn do_preemption() {
         // path requires a strictly higher priority (`Task::preempts`), so a
         // pending task of equal priority can only come from
         // `PrioritizedRRScheduler::invoke_preemption_tick`, which pushes the
-        // next runnable task without a priority check when the quantum of
-        // the running task has expired. Let it through when the running task
+        // next runnable task when the quantum of the running task has
+        // expired and that task does not have a lower priority than the
+        // running one. Let it through when the running task
         // is PrioritizedRR so that the quantum rotates equal-priority tasks.
-        // `PriorityInfo` includes the scheduler priority, so equal priority
-        // implies that `next` is a PrioritizedRR task too.
+        // `PriorityInfo` includes the scheduler priority, and the tick never
+        // pushes a panicked task, so equal priority implies that `next` is a
+        // PrioritizedRR task too.
         let quantum_rotation = !current_task.preempts(&next)
             && matches!(
                 current_task.scheduler_name(),
@@ -186,6 +188,17 @@ unsafe fn do_preemption() {
     // Therefore, we move the preemption-pending tasks to a temporary queue and re-wake from there.
     let mut moved_preemption_pending = move_preemption_pending(cpu_id).unwrap();
     next = moved_preemption_pending.pop().unwrap(); // Use latest highest priority task.
+
+    // Start the time quantum of `next` before it becomes visible as the
+    // running task: `next` may resume on its own thread without passing
+    // through `run_main`, and otherwise `run_main` updates the time only
+    // after a new thread has started. A stale time would let
+    // `invoke_preemption_tick` rotate `next` out before it runs.
+    {
+        let mut node = MCSNode::new();
+        let mut task_info = next.info.lock(&mut node);
+        task_info.update_last_executed();
+    }
 
     set_current_task(cpu_id, next.id);
 
