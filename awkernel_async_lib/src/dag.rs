@@ -907,6 +907,39 @@ pub(crate) fn calculate_and_update_dag_deadline(
         )
 }
 
+/// Return the latest-finish ordering time for an already released job.
+///
+/// The caller must first use `calculate_and_update_dag_deadline` so the same
+/// source-release and deadline bookkeeping as EDF takes place. No job is released here.
+/// Missing job/timing means the scheduler falls back to the real deadline.
+fn released_job_latest_finish(dag_info: &DagInfo) -> Option<u64> {
+    let dag = get_dag(dag_info.dag_id)?;
+    let job = dag.get_or_release_job(to_node_index(dag_info.node_id), false)?;
+    match dag.timing_info(dag_info.node_id) {
+        Ok(timing) => {
+            let offset = timing.latest_finish().as_micros() as u64;
+            Some(job.release_time + offset)
+        }
+        Err(_) => None,
+    }
+}
+
+/// Keep the real deadline separate from the latest-finish ordering key.
+/// If the job or timing is unavailable, or the key overflows, order by the
+/// real deadline until explicit error reporting is supported.
+pub(crate) fn calculate_dag_latest_finish_priority(
+    dag_info: &DagInfo,
+    wake_time: u64,
+    state: State,
+) -> (u64, u64) {
+    let deadline = calculate_and_update_dag_deadline(dag_info, wake_time, state);
+    let ordering_time = match released_job_latest_finish(dag_info) {
+        Some(latest_finish) => latest_finish,
+        None => deadline,
+    };
+    (deadline, ordering_time)
+}
+
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), Vec<DagError>> {
     match validate_all_rules(dags) {
         Ok(()) => {
@@ -1843,6 +1876,61 @@ mod tests {
         dag.set_relative_deadline(sink, Duration::from_millis(100))
             .unwrap();
         (dag, [source, middle, sink])
+    }
+
+    #[test]
+    fn latest_finish_priority_tracks_each_released_job_and_keeps_real_deadline() {
+        let ms = Duration::from_millis;
+        let (dag, [source, middle, sink]) =
+            timing_chain([Some(ms(10)), Some(ms(20)), Some(ms(30))]);
+        compute_timing(&dag).unwrap();
+        let info = |index: NodeIndex| DagInfo {
+            dag_id: dag.id,
+            node_id: u32::try_from(index.index()).unwrap(),
+        };
+        let source_info = info(source);
+        let middle_info = info(middle);
+        let sink_info = info(sink);
+
+        // Before release, the real deadline also supplies the ordering key.
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&middle_info, 5, State::Waiting),
+            (100_005, 100_005)
+        );
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(1_000));
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&source_info, 1_100, State::Waiting),
+            (101_000, 51_000)
+        );
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&middle_info, 1_200, State::Waiting),
+            (101_000, 71_000)
+        );
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&sink_info, 1_300, State::Waiting),
+            (101_000, 101_000)
+        );
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&source_info, 1_400, State::Preempted),
+            (101_000, 51_000)
+        );
+
+        dag.finish_job(source);
+        dag.set_next_release_time(Instant::zero() + Duration::from_micros(2_000));
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&source_info, 2_100, State::Waiting),
+            (102_000, 52_000)
+        );
+        // The middle node is still processing the earlier job.
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&middle_info, 2_200, State::Waiting),
+            (101_000, 71_000)
+        );
+        dag.set_relative_deadline(sink, ms(120)).unwrap();
+        assert_eq!(
+            calculate_dag_latest_finish_priority(&middle_info, 2_300, State::Waiting),
+            (101_000, 101_000)
+        );
     }
 
     fn timing_diamond(wcets: [Option<Duration>; 4]) -> (Arc<Dag>, [NodeIndex; 4]) {

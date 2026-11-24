@@ -31,6 +31,7 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 ```rust
 pub enum SchedulerType {
     EDF(u64, CpuSet), // relative deadline and CPU affinity set
+    LLFT(u64, CpuSet), // relative deadline and CPU affinity set
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
@@ -62,7 +63,7 @@ Some schedulers are implemented under the folder [awkernel_async_lib/src/schedul
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
-> clustered.rs  edf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+> clustered.rs  llft.rs  edf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 ```
 
 A scheduler can be implemented by implementing `Scheduler` Trait.
@@ -87,6 +88,23 @@ Bookkeeping for sleeping workers uses two pieces of state. A single global count
 
 A new clustered scheduler should use `ClusteredScheduler<O>` for the affinity-aware queue, `ClusteredTask` queue accounting, and `queued_cpu_mask()` implementation, and implement `ClusteredOrdering` to provide its scheduler type and ready-task ordering.
 It must still be placed in the clustered prefix of `PRIORITY_LIST` and matched by `SchedulerType::is_clustered()`; the prefix requirement is enforced at compile time.
+
+### Least Latest Finish Time (LLFT) Scheduler
+
+`SchedulerType::LLFT(relative_deadline, cpu_set)` schedules the **earliest** estimated
+latest finish first. It shares EDF's clustered queue, affinity normalization, wake-time
+tie-breaker and preemption mechanism. EDF has higher scheduler priority; it wins when
+both policies have runnable work on the same worker.
+
+For a released DAG job, the ordering key is its source tick target plus the node's
+validated `TimingInfo::latest_finish()` offset, converted to microseconds by truncation.
+The real job deadline is still stored in task information and remains the source release
+plus the sink deadline, as in EDF. Overlapping jobs use the release of the job that the
+node is processing. Standalone tasks use wake time plus their configured relative
+deadline for both ordering and the real deadline.
+
+A DAG wake without a released job or valid timing, or whose latest-finish key cannot be
+represented, falls back to its real deadline as the ordering key.
 
 ### PrioritizedFIFO Scheduler
 
