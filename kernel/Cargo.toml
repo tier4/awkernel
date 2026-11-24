@@ -142,4 +142,4 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
-dvfs = []
+dvfs = ["awkernel_async_lib/dvfs"]
