@@ -91,10 +91,12 @@ It must still be placed in the clustered prefix of `PRIORITY_LIST` and matched b
 
 ### Least Latest Finish Time (LLFT) Scheduler
 
+The Least Latest Finish Time (LLFT) scheduler is implemented in [llft.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/llft.rs).
 `SchedulerType::LLFT(relative_deadline, cpu_set)` schedules the **earliest** estimated
-latest finish first. It shares EDF's clustered queue, affinity normalization, wake-time
-tie-breaker and preemption mechanism. EDF has higher scheduler priority; it wins when
-both policies have runnable work on the same worker.
+latest finish first. LLFT and EDF share the clustered queue and preemption implementation
+in `clustered.rs`, but each has its own `ClusteredScheduler` instance and separate queue.
+They use the same affinity normalization and wake-time tie-breaker. EDF has higher
+scheduler priority; it wins when both policies have runnable work on the same worker.
 
 For a released DAG job, the ordering key is its source tick target plus the node's
 validated `TimingInfo::latest_finish()` offset, converted to microseconds by truncation.

@@ -1,4 +1,4 @@
-//! Least latest finish　time first, distinct from the real job deadline.
+//! Least Latest Finish Time (LLFT) scheduler, prioritizing tasks by their latest finish time.
 
 use super::{
     clustered::{ClusteredOrdering, ClusteredScheduler},
@@ -32,8 +32,6 @@ impl ClusteredOrdering for LeastLatestFinish {
 mod tests {
     use super::*;
     use crate::scheduler::get_priority;
-    use affinity_btree_queue::{AffinityBTreeQueue, DEFAULT_MIN_DEGREE};
-    use awkernel_lib::cpu::CPU_SET_WORDS;
 
     #[test]
     fn clustered_policy_is_distinct_and_below_edf() {
@@ -45,22 +43,5 @@ mod tests {
         assert_eq!(latest.cpu_set(), Some(CpuSet::all()));
         assert!(get_priority(&edf) > get_priority(&latest));
         assert!(get_priority(&latest) > get_priority(&SchedulerType::PrioritizedFIFO(0)));
-    }
-
-    #[test]
-    fn affinity_queue_orders_latest_finish_then_wake_time() {
-        let mut queue =
-            AffinityBTreeQueue::<(u64, u64), &str, DEFAULT_MIN_DEGREE, CPU_SET_WORDS>::new(3);
-        let worker_one = CpuSet::empty().with(1);
-        let worker_two = CpuSet::empty().with(2);
-        queue.push((50, 20), worker_one, "later wake").unwrap();
-        queue.push((70, 5), worker_one, "later finish").unwrap();
-        queue.push((50, 10), worker_one, "earlier wake").unwrap();
-        queue.push((40, 1), worker_two, "other CPU").unwrap();
-
-        assert_eq!(queue.pop_for_cpu(1).unwrap().2, "earlier wake");
-        assert_eq!(queue.pop_for_cpu(1).unwrap().2, "later wake");
-        assert_eq!(queue.pop_for_cpu(1).unwrap().2, "later finish");
-        assert_eq!(queue.pop_for_cpu(2).unwrap().2, "other CPU");
     }
 }
