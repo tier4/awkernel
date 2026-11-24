@@ -20,6 +20,7 @@ use awkernel_lib::{
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
+mod clustered;
 mod edf;
 pub(super) mod panicked;
 mod prioritized_fifo;
@@ -187,14 +188,14 @@ static GLOBAL_WAKE_GET_MUTEX: Mutex<()> = Mutex::new(());
 /// # Implementing a clustered scheduler
 ///
 /// A clustered scheduler keeps tasks that may run only on a subset of CPUs.
-/// Every clustered scheduler must:
+/// Use [`clustered::ClusteredScheduler`] to share the affinity-aware queue,
+/// clustered-task accounting, and queued CPU mask implementation. Implement
+/// [`clustered::ClusteredOrdering`] to identify the scheduler type and define
+/// how ready tasks are ordered.
 ///
-/// 1. Wrap each entry of its run queue in [`ClusteredTask`] so that
-///    `NUM_CLUSTERED_TASKS_IN_QUEUE` is kept consistent.
-/// 2. Implement [`Scheduler::queued_cpu_mask`] to report the exact set of
-///    CPUs its queued tasks are runnable on (`wake_workers` relies on it).
-/// 3. Be placed in the clustered prefix of `PRIORITY_LIST` and be matched by
-///    `SchedulerType::is_clustered` (checked at compile time).
+/// The scheduler type must still be placed in the clustered prefix of
+/// `PRIORITY_LIST` and matched by [`SchedulerType::is_clustered`]. The prefix
+/// requirement is checked at compile time.
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
