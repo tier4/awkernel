@@ -41,8 +41,8 @@
 //! by DAG validation, which rejects estimates whose longest dependency path exceeds the sink's
 //! relative deadline.
 //!
-//! WCET estimates are used for feasibility validation only. They do not change interval-tick job
-//! release times or the DAG deadline assignment used by the EDF scheduler.
+//! Validation also records [`TimingInfo`] for each node. These estimates do not change interval-tick
+//! job release times or the DAG deadline assignment used by the EDF scheduler.
 //!
 //! # Example Usage
 //!
@@ -141,6 +141,7 @@ impl_tuple_size!(T1, T2, T3);
 #[derive(Clone, Debug)]
 pub enum DagError {
     NodeNotFound(u32, usize),
+    MissingNodeTiming(u32, usize),
     MissingSinkDeadline(u32),
     InfeasibleWcet {
         dag_id: u32,
@@ -168,6 +169,7 @@ impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             DagError::NodeNotFound(dag_id, node_id) => write!(f, "DAG#{dag_id} Node#{node_id} not found"),
+            DagError::MissingNodeTiming(dag_id, node_id) => write!(f, "DAG#{dag_id} Node#{node_id} timing has not been analyzed"),
             DagError::MissingSinkDeadline(dag_id) => write!(f, "DAG#{dag_id} has no sink relative deadline"),
             DagError::InfeasibleWcet { dag_id, critical_path: Some(critical_path), deadline } => {
                 write!(f, "DAG#{dag_id}: estimated critical path {critical_path:?} exceeds sink relative deadline {deadline:?}")
@@ -221,6 +223,15 @@ pub(crate) struct JobInfo {
 }
 
 impl DagGraph {
+    /// Whenever the relative deadlines of nodes are updated, clear the cached timing information.
+    fn clear_timing(&mut self) {
+        for idx in self.node_indices() {
+            if let Some(info) = self.node_weight_mut(idx) {
+                info.timing = None;
+            }
+        }
+    }
+
     #[inline]
     fn get_sink_relative_deadline(&self) -> Option<Duration> {
         let sink_node_index = self.externals(Direction::Outgoing).next()?;
@@ -232,6 +243,7 @@ impl DagGraph {
         match self.node_weight_mut(node_idx) {
             Some(info) => {
                 info.relative_deadline = Some(deadline);
+                self.clear_timing();
                 true
             }
             None => false,
@@ -285,6 +297,19 @@ impl Dag {
             .ok_or(DagError::MissingSinkDeadline(self.id))
     }
 
+    /// Returns the estimates computed during DAG validation for a node ID from [`DagInfo`].
+    /// Analysis is invalidated when the graph or its sink deadline changes.
+    pub fn timing_info(&self, node_id: u32) -> Result<TimingInfo, DagError> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        let index = to_node_index(node_id);
+        graph
+            .node_weight(index)
+            .ok_or(DagError::NodeNotFound(self.id, index.index()))?
+            .timing
+            .ok_or(DagError::MissingNodeTiming(self.id, index.index()))
+    }
+
     fn set_relative_deadline(
         &self,
         node_idx: NodeIndex,
@@ -310,12 +335,14 @@ impl Dag {
             publish_topic_names: publish_topic_names.to_vec(),
             relative_deadline: None,
             wcet,
+            timing: None,
             num_finished: 0,
             deadline_job: None,
         };
 
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
+        graph.clear_timing();
         let add_node_idx = graph.add_node(add_node_info);
 
         let subscribe_topic_set: BTreeSet<_> = subscribe_topic_names.iter().collect();
@@ -706,12 +733,69 @@ impl PendingTask {
     }
 }
 
+/// WCET-based estimates relative to the DAG job release, not timing requirements.
+/// A missing WCET is retained as zero for the estimates.
+///
+/// This struct is useful for analyzing the timing characteristics of nodes within a DAG,
+/// as well as for defining alternative scheduling strategies based on timing estimates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimingInfo {
+    estimated_wcet: Duration,
+    earliest_start: Duration,
+    latest_finish: Duration,
+    is_in_critical_path: bool,
+}
+
+impl TimingInfo {
+    /// WCET used in the analysis.
+    #[inline]
+    pub const fn estimated_wcet(&self) -> Duration {
+        self.estimated_wcet
+    }
+
+    /// Longest estimated execution path leading up to the node.
+    #[inline]
+    pub const fn earliest_start(&self) -> Duration {
+        self.earliest_start
+    }
+
+    /// Earliest start plus the node's estimated WCET.
+    #[inline]
+    pub fn earliest_finish(&self) -> Duration {
+        self.earliest_start + self.estimated_wcet()
+    }
+
+    /// Latest finish minus the node's estimated WCET.
+    #[inline]
+    pub fn latest_start(&self) -> Duration {
+        self.latest_finish - self.estimated_wcet()
+    }
+
+    /// Latest finish compatible with the sink deadline and successor WCETs.
+    pub const fn latest_finish(&self) -> Duration {
+        self.latest_finish
+    }
+
+    /// Latest finish minus earliest finish; this is static, not runtime laxity.
+    #[inline]
+    pub fn slack(&self) -> Duration {
+        self.latest_finish - self.earliest_finish()
+    }
+
+    /// True for every node on any longest estimated WCET path.
+    #[inline]
+    pub fn is_in_critical_path(&self) -> bool {
+        self.is_in_critical_path
+    }
+}
+
 struct NodeInfo {
     task_id: u32,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     relative_deadline: Option<Duration>,
     wcet: Option<Duration>,
+    timing: Option<TimingInfo>,
     num_finished: u64,         // Number of DAG jobs that this node finished.
     deadline_job: Option<u64>, // Job whose deadline the last wake of this node got.
 }
@@ -966,15 +1050,17 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     Ok(())
 }
 
-/// Checks whether the longest declared WCET path fits within the sink's relative deadline.
+/// Checks feasibility and calculates node timing estimates.
 /// This runs during DAG setup, not in the scheduler or reactor execution paths.
 ///
 /// A forward pass computes `EF(v) = max(EF(p)) + C(v)` over predecessors, including the
 /// sink's own WCET.
+///
+/// A
 fn compute_timing(dag: &Dag) -> Result<(), DagError> {
     let dag_id = dag.id;
     let mut node = MCSNode::new();
-    let graph = dag.graph.lock(&mut node);
+    let mut graph = dag.graph.lock(&mut node);
     let sink_deadline = graph
         .get_sink_relative_deadline()
         .ok_or(DagError::MissingSinkDeadline(dag_id))?;
@@ -988,11 +1074,12 @@ fn compute_timing(dag: &Dag) -> Result<(), DagError> {
         DfsEvent::BackEdge(_, _) => Err(DagError::ContainsCycle(dag_id)),
         _ => Ok(()),
     })?;
+
+    // Forward pass to compute earliest finish and critical path length
     let mut earliest_finish: Vec<Duration> = graph
         .node_references()
         .map(|(_, info)| info.wcet.unwrap_or(Duration::ZERO))
         .collect();
-
     let mut critical_path = Duration::ZERO;
     for &idx in order.iter().rev() {
         let mut start = Duration::ZERO;
@@ -1008,11 +1095,40 @@ fn compute_timing(dag: &Dag) -> Result<(), DagError> {
         })?;
         critical_path = critical_path.max(*finish);
     }
+
+    let invalid_path = || DagError::InfeasibleWcet {
+        dag_id,
+        critical_path: Some(critical_path),
+        deadline: sink_deadline,
+    };
+
     if critical_path > sink_deadline {
-        return Err(DagError::InfeasibleWcet {
-            dag_id,
-            critical_path: Some(critical_path),
-            deadline: sink_deadline,
+        return Err(invalid_path());
+    }
+    let critical_slack = sink_deadline - critical_path;
+
+    // Backward pass to compute latest start times and timing estimates for each node
+    // No overflow or node ID checks needed, as forward pass already ensures times are feasible
+    let mut latest_start: Vec<Duration> = graph.node_references().map(|_| sink_deadline).collect();
+    for idx in order {
+        let mut latest_finish = sink_deadline;
+        for successor in graph.neighbors_directed(idx, Direction::Outgoing) {
+            let start = latest_start[successor.index()];
+            latest_finish = latest_finish.min(start);
+        }
+        let info = graph.node_weight_mut(idx).unwrap();
+
+        let estimated_wcet = info.wcet.unwrap_or(Duration::ZERO);
+        let earliest_finish = earliest_finish[idx.index()];
+        let earliest_start = earliest_finish - estimated_wcet;
+        let slack = latest_finish - earliest_finish;
+
+        latest_start[idx.index()] = latest_finish - estimated_wcet;
+        info.timing = Some(TimingInfo {
+            estimated_wcet,
+            earliest_start,
+            latest_finish,
+            is_in_critical_path: slack == critical_slack,
         });
     }
 
@@ -1778,16 +1894,25 @@ mod tests {
             &[],
             Some(Duration::from_millis(30)),
         );
-        dag.add_node_with_topic_edges(
+        let middle = dag.add_node_with_topic_edges(
             core::slice::from_ref(&source_topic),
             core::slice::from_ref(&sink_topic),
             Some(Duration::from_millis(20)),
         );
-        dag.add_node_with_topic_edges(&[], &[source_topic], Some(Duration::from_millis(10)));
+        let source =
+            dag.add_node_with_topic_edges(&[], &[source_topic], Some(Duration::from_millis(10)));
         dag.set_relative_deadline(sink, Duration::from_millis(60))
             .unwrap();
 
         compute_timing(&dag).unwrap();
+        let timing = |idx: NodeIndex| {
+            dag.timing_info(u32::try_from(idx.index()).unwrap())
+                .unwrap()
+        };
+        assert_eq!(timing(source).earliest_start(), Duration::ZERO);
+        assert_eq!(timing(middle).earliest_finish(), Duration::from_millis(30));
+        assert_eq!(timing(middle).latest_finish(), Duration::from_millis(30));
+        assert_eq!(timing(sink).latest_finish(), Duration::from_millis(60));
 
         dag.set_relative_deadline(sink, Duration::from_millis(59))
             .unwrap();
@@ -2022,5 +2147,73 @@ mod tests {
         let graph = dag.graph.lock(&mut node);
         assert_eq!(graph.node_weight(absent).unwrap().wcet, None);
         assert_eq!(graph.node_weight(zero).unwrap().wcet, Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn timing_estimates_identify_critical_and_short_branches() {
+        let ms = Duration::from_millis;
+        let (dag, [source, long, short, sink]) =
+            timing_diamond([Some(ms(10)), Some(ms(60)), Some(ms(30)), Some(ms(20))]);
+        compute_timing(&dag).unwrap();
+        let info = |idx: NodeIndex| {
+            dag.timing_info(u32::try_from(idx.index()).unwrap())
+                .unwrap()
+        };
+
+        let long = info(long);
+        assert_eq!(
+            (long.earliest_start(), long.earliest_finish()),
+            (ms(10), ms(70))
+        );
+        assert_eq!(
+            (long.latest_start(), long.latest_finish()),
+            (ms(20), ms(80))
+        );
+        assert_eq!(long.slack(), ms(10));
+        assert!(long.is_in_critical_path());
+
+        let short = info(short);
+        assert_eq!(
+            (short.earliest_start(), short.earliest_finish()),
+            (ms(10), ms(40))
+        );
+        assert_eq!(
+            (short.latest_start(), short.latest_finish()),
+            (ms(50), ms(80))
+        );
+        assert_eq!(short.slack(), ms(40));
+        assert!(!short.is_in_critical_path());
+        assert!(info(source).is_in_critical_path());
+        assert!(info(sink).is_in_critical_path());
+    }
+
+    #[test]
+    fn equal_critical_paths_and_missing_wcet_are_preserved() {
+        let ms = Duration::from_millis;
+        let (dag, [_, a, b, sink]) =
+            timing_diamond([None, Some(ms(20)), Some(ms(20)), Some(Duration::ZERO)]);
+        compute_timing(&dag).unwrap();
+        let info = |idx: NodeIndex| {
+            dag.timing_info(u32::try_from(idx.index()).unwrap())
+                .unwrap()
+        };
+        assert!(info(a).is_in_critical_path());
+        assert!(info(b).is_in_critical_path());
+        assert_eq!(info(sink).estimated_wcet(), Duration::ZERO);
+        let source = dag.get_source_nodes()[0];
+        assert_eq!(info(source).estimated_wcet(), Duration::ZERO);
+        assert_eq!(info(source).estimated_wcet(), Duration::ZERO);
+        assert_eq!(info(source).earliest_finish(), Duration::ZERO);
+    }
+
+    #[test]
+    fn changed_deadline_invalidates_previously_computed_timing() {
+        let (dag, [source, _, sink]) = timing_chain([None, None, None]);
+        compute_timing(&dag).unwrap();
+        dag.set_relative_deadline(sink, Duration::ZERO).unwrap();
+        assert!(matches!(
+            dag.timing_info(u32::try_from(source.index()).unwrap()),
+            Err(DagError::MissingNodeTiming(_, _))
+        ));
     }
 }
