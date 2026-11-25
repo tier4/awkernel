@@ -300,7 +300,7 @@ impl Tasks {
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 // Validate and normalise the CPU set before creating TaskInfo so that
                 // info.scheduler_type and task.cpu_set stay in sync.
-                let cpu_set = if let SchedulerType::EDF(deadline, set) = scheduler_type {
+                let cpu_set = if let Some(set) = scheduler_type.cpu_set() {
                     // CPU 0 is the primary core and cannot run clustered tasks.
                     let masked = masked_workers(set, num_cpu());
                     let normalized = if masked.is_empty() {
@@ -315,7 +315,13 @@ impl Tasks {
                     } else {
                         masked
                     };
-                    scheduler_type = SchedulerType::EDF(deadline, normalized);
+                    scheduler_type = match scheduler_type {
+                        SchedulerType::EDF(deadline, _) => SchedulerType::EDF(deadline, normalized),
+                        SchedulerType::LLFT(deadline, _) => {
+                            SchedulerType::LLFT(deadline, normalized)
+                        }
+                        other => other,
+                    };
                     Some(normalized)
                 } else {
                     None
