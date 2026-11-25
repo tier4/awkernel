@@ -491,18 +491,28 @@ pub fn set_current_task(cpu_id: usize, task_id: u32) {
 }
 
 #[inline(always)]
-fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
+fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
-            if execution_ensured {
-                set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
+            // `do_preemption` took this task from the preemption-pending
+            // tasks, which are not marked as running. Mark it here, as
+            // `Scheduler::get_next()` does.
+            {
+                let mut node = MCSNode::new();
+                let mut info = next.info.lock(&mut node);
+
+                if !matches!(info.state, State::Terminated | State::Panicked) {
+                    info.state = State::Running;
+                }
             }
+
+            set_current_task(awkernel_lib::cpu::cpu_id(), next.id);
             return Some(next);
         }
     }
 
-    scheduler::get_next_task(execution_ensured)
+    scheduler::get_next_task()
 }
 
 #[cfg(feature = "perf")]
@@ -1248,7 +1258,7 @@ pub fn run_main() {
             }
         }
 
-        if let Some(task) = get_next_task(true) {
+        if let Some(task) = get_next_task() {
             PREEMPTION_REQUEST[cpu_id].store(false, Ordering::Relaxed);
 
             #[cfg(not(feature = "no_preempt"))]
@@ -1316,7 +1326,8 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                // This is unnecessary if the task is scheduled by PrioritizedFIFO. This remains for other schedulers.
+                // `get_next_task()` has already stored the task ID.
+                // This store is redundant and remains as a safeguard.
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.

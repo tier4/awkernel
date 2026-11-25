@@ -9,13 +9,33 @@ pub(crate) trait Scheduler {
     fn wake_task(&self, task: Arc<Task>);
 
     /// Get the next executable task.
+    /// The dequeued task is marked as running on the calling CPU.
     fn get_next(&self) -> Option<Arc<Task>>;
+
+    /// Dequeue the task at the head of the run queue, but only if `pred`
+    /// accepts it. A rejected task stays at the head of the run queue.
+    /// Unlike `get_next()`, the dequeued task is not marked as running.
+    ///
+    /// The check and the dequeue must be done without releasing the lock of
+    /// the run queue, so that the dequeued task is the one `pred` accepted.
+    ///
+    /// This is used only by `get_next_task_if()`, which runs on the primary
+    /// CPU (CPU 0). A scheduler whose tasks must never be taken that way
+    /// returns [`ConditionalNext::Empty`].
+    fn get_next_if(&self, pred: &dyn Fn(&Task) -> bool) -> ConditionalNext;
 
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 
     #[allow(dead_code)] // TODO: to be removed
     fn priority(&self) -> u8;
+
+    /// The set of CPUs that have at least one queued task eligible to run on
+    /// them. Non-clustered schedulers use the default (empty) implementation;
+    /// clustered schedulers must override it.
+    fn queued_cpu_mask(&self) -> CpuSet {
+        CpuSet::empty()
+    }
 }
 ```
 

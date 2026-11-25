@@ -213,11 +213,12 @@ pub(crate) trait Scheduler {
     fn wake_task(&self, task: Arc<Task>);
 
     /// Get the next executable task.
-    fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>>;
+    /// The dequeued task is marked as running on the calling CPU.
+    fn get_next(&self) -> Option<Arc<Task>>;
 
     /// Dequeue the task at the head of the run queue, but only if `pred`
     /// accepts it. A rejected task stays at the head of the run queue.
-    /// Unlike `get_next(true)`, the dequeued task is not marked as running.
+    /// Unlike `get_next()`, the dequeued task is not marked as running.
     ///
     /// The check and the dequeue must be done without releasing the lock of
     /// the run queue, so that the dequeued task is the one `pred` accepted.
@@ -253,7 +254,7 @@ pub(crate) fn clustered_queued_cpu_mask() -> CpuSet {
 
 /// Get the next executable task.
 #[inline]
-pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
+pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     let mut node = MCSNode::new();
     let _guard = GLOBAL_WAKE_GET_MUTEX.lock(&mut node);
 
@@ -265,7 +266,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     if num_clustered_tasks > 0 {
         let task = PRIORITY_LIST[..get_num_clustered_schedulers()]
             .iter()
-            .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured));
+            .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next());
 
         // The counter is decremented by the ClusteredTask::take() call inside
         // get_next() (Drop is a no-op once take() has run).
@@ -280,7 +281,7 @@ pub(crate) fn get_next_task(execution_ensured: bool) -> Option<Arc<Task>> {
     // and its queues are empty.
     PRIORITY_LIST[get_num_clustered_schedulers()..]
         .iter()
-        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next(execution_ensured))
+        .find_map(|scheduler_type| get_scheduler(scheduler_type).get_next())
 }
 
 /// The result of [`Scheduler::get_next_if`].

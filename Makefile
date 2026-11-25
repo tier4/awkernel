@@ -224,7 +224,7 @@ run-std:
 
 # Docs
 docs: FORCE
-	mdbook build -d ../docs ./mdbook
+	mdbook build -d $(CURDIR)/docs ./mdbook
 
 # Test
 
