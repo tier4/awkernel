@@ -12,21 +12,20 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="../favicon.svg">
-        <link rel="shortcut icon" href="../favicon.png">
-        <link rel="stylesheet" href="../css/variables.css">
-        <link rel="stylesheet" href="../css/general.css">
-        <link rel="stylesheet" href="../css/chrome.css">
-        <link rel="stylesheet" href="../css/print.css" media="print">
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
-        <link rel="stylesheet" href="../fonts/fonts.css">
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
-        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
-        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
 
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex.js";
+            window.path_to_searchindex_js = "../searchindex-087a8e01.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc.js"></script>
+        <script src="../toc-d50d7687.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -53,7 +52,7 @@
             </div>
         </div>
     </div>
-    <div id="body-container">
+    <div id="mdbook-body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
@@ -82,12 +81,12 @@
             html.classList.add("js");
         </script>
 
-        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
             let sidebar = null;
-            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
@@ -102,39 +101,39 @@
             }
         </script>
 
-        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
             <!-- populated by js -->
             <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
             <noscript>
                 <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
             </noscript>
-            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
             </div>
         </nav>
 
-        <div id="page-wrapper" class="page-wrapper">
+        <div id="mdbook-page-wrapper" class="page-wrapper">
 
             <div class="page">
-                <div id="menu-bar-hover-placeholder"></div>
-                <div id="menu-bar" class="menu-bar sticky">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
                     <div class="left-buttons">
-                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
-                            <i class="fa fa-bars"></i>
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
                         </label>
-                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
-                            <i class="fa fa-paint-brush"></i>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
                         </button>
-                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
-                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
-                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
-                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
-                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
-                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
-                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
-                            <i class="fa fa-search"></i>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
                         </button>
                     </div>
 
@@ -142,42 +141,42 @@
 
                     <div class="right-buttons">
                         <a href="../print.html" title="Print this book" aria-label="Print this book">
-                            <i id="print-button" class="fa fa-print"></i>
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
                         </a>
 
                     </div>
                 </div>
 
-                <div id="search-wrapper" class="hidden">
-                    <form id="searchbar-outer" class="searchbar-outer">
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
                         <div class="search-wrapper">
-                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
                             <div class="spinner-wrapper">
-                                <i class="fa fa-spinner fa-spin"></i>
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
                             </div>
                         </div>
                     </form>
-                    <div id="searchresults-outer" class="searchresults-outer hidden">
-                        <div id="searchresults-header" class="searchresults-header"></div>
-                        <ul id="searchresults">
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
                         </ul>
                     </div>
                 </div>
 
                 <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
                 <script>
-                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
-                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
-                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
                         link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
                     });
                 </script>
 
-                <div id="content" class="content">
+                <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub(crate) trait Scheduler {
     /// Enqueue an executable task.
@@ -185,75 +184,121 @@
     fn wake_task(&amp;self, task: Arc&lt;Task&gt;);
 
     /// Get the next executable task.
+    /// The dequeued task is marked as running on the calling CPU.
     fn get_next(&amp;self) -&gt; Option&lt;Arc&lt;Task&gt;&gt;;
+
+    /// Dequeue the task at the head of the run queue, but only if `pred`
+    /// accepts it. A rejected task stays at the head of the run queue.
+    /// Unlike `get_next()`, the dequeued task is not marked as running.
+    ///
+    /// The check and the dequeue must be done without releasing the lock of
+    /// the run queue, so that the dequeued task is the one `pred` accepted.
+    ///
+    /// This is used only by `get_next_task_if()`, which runs on the primary
+    /// CPU (CPU 0). A scheduler whose tasks must never be taken that way
+    /// returns [`ConditionalNext::Empty`].
+    fn get_next_if(&amp;self, pred: &amp;dyn Fn(&amp;Task) -&gt; bool) -&gt; ConditionalNext;
 
     /// Get the scheduler name.
     fn scheduler_name(&amp;self) -&gt; SchedulerType;
 
     #[allow(dead_code)] // TODO: to be removed
     fn priority(&amp;self) -&gt; u8;
+
+    /// The set of CPUs that have at least one queued task eligible to run on
+    /// them. Non-clustered schedulers use the default (empty) implementation;
+    /// clustered schedulers must override it.
+    fn queued_cpu_mask(&amp;self) -&gt; CpuSet {
+        CpuSet::empty()
+    }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}</span></code></pre>
 <p>There are several functions regarding the scheduler in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a>.</p>
-<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>function</th><th>description</th></tr>
+</thead>
+<tbody>
 <tr><td><code>fn get_next_task()</code></td><td>Get the next executable task.</td></tr>
-<tr><td><code>fn get_scheduler(sched_type: SchedulerType)</code></td><td>Get a scheduler.</td></tr>
-</tbody></table>
+<tr><td><code>fn get_scheduler(sched_type: &amp;SchedulerType)</code></td><td>Get a scheduler.</td></tr>
+</tbody>
+</table>
 </div>
 <p><code>SchedulerType</code> is an enum for the scheduler type and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum SchedulerType {
-    ClusteredEDF(u64, CpuSet), // relative deadline and CPU affinity set
-    GEDF(u64),                 // relative deadline
+    EDF(u64, CpuSet), // relative deadline and CPU affinity set
+    LLFT(u64, CpuSet), // relative deadline and CPU affinity set
     PrioritizedFIFO(u8),
     PrioritizedRR(u8),
     Panicked,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}</span></code></pre>
 <h2 id="sleepingtasks"><a class="header" href="#sleepingtasks">SleepingTasks</a></h2>
 <p><code>SleepingTasks</code> is a struct for managing sleeping tasks and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>struct SleepingTasks {
     delta_list: DeltaList&lt;Box&lt;dyn FnOnce() + Send&gt;&gt;,
     base_time: u64,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}</span></code></pre>
 <p><code>SleepingTasks</code> struct has the following functions.</p>
-<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>function</th><th>description</th></tr>
+</thead>
+<tbody>
 <tr><td><code>fn new()</code></td><td>Create a new <code>SleepingTasks</code> instance.</td></tr>
 <tr><td><code>fn sleep_task(&amp;mut self, handler: Box&lt;dyn FnOnce() + Send&gt;, mut dur: u64)</code></td><td>Sleep a task for a certain duration.</td></tr>
 <tr><td><code>fn wake_task(&amp;mut self)</code></td><td>Wake up tasks after sleep.</td></tr>
-</tbody></table>
+</tbody>
+</table>
 </div>
 <h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
 <p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
 <pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
-&gt; clustered_edf.rs  gedf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
+&gt; clustered.rs  llft.rs  edf.rs  panicked.rs  prioritized_fifo.rs  prioritized_rr.rs
 </code></pre>
 <p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
 Each scheduler must be registered in the following three locations.
-<code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
-<h3 id="clusterededf-scheduler"><a class="header" href="#clusterededf-scheduler">ClusteredEDF Scheduler</a></h3>
-<p>The Clustered Earliest Deadline First (ClusteredEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/clustered_edf.rs">clustered_edf.rs</a>. This scheduler is an EDF variant that restricts each task to a set of CPU cores (a cluster), specified as a <code>CpuSet</code> bitmask. Pinning a task to a single core (partitioned scheduling) is the special case of a one-bit <code>CpuSet</code>.</p>
+<code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: &amp;SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
+<h3 id="edf-scheduler"><a class="header" href="#edf-scheduler">EDF Scheduler</a></h3>
+<p>The Earliest Deadline First (EDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/edf.rs">edf.rs</a>. This scheduler restricts each task to a set of CPU cores (a cluster), specified as a <code>CpuSet</code> bitmask. A one-bit <code>CpuSet</code> pins a task to a single core (partitioned EDF), and <code>CpuSet::all()</code> lets it run on every worker core (global EDF).</p>
 <p>The scheduler holds a single affinity-aware priority queue, <a href="https://crates.io/crates/affinity_btree_queue"><code>AffinityBTreeQueue</code></a>, backed by an augmented B-tree. Each entry carries <code>(priority, affinity, task)</code>, where the priority is the pair <code>(absolute_deadline, wake_time)</code>; smaller values dequeue first, so tasks are ordered by earliest deadline with wake time as a tie-breaker. Every B-tree node stores the OR of the affinities in its subtree, which lets <code>pop_for_cpu(cpu)</code> find the earliest-deadline task runnable on <code>cpu</code> in logarithmic time while skipping subtrees with no eligible entry.</p>
-<p>When a task is enqueued via <code>wake_task()</code>, the scheduler reads the <code>SchedulerType::ClusteredEDF(relative_deadline, cpu_set)</code> attached to the task and calculates the absolute deadline as <code>uptime + relative_deadline</code>. If the task is part of a DAG, <code>calculate_and_update_dag_deadline()</code> (shared with the GEDF scheduler) is used instead to propagate deadlines through the DAG. The task is then pushed into the queue with its <code>cpu_set</code> as the affinity mask. Preemption is handled via <code>invoke_preemption()</code>: if no core in the set is idle and the task is not already running, the core running the lowest-priority task among the set is chosen, and an IPI is sent to it when the newly enqueued task has an earlier deadline than the task currently running (or pending preemption) on that core.</p>
+<p>EDF defines its ordering in <code>edf.rs</code> and uses the affinity queue and preemption implementation in <code>clustered.rs</code>. <code>SchedulerType::EDF(relative_deadline, cpu_set)</code> uses <code>uptime + relative_deadline</code> for standalone tasks and delegates DAG tasks to <code>calculate_and_update_dag_deadline()</code>.</p>
+<p>The scheduler uses that same deadline for the queue key and for <code>PriorityInfo</code>, which becomes <code>MAX_TASK_PRIORITY - absolute_deadline</code>, so an earlier deadline gives a higher priority. <code>invoke_preemption()</code> handles preemption. If the task is already running, the scheduler does not preempt. Otherwise, the scheduler chooses the core running the lowest-priority task among the busy cores of the set. If the new task has a higher priority than the task running (or pending preemption) on that core, the scheduler sends an IPI to it. In that case, the scheduler pins the new task to the preemption-pending heap of that core and does not push it into the queue. If the scheduler sends no IPI, it pushes the task into the queue with its <code>cpu_set</code> as the affinity mask. One such case is a set with no busy core. Against another EDF task, a higher priority means an earlier deadline. An EDF task preempts a task of a lower-priority scheduler whatever its deadline.</p>
+<p>An idle core in the set does not stop the preemption. A task queued before or after the new task can take the idle core first. Also, a sleeping core runs a queued task only after the primary CPU wakes it. The cost is that the preemption can be unneeded, and the preempted task waits for the primary CPU to wake a sleeping core. If the set of the preempted task holds no idle core, the preempted task waits for its own core while the idle core stays idle.</p>
 <p><code>get_next()</code> pops the earliest-deadline task whose <code>cpu_set</code> contains the calling CPU (<code>pop_for_cpu</code>), so a task is only ever dequeued by a core within its set. This guarantees CPU affinity. CPU 0 (the primary core) is always excluded from <code>cpu_set</code> when a task is spawned. The <code>cpu_set</code> is normalized at spawn time by removing CPU 0 and out-of-range bits; if this leaves the set empty (for example an empty set, or one naming only CPU 0 or out-of-range cores), the task is not rejected but falls back to all worker cores (<code>1..num_cpu()</code>) with a warning.</p>
 <p>Bookkeeping for sleeping workers uses two pieces of state. A single global counter (<code>NUM_CLUSTERED_TASKS_IN_QUEUE</code>) tracks how many tasks are queued across all clustered schedulers; it is maintained by the <code>ClusteredTask</code> RAII wrapper (incremented on enqueue, decremented exactly once on dequeue or drop) and lets <code>get_next_task()</code> skip the clustered schedulers entirely when it is zero. The per-CPU information — which CPUs actually have an eligible task queued — is not duplicated in counters: it is read directly from the run queue, whose B-tree root already maintains the OR of all queued affinities (<code>affinity_mask()</code>, O(1)). <code>wake_workers()</code> obtains this set via <code>Scheduler::queued_cpu_mask()</code> (unioned over all clustered schedulers by <code>clustered_queued_cpu_mask()</code>) and wakes exactly the cores that have an eligible clustered task.</p>
-<p>A new clustered scheduler must (1) wrap its queue entries in <code>ClusteredTask</code>, (2) implement <code>Scheduler::queued_cpu_mask()</code>, and (3) be placed in the clustered prefix of <code>PRIORITY_LIST</code> and matched by <code>SchedulerType::is_clustered()</code>; the prefix requirement is enforced at compile time.</p>
-<h3 id="gedf-scheduler"><a class="header" href="#gedf-scheduler">GEDF Scheduler</a></h3>
-<p>The Global Earliest Deadline First (GEDF) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/gedf.rs">gedf.rs</a>. This scheduler implements a real-time scheduling algorithm that prioritizes tasks based on their absolute deadlines.</p>
-<p>The scheduler maintains a <code>BinaryHeap&lt;GEDFTask&gt;</code> as its run queue, where tasks are ordered by their absolute deadlines. When a task is enqueued via <code>wake_task()</code>, the scheduler calculates the absolute deadline by adding the relative deadline (specified in <code>SchedulerType::GEDF(relative_deadline)</code>) to the current uptime. The task's priority is updated using <code>MAX_TASK_PRIORITY - absolute_deadline</code> to ensure proper inter-scheduler priority comparison.</p>
-<p>The <code>GEDFTask</code> struct implements custom ordering where tasks are compared first by absolute deadline (earlier deadlines have higher priority), and then by wake time for tie-breaking. The scheduler supports preemption through the <code>invoke_preemption()</code> method, which sends IPIs to target CPUs when a task with an earlier deadline arrives and can preempt currently running tasks.</p>
+<p>A new clustered scheduler should use <code>ClusteredScheduler&lt;O&gt;</code> for the affinity-aware queue, <code>ClusteredTask</code> queue accounting, and <code>queued_cpu_mask()</code> implementation, and implement <code>ClusteredOrdering</code> to provide its scheduler type and ready-task ordering.
+It must still be placed in the clustered prefix of <code>PRIORITY_LIST</code> and matched by <code>SchedulerType::is_clustered()</code>; the prefix requirement is enforced at compile time.</p>
+<h3 id="least-latest-finish-time-llft-scheduler"><a class="header" href="#least-latest-finish-time-llft-scheduler">Least Latest Finish Time (LLFT) Scheduler</a></h3>
+<p>The Least Latest Finish Time (LLFT) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/llft.rs">llft.rs</a>.
+<code>SchedulerType::LLFT(relative_deadline, cpu_set)</code> schedules the <strong>earliest</strong> estimated
+latest finish first. LLFT and EDF share the clustered queue and preemption implementation
+in <code>clustered.rs</code>, but each has its own <code>ClusteredScheduler</code> instance and separate queue.
+They use the same affinity normalization and wake-time tie-breaker. EDF has higher
+scheduler priority; it wins when both policies have runnable work on the same worker.</p>
+<p>For a released DAG job, the ordering key is its source tick target plus the node’s
+validated <code>TimingInfo::latest_finish()</code> offset, converted to microseconds by truncation.
+The real job deadline is still stored in task information and remains the source release
+plus the sink deadline, as in EDF. Overlapping jobs use the release of the job that the
+node is processing. Standalone tasks use wake time plus their configured relative
+deadline for both ordering and the real deadline.</p>
+<p>A DAG wake without a released job or valid timing, or whose latest-finish key cannot be
+represented, falls back to its real deadline as the ordering key.</p>
 <h3 id="prioritizedfifo-scheduler"><a class="header" href="#prioritizedfifo-scheduler">PrioritizedFIFO Scheduler</a></h3>
 <p>The PrioritizedFIFO scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/prioritized_fifo.rs">prioritized_fifo.rs</a>. This scheduler provides fixed-priority scheduling where tasks are executed in First-In-First-Out order within each priority level.</p>
 <p>The scheduler uses a <code>PriorityQueue&lt;PrioritizedFIFOTask&gt;</code> as its run queue. When a task is enqueued through <code>wake_task()</code>, the priority is extracted from <code>SchedulerType::PrioritizedFIFO(priority)</code> and used to insert the task into the priority queue. The get_next() method retrieves the task at the head of the highest-priority non-empty queue.</p>
-<p>The scheduler implements preemption via <code>invoke_preemption()</code>, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue.</p>
+<p>The scheduler implements preemption via <code>invoke_preemption()</code>, which evaluates all currently running tasks and determines if the newly awakened task should preempt any of them. If preemption is triggered, the scheduler sends an IPI to the target CPU and updates the preemption pending queue. Preemption requires a strictly higher priority (<code>Task::preempts()</code>): a task woken while an equal-priority task is running is enqueued behind it, so the FIFO order within a priority level also holds against running tasks. The same rule applies to the other schedulers and to the preemption handler itself, which re-queues a pending task if the task running on the target CPU no longer has a strictly lower priority, except for the PrioritizedRR time-quantum rotation described below.</p>
 <h3 id="prioritizedrr-scheduler"><a class="header" href="#prioritizedrr-scheduler">PrioritizedRR Scheduler</a></h3>
 <p>The PrioritizedRR (Prioritized Round Robin) scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/prioritized_rr.rs">prioritized_rr.rs</a>. This scheduler combines fixed-priority scheduling with time quantum enforcement to provide fair CPU time distribution.</p>
 <p>The scheduler maintains a <code>PriorityQueue&lt;PrioritizedRRTask&gt;</code> similar to PrioritizedFIFO, but adds time quantum management with a default interval of 4ms (4,000 microseconds). The scheduler provides two preemption mechanisms: <code>invoke_preemption_wake()</code> for priority-based preemption when tasks are awakened, and <code>invoke_preemption_tick()</code> for time quantum-based preemption.</p>
-<p>The <code>invoke_preemption_tick()</code> method is called periodically on primary CPU to check if the currently running task has exceeded its time quantum. It compares the elapsed execution time against the configured interval and triggers preemption by sending an IPI if the quantum is exceeded.</p>
+<p>The <code>invoke_preemption_tick()</code> method is called periodically on primary CPU to check if the currently running task has exceeded its time quantum. It compares the elapsed execution time against the configured interval. If the quantum is exceeded, it peeks at the next runnable task and dequeues it only if its priority is at least that of the running task; it then triggers preemption by sending an IPI. The task pushed by the tick usually has the same priority as the running one; <code>do_preemption()</code> lets such an equal-priority pending task preempt a running PrioritizedRR task, which is the only case where equal priority preempts. A lower-priority task stays in the run queue and keeps its position, and the quantum of the running task is restarted, as it is when the run queues are empty. Panicked tasks are never taken by the tick. While a preemption requested earlier is still pending on that CPU, the tick dequeues nothing and only sends the IPI again. The tick returns the time until the quantum expires, and the primary CPU does not sleep beyond it while a task is queued.</p>
 <h3 id="panicked-scheduler"><a class="header" href="#panicked-scheduler">Panicked Scheduler</a></h3>
 <p>The Panicked scheduler is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler/panicked.rs">panicked.rs</a>. This scheduler handles tasks that have entered a panicked state and provides them with the lowest scheduling priority in the system. The scheduler uses a simple <code>VecDeque&lt;Arc&lt;Task&gt;&gt;</code> as its run queue, implementing basic FIFO ordering without any priority considerations.</p>
 
@@ -262,11 +307,11 @@ Each scheduler must be registered in the following three locations.
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
                             <a rel="prev" href="../internal/memory_allocator.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
-                                <i class="fa fa-angle-left"></i>
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
                             <a rel="next prefetch" href="../internal/PCIe.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <i class="fa fa-angle-right"></i>
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
                         <div style="clear: both"></div>
@@ -276,16 +321,21 @@ Each scheduler must be registered in the following three locations.
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
                     <a rel="prev" href="../internal/memory_allocator.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
-                        <i class="fa fa-angle-left"></i>
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
                     <a rel="next prefetch" href="../internal/PCIe.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <i class="fa fa-angle-right"></i>
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
 
         </div>
 
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
 
 
 
@@ -294,17 +344,17 @@ Each scheduler must be registered in the following three locations.
         </script>
 
 
-        <script src="../elasticlunr.min.js"></script>
-        <script src="../mark.min.js"></script>
-        <script src="../searcher.js"></script>
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
 
-        <script src="../clipboard.min.js"></script>
-        <script src="../highlight.js"></script>
-        <script src="../book.js"></script>
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
 
         <!-- Custom JS scripts -->
-        <script src="../mermaid.min.js"></script>
-        <script src="../mermaid-init.js"></script>
+        <script src="../mermaid-a19b8af3.min.js"></script>
+        <script src="../mermaid-init-4533fb11.js"></script>
 
 
 
