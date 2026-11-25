@@ -77,7 +77,7 @@ impl Scheduler for PrioritizedRRScheduler {
         }
     }
 
-    fn get_next(&self, execution_ensured: bool) -> Option<Arc<Task>> {
+    fn get_next(&self) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
 
@@ -100,17 +100,15 @@ impl Scheduler for PrioritizedRRScheduler {
                 if task_info.state == State::Preempted {
                     task_info.need_preemption = false;
                 }
-                if execution_ensured {
-                    task_info.state = State::Running;
+                task_info.state = State::Running;
 
-                    // Start the time quantum before the task becomes
-                    // visible as the running task. `run_main` updates the
-                    // time only later, and a stale time would let
-                    // `invoke_preemption_tick` rotate the task out before
-                    // it runs.
-                    task_info.update_last_executed();
-                    set_current_task(awkernel_lib::cpu::cpu_id(), rr_task.task.id);
-                }
+                // Start the time quantum before the task becomes
+                // visible as the running task. `run_main` updates the
+                // time only later, and a stale time would let
+                // `invoke_preemption_tick` rotate the task out before
+                // it runs.
+                task_info.update_last_executed();
+                set_current_task(awkernel_lib::cpu::cpu_id(), rr_task.task.id);
             }
 
             return Some(rr_task.task);
