@@ -1,0 +1,8 @@
+[package]
+name = "voxel_grid_downsample_filter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common_types = { path = "../common_types", default-features = false }
+libm = "0.2"
