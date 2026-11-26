@@ -1,5 +1,3 @@
-pub const MEMORY_END: u64 = 0x8080_0000;
-
 pub const PA_WIDTH: usize = 56; // SV39 Physical Address Length
 
 pub const VA_WIDTH: usize = 39; // SV32 Virtual Address Length
