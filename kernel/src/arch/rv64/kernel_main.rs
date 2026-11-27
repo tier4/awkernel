@@ -87,6 +87,11 @@ unsafe fn primary_hart(hartid: usize) {
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);
 
+    // register the CLINT timer
+    awkernel_lib::timer::register_timer(alloc::boxed::Box::new(
+        awkernel_lib::arch::rv_common::timer::ClintTimer,
+    ));
+
     // switch to S-Mode; TODO;
     // * currntly this impl. holds both kernel and userland
     // * in M-Mode, which is the highest priority.
