@@ -520,6 +520,10 @@ extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
     #[cfg(feature = "perf")]
     let prev = awkernel_async_lib::task::perf::start_interrupt();
 
+    // End of interrupt. It must come before the return below, because an
+    // in-service preemption vector blocks every later interrupt.
+    awkernel_lib::interrupt::eoi();
+
     #[cfg(not(feature = "perf"))]
     {
         if awkernel_async_lib::task::get_current_task(cpu_id()).is_none() {
@@ -527,7 +531,6 @@ extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
         }
     }
 
-    awkernel_lib::interrupt::eoi(); // End of interrupt.
     awkernel_lib::interrupt::handle_preemption();
 
     #[cfg(feature = "perf")]
